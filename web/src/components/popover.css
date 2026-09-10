@@ -7,14 +7,19 @@
   color: var(--ink-tertiary);
 }
 
+/*
+ * Rendered in a portal on `document.body`, so no list surface or scrolling pane
+ * can clip it. The layout effect in Popover.tsx sets `left` and exactly one of
+ * `top` / `bottom`; neither gets a default here, because setting both would
+ * stretch the panel between them.
+ */
 .popover-panel {
-  position: absolute;
+  position: fixed;
   z-index: 40;
   min-width: 200px;
   max-width: min(360px, calc(100vw - 32px));
   padding: var(--sp-1);
   background: var(--surface);
-  border: 1px solid var(--line);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-pop);
   animation: rc-pop var(--dur-fast) var(--ease);
@@ -25,22 +30,6 @@
     opacity: 0;
     transform: translateY(-2px);
   }
-}
-
-.popover-panel.side-bottom {
-  top: calc(100% + 6px);
-}
-
-.popover-panel.side-top {
-  bottom: calc(100% + 6px);
-}
-
-.popover-panel.align-start {
-  left: 0;
-}
-
-.popover-panel.align-end {
-  right: 0;
 }
 
 .menu {

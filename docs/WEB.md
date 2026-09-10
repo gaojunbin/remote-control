@@ -94,6 +94,12 @@ focuses an open tab or opens `/sessions/<device_id>/<session_id>`.
   search text and keeps a device with nothing open in the list. Both the Sessions page and the chat
   sidebar render its result, so the two lists cannot drift; `tests/sessionSections.test.ts` owns the
   rule. `docs/DESIGN.md` states it in full.
+- **Popovers and menus** render in a portal on `document.body` and are placed against the viewport,
+  flipping to the other side when the one asked for cannot hold the panel and clamping to the
+  window's edges. Anchoring them to the trigger instead let a rounded list surface or a scrolling
+  pane clip them. The geometry is pure and tested in `src/components/popoverPlacement.ts`; the
+  layout effect that applies it, follows an ancestor's scroll and closes on an outside click lives
+  in `src/components/Popover.tsx`.
 - **Reconnect** backs off exponentially to 5 s, replies to `ping`, and treats 60 s of silence as a
   half-open socket. Subscriptions are re-issued with the latest `since_seq`.
 - **Close codes** 4401 and 4403 end the session and return to login; every other code reconnects.

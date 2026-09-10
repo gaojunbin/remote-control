@@ -1,10 +1,9 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 import { cx } from '../lib/cx';
+import { placementFor, type Align, type Side } from './popoverPlacement';
 import './popover.css';
-
-type Align = 'start' | 'end';
-type Side = 'top' | 'bottom';
 
 interface PopoverProps {
   label: ReactNode;
@@ -31,12 +30,45 @@ export function Popover({
 }: PopoverProps) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
   const panelId = useId();
+  // The panel is a portal on the body, so it is placed against the viewport,
+  // before the browser paints and again on every scroll under it.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = (): void => {
+      const anchor = root.current;
+      const el = panel.current;
+      if (!anchor || !el) return;
+      const at = placementFor(
+        anchor.getBoundingClientRect(),
+        el.getBoundingClientRect(),
+        { width: window.innerWidth, height: window.innerHeight },
+        align,
+        side,
+      );
+      el.style.left = `${at.left}px`;
+      el.style.top = at.top === null ? '' : `${at.top}px`;
+      el.style.bottom = at.bottom === null ? '' : `${at.bottom}px`;
+    };
+
+    place();
+    // Capture, so the panel follows a scroll in any pane it is anchored inside.
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [open, align, side]);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      // The panel is a portal, so it is outside the trigger's subtree.
+      if (root.current?.contains(target) || panel.current?.contains(target)) return;
+      setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
@@ -64,11 +96,14 @@ export function Popover({
         {label}
         {chevron ? <ChevronDown size={13} aria-hidden className="popover-chevron" /> : null}
       </button>
-      {open ? (
-        <div className={cx('popover-panel', `align-${align}`, `side-${side}`)} id={panelId}>
-          {children(() => setOpen(false))}
-        </div>
-      ) : null}
+      {open
+        ? createPortal(
+            <div className="popover-panel" id={panelId} ref={panel}>
+              {children(() => setOpen(false))}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
