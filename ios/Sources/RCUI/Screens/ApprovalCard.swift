@@ -48,9 +48,10 @@ struct ApprovalCard: View {
             if payload.status.isActionable {
                 options
             } else if let decision = payload.decision {
-                Text("\(label(for: decision.optionID)) · \(source(decision.by))")
+                resolution(decision)
                     .font(.footnote)
                     .foregroundStyle(Theme.inkSecondary)
+                    .accessibilityIdentifier("approval.resolution")
             }
         }
         .card()
@@ -94,15 +95,18 @@ struct ApprovalCard: View {
         payload.status == .expired ? "This request expired" : "Answered"
     }
 
-    private func label(for optionID: String) -> String {
-        payload.options.first { $0.id == optionID }?.label ?? optionID
+    /// Amendment A11: a request the device did not answer resolves with an
+    /// option id it was never offered, so the line is the source alone.
+    private func resolution(_ decision: ApprovalDecision) -> Text {
+        guard let chosen = payload.resolvedOptionLabel else { return source(decision.by) }
+        return Text("\(chosen) · ") + source(decision.by)
     }
 
-    private func source(_ by: EventSource) -> String {
+    private func source(_ by: EventSource) -> Text {
         switch by {
-        case .terminal: "answered in the terminal"
-        case .policy: "answered by a rule"
-        default: "answered here"
+        case .terminal: Text("answered in the terminal")
+        case .policy: Text("answered by a rule")
+        default: Text("answered here")
         }
     }
 

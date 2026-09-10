@@ -16,6 +16,7 @@ from typing import Any
 
 from . import __version__
 from . import config as config_module
+from .agents.codex.daemon import setup as codex_setup
 from .agents.discovery import detect_agents
 from .channel import commands as shim_commands
 from .channel.bridge import main as channel_main
@@ -24,6 +25,7 @@ from .daemon import Daemon
 from .enroll import enroll
 from .errors import RcError
 from .logging_setup import setup_logging
+from .service import codex as codex_supervision
 from .service import manager
 
 EXIT_OK = 0
@@ -55,6 +57,14 @@ def build_parser() -> argparse.ArgumentParser:
     shim_parser.add_argument(
         "--no-shell-rc", action="store_true", help="do not touch the shell startup file"
     )
+    codex_parser = sub.add_parser(
+        "codex", help="manage the shared Codex app-server daemon this device attaches to"
+    )
+    codex_parser.add_argument("action", choices=["setup", "status"])
+    codex_parser.add_argument(
+        "--no-install", action="store_true", help="never run the official Codex installer"
+    )
+
     sub.add_parser("status", help="print configuration and service status")
     sub.add_parser("agents", help="print detected agents as JSON")
 
@@ -97,7 +107,17 @@ async def _cmd_agents(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _cmd_status(args: argparse.Namespace) -> int:
+async def _cmd_codex(args: argparse.Namespace) -> int:
+    if args.action == "setup":
+        ok, lines = await codex_setup.setup(install_missing=not args.no_install)
+    else:
+        ok, lines = True, (await codex_setup.status()).lines()
+    for line in lines:
+        print(line)
+    return EXIT_OK if ok else EXIT_FAILURE
+
+
+async def _cmd_status(args: argparse.Namespace) -> int:
     if not config_exists():
         print(f"not enrolled (no {config_path()})")
         print("run: rc-client enroll --gateway URL --pair RC-XXXX-XXXX")
@@ -109,6 +129,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     print(f"config         {config_path()}")
     print(f"state          {config_module.database_path()}")
     print(f"service        {manager.status()}")
+    print(f"codex daemon   {(await codex_setup.status()).summary()}")
     return EXIT_OK
 
 
@@ -153,6 +174,8 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
     except RcError as exc:
         print(f"warning: {exc.message}", file=sys.stderr)
     print("service removed")
+    codex_supervision.uninstall()
+    print("codex daemon supervision removed (Codex itself is left alone)")
     for line in shim_commands.remove(shell_rc=not args.no_shell_rc):
         print(line)
     if args.purge:
@@ -172,12 +195,12 @@ def main(argv: list[str] | None = None) -> int:
         "enroll": _cmd_enroll,
         "run": _cmd_run,
         "agents": _cmd_agents,
+        "codex": _cmd_codex,
+        "status": _cmd_status,
     }
     try:
         if args.command in handlers:
             return int(asyncio.run(handlers[args.command](args)))
-        if args.command == "status":
-            return _cmd_status(args)
         if args.command == "service":
             return _cmd_service(args)
         if args.command == "shim":

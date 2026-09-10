@@ -46,6 +46,8 @@ class AgentInfo:
     attach: Attach | None = None
     attach_ready: bool = False
     shared_interrupt: bool = False
+    shared_settings: bool = False
+    shared_attachments: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -63,6 +65,8 @@ class AgentInfo:
             "attach": self.attach,
             "attach_ready": self.attach_ready,
             "shared_interrupt": self.shared_interrupt,
+            "shared_settings": self.shared_settings,
+            "shared_attachments": self.shared_attachments,
         }
 
 

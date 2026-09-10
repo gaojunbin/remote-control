@@ -82,7 +82,7 @@ it, so the app types into the same conversation instead of taking it over.
 | Session | Composer | Take over | Stop | Model, permissions, effort | Attachments |
 | --- | --- | --- | --- | --- | --- |
 | `remote` | enabled | no | when a turn runs | yes | yes |
-| `shared` | enabled | never | only with capability `interrupt` and `shared_interrupt: true` | no | no |
+| `shared` | enabled | never | only with capability `interrupt` and `shared_interrupt: true` | only with `shared_settings: true` | only with `shared_attachments: true` |
 | `terminal` | disabled | when the agent has `takeover` | no | yes | no |
 | `none` | enabled, the next send resumes the session | no | no | yes | yes |
 
@@ -91,12 +91,17 @@ it, so the app types into the same conversation instead of taking it over.
 `· working` or `· N messages waiting` while the terminal's turn runs, and the session list shows the
 same words through `Session.statusLabel` with the dot colour a remote session would get.
 
-Two controls are inert on a `shared` session, and one quiet line above the message field says who
+Two controls can be inert on a `shared` session, and one quiet line above the message field says who
 owns them: "Attached to the terminal · settings and attachments are changed there". The attachment
 button and the model and permission chips are dimmed; reaching for one swaps that line for its own
 sentence for four seconds ("Attachments cannot be delivered to a terminal session", "Change it in
 the terminal") rather than swallowing the tap. The same sentences are the accessibility hints on
 those controls and the footers of the session settings sheet.
+
+Whether either is inert is the device's call, not the app's — see the two booleans below. The line
+names only what this attachment cannot do, so it shrinks to "Attached to the terminal · settings are
+changed there", "…· attachments are added there", or just "Attached to the terminal" when the
+attachment carries both.
 
 A message sent into a `shared` session may be held by the device until the terminal-driven turn
 ends. `user_message` then carries `delivery`, and the bubble shows a chip: `pending` reads "waiting
@@ -123,6 +128,49 @@ The demo carries both cases: `demo-session-shared` on `mac-studio-office`, whose
 `attach: "channel"`, `attach_ready: true`, `shared_interrupt: false`, and `demo-session-rename` on
 `macbook-air`, whose Claude has no shim installed. Sending into the shared session shows the message
 held, then delivered, then a relayed permission request with exactly Allow and Deny.
+
+## What a shared attachment carries
+
+Amendment A11 adds two more optional booleans to the agent object, both defaulting to false, so a
+device that never heard of them grants nothing:
+
+| Field | What it opens on a `shared` session | `ChatStore` |
+| --- | --- | --- |
+| `shared_settings` | the model, permission and effort pickers, and the session settings sheet with them | `allowsSettingsChanges` |
+| `shared_attachments` | the attachment button, so photos and files go into the live thread | `allowsAttachments` |
+
+Both are read straight off `AgentInfo`; nothing in the app branches on the agent id. Stop is
+unaffected and still needs capability `interrupt` plus `shared_interrupt`. A `terminal` session
+takes no input whatever it reports, so `allowsAttachments` stays false there.
+
+Codex behind a running app-server daemon reports `attach: "daemon"`, `attach_ready: true` and all
+three booleans true; a Claude channel reports all three false. A device whose daemon is not running
+reports `attach_ready: false`, and the composer falls back to the `startDaemon` hint above.
+
+Approval cards render whatever `options` arrive, so the daemon's four decisions (Allow, Allow for
+this session, Always allow commands like this, Deny) stack between the primary and the danger
+button with no extra work. When someone else answers a shared request first, the block resolves
+with the reserved option id `elsewhere`. There is no option to name, so the card reads "answered in
+the terminal" alone. `ApprovalPayload.resolvedOptionLabel` is what decides that: it returns nil for
+`elsewhere` and renders any other unrecognised id verbatim rather than blanking the card. The app
+never offers or sends `elsewhere`.
+
+A message sent into a running turn is queued behind it, unless the agent lists capability `steer`,
+in which case it joins the turn already running. `ChatStore.steersRunningTurn` decides both the
+status line ("Working · your message will steer the turn" rather than "· will be queued") and the
+composer placeholder ("Message · will steer the turn"), on a `remote` session and a `shared` one
+alike. Claude does not list `steer`, so its wording is unchanged. The send modes stay the protocol's
+`auto | queue | interrupt`: on a running shared thread `auto` comes back `steered`, `queue` comes
+back `queued` with the message held, and `interrupt` ends the turn and starts a new one.
+
+`session.approve` sends back only an option the block offered. An id it did not offer, `elsewhere`
+included, is `bad_request`; the app never renders `elsewhere` as a choice.
+
+The demo carries `demo-session-typecheck` on `mac-studio-office`: a Codex thread the terminal
+started and the daemon shares, running, with Stop in the navigation bar, all three chips live and a
+four-option request in the transcript. Changing the effort there goes through `session.set` and is
+applied; the same request on the attached Claude session is still refused. `ci-runner-01` keeps a
+Codex with no daemon running, so the daemon hint has a home too.
 
 ## Voice
 

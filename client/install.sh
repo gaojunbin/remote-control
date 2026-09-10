@@ -17,6 +17,7 @@ NAME=""
 MANUAL=0
 UNINSTALL=0
 SHELL_RC=1
+CODEX=1
 
 RC_HOME="${RC_CLIENT_HOME:-$HOME/.rc-client}"
 VENV="$RC_HOME/venv"
@@ -33,6 +34,7 @@ Usage: install.sh --pair RC-XXXX-XXXX [options]
   --name NAME        device name shown in the apps (default: this hostname)
   --gateway ORIGIN   override the gateway origin baked into this script
   --no-shell-rc      do not add the shim directory to your shell startup file
+  --no-codex         skip the shared Codex app-server daemon setup
   --manual           print the steps instead of running them
   --uninstall        stop and remove the service, keep ~/.rc-client
   -h, --help         show this message
@@ -48,6 +50,7 @@ while [ $# -gt 0 ]; do
         --gateway) GATEWAY="${2:-}"; shift 2 ;;
         --gateway=*) GATEWAY="${1#*=}"; shift ;;
         --no-shell-rc) SHELL_RC=0; shift ;;
+        --no-codex) CODEX=0; shift ;;
         --manual) MANUAL=1; shift ;;
         --uninstall) UNINSTALL=1; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -126,6 +129,7 @@ Manual installation on $PLATFORM/$ARCH:
   6. "$VENV/bin/rc-client" enroll --gateway "$GATEWAY" --pair <your pairing code>
   7. "$VENV/bin/rc-client" service install && "$VENV/bin/rc-client" service start
   8. "$VENV/bin/rc-client" shim install   # lets the apps drive terminal Claude sessions
+  9. "$VENV/bin/rc-client" codex setup    # lets the apps drive terminal Codex sessions
 
 The pairing code is single use and expires after 10 minutes.
 MANUAL
@@ -203,6 +207,14 @@ else
     "$RC" shim install --no-shell-rc || log "warning: could not install the claude shim"
 fi
 
+# The shared Codex app-server daemon is what lets the apps see and drive a Codex
+# session started in a terminal. `codex setup` is idempotent and never enables
+# OpenAI remote control.
+if [ "$CODEX" -eq 1 ]; then
+    log "Setting up the shared Codex daemon ..."
+    "$RC" codex setup || log "warning: the shared Codex daemon is not ready; run '$RC codex status'"
+fi
+
 log ""
 log "Detected agents:"
 "$RC" agents | sed -n 's/.*"agent": "\(.*\)",/  - \1/p' || true
@@ -213,5 +225,9 @@ log "  $RC service stop    stop the daemon"
 log "  $RC uninstall       remove the service (add --purge to delete $RC_HOME)"
 log ""
 log "  $RC shim status     show the claude shim used to attach terminal sessions"
+log "  $RC codex status    show the shared Codex daemon used to attach terminal sessions"
+log ""
+log "Start Codex as a bare \`codex\` with no -c, --enable or --disable flags:"
+log "those launch a private app-server the apps cannot see."
 log ""
 log "Add $VENV/bin to your PATH to call rc-client directly."

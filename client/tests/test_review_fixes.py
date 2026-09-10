@@ -293,7 +293,7 @@ async def test_queued_messages_keep_their_attachments(tmp_path: Path) -> None:
     assert snapshot == [{"id": "req-2", "text": "look", "ts": entry.queue[0]["ts"]}]
 
     await runner.finish()
-    await hub._drain_queue(entry)
+    await hub.drain_queue(entry)
     assert runner.attachments[-1] == [attachment]
     registry.close()
 

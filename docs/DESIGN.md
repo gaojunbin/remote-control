@@ -67,11 +67,31 @@ means, then labels the button with the decision:
 
 An **attached** terminal session is the one case where a live CLI and a live composer coexist. It
 looks like an ordinary session on purpose: the same composer, the same approval cards, the same
-queue. Three things mark it. The takeover bar is replaced by a quiet line saying the session is
-attached to the terminal, and "Take over" is not offered at all. The model, permission-mode and
-effort pickers and the attachment button are disabled, each with a tooltip pointing at the terminal,
-because those belong to the process someone else started. And Stop is hidden unless the device says
-the attachment can interrupt, which for Claude it cannot.
+queue. One thing always marks it: the takeover bar is replaced by a quiet line saying the session is
+attached to the terminal, and "Take over" is not offered at all, because there is nothing to take
+over.
+
+Everything else about it depends on what the attachment can carry, and the device says so in three
+booleans on the agent. Nothing in either app asks which agent it is looking at.
+
+| Boolean | What it turns on | Claude channel | Codex daemon |
+| --- | --- | --- | --- |
+| `shared_interrupt` | Stop, and "Interrupt & send" | off | on |
+| `shared_settings` | The model, permission-mode and effort pickers | off | on |
+| `shared_attachments` | The attachment button, and pasted files | off | on |
+
+A control the attachment cannot drive is disabled rather than hidden, and carries the reason: "Change
+it in the terminal", "Attachments cannot be delivered to a terminal session". The quiet line above
+the composer names only what is left to the terminal, so it shrinks as the attachment grows —
+"Attached to the terminal · settings and attachments are changed there", then one clause, then just
+"Attached to the terminal" when the attachment carries both. A shared Codex session reads that last
+form, and every control on it is live.
+
+Steering follows the ordinary rule rather than a shared-session rule. Codex advertises `steer`, so a
+message typed into a running shared Codex turn joins that turn: the status line reads "Codex is
+working · your message will steer the turn" and the button stays "Send". Claude does not, so its
+shared sessions keep "will be queued" and a "Queue" button. The delivery chips below are therefore a
+Claude phenomenon in practice — a Codex message rarely waits.
 
 A message sent into an attached session cannot always be delivered at once, so the bubble says where
 it is. A quiet chip under the text reads "waiting for the terminal" while the device holds it until
@@ -79,8 +99,9 @@ the running turn ends, and "will be re-sent" if the CLI read it as mid-turn data
 disappears when the message lands; the bubble itself is replaced in place, never duplicated.
 
 A `terminal` session that *could* be attached gets one secondary line under "Controlled by the
-terminal" saying why it is not: install the shim on that machine, or restart this session through it.
-The line is a hint, not an error, and it sits at metadata weight.
+terminal" saying why it is not: install the shim on that machine, start the Codex app-server daemon
+on it, or restart this session through the attachment that is already there. The line is a hint, not
+an error, and it sits at metadata weight.
 
 **Interrupt & send** is always a separate, explicit action, never the default. **Stop** is separate
 from Send and lives in the header, so no one stops a turn while reaching for the send button.
@@ -104,6 +125,15 @@ the gateway has no speech backend rather than failing when pressed.
 - A card whose status is `resolved` or `expired` becomes inactive and says who decided and what:
   "Auto-accept edits · decided by terminal". A decision made in the terminal shows up in the app,
   and the reverse.
+- **A shared session's approval is shared state, not a private modal.** The terminal and every app
+  see the same request and either can answer it. When the answer came from somewhere else the card
+  says **"Answered in the terminal"** and names no option, because the device is told only that the
+  request was resolved, never by whom or with what. That is the one resolved card without an option
+  on it.
+- The number of options is the agent's business too. A relayed Claude prompt offers Allow and Deny;
+  a Codex prompt on the shared daemon can offer four — Allow, Allow for this session, Always allow
+  commands like this, Deny — and they stack between the primary and the danger button, wrapping
+  inside the card on a phone. Nothing in the UI counts them.
 - Questions support several questions at once, single or multiple choice, free text, and secret
   fields. A secret field says "Value is not stored or logged".
 

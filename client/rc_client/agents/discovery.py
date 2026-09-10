@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 
+from .. import __version__
 from ..channel import shim
 from ..models import AgentInfo, Choice
 from .claude import runtime as claude_runtime
 from .codex import runtime as codex_runtime
+from .codex.daemon.rpc import handshake_ok
+from .codex.daemon.transport import socket_exists
 from .codex.models import catalog_cache
 
 CLAUDE_MODELS = [
@@ -77,13 +80,23 @@ async def detect_claude() -> AgentInfo:
         attach="channel",
         attach_ready=shim.status().ready,
         shared_interrupt=False,
+        shared_settings=False,
+        shared_attachments=False,
     )
 
 
-async def detect_codex() -> AgentInfo:
+async def codex_daemon_ready() -> bool:
+    """A real handshake, not a file-exists check: A11 defines `attach_ready` that way."""
+    if not socket_exists():
+        return False
+    return await handshake_ok(__version__)
+
+
+async def detect_codex(daemon_ready: bool | None = None) -> AgentInfo:
     path = codex_runtime.resolve_binary()
     version = await codex_runtime.probe_version(path) if path else None
     catalog = await catalog_cache.get(path) if path else None
+    ready = await codex_daemon_ready() if daemon_ready is None else daemon_ready
     return AgentInfo(
         agent="codex",
         available=bool(path),
@@ -96,10 +109,14 @@ async def detect_codex() -> AgentInfo:
         efforts=list(catalog.efforts) if catalog else [],
         default_effort=catalog.default_effort if catalog else None,
         capabilities=list(CODEX_CAPABILITIES),
-        attach=None,
+        attach="daemon",
+        attach_ready=ready,
+        shared_interrupt=True,
+        shared_settings=True,
+        shared_attachments=True,
     )
 
 
-async def detect_agents() -> list[AgentInfo]:
-    claude, codex = await asyncio.gather(detect_claude(), detect_codex())
+async def detect_agents(codex_daemon_ready: bool | None = None) -> list[AgentInfo]:
+    claude, codex = await asyncio.gather(detect_claude(), detect_codex(codex_daemon_ready))
     return [claude, codex]

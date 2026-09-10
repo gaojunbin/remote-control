@@ -15,6 +15,8 @@ from typing import Any
 from ..agents.claude import transcripts
 from ..agents.claude.holders import scan_holders
 from ..agents.codex import rollouts
+from ..agents.codex.daemon.service import CodexDaemonService
+from ..agents.codex.runtime import resolve_binary as resolve_codex
 from ..config import MirrorConfig
 from ..logging_setup import logger
 from ..models import Session, now_ms, title_from_text
@@ -41,9 +43,16 @@ class CodexMirror:
 
 
 class MirrorService:
-    def __init__(self, hub: SessionHub, limits: MirrorConfig | None = None) -> None:
+    def __init__(
+        self,
+        hub: SessionHub,
+        limits: MirrorConfig | None = None,
+        *,
+        codex_daemon: CodexDaemonService | None = None,
+    ) -> None:
         self.hub = hub
         self.limits = limits or MirrorConfig()
+        self.codex_daemon = codex_daemon
         self._claude: dict[str, ClaudeMirror] = {}
         self._codex: dict[str, CodexMirror] = {}
         self._tasks: list[asyncio.Task[None]] = []
@@ -86,6 +95,8 @@ class MirrorService:
         found_codex = await asyncio.to_thread(
             rollouts.discover, self.limits.max_sessions, self.limits.max_age_days
         )
+        if self.codex_daemon is not None:
+            await self.codex_daemon.tick(resolve_codex())
         self._adopt_claude(found_claude)
         self._adopt_codex(found_codex)
         await self._refresh_claude_control()
@@ -133,9 +144,18 @@ class MirrorService:
             entry.channel.start()
             self._claude[info.session_id] = ClaudeMirror(tailer=tailer)
 
+    def _codex_is_daemons(self, thread_id: str) -> bool:
+        """A thread the shared daemon knows is read from the daemon, never from disk.
+
+        What is left for the rollout mirror is exactly A11's fourth row: a TUI
+        started with configuration overrides, which runs its own embedded
+        app-server and is invisible to the daemon.
+        """
+        return self.codex_daemon is not None and self.codex_daemon.knows(thread_id)
+
     def _adopt_codex(self, found: list[rollouts.RolloutInfo]) -> None:
         for info in found:
-            if info.thread_id in self._codex:
+            if info.thread_id in self._codex or self._codex_is_daemons(info.thread_id):
                 continue
             entry = self.hub.entries.get(info.thread_id)
             if entry is not None and not self._adoptable(entry):
@@ -234,6 +254,9 @@ class MirrorService:
 
     async def _refresh_codex_control(self) -> None:
         for session_id, mirror in list(self._codex.items()):
+            if self._codex_is_daemons(session_id):
+                self._codex.pop(session_id, None)
+                continue
             entry = self._live_entry(session_id, self._codex)
             if entry is None:
                 continue
@@ -275,6 +298,9 @@ class MirrorService:
                 continue
             await self._tail_one(session_id, entry, claude_mirror.tailer)
         for session_id, codex_mirror in list(self._codex.items()):
+            if self._codex_is_daemons(session_id):
+                self._codex.pop(session_id, None)
+                continue
             entry = self._live_entry(session_id, self._codex)
             if entry is None:
                 continue

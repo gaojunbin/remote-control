@@ -87,6 +87,8 @@ A session you start yourself in a terminal is not invisible. Every ten seconds t
 Claude transcripts under `~/.claude/projects` and Codex rollouts under the Codex home, tails the
 ones that have grown, and translates their rows into the same block timeline. Growth is detected by
 file size rather than modification time, because `claude --resume` touches mtime without appending.
+Codex mirroring is the fallback rather than the rule: a thread the shared app-server daemon knows
+about is read from the daemon instead, as the Codex subsection below describes.
 
 Mirroring answers "what is happening". A parallel process scan answers "who may type", and that
 answer is the session's `control` value. It is the only thing the apps consult to decide whether the
@@ -194,12 +196,117 @@ still works only while the terminal owns an *idle* session: the daemon sends SIG
 process it identified, confirms the release, and resumes the session itself. That kills whatever the
 CLI was running, which is the whole reason attaching exists, so it is now for one case — a terminal
 that was started without the shim and cannot be attached. On a `shared` session `session.takeover`
-answers `conflict`. Codex advertises no `takeover` capability, so quitting the CLI is still how a
-Codex terminal session is released.
+answers `conflict`. Codex advertises no `takeover` capability and needs none: a bare `codex` is
+attached rather than taken over, and a Codex TUI that cannot be attached is released by quitting it.
 
-Codex attach is the next step: its shared app-server daemon gives the device the same access without
-a shim, and nothing in the wire contract is Claude-specific. That work is planned, not built — Codex
-reports `attach: null` today.
+### Codex on the shared app-server daemon
+
+Claude needed a shim because the CLI has to be told to load our channel. Codex needs no shim at all.
+Since 0.153 every **bare** `codex` TUI runs its conversation inside one local app-server daemon, and
+that daemon accepts further clients. The device is simply one more of them.
+
+The control socket is `$CODEX_HOME/app-server-control/app-server-control.sock`, and it speaks
+JSON-RPC 2.0 over a WebSocket rather than newline-delimited JSON: a client opens an `AF_UNIX` stream,
+writes an RFC 6455 upgrade request, expects `101 Switching Protocols`, and exchanges frames from
+there. Compression has to be off: the daemon closes the connection outright when a client offers
+`permessage-deflate`. Authentication is the socket's own permission bits. It is owner-only, so the
+device has to run as the same user as the TUI, and nothing here is reachable from the network. The
+device opens one connection per machine at startup and names itself `remote-control`, deliberately:
+the first client to connect stamps its name on every thread the daemon holds, including the ones a
+terminal user starts. Every server request is dispatched to its own task, so an approval nobody
+answers cannot block the read loop.
+
+A Codex thread is therefore joined rather than mirrored. `thread/loaded/list` is the set of live
+threads and `thread/list` the history; `thread/resume {excludeTurns: true}` subscribes to one, and
+`thread/turns/list` with `thread/items/list` backfills it. The daemon's `item/*` and `turn/*`
+notifications map onto the block timeline one for one, so a shared Codex session has no rollout
+tailing behind it. Threads the daemon marks `ephemeral` never become sessions: Codex spawns one per
+turn purely to generate a title.
+
+`origin` and `control` come from one table in `protocol/PROTOCOL.md` (4.4). A thread the device
+created and no terminal has typed into is `remote` and `remote`. A thread that was already loaded
+when the device found it, or that carries a message typed at a TUI, is `shared`, with origin
+`terminal` when the device did not create it. A thread known only from the daemon's history is
+`none`, and the next message resumes it. A rollout held by a Codex process that is *not* the daemon
+is `terminal` and cannot be attached at all. `shared` is sticky, because the daemon emits nothing
+when a TUI exits and the thread simply stays loaded.
+
+A thread that disappears from `thread/list` altogether is a different matter: the device deletes the
+session and emits `session.removed`, so a thread deleted with `codex delete` does not linger in the
+apps. That check is guarded against a thread merely falling off the end of a page and against a
+session a runner is still driving, because both would otherwise look like a deletion.
+
+Above the daemon client, a shared Codex session is an ordinary session. It is a hub runner like any
+other, so `session.send`, steering, the queue, `session.stop`, `session.set` and `session.answer` all
+travel the same code a remote session uses; only the runner underneath differs.
+
+### What each attachment carries
+
+A shared Codex session can do everything a remote one can, which is much more than a Claude channel
+can. Apps stay agent-agnostic by reading five optional fields on the agent object rather than
+branching on the agent id:
+
+| Agent | `attach` | `shared_interrupt` | `shared_settings` | `shared_attachments` |
+| --- | --- | --- | --- | --- |
+| Claude, through the channel shim | `channel` | false | false | false |
+| Codex, through the app-server daemon | `daemon` | true | true | true |
+
+`shared_interrupt` maps to `turn/interrupt`, which works whoever started the turn. `shared_settings`
+maps to `thread/settings/update`, so changing the model, the permission mode or the reasoning effort
+from a phone changes the thread for everyone attached to it. `shared_attachments` is true because the
+daemon accepts image inputs. And because Codex advertises `steer`, a message sent into a running
+shared turn joins that turn through `turn/steer` instead of waiting for it — the one thing an
+attached Claude session cannot do. A10's `delivery: "pending"` chip therefore appears on a Codex
+session only when the message was deliberately queued. `attach_ready` is set from a real handshake on the socket, not from the
+socket file existing, because a stale socket is exactly the case the hint text exists for.
+
+### Approvals are shared state, not a private modal
+
+A permission request inside the daemon is a JSON-RPC *request*, and it fans out to every subscriber:
+the TUI raises its dialog and the device receives the same request with the same item id. Either side
+may answer, whoever answers first wins, and the loser's answer is discarded silently with no error.
+The device turns the daemon's own `availableDecisions` into the block's options — `allow`,
+`allow_session`, `allow_always`, `deny` — so a card offers exactly what that prompt allows rather
+than a fixed pair. A10's "exactly Allow and Deny" was always a property of the Claude relay, which
+has no session-scoped grant to offer.
+
+When the answer came from somewhere else, the daemon broadcasts `serverRequest/resolved` carrying
+only a request id: not who answered, and not what they chose. The device closes the block with the
+reserved decision `{option_id: "elsewhere", by: "terminal"}`, which matches none of the options on
+purpose, and both apps render it as "answered in the terminal". `session.approve` still accepts only
+an option the block offered, `elsewhere` included in the refusal, so an app can never send it back.
+
+### Without a daemon, and the one rule for users
+
+If the socket is missing or does not answer, the device falls back to what it did before: one
+`codex app-server` process per session, spawned by the device, with terminal Codex sessions mirrored
+from their rollout files and left at `control: "terminal"`. The agent keeps reporting
+`attach: "daemon"` with `attach_ready: false`, which is what the apps' existing hint is for. The
+socket is re-probed on the ordinary ten-second scan, so bootstrapping the daemon later switches the
+mode without restarting the device daemon.
+
+The rule that has to reach users is short: **start Codex as a bare `codex`**. Any `-c`, `--enable`,
+`--disable` or `--dangerously-bypass-approvals-and-sandbox` on the command line makes the CLI spawn
+its own embedded app-server, invisible to the shared daemon and unattachable. Such a session still
+appears, mirrored from its rollout with `control: "terminal"`. Everything one would have set with
+`-c` is set from the apps instead, through the pickers `shared_settings` unlocks.
+
+Codex's own `daemon bootstrap` reports `backend: "pid"`: it starts the app-server and a detached
+updater loop, and installs no launchd job and no unit, so nothing brings it back after a reboot. The
+device therefore supplies its own supervision — a launchd agent `dev.remote-control.codex-daemon` on
+macOS, an `rc-codex-daemon.service` user unit on Linux — each running the idempotent
+`codex app-server daemon start`. `rc-client codex setup` does the bootstrap and the supervision;
+`rc-client codex status` verifies with a handshake rather than a file test. Details are in
+[`docs/CLIENT.md`](CLIENT.md#codex-on-the-shared-daemon).
+
+Four things about the daemon are known to be untested, and all four are properties of Codex rather
+than of this project. What happens when a TUI and the device start a turn on the same thread within
+milliseconds is unknown. Nothing observed unloads a thread, so whether there is an eviction policy
+matters for a daemon that lives for weeks. Whether subscriptions survive a dropped socket, and
+whether anything emitted while disconnected is replayable beyond re-reading history, was not
+established — the device re-resumes and backfills on every reconnect precisely because it is not.
+And the updater loop replaces the app-server under connected clients on a new release; what they see
+during that swap was never observed.
 
 ## Speech to text
 
@@ -292,7 +399,7 @@ before the core interaction was proven.
 
 ## The contract
 
-`protocol/PROTOCOL.md` is normative. It carries ten amendments, all part of the frozen contract:
+`protocol/PROTOCOL.md` is normative. It carries eleven amendments, all part of the frozen contract:
 
 | Amendment | Ruling |
 | --- | --- |
@@ -306,6 +413,7 @@ before the core interaction was proven.
 | A8 | Blocks order by `first_seq ?? seq` |
 | A9 | `session.history` accepts `after_seq`, and the gateway uses it to backfill after a device outage |
 | A10 | `control: "shared"` for an attached terminal session; `user_message.delivery`; the relayed approval offers only Allow and Deny |
+| A11 | Codex attaches through its shared app-server daemon; `shared_settings` and `shared_attachments` say what a shared session carries; a Codex approval offers the daemon's own options and ends as `elsewhere` when the terminal answered |
 
 Every component's tests decode the fixtures in `protocol/fixtures/`, which is the cheapest way to
 catch a diverged model before integration.

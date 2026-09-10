@@ -181,6 +181,8 @@ PATH_SCHEMAS = {
     "objects/session.shared-idle.json": ("objects.json", "Session"),
     "objects/session.shared-running.json": ("objects.json", "Session"),
     "objects/agent.claude-attach.json": ("objects.json", "AgentInfo"),
+    "objects/agent.codex-daemon.json": ("objects.json", "AgentInfo"),
+    "objects/session.codex-shared-running.json": ("objects.json", "Session"),
     "app/reply.session.create.json": ("app_frames.json", "ReplySessionCreate"),
     "app/reply.session.send.json": ("app_frames.json", "ReplySessionSend"),
     "app/reply.session.set.json": ("app_frames.json", "ReplySessionSet"),
@@ -200,6 +202,7 @@ INVALID_SCHEMAS = {
     "timeline": ("timeline.json", None),
     "history": ("app_frames.json", "ReplySessionHistory"),
     "http.enroll": ("http.json", "EnrollRequest"),
+    "objects.agent": ("objects.json", "AgentInfo"),
 }
 
 

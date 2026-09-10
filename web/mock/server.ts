@@ -20,6 +20,8 @@ import { HOME, devices, historyFor, recentDirs, sessions } from './fixtures';
 import {
   afterAnswer,
   afterApproval,
+  codexSharedAfterApproval,
+  codexSharedTurn,
   sharedAfterApproval,
   sharedTurn,
   turnScript,
@@ -149,6 +151,21 @@ function play(sessionId: string, steps: Step[], done?: () => void): void {
   }
   const total = steps.at(-1)?.after ?? 0;
   if (done) setTimeout(done, total + 20);
+}
+
+/** Ends the running turn as `interrupted` and leaves the session idle. */
+function interruptTurn(sessionId: string): void {
+  const session = findSession(sessionId);
+  if (!session?.turn) return;
+  emit(sessionId, {
+    seq: nextSeq(sessionId),
+    ts: Date.now(),
+    kind: 'turn_completed',
+    turn_id: session.turn.turn_id,
+    stop_reason: 'interrupted',
+    duration_ms: Date.now() - session.turn.started_at,
+  });
+  emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'status', state: 'idle' });
 }
 
 /* -------------------------------------------------------------- http api */
@@ -558,17 +575,7 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       if (session?.control === 'shared' && agentFor(session)?.shared_interrupt !== true) {
         return replyError(conn, id, 'unsupported', 'stop it in the terminal');
       }
-      if (session?.turn) {
-        emit(sessionId, {
-          seq: nextSeq(sessionId),
-          ts: Date.now(),
-          kind: 'turn_completed',
-          turn_id: session.turn.turn_id,
-          stop_reason: 'interrupted',
-          duration_ms: Date.now() - session.turn.started_at,
-        });
-        emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'status', state: 'idle' });
-      }
+      interruptTurn(sessionId);
       reply(conn, id, {});
       return;
     }
@@ -576,15 +583,21 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
     case 'session.approve': {
       const requestId = String(frame.request_id ?? '');
       const optionId = String(frame.option_id ?? '');
-      const shared = findSession(sessionId)?.control === 'shared';
-      // A10 §6.3: the relay carries `allow` and `deny` and nothing else.
-      if (shared && optionId !== 'allow' && optionId !== 'deny') {
-        return replyError(conn, id, 'bad_request', 'the relay accepts allow or deny only');
-      }
+      const session = findSession(sessionId);
+      const shared = session?.control === 'shared';
       const all = state.events.get(sessionId) ?? [];
       const approval = [...all]
         .reverse()
         .find((e) => e.kind === 'approval' && e.request_id === requestId);
+      // A11 clarification 2: the app may only send back an option the block
+      // offered. A Claude relay offers Allow and Deny; the Codex daemon offers
+      // whatever `availableDecisions` held.
+      if (
+        approval?.kind === 'approval' &&
+        !approval.options.some((option) => option.id === optionId)
+      ) {
+        return replyError(conn, id, 'bad_request', 'that option was not offered');
+      }
       if (approval && approval.kind === 'approval') {
         emit(sessionId, {
           ...approval,
@@ -596,10 +609,17 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       }
       reply(conn, id, {});
       if (sessionId === 'ses-flaky') play(sessionId, afterApproval());
-      if (shared) {
-        play(sessionId, sharedAfterApproval(sharedNonce, optionId === 'allow'), () =>
-          flushHeld(sessionId),
-        );
+      if (shared && session) {
+        const allowed = optionId !== 'deny';
+        const steps =
+          session.agent === 'codex'
+            ? codexSharedAfterApproval(
+                sharedNonceOf(sessionId),
+                sharedTurnIds.get(sessionId) ?? `shared-${sharedNonceOf(sessionId)}`,
+                allowed,
+              )
+            : sharedAfterApproval(sharedNonceOf(sessionId), allowed);
+        play(sessionId, steps, () => flushHeld(sessionId));
       }
       return;
     }
@@ -627,9 +647,12 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
     case 'session.set': {
       const session = findSession(sessionId);
       if (!session) return replyError(conn, id, 'not_found', 'no such session');
-      // A10 §6.3: the terminal owns the model, the permission mode and the effort.
+      // A10/A11 §6.3: the terminal owns the model, the permission mode and the
+      // effort unless the device reports that the attachment forwards them.
       const optionKeys = ['model', 'permission_mode', 'effort'] as const;
-      if (session.control === 'shared' && optionKeys.some((k) => typeof frame[k] === 'string')) {
+      const settingsLocked =
+        session.control === 'shared' && agentFor(session)?.shared_settings !== true;
+      if (settingsLocked && optionKeys.some((k) => typeof frame[k] === 'string')) {
         return replyError(conn, id, 'unsupported', 'change it in the terminal');
       }
       if (typeof frame.model === 'string') session.model = frame.model;
@@ -788,14 +811,19 @@ function dirEntries(path: string, home: string): { name: string; path: string; i
   }));
 }
 
-/* ------------------------------------------------------- A10 shared sessions */
+/* --------------------------------------------------- A10/A11 shared sessions */
 
-let sharedNonce = '0';
-let sharedApprovalShown = false;
+const sharedNonces = new Map<string, string>();
+const sharedTurnIds = new Map<string, string>();
+const sharedApprovalShown = new Set<string>();
+
+const sharedNonceOf = (sessionId: string): string => sharedNonces.get(sessionId) ?? '0';
 
 /**
- * `session.send` on a session the device is attached to. Injects at once when
- * the terminal is idle, and holds the message otherwise (A10 §6.3).
+ * `session.send` on a session the device is attached to (A10 §6.3, A11
+ * clarification 1). Idle injects at once. On a running turn, `auto` steers
+ * when the agent can steer, `interrupt` ends the turn and starts a new one,
+ * and anything else is held until the terminal turn finishes.
  */
 function sharedSend(
   conn: AppConn,
@@ -804,11 +832,14 @@ function sharedSend(
   frame: Record<string, unknown>,
 ): void {
   const sessionId = session.session_id;
+  const agent = agentFor(session);
   const attachments = Array.isArray(frame.attachments) ? frame.attachments : [];
-  if (attachments.length > 0) {
+  // A11 §4.2: the daemon takes image inputs; the Claude channel does not.
+  if (attachments.length > 0 && agent?.shared_attachments !== true) {
     return replyError(conn, id, 'unsupported', 'attachments cannot be delivered to a terminal session');
   }
   const text = String(frame.text ?? '');
+  const mode = String(frame.mode ?? 'auto');
   const blockId = `sh-u-${Date.now()}`;
   const busy =
     session.state === 'running' ||
@@ -818,7 +849,27 @@ function sharedSend(
   if (!busy) {
     emitUserMessage(sessionId, blockId, text, 'delivered');
     reply(conn, id, { accepted: 'sent' });
-    playShared(sessionId, text);
+    playShared(sessionId, text, false);
+    return;
+  }
+
+  // A11 clarification 1: `auto` on a running thread steers when the agent can.
+  if (mode === 'auto' && agent?.capabilities.includes('steer')) {
+    emitUserMessage(sessionId, blockId, text, 'delivered');
+    reply(conn, id, { accepted: 'steered' });
+    playShared(sessionId, text, true);
+    return;
+  }
+
+  // A11 clarification 1: `interrupt` needs the same attachment as `session.stop`.
+  if (mode === 'interrupt') {
+    if (agent?.shared_interrupt !== true) {
+      return replyError(conn, id, 'unsupported', 'stop it in the terminal');
+    }
+    interruptTurn(sessionId);
+    emitUserMessage(sessionId, blockId, text, 'delivered');
+    reply(conn, id, { accepted: 'sent' });
+    playShared(sessionId, text, false);
     return;
   }
 
@@ -850,15 +901,20 @@ function emitUserMessage(
   });
 }
 
-function playShared(sessionId: string, text: string): void {
-  sharedNonce = String(Date.now()).slice(-6);
-  const withApproval = !sharedApprovalShown;
-  sharedApprovalShown = true;
-  play(
-    sessionId,
-    sharedTurn(text, sharedNonce, withApproval),
-    withApproval ? undefined : () => flushHeld(sessionId),
-  );
+function playShared(sessionId: string, text: string, steered: boolean): void {
+  const session = findSession(sessionId);
+  const nonce = String(Date.now()).slice(-6);
+  sharedNonces.set(sessionId, nonce);
+  const withApproval = !sharedApprovalShown.has(sessionId);
+  sharedApprovalShown.add(sessionId);
+  // Steering joins the live turn; anything else opens a new one.
+  const turnId = (steered ? session?.turn?.turn_id : null) ?? `shared-${nonce}`;
+  sharedTurnIds.set(sessionId, turnId);
+  const steps =
+    session?.agent === 'codex'
+      ? codexSharedTurn(text, nonce, { turnId, steered, withApproval })
+      : sharedTurn(text, nonce, withApproval);
+  play(sessionId, steps, withApproval ? undefined : () => flushHeld(sessionId));
 }
 
 /**
@@ -872,7 +928,7 @@ function flushHeld(sessionId: string): void {
   for (const item of items) emitUserMessage(sessionId, item.block_id, item.text, 'delivered');
   emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending: [] });
   const last = items[items.length - 1];
-  if (last) setTimeout(() => playShared(sessionId, last.text), 500);
+  if (last) setTimeout(() => playShared(sessionId, last.text, false), 500);
 }
 
 let demoStarted = false;

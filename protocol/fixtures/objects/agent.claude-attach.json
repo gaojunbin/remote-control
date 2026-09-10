@@ -67,5 +67,7 @@
   ],
   "attach": "channel",
   "attach_ready": true,
-  "shared_interrupt": false
+  "shared_interrupt": false,
+  "shared_settings": false,
+  "shared_attachments": false
 }

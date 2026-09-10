@@ -20,6 +20,9 @@ export function ApprovalCard({ event, onDecide }: Props) {
   const options = [...event.options].sort(
     (a, b) => (ORDER[a.style] ?? 1) - (ORDER[b.style] ?? 1),
   );
+  // A11 §5.7: a shared request answered in the terminal resolves with the
+  // reserved `elsewhere` id, which matches none of the options on purpose.
+  const elsewhere = event.decision?.option_id === 'elsewhere';
   const chosen = event.decision
     ? (event.options.find((o) => o.id === event.decision?.option_id)?.label ?? event.decision.option_id)
     : null;
@@ -62,9 +65,11 @@ export function ApprovalCard({ event, onDecide }: Props) {
         <p className="approval-result hint">
           {event.status === 'expired'
             ? strings.chat.approvalExpired
-            : chosen
-              ? strings.chat.approvalResolved(event.decision?.by ?? 'policy', chosen)
-              : strings.chat.questionResolved}
+            : elsewhere
+              ? strings.chat.approvalElsewhere
+              : chosen
+                ? strings.chat.approvalResolved(event.decision?.by ?? 'policy', chosen)
+                : strings.chat.questionResolved}
         </p>
       )}
     </section>

@@ -338,11 +338,19 @@
           ]
         },
         "attach_ready": {
-          "description": "Whether the device is prepared to attach: the Claude shim is installed and on PATH, or the Codex shared daemon socket exists.",
+          "description": "Whether the device is prepared to attach: the Claude shim is installed and on PATH, or a handshake on the Codex shared daemon socket succeeds.",
           "type": "boolean"
         },
         "shared_interrupt": {
           "description": "Whether session.stop works on a session with control \"shared\". False when absent.",
+          "type": "boolean"
+        },
+        "shared_settings": {
+          "description": "Whether session.set for model, permission_mode and effort works on a session with control \"shared\". False when absent.",
+          "type": "boolean"
+        },
+        "shared_attachments": {
+          "description": "Whether session.send attachments are delivered on a session with control \"shared\". False when absent.",
           "type": "boolean"
         }
       },

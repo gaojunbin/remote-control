@@ -15,6 +15,7 @@ enum ProtocolChecks {
 
         objects(checks: checks)
         sharedControl(checks: checks)
+        codexDaemon(checks: checks)
         events(checks: checks)
         frames(checks: checks)
         http(checks: checks)
@@ -145,11 +146,15 @@ enum ProtocolChecks {
             checks.equal(agent.attach, .channel, "Claude attaches through a channel")
             checks.expect(agent.attachReady, "the device says the shim is installed")
             checks.expect(!agent.sharedInterrupt, "a channel cannot interrupt a running turn")
+            checks.expect(!agent.sharedSettings, "nor retune the thread it relays into")
+            checks.expect(!agent.sharedAttachments, "nor hand it bytes")
             checks.expect(agent.supports(.takeover), "takeover is unchanged by the attachment")
             checks.noThrow("the attachment fields survive a re-encode") {
                 let again = try JSONValue.encode(agent).decode(AgentInfo.self)
                 guard again.attach == agent.attach, again.attachReady == agent.attachReady,
-                      again.sharedInterrupt == agent.sharedInterrupt else {
+                      again.sharedInterrupt == agent.sharedInterrupt,
+                      again.sharedSettings == agent.sharedSettings,
+                      again.sharedAttachments == agent.sharedAttachments else {
                     throw ProtocolFailure.malformed("attachment fields changed")
                 }
             }
@@ -163,6 +168,8 @@ enum ProtocolChecks {
             checks.expect(claude.attach == nil, "an agent without an attachment reports none")
             checks.expect(!claude.attachReady, "and is not ready to attach")
             checks.expect(!claude.sharedInterrupt, "and does not claim a shared interrupt")
+            checks.expect(!claude.sharedSettings, "nor shared settings")
+            checks.expect(!claude.sharedAttachments, "nor shared attachments")
         }
 
         for (file, expected) in [("events/user_message.pending.json", MessageDelivery.pending),
@@ -223,6 +230,96 @@ enum ProtocolChecks {
         checks.expect(unknownDelivery != .pending && unknownDelivery != .delivered
                         && unknownDelivery != .absorbed,
                       "an unrecognised delivery is not mistaken for a known one")
+    }
+
+    /// Amendment A11: Codex through the shared app-server daemon. The
+    /// attachment carries the settings, the attachments and the interrupt, and
+    /// a request answered by whoever else holds the thread comes back with an
+    /// option id the block never offered.
+    private static func codexDaemon(checks: CheckRunner) {
+        if let json = FixtureSource.json("objects/agent.codex-daemon.json"),
+           let agent = try? json.decode(AgentInfo.self) {
+            checks.equal(agent.attach, .daemon, "Codex attaches through the app-server daemon")
+            checks.expect(agent.attachReady, "the device handshook with the daemon socket")
+            checks.expect(agent.sharedInterrupt, "the daemon relays an interrupt")
+            checks.expect(agent.sharedSettings, "and the thread settings")
+            checks.expect(agent.sharedAttachments, "and image inputs")
+            checks.expect(!agent.supports(.takeover), "there is nothing to take over from")
+            checks.expect(agent.supports(.effort), "effort is one of the settings it relays")
+            checks.noThrow("the two booleans survive a re-encode") {
+                let encoded = try JSONValue.encode(agent)
+                guard encoded["shared_settings"]?.boolValue == true,
+                      encoded["shared_attachments"]?.boolValue == true else {
+                    throw ProtocolFailure.malformed("the shared booleans changed")
+                }
+            }
+        } else {
+            checks.expect(false, "objects/agent.codex-daemon.json decodes as an agent")
+        }
+
+        // Absent means false, so a device that never heard of A11 is safe.
+        if let bare = try? JSONValue.object(["agent": "codex", "available": true])
+            .decode(AgentInfo.self) {
+            checks.expect(!bare.sharedSettings, "an agent that says nothing keeps its settings local")
+            checks.expect(!bare.sharedAttachments, "and takes no attachments")
+        }
+
+        // A boolean field that is not a boolean is refused, not coerced.
+        let broken = FixtureSource.invalid
+            .appending(path: "objects.agent__shared_settings_not_boolean.json")
+        if let data = try? Data(contentsOf: broken),
+           let json = try? JSONDecoder().decode(JSONValue.self, from: data) {
+            checks.expect((try? json.decode(AgentInfo.self)) == nil,
+                          "a non-boolean shared_settings is refused rather than coerced")
+        } else {
+            checks.expect(false, "the negative shared_settings fixture is readable")
+        }
+
+        if let json = FixtureSource.json("objects/session.codex-shared-running.json"),
+           let session = try? json.decode(Session.self) {
+            checks.equal(session.agent, "codex", "the shared thread runs Codex")
+            checks.expect(session.isAttached, "the device is attached to it")
+            checks.equal(session.origin, .terminal, "the terminal started it")
+            checks.expect(session.state.isWorking, "and a turn is running")
+        } else {
+            checks.expect(false, "objects/session.codex-shared-running.json decodes as a session")
+        }
+
+        if let json = FixtureSource.json("events/approval.codex-shared-pending.json"),
+           let event = try? json.decode(SessionEvent.self), let approval = event.approval {
+            checks.equal(approval.options.map(\.id),
+                         ["allow", "allow_session", "allow_always", "deny"],
+                         "the daemon's four decisions arrive as four options")
+            checks.equal(approval.primaryOption?.id, "allow", "with one primary")
+            checks.equal(approval.dangerOption?.id, "deny", "and one danger")
+            checks.equal(approval.otherOptions.map(\.id), ["allow_session", "allow_always"],
+                         "and the rest stacked between them")
+            checks.equal(approval.input?["cwd"]?.stringValue, "/Users/me/dev/web",
+                         "a command request carries its working directory")
+            checks.expect(approval.input?["command_actions"] != nil, "and what the command does")
+        } else {
+            checks.expect(false, "events/approval.codex-shared-pending.json decodes")
+        }
+
+        if let json = FixtureSource.json("events/approval.codex-elsewhere.json"),
+           let event = try? json.decode(SessionEvent.self), let approval = event.approval {
+            checks.equal(approval.status, .resolved, "a request answered elsewhere resolves")
+            checks.equal(approval.decision?.optionID, ApprovalPayload.elsewhereOptionID,
+                         "with the reserved option id")
+            checks.equal(approval.decision?.by, .terminal, "attributed to the terminal")
+            checks.expect(approval.resolvedOptionLabel == nil,
+                          "and nothing to name, so the card says only who answered")
+        } else {
+            checks.expect(false, "events/approval.codex-elsewhere.json decodes")
+        }
+
+        // An id the block never offered still names itself rather than blanking.
+        let unknown = ApprovalPayload(
+            requestID: "r", tool: "shell", kind: .shell, title: "t",
+            options: [ApprovalOption(id: "allow", label: "Allow", style: .primary)],
+            status: .resolved, decision: ApprovalDecision(optionID: "allow_next_week", by: .terminal))
+        checks.equal(unknown.resolvedOptionLabel, "allow_next_week",
+                     "an unrecognised option id renders verbatim")
     }
 
     private static func events(checks: CheckRunner) {

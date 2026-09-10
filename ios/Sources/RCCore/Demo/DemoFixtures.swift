@@ -14,6 +14,10 @@ public enum DemoFixtures {
     /// Amendment A10: a terminal session on a device whose shim is not
     /// installed, so the app can only explain how to make it controllable.
     public static let attachHintSessionID = "demo-session-rename"
+    /// Amendment A11: a Codex thread shared through the app-server daemon. The
+    /// attachment carries settings, attachments and an interrupt, so the app
+    /// drives it as fully as one it started itself.
+    public static let codexSharedSessionID = "demo-session-typecheck"
 
     public static var now: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
@@ -46,17 +50,39 @@ public enum DemoFixtures {
             attach: .channel, attachReady: false, sharedInterrupt: false)
     }
 
+    /// Amendment A11: Codex behind a running app-server daemon. Everything the
+    /// daemon relays is true here — an interrupt, the thread settings and image
+    /// inputs — so a `shared` session keeps every control.
     public static var codex: AgentInfo {
         AgentInfo(
-            agent: "codex", available: true, version: "0.153.4", path: "/opt/homebrew/bin/codex",
-            models: [AgentOption(id: "gpt-5.4-codex", label: "GPT-5.4 Codex")],
+            agent: "codex", available: true, version: "0.154.0",
+            path: "/Users/me/.codex/packages/standalone/current/bin/codex",
+            models: [AgentOption(id: "gpt-5.4-codex", label: "GPT-5.4 Codex"),
+                     AgentOption(id: "gpt-5.4-codex-mini", label: "GPT-5.4 Codex mini")],
             defaultModel: "gpt-5.4-codex",
             permissionModes: [AgentOption(id: "untrusted", label: "Ask for everything"),
                               AgentOption(id: "on-request", label: "Ask when needed"),
                               AgentOption(id: "never", label: "Never ask")],
             defaultPermissionMode: "on-request",
-            efforts: [],
-            capabilities: [.worktree, .interrupt, .queue, .steer, .attachments, .history])
+            efforts: [AgentOption(id: "low", label: "Low"),
+                      AgentOption(id: "medium", label: "Medium"),
+                      AgentOption(id: "high", label: "High")],
+            defaultEffort: "medium",
+            capabilities: [.worktree, .interrupt, .queue, .steer, .attachments, .effort, .history],
+            attach: .daemon, attachReady: true, sharedInterrupt: true,
+            sharedSettings: true, sharedAttachments: true)
+    }
+
+    /// The same agent on a machine where the app-server daemon is not running,
+    /// so its terminal threads cannot be attached (amendments A10 and A11).
+    public static var codexWithoutDaemon: AgentInfo {
+        AgentInfo(
+            agent: "codex", available: true, version: codex.version, path: codex.path,
+            models: codex.models, defaultModel: codex.defaultModel,
+            permissionModes: codex.permissionModes, defaultPermissionMode: codex.defaultPermissionMode,
+            efforts: codex.efforts, defaultEffort: codex.defaultEffort,
+            capabilities: codex.capabilities,
+            attach: .daemon, attachReady: false)
     }
 
     public static var devices: [Device] {
@@ -72,7 +98,7 @@ public enum DemoFixtures {
             Device(deviceID: ciDeviceID, name: "ci-runner-01", platform: .linux,
                    hostname: "ci-runner-01", arch: "x86_64", clientVersion: "0.1.0",
                    online: false, lastSeen: now - 3_600_000, createdAt: now - 86_400_000,
-                   latencyMS: nil, agents: [codex])
+                   latencyMS: nil, agents: [codexWithoutDaemon])
         ]
     }
 
@@ -111,6 +137,19 @@ public enum DemoFixtures {
                     state: .idle, origin: .terminal, control: .shared,
                     model: "claude-sonnet-4-5", permissionMode: "default",
                     createdAt: now - 5_400_000, updatedAt: now - 90_000, lastSeq: 0),
+            // Amendment A11: a Codex thread the terminal started, shared through
+            // the app-server daemon. The attachment carries an interrupt, the
+            // thread settings and image inputs, so nothing here is dimmed.
+            Session(sessionID: codexSharedSessionID, deviceID: macDeviceID, agent: "codex",
+                    title: "Typecheck the web app", cwd: "/Users/me/dev/remote-control/web",
+                    git: GitInfo(branch: "feat/settings-drawer", dirty: true, ahead: 2),
+                    state: .running, stateDetail: "Typed in the terminal",
+                    origin: .terminal, control: .shared,
+                    model: "gpt-5.4-codex", permissionMode: "on-request", effort: "medium",
+                    createdAt: now - 900_000, updatedAt: now - 12_000, lastSeq: 0,
+                    turn: TurnMarker(turnID: "demo-turn-codex", startedAt: now - 42_000),
+                    usage: SessionUsage(inputTokens: 14_980, outputTokens: 1_740, totalTokens: 16_720,
+                                        contextUsed: 19_300, contextWindow: 272_000)),
             // Amendment A10: the same CLI on a machine without the shim. The
             // app can only say how to make the next run controllable.
             Session(sessionID: attachHintSessionID, deviceID: laptopDeviceID, agent: "claude",
@@ -260,6 +299,38 @@ public enum DemoFixtures {
         ]
     }
 
+    /// The transcript of the shared Codex thread: typed in the terminal, and
+    /// waiting on the four decisions the daemon offers for a command.
+    public static func codexSharedHistory(base: Int64 = now - 300_000) -> [SessionEvent] {
+        [
+            SessionEvent(seq: 1, ts: base, kind: SessionEvent.userMessageKind, blockID: "u-1",
+                         body: .userMessage(UserMessagePayload(
+                            text: "Typecheck the web app and fix whatever the settings drawer broke.",
+                            source: .terminal))),
+            SessionEvent(seq: 2, ts: base + 1_300, kind: SessionEvent.assistantTextKind, blockID: "a-1",
+                         body: .assistantText(StreamTextPayload(
+                            text: """
+                            `SessionSettings` lost its `effort` prop when the drawer moved. I will run \
+                            the typecheck to see the full list first.
+                            """, done: true))),
+            SessionEvent(seq: 3, ts: base + 1_900, kind: SessionEvent.approvalKind, blockID: "ap-codex",
+                         body: .approval(ApprovalPayload(
+                            requestID: "demo-approval-codex", tool: "shell", kind: .shell,
+                            title: "npm run typecheck",
+                            input: ["command": "npm run typecheck",
+                                    "cwd": "/Users/me/dev/remote-control/web"],
+                            options: [
+                                ApprovalOption(id: "allow", label: "Allow", style: .primary),
+                                ApprovalOption(id: "allow_session", label: "Allow for this session",
+                                               style: .secondary),
+                                ApprovalOption(id: "allow_always", label: "Always allow commands like this",
+                                               style: .secondary),
+                                ApprovalOption(id: "deny", label: "Deny", style: .danger)
+                            ],
+                            status: .pending)))
+        ]
+    }
+
     /// The transcript of the terminal session the device cannot attach to.
     public static func attachHintHistory(base: Int64 = now - 300_000) -> [SessionEvent] {
         [
@@ -278,6 +349,7 @@ public enum DemoFixtures {
         case liveSessionID: liveHistory()
         case approvalSessionID: approvalHistory()
         case sharedSessionID: sharedHistory()
+        case codexSharedSessionID: codexSharedHistory()
         case attachHintSessionID: attachHintHistory()
         default: [
             SessionEvent(seq: 1, ts: now - 3_600_000, kind: SessionEvent.userMessageKind, blockID: "u-1",

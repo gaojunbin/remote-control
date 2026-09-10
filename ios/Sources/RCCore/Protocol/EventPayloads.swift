@@ -240,6 +240,19 @@ public struct ApprovalPayload: Codable, Sendable, Hashable {
     public let status: RequestStatus
     public let decision: ApprovalDecision?
 
+    /// Amendment A11: the reserved id a device uses when a shared request was
+    /// resolved by whoever else holds the session. It is never an option and is
+    /// never sent back, so nothing looks it up in `options`.
+    public static let elsewhereOptionID = "elsewhere"
+
+    /// What to call the option a resolved request settled on, or nil when there
+    /// is nothing to name because it was answered elsewhere. An id this block
+    /// never offered still renders verbatim rather than leaving the card blank.
+    public var resolvedOptionLabel: String? {
+        guard let decision, decision.optionID != Self.elsewhereOptionID else { return nil }
+        return options.first { $0.id == decision.optionID }?.label ?? decision.optionID
+    }
+
     /// Every approval carries at least one primary and one danger option, so the
     /// UI can place accept and reject consistently without knowing the ids.
     public var primaryOption: ApprovalOption? { options.first { $0.style == .primary } }

@@ -185,6 +185,7 @@ export const strings = {
     queuedRemove: 'Remove from queue',
     approvalNeeded: 'Needs your approval',
     approvalResolved: (by: string, label: string) => `${label} · decided by ${by}`,
+    approvalElsewhere: 'Answered in the terminal',
     approvalExpired: 'This request expired.',
     questionResolved: 'Answered',
     questionExpired: 'This question expired.',
@@ -206,7 +207,10 @@ export const strings = {
     needsInput: 'Waiting for your answer',
     terminalControlled: 'Controlled by the terminal',
     terminalBusy: 'a turn is running there',
+    // A10: the attachment leaves some controls with the terminal.
     terminalAttached: 'Attached to the terminal session',
+    // A11: the attachment carries settings and attachments too.
+    terminalAttachedFully: 'Attached to the terminal',
     starting: 'Starting the agent…',
     stopped: 'Stopped',
     errored: 'Errored',
@@ -217,6 +221,7 @@ export const strings = {
   composer: {
     placeholder: 'Message the agent…',
     placeholderQueued: 'Message will be queued…',
+    placeholderSteer: 'Message will steer the turn…',
     placeholderTerminal: 'Controlled by the terminal · take over to send',
     placeholderOffline: 'Device is offline',
     send: 'Send',

@@ -104,6 +104,53 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "10-shared-answered")
     }
 
+    /// Amendment A11: a Codex thread shared through the app-server daemon. The
+    /// attachment carries the settings, the attachments and an interrupt, so
+    /// nothing is dimmed, and the daemon's four decisions all reach the card.
+    func testSharedCodexSessionKeepsEveryControl() {
+        app.launch()
+
+        let row = app.buttons["session.demo-session-typecheck"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the shared Codex thread is listed")
+        row.tap()
+
+        let composer = app.textViews["composer.prompt"].firstMatch
+        let composerField = composer.exists ? composer : app.textFields["composer.prompt"].firstMatch
+        XCTAssertTrue(composerField.waitForExistence(timeout: 15), "the composer is enabled")
+
+        let note = app.descendants(matching: .any)["composer.terminalNote"]
+        XCTAssertTrue(note.waitForExistence(timeout: 10), "the attachment is still named")
+        XCTAssertEqual(note.label, "Attached to the terminal",
+                       "nothing is handed back to the terminal, so nothing else is said")
+        XCTAssertTrue(app.buttons["chat.stop"].exists, "shared_interrupt offers Stop while it runs")
+        XCTAssertEqual(composerField.placeholderValue, "Message · will steer the turn",
+                       "a steering agent joins the running turn instead of queueing behind it")
+
+        // The daemon's four decisions all render, stacked, with Allow primary.
+        let allow = app.buttons["approval.primary"]
+        XCTAssertTrue(allow.waitForExistence(timeout: 15), "the request is answerable here")
+        XCTAssertTrue(app.buttons["Allow for this session"].exists, "the session-wide option is offered")
+        XCTAssertTrue(app.buttons["Always allow commands like this"].exists,
+                      "and the execpolicy amendment")
+        XCTAssertTrue(app.buttons["approval.danger"].exists, "with Deny kept apart from Allow")
+        attach(name: "12-codex-shared")
+
+        // The settings sheet opens, because the daemon retunes the live thread.
+        app.buttons["composer.model"].tap()
+        let picker = app.descendants(matching: .any)["session.model"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 10),
+                      "shared_settings reopens the session settings sheet")
+        XCTAssertTrue(app.descendants(matching: .any)["session.terminalNote"].exists == false,
+                      "and nothing tells the user to change it in the terminal")
+        attach(name: "13-codex-settings")
+        app.buttons["Done"].firstMatch.tap()
+
+        XCTAssertTrue(allow.waitForExistence(timeout: 10), "the card is still there after the sheet")
+        allow.tap()
+        XCTAssertTrue(allow.waitForNonExistence(timeout: 15), "answering resolves the request")
+        attach(name: "14-codex-answered")
+    }
+
     /// Amendment A10: a terminal session the device cannot attach says what the
     /// machine is missing instead of pretending the composer will work.
     func testTerminalSessionExplainsHowToAttach() {

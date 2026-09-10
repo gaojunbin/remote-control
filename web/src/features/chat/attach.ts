@@ -1,10 +1,12 @@
 /**
- * Amendment A10 helpers: how a session shared with a live terminal behaves.
+ * Amendment A10/A11 helpers: how a session shared with a live terminal behaves.
  *
  * `shared` means a CLI process owns the session and the device is attached to
  * it, so the composer, approvals and the queue work exactly as for `remote`.
- * What the device cannot do through the attachment is interrupt the turn,
- * change the model, permission mode or effort, or deliver attachments.
+ * What else the attachment carries is per agent: the device reports
+ * `shared_interrupt`, `shared_settings` and `shared_attachments`, each
+ * defaulting to false. The Claude channel carries none of them; the Codex
+ * app-server daemon carries all three.
  */
 import { strings } from '../../strings';
 import type { AgentInfo, Session } from '../../protocol/types';
@@ -21,6 +23,30 @@ export const isTerminalOnly = (session: Session): boolean => session.control ===
  */
 export function canInterruptShared(agent: AgentInfo | null): boolean {
   return agent?.shared_interrupt === true && agent.capabilities.includes('interrupt');
+}
+
+/**
+ * A11 §4.2: the model, permission mode and effort pickers stay enabled on a
+ * shared session when the device can forward `session.set` to the CLI.
+ */
+export function canSetShared(agent: AgentInfo | null): boolean {
+  return agent?.shared_settings === true;
+}
+
+/** A11 §4.2: whether attachments reach the CLI through the attachment. */
+export function canAttachShared(agent: AgentInfo | null): boolean {
+  return agent?.shared_attachments === true;
+}
+
+/**
+ * The bar above the composer on a shared session. When the attachment carries
+ * settings and attachments there is nothing left the terminal owns alone, so
+ * the line is a plain statement of fact rather than a limitation.
+ */
+export function attachedLabel(agent: AgentInfo | null): string {
+  return canSetShared(agent) && canAttachShared(agent)
+    ? strings.status.terminalAttachedFully
+    : strings.status.terminalAttached;
 }
 
 /**

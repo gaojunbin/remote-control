@@ -16,6 +16,7 @@ from ...models import now_ms
 from ...sessions.channel import SessionChannel
 from ..base import Emit
 from .models import ModelCatalog
+from .prompts import answers_payload, question_blocks
 from .rpc import CodexAppServer
 from .translate import CodexTranslator
 
@@ -385,31 +386,12 @@ class CodexRunner:
 
     async def _handle_question(self, params: dict[str, Any]) -> dict[str, Any]:
         request_id = str(uuid.uuid4())
-        block_id = f"question:{request_id}"
-        questions: list[dict[str, Any]] = []
-        for index, raw in enumerate((params.get("questions") or [])[:4]):
-            if not isinstance(raw, dict):
-                continue
-            options = [
-                {
-                    "id": f"o{position}",
-                    "label": str(option.get("label") or ""),
-                    "description": str(option.get("description") or ""),
-                }
-                for position, option in enumerate(raw.get("options") or [])
-                if isinstance(option, dict) and option.get("label")
-            ]
-            questions.append(
-                {
-                    "id": str(raw.get("id") or index),
-                    "prompt": str(raw.get("question") or raw.get("header") or ""),
-                    "options": options,
-                    "multi": False,
-                    "allow_text": bool(raw.get("isOther", True)),
-                    "secret": bool(raw.get("isSecret")),
-                }
-            )
-        base = {"block_id": block_id, "request_id": request_id, "questions": questions}
+        questions = question_blocks(params)
+        base = {
+            "block_id": f"question:{request_id}",
+            "request_id": request_id,
+            "questions": questions,
+        }
         await self.channel.emit("question", status="pending", **base)
         await self.channel.set_state("needs_input")
         reply = await self._wait_for(request_id)
@@ -421,16 +403,7 @@ class CodexRunner:
             **base,
         )
         await self.channel.set_state("running")
-        labels = {
-            question["id"]: {option["id"]: option["label"] for option in question["options"]}
-            for question in questions
-        }
-        payload: dict[str, Any] = {}
-        for key, value in answers.items():
-            chosen = value if isinstance(value, list) else [value]
-            by_id = labels.get(str(key), {})
-            payload[str(key)] = {"answers": [str(by_id.get(str(item), item)) for item in chosen]}
-        return {"answers": payload}
+        return {"answers": answers_payload(questions, answers)}
 
     async def approve(self, request_id: str, option_id: str, message: str | None) -> bool:
         future = self._pending.get(request_id)

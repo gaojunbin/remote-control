@@ -108,13 +108,23 @@ public final class ChatStore {
     /// agent advertises the capability.
     public var canTakeover: Bool { isReadOnly && agent?.supports(.takeover) == true }
 
-    /// Amendment A10: the relay cannot hand bytes to a live CLI, and a terminal
-    /// session takes no input from here at all.
-    public var allowsAttachments: Bool { !isAttached && !isReadOnly }
+    /// A terminal session takes no input from here at all. Amendment A10: a
+    /// relay cannot hand bytes to a live CLI either. Amendment A11: an
+    /// attachment that does carry them says so with `shared_attachments`.
+    public var allowsAttachments: Bool {
+        guard !isReadOnly else { return false }
+        guard isAttached else { return true }
+        return agent?.sharedAttachments == true
+    }
 
     /// Amendment A10: `session.set` is unsupported for model, permission mode
-    /// and effort while a live CLI owns the session.
-    public var allowsSettingsChanges: Bool { !isAttached }
+    /// and effort while a live CLI owns the session. Amendment A11: an
+    /// attachment that can retune the live thread says so with
+    /// `shared_settings`, and the pickers open again.
+    public var allowsSettingsChanges: Bool {
+        guard isAttached else { return true }
+        return agent?.sharedSettings == true
+    }
 
     /// Amendment A10: `session.answer` is unsupported on an attached session.
     /// A question the CLI asked is answered in the terminal; the app mirrors
@@ -138,6 +148,11 @@ public final class ChatStore {
         if agent.attachReady { return .restartSession }
         return attach == .daemon ? .startDaemon : .installShim
     }
+
+    /// Section 5: `auto` means "send now if idle, otherwise steer or queue".
+    /// An agent that lists `steer` joins the running turn instead of waiting
+    /// behind it, so the composer and the status line say so.
+    public var steersRunningTurn: Bool { isRunning && agent?.supports(.steer) == true }
 
     public var canSend: Bool {
         sendBlockReason == nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -165,8 +180,11 @@ public final class ChatStore {
         case .needsApproval: return "Waiting for your approval"
         case .needsInput: return "Waiting for your answer"
         case .running:
-            return session.queued > 0
-                ? "Working · \(session.queued) message\(session.queued == 1 ? "" : "s") queued"
+            if session.queued > 0 {
+                return "Working · \(session.queued) message\(session.queued == 1 ? "" : "s") queued"
+            }
+            return steersRunningTurn
+                ? "Working · your message will steer the turn"
                 : "Working · your message will be queued"
         case .starting: return "Starting the agent"
         case .error: return session.stateDetail ?? "The agent reported an error"

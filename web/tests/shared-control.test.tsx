@@ -1,21 +1,30 @@
 /**
- * Amendment A10 — `control: "shared"`, a terminal session the device is
- * attached to. Covers the composer state, the Stop and takeover rules, the
- * delivery chip and the fixtures the contract describes.
+ * Amendments A10 and A11 — `control: "shared"`, a terminal session the device
+ * is attached to. Covers the composer state, the Stop and takeover rules, the
+ * delivery chip, the three `shared_*` agent booleans and the fixtures the
+ * contract describes.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { ChatHeader } from '../src/features/chat/ChatHeader';
 import { Composer } from '../src/features/chat/Composer';
 import { StatusLine } from '../src/features/chat/StatusLine';
 import { UserMessageRow } from '../src/features/chat/blocks/UserMessageRow';
-import { attachHint, canInterruptShared } from '../src/features/chat/attach';
+import { ApprovalCard } from '../src/features/chat/blocks/ApprovalCard';
+import {
+  attachHint,
+  attachedLabel,
+  canAttachShared,
+  canInterruptShared,
+  canSetShared,
+} from '../src/features/chat/attach';
 import { applyEvent, emptyTimeline } from '../src/stores/timeline';
 import { foldSession } from '../src/stores/chat';
 import { sessionStateLabel } from '../src/strings';
 import { useSettings } from '../src/stores/settings';
-import { claudeAgent, claudeNoShim, codexAgent } from '../mock/fixtures';
+import { claudeAgent, claudeNoShim, codexAgent, codexNoDaemon } from '../mock/fixtures';
 import { fixtureOrEmpty, fixturesAvailable } from './fixtures';
 import type {
   AgentInfo,
@@ -36,6 +45,10 @@ const deliveredMessage = fixtureOrEmpty<UserMessageEvent>('events/user_message.d
 const absorbedMessage = fixtureOrEmpty<UserMessageEvent>('events/user_message.absorbed.json');
 const sharedApproval = fixtureOrEmpty<ApprovalEvent>('events/approval.shared-pending.json');
 const terminalApproval = fixtureOrEmpty<ApprovalEvent>('events/approval.shared-terminal.json');
+const daemonAgent = fixtureOrEmpty<AgentInfo>('objects/agent.codex-daemon.json');
+const codexShared = fixtureOrEmpty<Session>('objects/session.codex-shared-running.json');
+const codexApproval = fixtureOrEmpty<ApprovalEvent>('events/approval.codex-shared-pending.json');
+const codexElsewhere = fixtureOrEmpty<ApprovalEvent>('events/approval.codex-elsewhere.json');
 
 const composerProps = (session: Session, agent: AgentInfo | null) => ({
   session,
@@ -200,11 +213,9 @@ describe.runIf(fixturesAvailable())('A10 takeover bar on a terminal session', ()
     expect(attachHint(null)).toBeNull();
     expect(attachHint(claudeAgent)).toContain('restart it');
     expect(attachHint(claudeNoShim)).toContain('remote-control shim');
-    expect(attachHint({ ...codexAgent, attach: 'daemon', attach_ready: false })).toContain(
-      'Codex app-server daemon',
-    );
+    expect(attachHint(codexNoDaemon)).toContain('Codex app-server daemon');
     // No `attach` and no readiness flag mean there is nothing to hint at.
-    expect(attachHint(codexAgent)).toBeNull();
+    expect(attachHint({ ...codexAgent, attach: null })).toBeNull();
     expect(attachHint({ ...claudeAgent, attach_ready: undefined })).toBeNull();
   });
 
@@ -379,5 +390,200 @@ describe.runIf(fixturesAvailable())('A10 control transitions', () => {
     ]);
     expect(session.control).toBe('shared');
     expect(session.title).toBe('Renamed from the terminal');
+  });
+});
+
+describe.runIf(fixturesAvailable())('A11 fixtures', () => {
+  it('decodes the Codex daemon agent', () => {
+    const agent: AgentInfo = daemonAgent;
+    expect(agent.agent).toBe('codex');
+    expect(agent.attach).toBe('daemon');
+    expect(agent.attach_ready).toBe(true);
+    expect(agent.shared_interrupt).toBe(true);
+    expect(agent.shared_settings).toBe(true);
+    expect(agent.shared_attachments).toBe(true);
+    // §4.2: the capability list is unchanged, and Codex still has no takeover.
+    expect(agent.capabilities).toEqual(
+      expect.arrayContaining(['worktree', 'interrupt', 'queue', 'steer', 'attachments', 'effort', 'history']),
+    );
+    expect(agent.capabilities).not.toContain('takeover');
+  });
+
+  it('leaves the Claude channel agent with both booleans false', () => {
+    expect(attachAgent.shared_settings).toBe(false);
+    expect(attachAgent.shared_attachments).toBe(false);
+  });
+
+  it('decodes a shared Codex session', () => {
+    expect(codexShared.agent).toBe('codex');
+    expect(codexShared.origin).toBe('terminal');
+    expect(codexShared.control).toBe('shared');
+    expect(codexShared.state).toBe('running');
+    expect(codexShared.turn).not.toBeNull();
+  });
+
+  it('decodes the four daemon decisions', () => {
+    expect(codexApproval.options.map((o) => o.id)).toEqual([
+      'allow',
+      'allow_session',
+      'allow_always',
+      'deny',
+    ]);
+    expect(codexApproval.options.map((o) => o.style)).toEqual([
+      'primary',
+      'secondary',
+      'secondary',
+      'danger',
+    ]);
+    // §5.7: a command request carries the daemon's own command payload.
+    expect(Object.keys(codexApproval.input ?? {}).sort()).toEqual([
+      'command',
+      'command_actions',
+      'cwd',
+    ]);
+    expect(codexApproval.status).toBe('pending');
+  });
+
+  it('decodes a request answered in the terminal', () => {
+    expect(codexElsewhere.status).toBe('resolved');
+    expect(codexElsewhere.decision).toEqual({ option_id: 'elsewhere', by: 'terminal' });
+    // The id matches none of the options on purpose.
+    expect(codexElsewhere.options.map((o) => o.id)).not.toContain('elsewhere');
+    expect(codexElsewhere.block_id).toBe(codexApproval.block_id);
+    expect(codexElsewhere.first_seq).toBe(codexApproval.seq);
+  });
+});
+
+describe.runIf(fixturesAvailable())('A11 composer on a shared Codex session', () => {
+  it('reads the two booleans off the agent', () => {
+    expect(canSetShared(daemonAgent)).toBe(true);
+    expect(canAttachShared(daemonAgent)).toBe(true);
+    expect(canSetShared(attachAgent)).toBe(false);
+    expect(canAttachShared(attachAgent)).toBe(false);
+    // Both default to false when the device says nothing.
+    expect(canSetShared(codexNoDaemon)).toBe(false);
+    expect(canAttachShared({ ...claudeAgent, shared_attachments: undefined })).toBe(false);
+    expect(canSetShared(null)).toBe(false);
+  });
+
+  it('enables the pickers when the device reports shared_settings', () => {
+    render(<Composer {...composerProps(codexShared, daemonAgent)} />);
+    for (const name of ['Model', 'Permission mode', 'Effort']) {
+      expect(screen.getByRole('button', { name })).toBeEnabled();
+    }
+    expect(document.querySelectorAll('.tip[title="Change it in the terminal"]')).toHaveLength(0);
+  });
+
+  it('enables attachments when the device reports shared_attachments', () => {
+    render(<Composer {...composerProps(codexShared, daemonAgent)} />);
+    expect(screen.getByRole('button', { name: 'Attach files' })).toBeEnabled();
+    expect(
+      document.querySelector('.tip[title="Attachments cannot be delivered to a terminal session"]'),
+    ).toBeNull();
+  });
+
+  it('locks whichever half the device does not report', () => {
+    const settingsOnly: AgentInfo = { ...daemonAgent, shared_attachments: false };
+    const { unmount } = render(<Composer {...composerProps(codexShared, settingsOnly)} />);
+    expect(screen.getByRole('button', { name: 'Model' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Attach files' })).toBeDisabled();
+    unmount();
+
+    const attachmentsOnly: AgentInfo = { ...daemonAgent, shared_settings: false };
+    render(<Composer {...composerProps(codexShared, attachmentsOnly)} />);
+    expect(screen.getByRole('button', { name: 'Model' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Attach files' })).toBeEnabled();
+  });
+
+  it('drops the "session" wording once nothing is left to the terminal', () => {
+    expect(attachedLabel(daemonAgent)).toBe('Attached to the terminal');
+    expect(attachedLabel(attachAgent)).toBe('Attached to the terminal session');
+    expect(attachedLabel({ ...daemonAgent, shared_settings: false })).toBe(
+      'Attached to the terminal session',
+    );
+
+    render(<Composer {...composerProps(codexShared, daemonAgent)} />);
+    expect(screen.getByText('Attached to the terminal')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Take over' })).not.toBeInTheDocument();
+  });
+
+  it('keeps Stop and "Interrupt & send" on the interrupt flag alone', () => {
+    expect(canInterruptShared(daemonAgent)).toBe(true);
+    const { unmount } = render(<Composer {...composerProps(codexShared, daemonAgent)} />);
+    expect(screen.getByRole('button', { name: 'Send options' })).toBeInTheDocument();
+    unmount();
+
+    // Settings and attachments say nothing about interrupting.
+    const noInterrupt: AgentInfo = { ...daemonAgent, shared_interrupt: false };
+    render(<Composer {...composerProps(codexShared, noInterrupt)} />);
+    expect(screen.queryByRole('button', { name: 'Send options' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Model' })).toBeEnabled();
+  });
+
+  it('says the prompt will steer, matching the status line and the Send label', () => {
+    render(<Composer {...composerProps(codexShared, daemonAgent)} />);
+    const input = screen.getByLabelText('Message the agent…');
+    expect(input).toHaveAttribute('placeholder', 'Message will steer the turn…');
+    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+  });
+
+  it('still says queued for an agent that cannot steer', () => {
+    render(<Composer {...composerProps(sharedRunning, attachAgent)} />);
+    expect(screen.getByLabelText('Message the agent…')).toHaveAttribute(
+      'placeholder',
+      'Message will be queued…',
+    );
+  });
+
+  it('hints for the daemon on a terminal Codex session the device cannot attach', () => {
+    render(
+      <Composer
+        {...composerProps({ ...codexShared, control: 'terminal', state: 'readonly' }, codexNoDaemon)}
+      />,
+    );
+    expect(
+      screen.getByText('Start the Codex app-server daemon on this device to control it from here'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Take over' })).not.toBeInTheDocument();
+  });
+});
+
+describe.runIf(fixturesAvailable())('A11 approval cards', () => {
+  const decide = vi.fn().mockResolvedValue(undefined);
+
+  it('renders all four daemon decisions, ordered by style', () => {
+    render(<ApprovalCard event={codexApproval} onDecide={decide} />);
+    const labels = [...document.querySelectorAll('.approval-actions .btn')].map(
+      (b) => b.textContent,
+    );
+    expect(labels).toEqual([
+      'Allow',
+      'Allow for this session',
+      'Always allow commands like this',
+      'Deny',
+    ]);
+    // The row wraps rather than overflowing at narrow widths.
+    expect(document.querySelector('.approval-actions')).not.toBeNull();
+  });
+
+  it('sends back the option id the block offered', async () => {
+    const onDecide = vi.fn().mockResolvedValue(undefined);
+    render(<ApprovalCard event={codexApproval} onDecide={onDecide} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Always allow commands like this' }));
+    expect(onDecide).toHaveBeenCalledWith(codexApproval.request_id, 'allow_always');
+  });
+
+  it('says a request answered in the terminal was answered there', () => {
+    render(<ApprovalCard event={codexElsewhere} onDecide={decide} />);
+    expect(screen.getByText('Answered in the terminal')).toBeInTheDocument();
+    // The unknown option id must never leak into the label.
+    expect(screen.queryByText(/elsewhere/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/decided by/)).not.toBeInTheDocument();
+    expect(document.querySelector('.approval-actions')).toBeNull();
+  });
+
+  it('still names the option for a decision the app made', () => {
+    render(<ApprovalCard event={terminalApproval} onDecide={decide} />);
+    expect(screen.getByText('Allow · decided by terminal')).toBeInTheDocument();
   });
 });

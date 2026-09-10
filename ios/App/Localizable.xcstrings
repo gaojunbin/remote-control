@@ -90,6 +90,28 @@
         }
       }
     },
+    "Attached to the terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attached to the terminal"
+          }
+        }
+      }
+    },
+    "Attached to the terminal · attachments are added there": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attached to the terminal · attachments are added there"
+          }
+        }
+      }
+    },
     "Attached to the terminal · settings and attachments are changed there": {
       "extractionState": "manual",
       "localizations": {
@@ -97,6 +119,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Attached to the terminal · settings and attachments are changed there"
+          }
+        }
+      }
+    },
+    "Attached to the terminal · settings are changed there": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attached to the terminal · settings are changed there"
           }
         }
       }
@@ -449,6 +482,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Manual install"
+          }
+        }
+      }
+    },
+    "Message · will steer the turn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message · will steer the turn"
           }
         }
       }
@@ -1186,6 +1230,39 @@
           "stringUnit": {
             "state": "translated",
             "value": "Your answer"
+          }
+        }
+      }
+    },
+    "answered by a rule": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "answered by a rule"
+          }
+        }
+      }
+    },
+    "answered here": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "answered here"
+          }
+        }
+      }
+    },
+    "answered in the terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "answered in the terminal"
           }
         }
       }

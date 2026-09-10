@@ -33,6 +33,14 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
     public let attachReady: Bool
     /// Whether `session.stop` works on a `shared` session.
     public let sharedInterrupt: Bool
+    /// Amendment A11: whether `session.set` reaches the live CLI on a `shared`
+    /// session. The Codex daemon applies model, permission mode and effort to
+    /// the running thread; a Claude channel cannot.
+    public let sharedSettings: Bool
+    /// Amendment A11: whether `session.send` attachments are delivered on a
+    /// `shared` session. The Codex daemon takes image inputs; a Claude channel
+    /// has no way to hand bytes to a live CLI.
+    public let sharedAttachments: Bool
 
     public var id: String { agent }
 
@@ -68,7 +76,8 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
                 efforts: [AgentOption] = [], defaultEffort: String? = nil,
                 capabilities: [AgentCapability] = [],
                 attach: AgentAttach? = nil, attachReady: Bool = false,
-                sharedInterrupt: Bool = false) {
+                sharedInterrupt: Bool = false, sharedSettings: Bool = false,
+                sharedAttachments: Bool = false) {
         self.agent = agent
         self.available = available
         self.version = version
@@ -83,6 +92,8 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
         self.attach = attach
         self.attachReady = attachReady
         self.sharedInterrupt = sharedInterrupt
+        self.sharedSettings = sharedSettings
+        self.sharedAttachments = sharedAttachments
     }
 
     enum CodingKeys: String, CodingKey {
@@ -93,6 +104,8 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
         case defaultEffort = "default_effort"
         case attachReady = "attach_ready"
         case sharedInterrupt = "shared_interrupt"
+        case sharedSettings = "shared_settings"
+        case sharedAttachments = "shared_attachments"
     }
 
     public init(from decoder: Decoder) throws {
@@ -111,6 +124,8 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
         attach = try values.decodeIfPresent(AgentAttach.self, forKey: .attach)
         attachReady = try values.decodeIfPresent(Bool.self, forKey: .attachReady) ?? false
         sharedInterrupt = try values.decodeIfPresent(Bool.self, forKey: .sharedInterrupt) ?? false
+        sharedSettings = try values.decodeIfPresent(Bool.self, forKey: .sharedSettings) ?? false
+        sharedAttachments = try values.decodeIfPresent(Bool.self, forKey: .sharedAttachments) ?? false
     }
 }
 

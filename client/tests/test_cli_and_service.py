@@ -131,23 +131,136 @@ def test_launchd_plist_uses_the_agreed_label_and_paths(client_home: Path) -> Non
     assert launchd.plist_path().parent.name == "LaunchAgents"
 
 
+class FakeLaunchd:
+    """A launchd whose `bootout` finishes asynchronously, as the real one does.
+
+    While the job is still going away `print` keeps reporting it and `bootstrap`
+    refuses with EIO. That race is what leaves a reinstalled service stopped.
+    """
+
+    def __init__(self, *, loaded: bool, teardown_polls: int = 2, refuse: int = 0) -> None:
+        self.loaded = loaded
+        self.running = loaded
+        self.starts = loaded
+        self.unloading = 0
+        self.teardown_polls = teardown_polls
+        self.refuse = refuse
+        self.calls: list[str] = []
+
+    def run(self, *args: str) -> subprocess.CompletedProcess[str]:
+        verb = args[1]
+        self.calls.append(verb)
+        handler = {"print": self._print, "bootout": self._bootout, "bootstrap": self._bootstrap}
+        return handler.get(verb, self._ok)(args)
+
+    @staticmethod
+    def _ok(args: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(list(args), 0, "", "")
+
+    def _print(self, args: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        if self.unloading:
+            self.unloading -= 1
+            return subprocess.CompletedProcess(list(args), 0, "\tstate = SIGTERMed\n", "")
+        if not self.loaded:
+            return subprocess.CompletedProcess(list(args), 1, "", "Could not find service")
+        state = "running" if self.running else "waiting"
+        return subprocess.CompletedProcess(list(args), 0, f"\tstate = {state}\n", "")
+
+    def _bootout(self, args: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        self.unloading = self.teardown_polls
+        self.loaded = False
+        self.running = False
+        return self._ok(args)
+
+    def _bootstrap(self, args: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        if self.unloading or self.refuse:
+            self.refuse = max(0, self.refuse - 1)
+            return subprocess.CompletedProcess(
+                list(args), 5, "", "Bootstrap failed: 5: Input/output error"
+            )
+        self.loaded = True
+        self.running = self.starts
+        return self._ok(args)
+
+
+def _fake_launchd(
+    fake: FakeLaunchd,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    running_timeout: float = 1.0,
+) -> Path:
+    plist = tmp_path / "dev.remote-control.client.plist"
+    plist.write_text("<plist/>", encoding="utf-8")
+    monkeypatch.setattr(launchd, "plist_path", lambda: plist)
+    monkeypatch.setattr(launchd, "_run", fake.run)
+    monkeypatch.setattr(launchd, "_resolve_executable", lambda: "/opt/rc/bin/rc-client")
+    monkeypatch.setattr(launchd, "POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(launchd, "UNLOAD_TIMEOUT", 1.0)
+    monkeypatch.setattr(launchd, "RUNNING_TIMEOUT", running_timeout)
+    return plist
+
+
 def test_launchd_start_bootstraps_a_service_that_was_stopped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`service stop` boots the job out, so `service start` must load it again."""
-    plist = tmp_path / "dev.remote-control.client.plist"
-    plist.write_text("<plist/>", encoding="utf-8")
-    monkeypatch.setattr(launchd, "plist_path", lambda: plist)
-    calls: list[tuple[str, ...]] = []
-
-    def fake_run(*args: str) -> subprocess.CompletedProcess[str]:
-        calls.append(args)
-        loaded = args[1] != "print"
-        return subprocess.CompletedProcess(list(args), 0 if loaded else 1, "", "")
-
-    monkeypatch.setattr(launchd, "_run", fake_run)
+    fake = FakeLaunchd(loaded=False)
+    _fake_launchd(fake, tmp_path, monkeypatch)
     launchd.start()
-    assert [args[1] for args in calls] == ["print", "bootstrap"]
+    assert "bootout" not in fake.calls, "nothing to boot out"
+    assert fake.calls[-1] == "bootstrap"
+    assert fake.loaded
+
+
+def test_launchd_install_over_a_running_service_leaves_it_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reinstalling must unload the live job and wait, not race its teardown."""
+    fake = FakeLaunchd(loaded=True)
+    plist = _fake_launchd(fake, tmp_path, monkeypatch)
+
+    assert launchd.install() == plist
+    assert fake.running
+    assert fake.calls.index("bootout") < fake.calls.index("bootstrap")
+    assert fake.calls.count("bootstrap") == 1, "the wait made a retry unnecessary"
+    assert "rc-client" in plist.read_text(encoding="utf-8")
+
+
+def test_launchd_install_retries_a_bootstrap_that_loses_the_race(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeLaunchd(loaded=True, refuse=2)
+    _fake_launchd(fake, tmp_path, monkeypatch)
+
+    launchd.install()
+    assert fake.calls.count("bootstrap") == 3
+    assert fake.running
+
+
+def test_launchd_install_fails_loudly_when_the_job_never_comes_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeLaunchd(loaded=True)
+    fake.starts = False
+    _fake_launchd(fake, tmp_path, monkeypatch, running_timeout=0.0)
+
+    with pytest.raises(RcError) as raised:
+        launchd.install()
+    assert raised.value.code == "internal"
+    assert launchd.RECOVERY_HINT in raised.value.message
+    assert "is not running" in raised.value.message
+
+
+def test_launchd_install_gives_up_after_repeated_bootstrap_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeLaunchd(loaded=True, refuse=launchd.BOOTSTRAP_ATTEMPTS)
+    _fake_launchd(fake, tmp_path, monkeypatch)
+
+    with pytest.raises(RcError) as raised:
+        launchd.install()
+    assert "Input/output error" in raised.value.message
+    assert launchd.RECOVERY_HINT in raised.value.message
 
 
 def test_systemd_unit_restarts_and_names_the_client_home(client_home: Path) -> None:

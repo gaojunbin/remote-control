@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
+from collections.abc import Callable
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -13,6 +15,14 @@ from ..config import client_home, log_dir
 from ..errors import RcError
 
 LABEL = "dev.remote-control.client"
+# `launchctl bootout` returns before launchd has finished tearing the job down,
+# and bootstrapping the same label into a domain that is still unloading it
+# fails with EIO, leaving the service stopped. Wait it out, then retry.
+UNLOAD_TIMEOUT = 15.0
+RUNNING_TIMEOUT = 15.0
+BOOTSTRAP_ATTEMPTS = 6
+POLL_INTERVAL = 0.5
+RECOVERY_HINT = "run `rc-client service start` to bring it up"
 PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" \
 "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -66,16 +76,62 @@ def render(executable: str) -> str:
     )
 
 
+def _loaded() -> bool:
+    return _run("launchctl", "print", f"{_domain()}/{LABEL}").returncode == 0
+
+
+def _running() -> bool:
+    result = _run("launchctl", "print", f"{_domain()}/{LABEL}")
+    return result.returncode == 0 and "state = running" in result.stdout
+
+
+def _wait_for(predicate: Callable[[], bool], timeout: float) -> bool:
+    """Poll `predicate` until it holds or `timeout` passes, checking it at least twice."""
+    deadline = time.monotonic() + timeout
+    while True:
+        if predicate():
+            return True
+        if time.monotonic() >= deadline:
+            return predicate()
+        time.sleep(POLL_INTERVAL)
+
+
+def _unload() -> None:
+    """Boot the job out and wait until launchd has really let go of the label."""
+    if not _loaded():
+        return
+    _run("launchctl", "bootout", f"{_domain()}/{LABEL}")
+    _wait_for(lambda: not _loaded(), UNLOAD_TIMEOUT)
+
+
+def _bootstrap(target: Path) -> None:
+    """Load the plist, unloading a previous incarnation and retrying past the race."""
+    reason = ""
+    for attempt in range(BOOTSTRAP_ATTEMPTS):
+        _unload()
+        result = _run("launchctl", "bootstrap", _domain(), str(target))
+        if result.returncode == 0:
+            return
+        reason = (result.stderr.strip() or result.stdout.strip())[:200]
+        if attempt + 1 < BOOTSTRAP_ATTEMPTS:
+            time.sleep(POLL_INTERVAL)
+    raise RcError("internal", f"launchctl bootstrap failed: {reason}. {RECOVERY_HINT}")
+
+
 def install(executable: str | None = None) -> Path:
+    """Write the plist and load it, whether or not the service is already running."""
     target = plist_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     log_dir().mkdir(parents=True, exist_ok=True, mode=0o700)
     binary = executable or _resolve_executable()
     target.write_text(render(binary), encoding="utf-8")
-    _run("launchctl", "bootout", f"{_domain()}/{LABEL}")
-    result = _run("launchctl", "bootstrap", _domain(), str(target))
-    if result.returncode != 0:
-        raise RcError("internal", f"launchctl bootstrap failed: {result.stderr.strip()[:200]}")
+    _bootstrap(target)
+    if not _wait_for(_running, RUNNING_TIMEOUT):
+        raise RcError(
+            "internal",
+            f"the service was installed at {target} but is not running: {status()}. "
+            f"{RECOVERY_HINT}",
+        )
     return target
 
 
@@ -89,10 +145,8 @@ def start() -> None:
     target = plist_path()
     if not target.exists():
         raise RcError("not_found", "the service is not installed; run rc-client service install")
-    if _run("launchctl", "print", f"{_domain()}/{LABEL}").returncode != 0:
-        result = _run("launchctl", "bootstrap", _domain(), str(target))
-        if result.returncode != 0:
-            raise RcError("internal", f"launchctl bootstrap failed: {result.stderr.strip()[:200]}")
+    if not _loaded():
+        _bootstrap(target)
         return
     result = _run("launchctl", "kickstart", "-k", f"{_domain()}/{LABEL}")
     if result.returncode != 0:

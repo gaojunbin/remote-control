@@ -472,3 +472,152 @@ export function sharedAfterApproval(nonce: string, allowed: boolean): Step[] {
   push(20, (seq, ts) => ({ seq, ts, kind: 'status', state: 'idle' }));
   return steps;
 }
+
+/* ------------------------------------------------------ A11 shared Codex */
+
+/** The four decisions the Codex daemon offers for a command (A11 §5.7). */
+const CODEX_DECISIONS = [
+  { id: 'allow', label: 'Allow', style: 'primary' as const },
+  { id: 'allow_session', label: 'Allow for this session', style: 'secondary' as const },
+  { id: 'allow_always', label: 'Always allow commands like this', style: 'secondary' as const },
+  { id: 'deny', label: 'Deny', style: 'danger' as const },
+];
+
+export interface CodexTurnOptions {
+  /** The turn the events belong to: the live one when steering, a new one otherwise. */
+  turnId: string;
+  /** True when the prompt reached a turn that was already running. */
+  steered: boolean;
+  /** Whether this turn ends on a permission request rather than completing. */
+  withApproval: boolean;
+}
+
+/**
+ * Amendment A11: a turn on a Codex thread the device shares with a live TUI
+ * through the app-server daemon. Steering joins the running turn instead of
+ * starting one, and a command approval offers all four daemon decisions.
+ */
+export function codexSharedTurn(prompt: string, nonce: string, options: CodexTurnOptions): Step[] {
+  const steps: Step[] = [];
+  let at = 0;
+  const push = (delay: number, event: Step['event']) => {
+    at += delay;
+    steps.push({ after: at, event });
+  };
+
+  if (!options.steered) {
+    push(0, (seq, ts) => ({ seq, ts, kind: 'status', state: 'running' }));
+    push(60, (seq, ts) => ({
+      seq,
+      ts,
+      kind: 'turn_started',
+      turn_id: options.turnId,
+      trigger: 'remote',
+    }));
+  }
+
+  const block = `cx-a-${nonce}`;
+  push(600, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'assistant_text',
+    block_id: block,
+    done: false,
+    delta: options.steered
+      ? 'Folding that into the running turn'
+      : 'Resuming the thread on the daemon',
+  }));
+  push(500, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'assistant_text',
+    block_id: block,
+    done: !options.withApproval,
+    delta: ` — the TUI sees the same stream, so ${words(prompt, 6)} is on the transcript there too.`,
+  }));
+
+  if (options.withApproval) {
+    push(700, (seq, ts) => ({
+      seq,
+      ts,
+      kind: 'approval',
+      block_id: `cx-ap-${nonce}`,
+      request_id: `req-codex-${nonce}`,
+      tool: 'shell',
+      tool_kind: 'shell',
+      title: 'npm run typecheck',
+      // A11 §5.7: commands carry the daemon's own command payload.
+      input: {
+        command: "/bin/zsh -lc 'npm run typecheck'",
+        cwd: '/Users/me/dev/remote-control/web',
+        command_actions: [{ type: 'unknown', command: 'npm run typecheck' }],
+      },
+      status: 'pending',
+      options: CODEX_DECISIONS,
+    }));
+    push(20, (seq, ts) => ({ seq, ts, kind: 'status', state: 'needs_approval' }));
+    return steps;
+  }
+
+  push(400, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'turn_completed',
+    turn_id: options.turnId,
+    stop_reason: 'completed',
+    duration_ms: 2_100,
+  }));
+  push(20, (seq, ts) => ({ seq, ts, kind: 'status', state: 'idle' }));
+  return steps;
+}
+
+/** Emitted once a Codex permission request is answered from an app. */
+export function codexSharedAfterApproval(
+  nonce: string,
+  turnId: string,
+  allowed: boolean,
+): Step[] {
+  const steps: Step[] = [];
+  let at = 0;
+  const push = (delay: number, event: Step['event']) => {
+    at += delay;
+    steps.push({ after: at, event });
+  };
+
+  push(120, (seq, ts) => ({ seq, ts, kind: 'status', state: 'running' }));
+  push(500, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'tool_call',
+    block_id: `cx-t-${nonce}`,
+    tool: 'shell',
+    tool_kind: 'shell',
+    title: 'npm run typecheck',
+    status: allowed ? 'succeeded' : 'cancelled',
+    started_at: ts - 4_200,
+    ended_at: ts,
+    duration_ms: 4_200,
+    input: { command: 'npm run typecheck' },
+    output: allowed ? '> tsc --noEmit\n\nFound 0 errors.\n' : '',
+  }));
+  push(500, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'assistant_text',
+    block_id: `cx-a2-${nonce}`,
+    done: true,
+    text: allowed
+      ? '`tsc --noEmit` is clean. The same output scrolled past in the terminal.'
+      : 'Skipped the typecheck. Run `npm run typecheck` in the terminal when you are ready.',
+  }));
+  push(400, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'turn_completed',
+    turn_id: turnId,
+    stop_reason: 'completed',
+    duration_ms: 7_200,
+  }));
+  push(20, (seq, ts) => ({ seq, ts, kind: 'status', state: 'idle' }));
+  return steps;
+}

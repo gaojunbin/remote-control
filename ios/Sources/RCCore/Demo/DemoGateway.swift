@@ -152,6 +152,13 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         return session
     }
 
+    /// What the device says the agent running this session can do. Amendments
+    /// A10 and A11 answer every "may the app do this while attached?" from
+    /// here rather than from the agent id.
+    private func agent(for session: Session) -> AgentInfo? {
+        devices.first { $0.deviceID == session.deviceID }?.agent(session.agent)
+    }
+
     private func subscribe(_ request: GatewayRequest) throws -> JSONValue {
         let id = try requireSessionID(request)
         let session = try session(id)
@@ -187,8 +194,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             throw GatewayErrorBody(code: .conflict, message: "Controlled by the terminal; take over first.")
         }
         let text = request.body["text"]?.stringValue ?? ""
+        let mode = SendMode(rawValue: request.body["mode"]?.stringValue ?? SendMode.auto.rawValue)
         if session.isAttached {
-            return try inject(sessionID: id, requestID: request.id, text: text)
+            return try sendShared(session: session, requestID: request.id, text: text, mode: mode)
         }
         let running = session.state.isWorking
         emit(sessionID: id, body: .userMessage(UserMessagePayload(text: text,
@@ -205,9 +213,51 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         return try JSONValue.encode(SendResult(accepted: .sent))
     }
 
-    /// Amendment A10: a message for an attached session is held by the device
-    /// and injected when the terminal is next idle, so the app first sees it as
-    /// `pending` and then the same block again as `delivered`.
+    /// A message for an attached session takes the route the attachment
+    /// supports. A channel can only hand keystrokes to a CLI, so it holds the
+    /// message and injects it (amendment A10). A daemon is a real client of the
+    /// agent's own server, so it starts, steers or interrupts the thread the
+    /// terminal is on (amendment A11). Only the device branches on this; the
+    /// apps read the acceptance and the agent's capabilities.
+    private func sendShared(session: Session, requestID: String, text: String,
+                            mode: SendMode) throws -> JSONValue {
+        let agent = agent(for: session)
+        guard agent?.attach == .daemon else {
+            return try inject(sessionID: session.sessionID, requestID: requestID, text: text)
+        }
+        let id = session.sessionID
+        guard session.state.isWorking else {
+            emit(sessionID: id, body: .userMessage(UserMessagePayload(text: text, source: .remote)))
+            update(sessionID: id) { session in
+                session.state = .running
+                session.turn = TurnMarker(turnID: UUID().uuidString, startedAt: DemoFixtures.now)
+            }
+            startReplyScript(sessionID: id)
+            return try JSONValue.encode(SendResult(accepted: .sent))
+        }
+        switch mode {
+        case .interrupt:
+            emit(sessionID: id, body: .turnCompleted(TurnCompletedPayload(
+                turnID: session.turn?.turnID ?? "demo-turn", stopReason: .interrupted, durationMS: 4_000)))
+            emit(sessionID: id, body: .userMessage(UserMessagePayload(text: text, source: .remote)))
+            update(sessionID: id) { session in
+                session.turn = TurnMarker(turnID: UUID().uuidString, startedAt: DemoFixtures.now)
+            }
+            startReplyScript(sessionID: id)
+            return try JSONValue.encode(SendResult(accepted: .sent))
+        case .auto where agent?.supports(.steer) == true:
+            // The message joins the turn that is already running, so it needs
+            // neither a queue entry nor a delivery state.
+            emit(sessionID: id, body: .userMessage(UserMessagePayload(text: text, source: .remote)))
+            return try JSONValue.encode(SendResult(accepted: .steered))
+        default:
+            return try inject(sessionID: id, requestID: requestID, text: text)
+        }
+    }
+
+    /// Amendment A10: a message a channel cannot deliver yet is held by the
+    /// device and injected when the terminal is next idle, so the app first
+    /// sees it as `pending` and then the same block again as `delivered`.
     private func inject(sessionID: String, requestID: String, text: String) throws -> JSONValue {
         let blockID = "shared-\(requestID)"
         emit(sessionID: sessionID, blockID: blockID,
@@ -216,13 +266,18 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             QueuedMessage(id: requestID, text: text, ts: DemoFixtures.now)
         ])))
         injecting?.cancel()
+        // A turn that is already running asks for its own permission; only an
+        // idle thread reaches the request this script plays.
+        let asksForApproval = try !session(sessionID).state.isWorking
         injecting = Task { [weak self] in
-            await self?.playInjection(sessionID: sessionID, blockID: blockID, text: text)
+            await self?.playInjection(sessionID: sessionID, blockID: blockID, text: text,
+                                      asksForApproval: asksForApproval)
         }
         return try JSONValue.encode(SendResult(accepted: .queued, queuedID: requestID))
     }
 
-    private func playInjection(sessionID: String, blockID: String, text: String) async {
+    private func playInjection(sessionID: String, blockID: String, text: String,
+                               asksForApproval: Bool) async {
         try? await Task.sleep(for: .milliseconds(2_400))
         guard !Task.isCancelled else { return }
         emit(sessionID: sessionID, blockID: blockID,
@@ -235,7 +290,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             session.queued = 0
         }
         try? await Task.sleep(for: .milliseconds(900))
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, asksForApproval else { return }
         emit(sessionID: sessionID, blockID: "ap-shared", body: .approval(ApprovalPayload(
             requestID: "demo-approval-shared", tool: "Bash", kind: .shell,
             title: "git commit -am 'Draft 0.1.0 release notes'",
@@ -252,7 +307,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     private func stop(_ request: GatewayRequest) throws -> JSONValue {
         let id = try requireSessionID(request)
         // Amendment A10: a Claude channel cannot interrupt a running turn.
-        guard try !session(id).isAttached else {
+        // Amendment A11: the Codex daemon relays `turn/interrupt`, and says so.
+        let existing = try session(id)
+        if existing.isAttached, agent(for: existing)?.sharedInterrupt != true {
             throw GatewayErrorBody(code: .unsupported, message: "Stop it in the terminal.")
         }
         scripted?.cancel(); scripted = nil
@@ -272,6 +329,11 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
               let approval = pending.approval else {
             throw GatewayErrorBody(code: .notFound, message: "That request is no longer open.")
         }
+        // Amendment A11: `elsewhere` is a resolution, never a choice. Any id the
+        // block did not offer is refused rather than relayed.
+        guard approval.options.contains(where: { $0.id == optionID }) else {
+            throw GatewayErrorBody(code: .badRequest, message: "That request did not offer that option.")
+        }
         emit(sessionID: id, blockID: pending.blockID,
              body: .approval(ApprovalPayload(requestID: approval.requestID, tool: approval.tool,
                                              kind: approval.kind, title: approval.title,
@@ -286,10 +348,13 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
 
     private func applySet(_ request: GatewayRequest) throws -> JSONValue {
         let id = try requireSessionID(request)
-        // Amendment A10: only the title is ours to change on an attached session.
-        if try session(id).isAttached,
-           request.body["model"] != nil || request.body["permission_mode"] != nil
-            || request.body["effort"] != nil {
+        // Amendment A10: only the title is ours to change on an attached
+        // session, unless amendment A11's `shared_settings` says the
+        // attachment retunes the live thread.
+        let existing = try session(id)
+        let retunes = request.body["model"] != nil || request.body["permission_mode"] != nil
+            || request.body["effort"] != nil
+        if existing.isAttached, retunes, agent(for: existing)?.sharedSettings != true {
             throw GatewayErrorBody(code: .unsupported, message: "Change it in the terminal.")
         }
         update(sessionID: id) { session in

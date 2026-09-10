@@ -9,7 +9,13 @@ import type { SendMode } from '../../protocol/frames';
 import type { AgentInfo, QueuedMessage, Session } from '../../protocol/types';
 import { VoicePanel } from '../voice/VoicePanel';
 import { useVoice } from '../voice/useVoice';
-import { attachHint, canInterruptShared } from './attach';
+import {
+  attachHint,
+  attachedLabel,
+  canAttachShared,
+  canInterruptShared,
+  canSetShared,
+} from './attach';
 import { readAttachments, textTooLong, type AttachmentDraft } from './attachments';
 
 interface Props {
@@ -70,6 +76,10 @@ export function Composer({
   const disabled = terminalControlled || !deviceOnline;
   // A10: the channel cannot interrupt a running turn, so neither can we.
   const canInterrupt = shared ? canInterruptShared(agent) : true;
+  // A11: the model, permission mode, effort and attachments belong to the
+  // terminal unless the device reports that the attachment carries them.
+  const optionsLocked = shared && !canSetShared(agent);
+  const attachmentsBlocked = shared && !canAttachShared(agent);
 
   const submit = useCallback(
     async (mode: SendMode, source?: string) => {
@@ -151,7 +161,9 @@ export function Composer({
     : !deviceOnline
       ? strings.composer.placeholderOffline
       : running
-        ? strings.composer.placeholderQueued
+        ? canSteer
+          ? strings.composer.placeholderSteer
+          : strings.composer.placeholderQueued
         : strings.composer.placeholder;
 
   if (voice.state === 'recording' || voice.state === 'starting' || voice.state === 'finishing') {
@@ -161,7 +173,7 @@ export function Composer({
         <ComposerBottomRow
           agent={agent}
           session={session}
-          locked={shared}
+          locked={optionsLocked}
           language={language}
           sttEnabled={sttEnabled}
           sttLanguages={sttLanguages}
@@ -246,7 +258,7 @@ export function Composer({
 
       {shared ? (
         <div className="takeover-bar">
-          <span className="takeover-text">{strings.status.terminalAttached}</span>
+          <span className="takeover-text">{attachedLabel(agent)}</span>
         </div>
       ) : null}
 
@@ -263,7 +275,7 @@ export function Composer({
           onCompositionEnd={() => (composing.current = false)}
           onChange={(e) => setText(e.target.value)}
           onPaste={(e) => {
-            const files = shared ? [] : [...e.clipboardData.files];
+            const files = attachmentsBlocked ? [] : [...e.clipboardData.files];
             if (files.length > 0) {
               e.preventDefault();
               void attach(files);
@@ -289,13 +301,13 @@ export function Composer({
           />
           <span
             className="tip"
-            {...(shared ? { title: strings.composer.attachSharedUnsupported } : {})}
+            {...(attachmentsBlocked ? { title: strings.composer.attachSharedUnsupported } : {})}
           >
             <button
               type="button"
               className="icon-btn"
               aria-label={strings.composer.attach}
-              disabled={disabled || shared}
+              disabled={disabled || attachmentsBlocked}
               onClick={() => fileInput.current?.click()}
             >
               <Paperclip size={16} />
@@ -354,7 +366,7 @@ export function Composer({
       <ComposerBottomRow
         agent={agent}
         session={session}
-        locked={shared}
+        locked={optionsLocked}
         language={language}
         sttEnabled={sttEnabled}
         sttLanguages={sttLanguages}
@@ -383,7 +395,11 @@ function ComposerBottomRow({
 }: {
   agent: AgentInfo | null;
   session: Session;
-  /** A10: `session.set` rejects model, permission mode and effort when shared. */
+  /**
+   * A10/A11: true when `session.set` for the model, permission mode and
+   * effort has to happen in the terminal, i.e. a shared session whose agent
+   * does not report `shared_settings`.
+   */
   locked: boolean;
   language: string;
   sttEnabled: boolean;

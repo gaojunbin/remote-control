@@ -68,6 +68,16 @@ export interface AgentInfo {
   attach_ready?: boolean;
   /** A10: whether `session.stop` works on `shared` sessions. Defaults to false. */
   shared_interrupt?: boolean;
+  /**
+   * A11: whether `session.set` for `model`, `permission_mode` and `effort`
+   * works on `shared` sessions. Defaults to false.
+   */
+  shared_settings?: boolean;
+  /**
+   * A11: whether `session.send.attachments` are delivered on `shared`
+   * sessions. Defaults to false.
+   */
+  shared_attachments?: boolean;
 }
 
 export interface Device {

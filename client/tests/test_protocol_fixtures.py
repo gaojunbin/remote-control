@@ -39,6 +39,8 @@ def agent_info_from(payload: dict[str, Any]) -> AgentInfo:
         attach=payload.get("attach"),
         attach_ready=bool(payload.get("attach_ready")),
         shared_interrupt=bool(payload.get("shared_interrupt")),
+        shared_settings=bool(payload.get("shared_settings")),
+        shared_attachments=bool(payload.get("shared_attachments")),
     )
 
 
@@ -46,12 +48,19 @@ def test_device_hello_round_trips_through_the_device_types() -> None:
     hello = load_fixture("device/hello.json")
     assert hello["protocol"] == 1
     agents = [agent_info_from(item) for item in hello["agents"]]
-    # The A10 attachment fields are optional, so a fixture predating them still
-    # round-trips: every key it carries must survive, extras are additions.
+    # The A10 and A11 attachment fields are optional, so a fixture predating
+    # them still round-trips: every key it carries must survive, extras are
+    # additions.
     for info, payload in zip(agents, hello["agents"], strict=True):
         produced = info.to_dict()
         assert {key: produced[key] for key in payload} == payload
-        assert set(produced) - set(payload) <= {"attach", "attach_ready", "shared_interrupt"}
+        assert set(produced) - set(payload) <= {
+            "attach",
+            "attach_ready",
+            "shared_interrupt",
+            "shared_settings",
+            "shared_attachments",
+        }
     sessions = [Session.from_dict(item) for item in hello["sessions"]]
     assert [session.to_dict() for session in sessions] == hello["sessions"]
 
@@ -248,3 +257,65 @@ def test_the_rejected_values_are_ones_this_device_never_produces() -> None:
     delivery = json.loads((invalid / "events__delivery_queued.json").read_text(encoding="utf-8"))
     assert delivery["delivery"] == "queued"
     assert set(pending_item("hi", "req").keys()) >= {"message_id", "block_id"}
+
+
+def test_the_codex_daemon_agent_fixture_matches_what_this_device_advertises() -> None:
+    """A11 4.2: the two extra booleans, both true for Codex on the shared daemon."""
+    info = agent_info_from(load_fixture("objects/agent.codex-daemon.json"))
+    assert info.attach == "daemon"
+    assert info.attach_ready is True
+    assert (info.shared_interrupt, info.shared_settings, info.shared_attachments) == (
+        True,
+        True,
+        True,
+    )
+    assert "takeover" not in info.capabilities
+    claude = agent_info_from(load_fixture("objects/agent.claude-attach.json"))
+    assert (claude.shared_settings, claude.shared_attachments) == (False, False)
+
+
+def test_the_shared_codex_session_fixture_is_a_terminal_thread_we_are_attached_to() -> None:
+    from rc_client.agents.codex.daemon.threads import resolve
+
+    session = Session.from_dict(load_fixture("objects/session.codex-shared-running.json"))
+    assert session.agent == "codex"
+    assert (session.origin, session.control) == ("terminal", "shared")
+    assert session.state == "running"
+    assert resolve(created_here=False, loaded=True, terminal_seen=True) == (
+        session.origin,
+        session.control,
+    )
+
+
+def test_the_codex_approval_fixtures_use_the_daemon_option_vocabulary() -> None:
+    from rc_client.agents.codex.daemon.approvals import ELSEWHERE, LABELS, build_options
+
+    pending = load_fixture("events/approval.codex-shared-pending.json")
+    elsewhere = load_fixture("events/approval.codex-elsewhere.json")
+    assert set(pending["input"]) == {"command", "cwd", "command_actions"}
+    ids = [option["id"] for option in pending["options"]]
+    assert ids == ["allow", "allow_session", "allow_always", "deny"]
+    for option in pending["options"]:
+        assert (option["label"], option["style"]) == LABELS[option["id"]]
+    built = build_options(
+        [
+            "accept",
+            "acceptForSession",
+            {"acceptWithExecpolicyAmendment": {"execpolicy_amendment": ["npm"]}},
+            "cancel",
+        ],
+        (),
+    )
+    assert built.wire() == pending["options"]
+    assert elsewhere["decision"] == {"option_id": ELSEWHERE, "by": "terminal"}
+    assert elsewhere["block_id"] == pending["block_id"]
+    assert ELSEWHERE not in ids
+
+
+def test_a_non_boolean_shared_setting_is_a_value_this_device_never_produces() -> None:
+    invalid = FIXTURE_ROOT.parent / "fixtures_invalid"
+    payload = json.loads(
+        (invalid / "objects.agent__shared_settings_not_boolean.json").read_text(encoding="utf-8")
+    )
+    assert payload["shared_settings"] == "yes"
+    assert isinstance(agent_info_from(payload).to_dict()["shared_settings"], bool)

@@ -5,10 +5,10 @@ plane: a **gateway** on your own VPS sits between the **developer machines** whe
 Codex are installed and the **apps** you carry — a web UI and a native iOS client. Add a machine
 with one pairing command, see every session on it, and drive a session the way you drive a chat:
 send text or dictate it, watch answers, thinking, tool calls and diffs stream in, approve or deny a
-tool, answer a question, stop a turn, queue the next one. A `claude` you started yourself in a
-terminal is not just mirrored: the device attaches to the live session, so you can pick it up from a
-phone without killing what it is running. Model credentials never leave the machine; the gateway
-routes and indexes but never runs an agent.
+tool, answer a question, stop a turn, queue the next one. A `claude` or a bare `codex` you started
+yourself in a terminal is not just mirrored: the device attaches to the live session, so you can pick
+it up from a phone without killing what it is running. Model credentials never leave the machine; the
+gateway routes and indexes but never runs an agent.
 
 ## Architecture
 
@@ -96,6 +96,25 @@ Every interactive `claude` in a new shell then shows a one-time development-chan
 choose "I am using this for local development" — and appears in the apps as **terminal · attached**,
 with a live composer.
 
+Terminal **Codex** sessions need no shim and no confirmation. The installer already brought up the
+shared app-server daemon they run inside, unless you passed `--no-codex`, so on a fresh machine there
+is nothing more to run. To check it, or to set it up on a machine installed with `--no-codex`:
+
+```sh
+~/.rc-client/venv/bin/rc-client codex status   # binary, socket, a real handshake, supervision
+~/.rc-client/venv/bin/rc-client codex setup    # idempotent: bootstrap the daemon and supervise it
+```
+
+`codex setup` installs the standalone Codex only when `~/.local/bin` is already on your `PATH`, so it
+never rewrites a shell profile, then runs `codex app-server daemon bootstrap` and installs our own
+supervision, because Codex's bootstrap leaves none and the daemon would not survive a reboot. On a
+healthy machine `rc-client status` then reports the daemon as `healthy (loaded)`.
+
+One rule applies from then on: start Codex as a bare `codex`. Any `-c`, `--enable`, `--disable` or
+`--dangerously-bypass-approvals-and-sandbox` on the command line makes the CLI run its own private
+app-server, which the device cannot join, and the session falls back to read-only mirroring.
+Everything you would have set with `-c` is set from the apps instead.
+
 Full deployment reference, including every `.env` variable, TLS options, upgrades, backups and
 troubleshooting: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
@@ -155,7 +174,9 @@ RCVerify` checks the protocol fixtures with plain Command Line Tools and needs n
   a model, a permission mode and an effort level. Archive them, and change the model, permission
   mode or effort mid-session.
 - **Agents** — Claude Code through `claude-agent-sdk`, Codex through its app-server JSON-RPC
-  interface. Both are normalised to one block timeline, so the UI has no agent-specific code paths.
+  interface, either as a private process per session or as a second client on the machine's shared
+  app-server daemon. Both agents are normalised to one block timeline, so the UI has no
+  agent-specific code paths.
 - **Timeline** — streamed assistant Markdown, collapsible thinking, one-line tool rows that expand
   to input and output, diffs with per-file counts, todo snapshots, approval cards, question cards,
   turn markers and usage.
@@ -166,6 +187,13 @@ RCVerify` checks the protocol fixtures with plain Command Line Tools and needs n
   than mirrored: you send messages into the live CLI, its permission prompts arrive as approval
   cards, and whichever side answers first wins. Nothing is killed and nothing is resumed. Takeover
   is still there for a terminal that was started without the shim, and still only while it is idle.
+- **Terminal Codex, attached without a shim** — a bare `codex` runs inside the machine's shared
+  app-server daemon, and the device joins it as a second client. That attachment carries everything
+  a remote session carries: send, steer the running turn, stop it, change the model, the permission
+  mode or the reasoning effort for everyone on the thread, and send attachments. Permission prompts
+  fan out to the terminal and the apps at once with the daemon's own options — Allow, Allow for this
+  session, Always allow commands like this, Deny — and a card the terminal answered first reads
+  "answered in the terminal". A thread started from a phone reopens with `codex resume <id>`.
 - **Voice** — dictation through the gateway's speech-to-text proxy, streamed as 16 kHz PCM16 with
   live partial transcripts. iOS can use on-device recognition instead. The transcript is always an
   editable draft; sending stays a separate action.
@@ -218,8 +246,14 @@ not apply to them; project and local settings do. Change it with `[claude] setti
 - **Attaching, beyond one configuration.** Attached Claude sessions were driven live on macOS
   against the real CLI with `permission_mode: "default"` only. `acceptEdits` and `bypassPermissions`
   relay fewer prompts or none, and neither was exercised.
-- **Attaching to Codex.** Codex reports `attach: null`; its shared app-server integration is not
-  built. Only Claude can be attached today.
+- **Attaching to Codex, from a browser or a phone.** The device side was driven live on macOS
+  against a real daemon and real `codex` TUIs: the shared session, sends, steering, Stop, the
+  approval answered three ways, `session.set`, `codex resume` and a device restart all pass. Both
+  apps were driven against fixtures for the same surfaces, not against that daemon, so no browser and
+  no phone has yet typed into a live Codex thread.
+- **Two corners of a shared Codex send.** `queue` and `interrupt` were unit-tested but not driven
+  against the real daemon; `auto` and Stop were. `session.answer` and attachments on a shared Codex
+  session were exercised against a fake daemon only, and only `effort` was changed live.
 - **Linux.** Only macOS was exercised. The systemd unit, `rc-client service install` and the
   `claude` shim have not been run anywhere else.
 - **TLS.** The stack was only exercised over plain HTTP on the published port. No reverse proxy,
@@ -228,8 +262,12 @@ not apply to them; project and local settings do. Change it with `[claude] setti
   gateway. New session, add device, the directory picker, voice and push were exercised only by the
   offline demo suite, and there was no physical device, no dark mode, no VoiceOver, no CI run and no
   TestFlight upload.
-- **Codex sessions cannot be taken over.** Only Claude advertises the `takeover` capability. That
-  one is a design decision rather than a gap.
+- **Codex sessions cannot be taken over.** Only Claude advertises the `takeover` capability. A bare
+  `codex` is attached instead, and a Codex TUI started with configuration overrides is released by
+  quitting it. That one is a design decision rather than a gap.
+- **The Codex daemon's own corners.** Two clients starting a turn on the same thread within
+  milliseconds, thread eviction from a daemon that has run for weeks, what a subscriber sees while
+  the auto-updater swaps the app-server, and any of this on Linux: none was exercised.
 
 ## Security model
 

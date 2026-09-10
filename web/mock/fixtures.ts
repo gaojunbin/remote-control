@@ -50,6 +50,9 @@ export const claudeAgent: AgentInfo = {
   attach: 'channel',
   attach_ready: true,
   shared_interrupt: false,
+  // A11: the channel relays prompts and approvals only.
+  shared_settings: false,
+  shared_attachments: false,
 };
 
 /** The same agent on a device where the shim is not installed yet (A10). */
@@ -61,7 +64,7 @@ export const claudeNoShim: AgentInfo = {
 export const codexAgent: AgentInfo = {
   agent: 'codex',
   available: true,
-  version: '0.153.4',
+  version: '0.154.0',
   path: '/opt/homebrew/bin/codex',
   models: [
     { id: 'gpt-5.4-codex', label: 'GPT-5.4 Codex' },
@@ -74,16 +77,30 @@ export const codexAgent: AgentInfo = {
     { id: 'never', label: 'Never ask' },
   ],
   default_permission_mode: 'on-request',
-  efforts: [],
-  default_effort: null,
-  capabilities: ['interrupt', 'queue', 'steer', 'attachments', 'history'],
+  efforts: [
+    { id: 'low', label: 'Low' },
+    { id: 'medium', label: 'Medium' },
+    { id: 'high', label: 'High' },
+  ],
+  default_effort: 'medium',
+  capabilities: ['worktree', 'interrupt', 'queue', 'steer', 'attachments', 'effort', 'history'],
+  // Amendment A11: every bare `codex` TUI on this device runs inside the shared
+  // app-server daemon, so an attached session carries the interrupt, the
+  // settings and the image inputs as well as prompts and approvals.
+  attach: 'daemon',
+  attach_ready: true,
+  shared_interrupt: true,
+  shared_settings: true,
+  shared_attachments: true,
 };
 
-const codexMissing: AgentInfo = {
+/** A11: the same agent on a device where the daemon is not running yet. */
+export const codexNoDaemon: AgentInfo = {
   ...codexAgent,
-  available: false,
-  version: null,
-  path: null,
+  attach_ready: false,
+  shared_interrupt: false,
+  shared_settings: false,
+  shared_attachments: false,
 };
 
 export const devices: Device[] = [
@@ -111,7 +128,7 @@ export const devices: Device[] = [
     last_seen: minutes(2),
     created_at: minutes(60 * 24 * 30),
     latency_ms: 42,
-    agents: [claudeNoShim, codexMissing],
+    agents: [claudeNoShim, codexNoDaemon],
   },
 ];
 
@@ -207,6 +224,48 @@ export const sessions: Session[] = [
     updated_at: minutes(2),
   }),
   session({
+    // Amendment A11: a bare `codex` TUI running inside the shared app-server
+    // daemon. The attachment carries the interrupt, the settings and images,
+    // so nothing in the composer is locked to the terminal.
+    session_id: 'ses-codex-shared',
+    device_id: 'dev-mac',
+    title: 'Typecheck the web app',
+    cwd: '/Users/me/dev/remote-control/web',
+    agent: 'codex',
+    model: 'gpt-5.4-codex',
+    permission_mode: 'on-request',
+    effort: 'medium',
+    state: 'running',
+    state_detail: 'Typed in the terminal',
+    origin: 'terminal',
+    control: 'shared',
+    turn: { turn_id: 'codex-turn-live', started_at: minutes(1) },
+    usage: {
+      input_tokens: 14_980,
+      output_tokens: 1_740,
+      total_tokens: 16_720,
+      context_used: 19_300,
+      context_window: 272_000,
+    },
+    git: { branch: 'feat/settings-drawer', dirty: true, ahead: 2, behind: 0, worktree: false },
+    updated_at: minutes(1),
+  }),
+  session({
+    // A11: the daemon is not running on this device, so the hint asks for it.
+    session_id: 'ses-codex-terminal',
+    device_id: 'dev-ci',
+    title: 'Bisect the ingest regression',
+    cwd: '/home/ci/work/api',
+    agent: 'codex',
+    model: 'gpt-5.4-codex',
+    permission_mode: 'on-request',
+    effort: 'medium',
+    state: 'readonly',
+    origin: 'terminal',
+    control: 'terminal',
+    updated_at: minutes(6),
+  }),
+  session({
     // A10: the shim is not installed on this device, so the hint asks for it.
     session_id: 'ses-attach',
     device_id: 'dev-ci',
@@ -245,6 +304,10 @@ export function historyFor(sessionId: string): SessionEvent[] {
       return sharedHistory();
     case 'ses-attach':
       return attachHistory();
+    case 'ses-codex-shared':
+      return codexSharedHistory();
+    case 'ses-codex-terminal':
+      return codexTerminalHistory();
     case 'ses-otlp':
       return codexHistory();
     default:
@@ -401,6 +464,100 @@ function attachHistory(): SessionEvent[] {
       block_id: 'at-a1',
       done: true,
       text: 'Sweep finished. Two endpoints regressed by more than 5%.',
+    },
+  ];
+}
+
+/**
+ * A11: a Codex thread typed in the terminal that the device is attached to
+ * through the daemon. The last approval was answered in the TUI, so it resolved
+ * with the reserved `elsewhere` option id.
+ */
+function codexSharedHistory(): SessionEvent[] {
+  const base = minutes(4);
+  const options = [
+    { id: 'allow', label: 'Allow', style: 'primary' as const },
+    { id: 'allow_session', label: 'Allow for this session', style: 'secondary' as const },
+    { id: 'allow_always', label: 'Always allow commands like this', style: 'secondary' as const },
+    { id: 'deny', label: 'Deny', style: 'danger' as const },
+  ];
+  const approval = {
+    kind: 'approval' as const,
+    block_id: 'cs-ap0',
+    request_id: 'req-codex-history',
+    tool: 'shell',
+    tool_kind: 'shell' as const,
+    title: 'npm run lint',
+    input: {
+      command: "/bin/zsh -lc 'npm run lint'",
+      cwd: '/Users/me/dev/remote-control/web',
+      command_actions: [{ type: 'unknown', command: 'npm run lint' }],
+    },
+    options,
+  };
+  return [
+    {
+      seq: 1,
+      ts: base,
+      kind: 'user_message',
+      block_id: 'cs-u0',
+      source: 'terminal',
+      text: 'run the typecheck and fix whatever it reports',
+    },
+    { ...approval, seq: 2, ts: base + 1_200, status: 'pending' },
+    {
+      ...approval,
+      seq: 3,
+      ts: base + 6_800,
+      first_seq: 2,
+      status: 'resolved',
+      // A11 §5.7: the TUI answered first, so the device never decided.
+      decision: { option_id: 'elsewhere', by: 'terminal' },
+    },
+    {
+      seq: 4,
+      ts: base + 9_000,
+      kind: 'assistant_text',
+      block_id: 'cs-a0',
+      done: true,
+      text: 'Lint is clean. Running `tsc --noEmit` next — it is slower, so I will report the first batch of errors as they come.',
+    },
+    { seq: 5, ts: base + 9_200, kind: 'turn_started', turn_id: 'codex-turn-live', trigger: 'terminal' },
+    {
+      seq: 6,
+      ts: base + 12_000,
+      kind: 'tool_call',
+      block_id: 'cs-t0',
+      tool: 'shell',
+      tool_kind: 'shell',
+      title: 'npm run typecheck',
+      status: 'running',
+      started_at: base + 11_000,
+      input: { command: 'npm run typecheck' },
+      output: '> tsc --noEmit\n',
+    },
+  ];
+}
+
+/** A11: a Codex TUI on a device where the daemon socket is absent. */
+function codexTerminalHistory(): SessionEvent[] {
+  const base = minutes(6);
+  return [
+    {
+      seq: 1,
+      ts: base,
+      kind: 'user_message',
+      block_id: 'ct-u1',
+      source: 'terminal',
+      text: 'bisect the ingest latency regression between v1.3 and main',
+    },
+    {
+      seq: 2,
+      ts: base + 4_000,
+      kind: 'assistant_text',
+      block_id: 'ct-a1',
+      done: true,
+      text: 'The regression lands on `feat/batch-ingest`. I need the collector logs to narrow it further.',
     },
   ];
 }

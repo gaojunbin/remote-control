@@ -45,6 +45,10 @@ class ModelCatalog:
         supported = self.per_model_efforts.get(model or self.default_model or "")
         if not supported:
             supported = [choice.id for choice in self.efforts]
+        if not supported:
+            # No catalogue to clamp against: pass the choice through rather than
+            # silently dropping what the user picked.
+            return effort
         if effort in supported:
             return effort
         wanted = _rank(effort, default=len(EFFORT_ORDER) - 1)

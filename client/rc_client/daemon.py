@@ -9,7 +9,10 @@ import signal
 import socket
 from typing import Any
 
+from . import __version__
 from . import config as config_module
+from .agents.codex.daemon.service import CodexDaemonService
+from .agents.codex.runtime import resolve_binary as resolve_codex
 from .agents.discovery import detect_agents
 from .channel import paths as channel_paths
 from .channel.mcp_config import write_mcp_config
@@ -37,7 +40,9 @@ class Daemon:
         self.registry = Registry(config_module.database_path())
         self.agents: list[AgentInfo] = []
         self.hub = SessionHub(self.registry, self._publish, config.device_id, lambda: self.agents)
-        self.mirror = MirrorService(self.hub, config.mirror)
+        self.codex = CodexDaemonService(self.hub, __version__, self._codex_mode_changed)
+        self.hub.codex_daemon = self.codex
+        self.mirror = MirrorService(self.hub, config.mirror, codex_daemon=self.codex)
         self.attach = AttachServer(channel_paths.socket_path(), self.hub)
         self.link = GatewayLink(
             config.device_ws_url,
@@ -52,8 +57,9 @@ class Daemon:
 
     async def run(self) -> None:
         scrub_parent_secrets()
-        self.agents = await detect_agents()
         self.hub.load()
+        await self.codex.start(resolve_codex())
+        self.agents = await detect_agents(self.codex.ready)
         log.info(
             "device daemon starting",
             device=self.config.device_id,
@@ -105,6 +111,7 @@ class Daemon:
                 await self._refresh_task
             self._refresh_task = None
         await self.mirror.stop()
+        await self.codex.stop()
         await self.attach.stop()
         await self.hub.close()
         await self.link.stop()
@@ -114,7 +121,7 @@ class Daemon:
         while True:
             await asyncio.sleep(AGENT_REFRESH_INTERVAL)
             try:
-                agents = await detect_agents()
+                agents = await detect_agents(self.codex.ready)
             except Exception:
                 log.exception("agent re-detection failed")
                 continue
@@ -123,6 +130,13 @@ class Daemon:
                 await self._publish(
                     {"type": "agents.updated", "agents": [info.to_dict() for info in agents]}
                 )
+
+    async def _codex_mode_changed(self) -> None:
+        """The shared daemon appeared: apps learn about it through `agents.updated`."""
+        self.agents = await detect_agents(self.codex.ready)
+        await self._publish(
+            {"type": "agents.updated", "agents": [info.to_dict() for info in self.agents]}
+        )
 
     async def _publish(self, frame: dict[str, Any]) -> None:
         await self.link.send(frame)
@@ -179,5 +193,5 @@ class Daemon:
         return await git_info(path)
 
     async def _device_agents(self, params: dict[str, Any]) -> dict[str, Any]:
-        self.agents = await detect_agents()
+        self.agents = await detect_agents(self.codex.ready)
         return {"agents": [info.to_dict() for info in self.agents]}

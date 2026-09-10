@@ -14,6 +14,7 @@ from .. import attachments
 from ..agents.base import SessionRunner
 from ..agents.claude.adapter import ClaudeRunner
 from ..agents.codex.adapter import CodexRunner
+from ..agents.codex.daemon.service import CodexDaemonService
 from ..agents.codex.models import ModelCatalog, catalog_cache
 from ..errors import RcError
 from ..git import create_worktree, session_git, slugify
@@ -68,6 +69,9 @@ class SessionHub:
         self._agents = agents
         self.entries: dict[str, SessionEntry] = {}
         self.shared = SharedControl(self)
+        # Set by the daemon once the shared Codex app-server answers a handshake
+        # (amendment A11); absent means the per-session spawn path.
+        self.codex_daemon: CodexDaemonService | None = None
 
     # ------------------------------------------------------------- accessors
 
@@ -205,10 +209,10 @@ class SessionHub:
         session = entry.session
 
         async def on_turn_end() -> None:
-            await self._drain_queue(entry)
+            await self.drain_queue(entry)
 
         async def on_session_id(real_id: str) -> None:
-            await self._rekey(entry, real_id)
+            await self.rekey(entry, real_id)
 
         if info.agent == "claude":
             return ClaudeRunner(
@@ -224,6 +228,8 @@ class SessionHub:
                 on_session_id=on_session_id,
             )
         if info.agent == "codex":
+            if self.codex_daemon is not None and self.codex_daemon.ready:
+                return self.codex_daemon.session_for(entry, resume)
             if not info.path:
                 raise RcError("agent_unavailable", "codex is not installed on this device")
             catalog: ModelCatalog = await catalog_cache.get(info.path)
@@ -241,7 +247,7 @@ class SessionHub:
             )
         raise RcError("unsupported", f"no adapter for agent {info.agent}")
 
-    async def _rekey(self, entry: SessionEntry, real_id: str) -> None:
+    async def rekey(self, entry: SessionEntry, real_id: str) -> None:
         old_id = entry.session.session_id
         if old_id == real_id:
             return
@@ -346,7 +352,7 @@ class SessionHub:
         """The wire form of the queue: attachments stay on the device."""
         return [{"id": item["id"], "text": item["text"], "ts": item["ts"]} for item in entry.queue]
 
-    async def _drain_queue(self, entry: SessionEntry) -> None:
+    async def drain_queue(self, entry: SessionEntry) -> None:
         """Launch the oldest queued message once the agent goes idle."""
         async with entry.lock:
             item = self._take_queued(entry)
@@ -355,7 +361,7 @@ class SessionHub:
         await self._send_queued(entry, item)
 
     async def _drain_queue_locked(self, entry: SessionEntry) -> None:
-        """Same as `_drain_queue`, for callers that already hold the lock."""
+        """Same as `drain_queue`, for callers that already hold the lock."""
         item = self._take_queued(entry)
         if item is not None:
             await self._send_queued(entry, item)
@@ -394,21 +400,28 @@ class SessionHub:
         entry.runner = runner
         entry.session.control = "remote"
         await entry.channel.set_state("idle")
+        if self.codex_daemon is not None and entry.session.agent == "codex":
+            await self.codex_daemon.publish_control(entry)
         await entry.channel.notice("info", "resumed this session from its transcript")
 
     # -------------------------------------------------------------- controls
 
     async def stop(self, params: dict[str, Any]) -> dict[str, Any]:
         entry = self.entry(str(params.get("session_id") or ""))
-        if entry.shared is not None and not self._shared_interrupt(entry):
+        if self._is_shared(entry) and not self._agent_flag(entry, "shared_interrupt"):
             raise RcError("unsupported", "stop it in the terminal")
         if entry.runner is not None:
             await entry.runner.interrupt()
         return {}
 
-    def _shared_interrupt(self, entry: SessionEntry) -> bool:
+    @staticmethod
+    def _is_shared(entry: SessionEntry) -> bool:
+        """A session a live CLI owns and the device is attached to (A10 4.4)."""
+        return entry.shared is not None or entry.session.control == "shared"
+
+    def _agent_flag(self, entry: SessionEntry, name: str) -> bool:
         try:
-            return self.agent_info(entry.session.agent).shared_interrupt
+            return bool(getattr(self.agent_info(entry.session.agent), name))
         except RcError:
             return False
 
@@ -433,6 +446,7 @@ class SessionHub:
         entry = self.entry(str(params.get("session_id") or ""))
         if entry.shared is not None:
             raise RcError("unsupported", "answer the question in the terminal")
+
         if entry.runner is None:
             raise RcError("conflict", "the session is not running")
         answers = params.get("answers")
@@ -450,8 +464,10 @@ class SessionHub:
         permission_mode = params.get("permission_mode")
         effort = params.get("effort")
         title = params.get("title")
-        if entry.shared is not None and any(
-            value is not None for value in (model, permission_mode, effort)
+        if (
+            self._is_shared(entry)
+            and not self._agent_flag(entry, "shared_settings")
+            and any(value is not None for value in (model, permission_mode, effort))
         ):
             raise RcError("unsupported", "change it in the terminal")
         if entry.runner is not None:
@@ -519,7 +535,7 @@ class SessionHub:
         from ..agents.claude.holders import release_holder
 
         entry = self.entry(str(params.get("session_id") or ""))
-        if entry.shared is not None:
+        if self._is_shared(entry):
             raise RcError("conflict", "already attached")
         info = self.agent_info(entry.session.agent)
         if "takeover" not in info.capabilities:

@@ -27,7 +27,8 @@ about to download will run as a service, so the path has to be one nobody can si
 | `--pair RC-XXXX-XXXX` | The pairing code from the web UI. Required unless uninstalling |
 | `--name NAME` | The device name shown in the apps. Defaults to the hostname |
 | `--gateway ORIGIN` | Override the origin baked into the script |
-| `--manual` | Print the seven steps instead of running them, for a host without `curl` in the pipeline |
+| `--manual` | Print the steps instead of running them, for a host without `curl` in the pipeline |
+| `--no-codex` | Skip the shared Codex app-server daemon setup |
 | `--uninstall` | Stop and remove the service, keeping `~/.rc-client` |
 | `-h`, `--help` | Usage |
 
@@ -45,6 +46,7 @@ Pairing codes are single use and expire after ten minutes. If enrollment fails, 
 | `rc-client agents` | Print the detected agents as JSON |
 | `rc-client service install\|uninstall\|start\|stop\|status` | Manage the background service |
 | `rc-client shim install\|remove\|status [--no-shell-rc]` | Manage the `claude` shim that makes terminal sessions attachable |
+| `rc-client codex setup\|status [--no-install]` | Bring up and check the shared Codex app-server daemon that makes terminal Codex sessions attachable |
 | `rc-client channel` | The channel bridge Claude Code spawns; never run it by hand |
 | `rc-client uninstall [--purge] [--no-shell-rc]` | Remove the service and the shim, and with `--purge` the config, state and logs |
 
@@ -108,6 +110,7 @@ What each agent advertises:
 | Permission modes | `default` (Ask before edits), `acceptEdits` (Auto-accept edits), `plan` (Plan mode), `bypassPermissions` (Bypass permissions) | `untrusted` (Ask for everything), `on-request` (Ask when needed), `never` (Never ask) |
 | Efforts | `low`, `medium`, `high`, `xhigh`, `max` | Whatever the catalogue reports, clamped per model, from `minimal` to `ultra` |
 | Capabilities | `takeover`, `interrupt`, `queue`, `attachments`, `effort`, `history`, `worktree` | `interrupt`, `queue`, `steer`, `history`, `worktree`, `attachments`, `effort` |
+| Attachment | `attach: "channel"`, `attach_ready` from the shim, `shared_interrupt`, `shared_settings` and `shared_attachments` all false | `attach: "daemon"`, `attach_ready` from a real handshake on the daemon socket, `shared_interrupt`, `shared_settings` and `shared_attachments` all true |
 
 An agent that is not installed is reported with `available: false` rather than hidden, so the apps
 can say why a device offers only one agent.
@@ -161,8 +164,10 @@ input, using `lsof` on macOS to find the process holding the transcript:
 A `session.send` to a terminal-controlled session is refused with `conflict`. `session.takeover`
 works only for Claude, and only while the terminal session is idle: the daemon sends SIGTERM to the
 exact process it identified, confirms the release, and resumes the session itself. During a live
-terminal turn it refuses. Codex advertises no `takeover`, so quitting the CLI is the only way to
-release a Codex session.
+terminal turn it refuses. Codex advertises no `takeover` and needs none: a Codex session started as
+a bare `codex` is `shared` rather than `terminal`, and the apps drive it in place. Only a Codex
+started with configuration overrides falls back to `terminal`, and then quitting the CLI is the only
+way to release it.
 
 Two environment notes. A `claude` started from inside another Claude Code session inherits
 `CLAUDE_CODE_CHILD_SESSION`, which turns transcript saving off, and the transcript is the only thing
@@ -230,12 +235,14 @@ is, whether it is first on `PATH`, and which executable it wraps.
 
 ### What works and what does not
 
-| From the apps | On a `shared` session |
+This table is the Claude channel. Codex on the shared daemon does more; see the next section.
+
+| From the apps | On a `shared` Claude session |
 | --- | --- |
 | Send a message | Yes, injected at the next idle point |
 | Approve or deny a tool call | Yes, `allow` and `deny` only — the relay offers no session-scoped grant |
 | Answer a question | No, `unsupported`: answer it in the terminal |
-| Stop the turn | No, `unsupported`: a channel cannot interrupt. Codex will differ |
+| Stop the turn | No, `unsupported`: a channel cannot interrupt. Codex does |
 | Change model, permission mode or effort | No, `unsupported`: change it in the terminal |
 | Rename | Yes |
 | Take over | No, `conflict`: the session is already attached |
@@ -246,6 +253,101 @@ run or be refused in the transcript and closes the block with `decision.by: "ter
 reply from an app is a no-op. When the attachment drops, pending approvals become `expired`, and the
 session moves to `terminal` if the CLI process is still alive or to `none` if it exited. Messages
 still held in the queue stay there and go out through the ordinary resume path.
+
+## Codex on the shared daemon
+
+Codex 0.153 and later run **every bare `codex` TUI inside one local app-server daemon**, whose
+control socket is `$CODEX_HOME/app-server-control/app-server-control.sock`. The device connects to
+that socket as a second client, so a Codex session started in a terminal is `control: "shared"`
+rather than `control: "terminal"`, and the apps drive it in place: no take over, no SIGTERM, no lost
+sub-agents or background commands.
+
+A shared Codex session can do everything a remote one can, which is more than a Claude channel can:
+
+| From the apps | On a `shared` Codex session |
+| --- | --- |
+| Send a message | Yes. Idle starts a turn; during a turn `auto` steers it and `queue` holds the message until the turn ends |
+| Stop the turn | Yes, `turn/interrupt`, whoever started it |
+| Approve or deny a tool call | Yes, with whatever options the daemon offers for that prompt |
+| Answer a question | Yes |
+| Change model, permission mode or effort | Yes, `thread/settings/update` changes the thread for everyone attached to it |
+| Attachments | Yes. Images become image inputs; other files are written to disk and named in the prompt |
+| Take over | No, `conflict`: the session is already attached |
+
+### The one rule for users
+
+**Start Codex as a bare `codex`.** Any `-c`, `--enable`, `--disable` or
+`--dangerously-bypass-approvals-and-sandbox` on the command line makes the CLI spawn its own
+embedded app-server, which the daemon cannot see and the device cannot attach to. Such a session
+still appears in the apps, mirrored from its rollout file with `control: "terminal"`, because the
+rollout holder scan finds the process holding it. Anything you would have set with `-c` is set from
+the apps instead, through the model, permission-mode and effort pickers.
+
+### Setup
+
+`install.sh` runs `rc-client codex setup` unless you pass `--no-codex`. It is idempotent:
+
+1. Find a standalone Codex at `~/.codex/packages/standalone/current/bin/codex`. If none exists and
+   `~/.local/bin` is already on `PATH`, download `https://chatgpt.com/codex/install.sh` to a
+   temporary file, check that it really is a shell script, and run it with `CODEX_NON_INTERACTIVE=1`.
+   Otherwise print the two commands to run by hand and stop. The condition matters: Codex's own
+   installer rewrites a shell profile when its target directory is not on `PATH`, which would replace
+   a symlinked dotfile with a regular file.
+2. `codex app-server daemon bootstrap`, never `--remote-control`. Remote control enrols the machine
+   with OpenAI's relay, which this project does not use, and the device only ever logs the
+   `remoteControl/status/changed` it receives.
+3. Install supervision, because the bootstrap uses a pid backend and leaves none: a launchd agent
+   `dev.remote-control.codex-daemon` on macOS, a `rc-codex-daemon.service` systemd user unit on
+   Linux. `codex app-server daemon start` is idempotent and returns immediately, so both run it at
+   login and again every five minutes rather than trying to hold a process open. On Linux run
+   `loginctl enable-linger $USER` so it survives logging out.
+4. Verify with a real WebSocket handshake on the socket, not a file-exists check.
+
+`rc-client codex status` prints the binary, whether the socket is there, whether it answers, and the
+state of our supervision. `rc-client status` summarises the same thing in one line.
+`rc-client uninstall` removes our launchd agent or unit and leaves Codex, its daemon and its
+sessions completely alone.
+
+### How the device uses it
+
+One connection for the whole machine, opened at startup, identified as `remote-control` (the first
+client to connect names the daemon for every thread, so the name is deliberate). On top of it:
+
+- `thread/list` is the session history and `thread/loaded/list` the live threads. Threads marked
+  `ephemeral` are dropped: Codex spawns one per turn just to generate a title.
+- A loaded thread is subscribed with `thread/resume {excludeTurns: true}` and backfilled from
+  `thread/items/list`, so the block timeline comes from the daemon rather than from a rollout file.
+  Rollout mirroring stays only for the threads the daemon does not know about.
+- `origin` and `control` follow the table in PROTOCOL.md 4.4. `shared` is sticky while the thread
+  stays loaded, because the daemon says nothing at all when a TUI exits; an unloaded thread is
+  `none` and the next `session.send` resumes it.
+- A thread has no rollout until its first turn, so a thread the terminal just created cannot be
+  resumed yet. It is still `shared` and `turn/start` still works on it; the subscription is taken the
+  moment the first turn creates the rollout. The same applies in reverse: a thread created from an
+  app can only be reopened with `codex resume <id>` **after** its first turn.
+- Approvals arrive as JSON-RPC requests that fan out to every subscriber. The options come from the
+  daemon's own `availableDecisions` for that prompt, mapped onto `allow`, `allow_session`,
+  `allow_always` and `deny`. Whoever answers first wins; when somebody else answers,
+  `serverRequest/resolved` closes our block with `decision: {option_id: "elsewhere", by: "terminal"}`
+  and our late reply is discarded silently.
+- The connection reconnects with backoff. On every reconnect each followed thread is resumed again
+  and backfilled from the last item we published, so a daemon restart loses nothing.
+
+### When there is no daemon
+
+If the socket is missing or does not answer, the device falls back to today's behaviour: one
+`codex app-server` process per session, spawned by the device, with terminal sessions mirrored from
+their rollout files. The agent still reports `attach: "daemon"` but with `attach_ready: false`, which
+is what the apps' hint text is for. The socket is re-probed on the ordinary ten-second scan, so
+bootstrapping the daemon later switches the mode without restarting the device; sessions already
+discovered keep the runner they have until they are next resumed.
+
+### `RC_CODEX_THREAD_CONFIG`
+
+An optional JSON object merged into the `config` of threads **this device starts**, applied by Codex
+to the thread wherever it is later resumed, including in a terminal. It is never sent on a thread
+somebody else created. It exists because some settings have no wire equivalent; leave it unset unless
+you know you need it.
 
 ## Attachments
 
@@ -351,10 +453,10 @@ the Codex home the daemon reads.
 ## Known limitations
 
 - Linux has never been run: neither the systemd unit nor `service install`.
-- Codex sessions cannot be taken over, by design.
+- Codex sessions cannot be taken over, by design: on the shared daemon they are attached instead.
 - A successful `session.takeover` has not been exercised end to end; the refusal path has.
-- Codex approvals, `todos` events and attachments were all unit-tested but never driven through a
-  live agent. See `docs/VALIDATION.md` and `docs/VALIDATION-APPS.md`.
+- `todos` events were unit-tested but never driven through a live agent. See `docs/VALIDATION.md`
+  and `docs/VALIDATION-APPS.md`.
 - Claude approvals were answered live with Allow and with Deny, both on a `Write`. The
   session-scoped grant (`allow_session`) and an approval for a command have not been answered end to
   end, so nothing has confirmed that a second tool call runs unattended after a session grant.
@@ -365,7 +467,15 @@ the Codex home the daemon reads.
 - The process scan runs about every ten seconds, so a very short terminal session can finish before
   the mirror sees the CLI holding it and appears directly as `control: "none"`. Only the live-control
   window is missed, never the timeline.
-- Attaching is Claude only. Codex reports `attach: null` until its shared app-server lands.
+- The Codex daemon path is macOS only so far. The systemd unit that supervises it renders and is
+  unit-tested, but has never been enabled on a real Linux machine.
+- A Codex thread created from an app cannot be reopened with `codex resume` until its first turn
+  exists, because the rollout the CLI resumes from is written when a turn starts.
+- Nothing tells the device that a Codex TUI has exited, so a thread stays `shared` until the daemon
+  unloads it. Nothing observed unloads a thread short of restarting the daemon.
+- The Codex daemon's originator and user agent are set globally by whichever client connects first
+  and are then stamped on every thread. Where the device connects first, threads a person starts in
+  a terminal are labelled `remote-control` inside Codex's own records.
 - A session that is attached before its first turn has no transcript, so after a daemon restart it
   is invisible to the scan that promotes a live CLI to `control: "terminal"`. It has no content
   either; the next turn creates the transcript and the session appears normally.

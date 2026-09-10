@@ -7,9 +7,9 @@ on this Mac, and the real `claude` and `codex` CLIs.
 `docs/VALIDATION.md` covers the gateway and the device daemon and is the companion to this file.
 Nothing here re-tests the backend for its own sake; the backend is the fixture the apps run against.
 
-Section 3 is a later pass, added when amendment A10 landed. It was driven against the web mock
-gateway and the iOS demo rather than a live device, and says so; the live proof for A10 is section 6
-of `docs/VALIDATION.md`.
+Sections 3 and 4 are later passes, added when amendments A10 and A11 landed. Both were driven against
+the web mock gateway and the iOS demo rather than a live device, and say so; the live proof for A10 is
+section 6 of `docs/VALIDATION.md`, and for A11 its "Codex on the shared daemon" section.
 
 ## Environment
 
@@ -82,7 +82,7 @@ which Chrome logs itself and which is the correct response to an unauthenticated
 | Sign out | Returns to the login screen | — |
 | Mobile | At 390 px the sidebar collapses, the chat has a back button, and the page has no horizontal overflow (0 px) | `web-33-mobile-sessions.png`, `web-34-mobile-chat.png` |
 
-Checks after the change in section 4:
+Checks after the change in section 5:
 
 ```
 cd web && npm run typecheck && npm run lint && npm test -- --run && npm run build
@@ -127,7 +127,7 @@ The message the app sent is on the device, not only on the screen:
 {"seq": 85, "kind": "assistant_text", "text": "DONE", "done": true, "first_seq": 83}
 ```
 
-Other iOS checks, all green after the change in section 4:
+Other iOS checks, all green after the change in section 5:
 
 | Command | Result |
 | --- | --- |
@@ -238,7 +238,87 @@ Screenshots, under the run scratch directory `…/scratchpad/ios-attach/screens/
 Not verified on iOS: nothing was driven against a real attached session, only the demo; and the
 delivery chips were asserted by accessibility label rather than by pixels.
 
-## 4. Defects found in the apps, and fixed
+## 4. Shared Codex sessions (A11) in the apps
+
+Amendment A11 landed after section 3. It gives a shared session two more optional agent booleans,
+`shared_settings` and `shared_attachments`, and it gives Codex an attachment that carries far more
+than the Claude channel does. Like section 3, this pass was driven against the web mock gateway and
+the iOS demo rather than a live device, because the apps' side of A11 is entirely a matter of reading
+those booleans and rendering what arrives.
+
+The live proof that the two ends agree is on the device side, in section 7 of
+`docs/VALIDATION.md`, where a scripted app drove a real bare `codex` TUI through the shared daemon.
+Neither a browser nor a phone has typed into one.
+
+Both apps read the booleans off `AgentInfo` and branch on nothing else. No surface in either app asks
+which agent it is looking at.
+
+### Web
+
+The mock gateway gained two Codex agents and two Codex sessions so both shapes exist side by side: a
+device whose Codex reports `attach: "daemon"` with `attach_ready: true` and all three booleans true,
+and a device whose Codex has no daemon running and reports `attach_ready: false`.
+
+What the app does:
+
+- The model, permission-mode and effort pickers are enabled on a `shared` session when the agent
+  reports `shared_settings`, and the attachment button when it reports `shared_attachments`. Each
+  keeps its own tooltip when the boolean is false.
+- The attached bar names only what the attachment cannot do. With both booleans true nothing is left
+  to the terminal alone, so it reads "Attached to the terminal".
+- A block resolved with `{option_id: "elsewhere", by: "terminal"}` reads **"Answered in the
+  terminal"** rather than falling back to the raw option id, and `elsewhere` is never offered as a
+  button.
+- A four-option approval — Allow, Allow for this session, Always allow commands like this, Deny —
+  renders in the order the block gives, with `primary` and `danger` placed as always, and wraps
+  inside the card at 390 px.
+- All three send modes were driven on a running shared Codex turn: `auto` came back
+  `accepted: "steered"`, `queue` came back `accepted: "queued"` with the message held, and
+  `interrupt` ended the terminal's turn before starting its own. Stop and "Interrupt & send" are both
+  gated on capability `interrupt` together with `shared_interrupt`.
+- A `terminal` Codex session on the no-daemon device shows the daemon hint rather than the shim one.
+
+| Check | Result |
+| --- | --- |
+| `npm run typecheck && npm run lint && npm test -- --run && npm run build` | tsc clean, eslint clean, 173 vitest tests passed |
+| Headless-Chrome pass over the mock | 39 checks, all passed |
+
+Screenshots `a11-01` through `a11-10` are run artefacts under the session scratch directory
+`…/scratchpad/web-codex/shots/`. They are not checked into the repository.
+
+### iOS
+
+The demo gateway gained a Codex agent behind a running daemon and one with no daemon, so the
+composer's hint has a home in both states. `DemoGateway` routes a send by the attachment's own
+capabilities rather than by agent name, and refuses an `option_id` the block never offered with
+`bad_request`, which is what keeps the app honest about never sending `elsewhere`.
+
+What the app does:
+
+- `ChatStore.allowsSettingsChanges` and `allowsAttachments` come straight from the two booleans, and
+  they drive the chips, the attachment button and the session settings sheet alike.
+- The composer status line shrinks as the attachment grows: "Attached to the terminal · settings and
+  attachments are changed there", then one clause, then just "Attached to the terminal".
+- `ChatStore.steersRunningTurn` decides both the status line and the placeholder, so a running shared
+  Codex turn reads "your message will steer the turn" while Claude keeps "will be queued".
+- `ApprovalPayload.resolvedOptionLabel` returns nil for `elsewhere`, so the card reads "answered in
+  the terminal" with no option named, and renders any other unrecognised id verbatim rather than
+  blanking the card.
+
+| Command | Result |
+| --- | --- |
+| `swift test` | 88 tests passed |
+| `swift run RCVerify` | PASS, 822 checks against the real `protocol/fixtures`, 137 fixtures |
+| `swift run RCUIVerify` | PASS, 68 UI checks |
+| `xcodegen generate` then `xcodebuild … -destination 'generic/platform=iOS Simulator' build` | BUILD SUCCEEDED |
+| UI tests on the iPhone 17 simulator | 10 executed, 0 failures, 4 real-gateway tests skipped |
+
+Screenshot: `12-codex-shared.png`, under the run scratch directory `…/scratchpad/ios-codex/shots/`.
+
+Not verified in this pass, on either app: nothing was driven against a real Codex daemon or a real
+`codex` TUI, and no attachment was actually delivered into a live thread.
+
+## 5. Defects found in the apps, and fixed
 
 ### iOS — signing in was forgotten again as soon as the app was backgrounded
 
@@ -277,7 +357,7 @@ renders the login screen for every path, so no protected page mounts and no auth
 goes out. Test: "never issues an authenticated request while signed out", which fails on the old
 router with `['/api/session', '/api/sessions']`.
 
-## 5. Defects found in other components, reported and since fixed
+## 6. Defects found in other components, reported and since fixed
 
 `gateway/`, `client/` and `protocol/` belong to other owners, so these were reproduced and reported
 rather than fixed here. The client owner fixed all four; each entry below records the original
@@ -380,7 +460,7 @@ in `config.toml`. Re-verified on a fresh enrolment: **95** sessions, 50 Claude a
 101 unbounded before. The bound is per agent, so the worst case on a busy machine is 50 times the
 number of installed agents rather than the whole history.
 
-## 6. Observations, not defects
+## 7. Observations, not defects
 
 - `strings.status.idle`, `strings.chat.outputTruncated` and `strings.chat.inputTruncated` are in the
   web catalog but never rendered: idle shows no status line by design, and a truncated block shows
@@ -392,7 +472,7 @@ number of installed agents rather than the whole history.
   immediately after a gateway restart, both signed out instantly. Recorded, not explained.
 - `ENGINE-FACTS.md` records Claude Code 2.1.266; this machine now runs 2.1.267.
 
-## 7. Not verified
+## 8. Not verified
 
 - **`allow_session`, the middle approval option.** Allow and Deny were both driven end to end; the
   session-scoped grant was never chosen, so nothing checked that a second write goes through
@@ -403,17 +483,21 @@ number of installed agents rather than the whole history.
 - **Attachments** on either app, **Web Push** and **APNs** delivery, and **speech to text** on either
   app: the gateway ran with `STT_PROVIDER=none` and no `WEB_PUSH_CONTACT`, so the mic is hidden on
   web by design and nothing exercised `/ws/stt`.
-- **iOS keychain restore**, for the signing reason in section 4.
+- **iOS keychain restore**, for the signing reason in section 5.
 - **`session.takeover` from an app.** The read-only state was verified; taking over needs an idle
   terminal session, which this run never held.
 - **iOS on a physical device**, dark mode, VoiceOver, and any iOS flow beyond the four tests above:
   new session, add device, directory picker, voice and push were exercised only by the offline demo
   suite the iOS owner wrote.
 - **`session.delete`** has no entry point in either app.
-- **Attached sessions against a real device.** Both apps were driven against fixtures for A10: the
-  web mock gateway and the iOS demo. The live proof that the two ends agree is on the device side,
-  in section 6 of `docs/VALIDATION.md`, where a scripted app drove a real attached CLI. No browser
-  and no phone has yet typed into one.
+- **Attached sessions against a real device.** Both apps were driven against fixtures for A10 and
+  A11: the web mock gateway and the iOS demo. The live proof that the two ends agree is on the device
+  side, in section 6 of `docs/VALIDATION.md`, where a scripted app drove a real attached CLI. No
+  browser and no phone has yet typed into one.
+- **A shared Codex session against a real daemon.** Section 4 exercised every A11 surface against
+  mock and demo data. Nothing in either app has spoken to a real `codex` app-server daemon, so the
+  four-option approval, the steered send and the "answered in the terminal" card have not been seen
+  end to end from a browser or a phone.
 
 ## Smoke procedure
 
@@ -439,4 +523,9 @@ About ten minutes, four short agent turns.
    a message sent during the terminal's turn showing "waiting for the terminal" and then clearing.
    Open the `terminal` session and confirm the attach hint. On iOS, run the app with `--demo` and
    check the same two sessions.
-9. Stop the daemon and the gateway. Delete the scratch `DATA_DIR` and `RC_CLIENT_HOME`.
+9. Shared Codex (A11), in the same mock and demo: open the Codex session on the device whose daemon
+   is running and confirm the pickers and the attachment button are live, the bar reads "Attached to
+   the terminal", Stop is offered, a send during the running turn steers it, the four-option approval
+   renders all four, and the card the terminal answered reads "Answered in the terminal". Open the
+   Codex session on the device with no daemon and confirm the daemon hint.
+10. Stop the daemon and the gateway. Delete the scratch `DATA_DIR` and `RC_CLIENT_HOME`.

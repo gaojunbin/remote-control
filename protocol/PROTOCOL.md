@@ -28,7 +28,7 @@ contract; a component that finds a gap reports it instead of deviating.
 - Protocol version is `1`. Every `hello` carries `protocol: 1`; a mismatch is a hard error with code
   `unsupported`.
 
-The contract carries four orchestrator amendments, listed with their wording in section 11.
+The contract carries eleven orchestrator amendments, listed with their wording in section 11.
 Section 5 uses the amended field names throughout.
 
 ---
@@ -521,16 +521,28 @@ The agent and option arrays are shortened here; the fixture holds the full objec
 | `default_effort` | string \| null | yes | |
 | `capabilities` | string[] | yes | Subset of `worktree`, `takeover`, `interrupt`, `queue`, `steer`, `attachments`, `effort`, `history` |
 | `attach` | `channel` \| `daemon` \| null | no | How this agent's terminal sessions can be attached. `channel` is the Claude channel shim, `daemon` the Codex shared app-server. Null or absent means terminal sessions can only be taken over or resumed. |
-| `attach_ready` | boolean | no | Whether the device is prepared to attach: for Claude the `claude` shim is installed and on `PATH`, for Codex the shared daemon socket exists. Apps use it only to word the hint on a `terminal` session. |
+| `attach_ready` | boolean | no | Whether the device is prepared to attach: for Claude the `claude` shim is installed and on `PATH`, for Codex a handshake on the shared daemon socket succeeds. Apps use it only to word the hint on a `terminal` session. |
 | `shared_interrupt` | boolean | no | Whether the attachment can interrupt a running turn. `session.stop` on a `shared` session needs this **and** capability `interrupt`. False when absent. |
+| `shared_settings` | boolean | no | Whether `session.set` for `model`, `permission_mode` and `effort` works on a `shared` session. False when absent. |
+| `shared_attachments` | boolean | no | Whether `session.send` attachments are delivered on a `shared` session. False when absent. |
 
 Capabilities gate the UI. `steer` decides whether a message sent during a running turn is steered or
 queued; `takeover` decides whether a terminal-controlled session offers "Take over"; `history`
 decides whether the app can page backwards.
 
 `capabilities` is unchanged by the attachment fields. `takeover` keeps its meaning and applies to
-`control: "terminal"` only; `attach`, `attach_ready` and `shared_interrupt` describe
-`control: "shared"` instead (4.4).
+`control: "terminal"` only; `attach`, `attach_ready`, `shared_interrupt`, `shared_settings` and
+`shared_attachments` describe `control: "shared"` instead (4.4).
+
+The five attachment fields are the whole story an app needs: nothing in this protocol is specific to
+one agent's attachment mechanism. Claude reports `attach: "channel"` with `shared_interrupt`,
+`shared_settings` and `shared_attachments` all false, because a channel can neither interrupt a turn
+nor change settings nor carry bytes. Codex reports `attach: "daemon"`, `attach_ready` true once a
+WebSocket handshake on the shared daemon socket succeeds rather than merely because the socket file
+is there, and `shared_interrupt`, `shared_settings` and `shared_attachments` all true, because the
+shared app-server accepts interrupts, settings updates and image inputs from every attached client.
+`fixtures/objects/agent.claude-attach.json` and `fixtures/objects/agent.codex-daemon.json` are the
+two worked examples.
 
 ### 4.3 Permission-mode ids exposed by the device
 
@@ -580,6 +592,23 @@ Control moves `terminal → shared` when the attachment registers, `shared → t
 attachment drops while the CLI process is still alive, and `shared → none` when the CLI exits. Each
 transition travels the way every other `control` change does: a `meta` event carrying `control`
 (5.11), a `status` event when the state changes with it (5.10), and a republished session summary.
+
+#### `origin` and `control` for Codex threads on the shared daemon
+
+Codex runs every bare `codex` TUI inside one local app-server daemon, and the device attaches to
+that daemon as a second client. The device derives `origin` and `control` for a Codex thread like
+this.
+
+| Situation | `origin` | `control` |
+| --- | --- | --- |
+| The device created the thread and no message typed in a terminal has been seen on it | `remote` | `remote` |
+| The thread was already loaded in the daemon when the device found it, or any message on it was typed in a terminal | `terminal` when the device did not create the thread, otherwise unchanged | `shared` |
+| The thread is known from the daemon's history but is not loaded | unchanged | `none`, and the next `session.send` resumes it |
+| The rollout is held by a Codex process that is not the daemon, which is what a TUI started with configuration overrides does | `terminal` | `terminal`, because there is nothing to attach to |
+
+`shared` is sticky for Codex: the daemon reports nothing when a TUI exits, so the device keeps a
+thread `shared` until it is unloaded, and then reports `none`. Apps need no Codex-specific logic
+here; they read `control` and the agent's attachment fields (4.2) and nothing else.
 
 `fixtures/app/session.updated.json`
 
@@ -988,14 +1017,36 @@ options it is given and never assumes a specific id. Claude typically offers `al
 `style: "danger"` (reject), so a UI can place them consistently.
 
 On a `shared` session the device emits an `approval` block for every permission request the
-attachment relays. `options` are exactly
+attachment relays. Through a Claude channel `options` are exactly
 `[{id: "allow", label: "Allow", style: "primary"}, {id: "deny", label: "Deny", style: "danger"}]`,
-because session-scoped grants are not available through the relay. `input` carries
+because session-scoped grants are not available through that relay. `input` carries
 `{tool_name, description, input_preview}` as the relay supplies it, and `diff` is absent since the
 relay provides none. The dialog in the terminal stays open alongside the relayed request and
 whichever side answers first wins; when the terminal answers first the device resolves the block
 with `decision.by: "terminal"`. A pending approval becomes `expired` when the CLI exits or the
 attachment drops.
+
+Through the Codex shared daemon the options mirror what the daemon offers for that particular
+prompt, so a `shared` Codex approval carries up to four of them:
+
+| Option | Label | `style` |
+| --- | --- | --- |
+| `allow` | Allow | `primary` |
+| `allow_session` | Allow for this session | `secondary` |
+| `allow_always` | Always allow commands like this | `secondary` |
+| `deny` | Deny | `danger` |
+
+The device sends only the options the daemon lists for that request, and every set still contains one
+`primary` and one `danger` option. `input` carries `{command, cwd, command_actions}` for a command
+approval and the summary of the proposed change for a file approval; `diff` is present when the
+daemon supplies one. `request_id` is minted by the device, as it is for every relayed approval.
+
+The terminal and the device see the same Codex request and either can answer it, but the daemon does
+not say who answered or what they chose. When the device learns that a request it did not answer has
+been resolved, it resolves the block with `decision: {option_id: "elsewhere", by: "terminal"}`.
+`elsewhere` is an ordinary option id that never appears in `options`; an app renders it as "answered
+in the terminal" and never sends it back. `fixtures/events/approval.codex-shared-pending.json` and
+`fixtures/events/approval.codex-elsewhere.json` are the worked pair.
 
 `fixtures/events/approval.pending.json`
 
@@ -1846,11 +1897,46 @@ The result's `accepted` field reports what actually happened: `sent`, `queued` o
 | Request | Behaviour |
 | --- | --- |
 | `session.send` | Accepted whatever `mode` says; `steered` never applies. When the session is idle the device injects at once, replies `accepted: "sent"` and emits `user_message {delivery: "delivered"}`. When a turn is running, `auto` and `queue` alike, the device holds the message locally, replies `accepted: "queued"` with a `queued_id`, emits `user_message {delivery: "pending"}` **and** a `queue` event listing it, then injects it once the transcript shows the turn ended and replaces the block with `delivery: "delivered"`. `session.queue_remove` works on pending items. Attachments are refused with `unsupported` ("attachments cannot be delivered to a terminal session"). |
-| `session.approve` | Relays `allow` or `deny`. Any other `option_id` is `bad_request`. Replying to a request the terminal already answered is a no-op returning `{}`. |
+| `session.approve` | Relays the option the block offered. An `option_id` the block did not offer, `elsewhere` included, is `bad_request`. Replying to a request the terminal already answered is a no-op returning `{}`. |
 | `session.answer` | `unsupported`. Questions the CLI asks are answered in the terminal; the device mirrors the `question` block read-only. |
 | `session.stop` | `unsupported` unless the agent lists capability `interrupt` **and** reports `shared_interrupt: true`. Message: "stop it in the terminal". |
 | `session.set` | `unsupported` for `model`, `permission_mode` and `effort` ("change it in the terminal"). `title` works. |
 | `session.takeover` | `conflict` ("already attached"). |
+
+The table above describes what an attachment can do at its narrowest, which is what a Claude channel
+can do. An agent whose attachment can do more says so in its `AgentInfo` (4.2), and the rows below
+replace the ones they name for a `shared` Codex session on the daemon.
+
+| Request | Behaviour |
+| --- | --- |
+| `session.send` | Every `mode` behaves as it does on a `remote` session. Idle: the device starts the turn and replies `accepted: "sent"`. Running under `mode: "auto"`: the device steers the running turn and replies `accepted: "steered"`, because Codex has capability `steer`. Running under `mode: "queue"`: the device holds the message, replies `accepted: "queued"` with a `queued_id`, emits `user_message {delivery: "pending"}` and a `queue` event, and starts the turn once the running one completes. `mode: "interrupt"` interrupts and then sends. Attachments are delivered, because `shared_attachments` is true. |
+| `session.stop` | Interrupts the running turn, because `shared_interrupt` is true. |
+| `session.set` | `model`, `permission_mode` and `effort` reach the daemon and change the thread for everyone attached to it, because `shared_settings` is true; `title` stays device-local as always. |
+| `session.answer` | Supported. The daemon relays questions asked of the thread and accepts the answer from whichever client replies. |
+
+`session.takeover` is still `conflict`, and every rule of 5.1 through 5.13 applies to a shared Codex
+session exactly as it does to a remote one.
+
+#### How the device attaches to the Codex daemon
+
+Normative for the device and invisible to apps.
+
+- The device opens one connection to the shared daemon at startup and identifies itself by name, so
+  the daemon and its other clients can tell our traffic apart.
+- It subscribes to a thread lazily, when an app subscribes to the session or the daemon reports the
+  thread loaded, and backfills the thread's history from the daemon rather than from the rollout
+  file. Threads the daemon marks ephemeral are never surfaced as sessions.
+- It reconnects with backoff, and on every reconnect re-subscribes to each thread it was following
+  and backfills from the last item it saw, so no event is lost across a daemon restart.
+- A Codex thread has no rollout until its first turn starts, and resuming a thread without one
+  fails. The device therefore cannot subscribe to a thread the terminal has only just created. It
+  still reports the session `shared`, `turn/start` works on it, and the device subscribes the moment
+  the first turn creates the rollout. The same gap runs the other way: a thread created from an app
+  can be reopened in a terminal with `codex resume <id>` only after its first turn.
+- With no daemon socket present the device falls back to running one Codex app-server per session.
+  It keeps reporting `attach: "daemon"` with `attach_ready: false`, terminal Codex sessions stay
+  `control: "terminal"`, and the apps' existing hint for an agent with `attach` set already says the
+  right thing.
 
 `fixtures/app/session.create.json`
 
@@ -2504,13 +2590,20 @@ by `block_id` like any other.
     approvals, queue and user-message rows as a remote session. Never offer "Take over" on it, and
     show Stop only when the agent has capability `interrupt` and reports `shared_interrupt: true`.
     Render `delivery: "pending"` as a quiet "waiting for the terminal" chip on the bubble and
-    `delivery: "absorbed"` as "will be re-sent".
+    `delivery: "absorbed"` as "will be re-sent". Enable the model, permission-mode and effort
+    pickers on a `shared` session when the agent reports `shared_settings: true`, and the
+    attachment button when it reports `shared_attachments: true`. When both are true the composer
+    status line says only that the session is attached to the terminal, with nothing disabled.
 11. **Hint how to attach.** On a `terminal` session whose agent has `attach` set, the take-over bar
     may carry one line about the attachment: with `attach_ready: false`, that the terminal must be
     started through the device's shim (Claude) or with the shared daemon running (Codex); with
     `attach_ready: true`, that the running CLI was started without the attachment.
 12. **Label `shared` as "terminal · attached"** in the status line, and give it the same dot colour
     as `remote` in the session list.
+13. **Render whatever `options` an approval carries**, in the order they arrive, and read the
+    resolution from `decision`. A block resolved with `option_id: "elsewhere"` and `by: "terminal"`
+    was answered on the other side of a shared session and reads as "answered in the terminal"; an
+    app never offers `elsewhere` as a button and never sends it back.
 
 ---
 
@@ -2575,9 +2668,19 @@ by `block_id` like any other.
 - [ ] On a `shared` session injects only while the transcript is idle, holds everything else as
       `user_message {delivery: "pending"}` with a matching `queue` event, and replaces the block
       with `delivery: "delivered"` once it is injected.
-- [ ] Offers exactly `allow` and `deny` on a relayed approval, resolves it with
-      `decision.by: "terminal"` when the terminal answered first, and expires it when the CLI exits
-      or the attachment drops.
+- [ ] Offers exactly `allow` and `deny` on an approval relayed through a Claude channel, offers the
+      options the Codex daemon lists for that request, resolves either with `decision.by: "terminal"`
+      when the terminal answered first, and expires it when the CLI exits or the attachment drops.
+- [ ] Reports `shared_settings` and `shared_attachments` truthfully per agent, and honours them:
+      `session.set` and `session.send` attachments succeed on a `shared` session exactly when the
+      matching flag is true and are refused with `unsupported` when it is false.
+- [ ] Sets `attach_ready` for Codex from a successful handshake on the shared daemon socket, not
+      from the socket file existing, and falls back to a per-session app-server with
+      `attach_ready: false` when there is no daemon.
+- [ ] Derives Codex `origin` and `control` as 4.4 describes, keeps a thread `shared` until it is
+      unloaded, and reports `terminal` for a rollout held by a Codex process that is not the daemon.
+- [ ] Resolves a Codex approval it did not answer with `decision: {option_id: "elsewhere",
+      by: "terminal"}`.
 
 ### 9.3 App
 
@@ -2594,6 +2697,11 @@ by `block_id` like any other.
 - [ ] Treats `control: "shared"` like `remote` for the composer, approvals and queue, never offers
       "Take over" on it, and shows Stop only when the agent has capability `interrupt` **and**
       reports `shared_interrupt: true`.
+- [ ] Enables the model, permission-mode and effort pickers on a `shared` session only when the
+      agent reports `shared_settings: true`, and the attachment button only when it reports
+      `shared_attachments: true`.
+- [ ] Renders a `decision` of `option_id: "elsewhere"` with `by: "terminal"` as answered in the
+      terminal, and never offers `elsewhere` as a button.
 - [ ] Renders `user_message.delivery` rather than assuming every message reached the agent.
 - [ ] Stops reconnecting on close code 4401, clears the stored credential and returns to login;
       reconnects with backoff on any code other than 4401 and 4403.
@@ -2611,7 +2719,7 @@ by `block_id` like any other.
 | `fixtures/device/` | One frame per device-socket type |
 | `fixtures/device/forwarded/` | All fifteen forwarded requests as the device receives them, plus the A9 backfill variant |
 | `fixtures/events/` | One event per kind, and one `tool_call` per `tool_kind` |
-| `fixtures/objects/` | Bare `Session` and `AgentInfo` objects that no frame fixture carries |
+| `fixtures/objects/` | Bare `Session` and `AgentInfo` objects that no frame fixture carries, including the two attachable agents and the shared sessions |
 | `fixtures/http/` | One body per HTTP request and response |
 | `fixtures/stt/` | The five speech-to-text text frames |
 | `fixtures/timelines/claude.json` | A complete Claude Code turn, 41 events |
@@ -2702,3 +2810,26 @@ accepts only `title`. `session.send`
 keeps the existing result vocabulary: `accepted: "sent"` when the message is injected straight away,
 `accepted: "queued"` with a `queued_id` when it is held. `readonly` stays reserved for
 `control == "terminal"` (A7). See 4.2, 4.4, 4.5, 5.2, 5.7, 6.3, 8.10 and 9.
+
+**2026-09-10 A11 — Codex through the shared app-server daemon.** Codex runs every bare `codex` TUI
+inside one local app-server daemon, and the device attaches to it as a second client, so a Codex
+`shared` session can do more than a Claude one. `AgentInfo` gains two more optional booleans,
+`shared_settings` (whether `session.set` for `model`, `permission_mode` and `effort` works on a
+`shared` session) and `shared_attachments` (whether `session.send` attachments are delivered);
+both default to false and both are false for Claude. Codex reports `attach: "daemon"`,
+`attach_ready` from a successful handshake on the daemon socket rather than from the socket file
+existing, and `shared_interrupt`, `shared_settings` and `shared_attachments` all true, with
+`capabilities` unchanged. On a shared Codex session `session.send` behaves as it does on a remote
+one, including `accepted: "steered"` and attachments, `session.stop` interrupts, `session.set`
+reaches the daemon, and `session.answer` is supported; `session.takeover` is still `conflict`. A
+relayed Codex approval offers the daemon's own options, drawn from `allow`, `allow_session`,
+`allow_always` and `deny`, carries `{command, cwd, command_actions}` as its `input` for a command and
+a `diff` when the daemon supplies one; when the request is resolved somewhere else the block ends as
+`decision: {option_id: "elsewhere", by: "terminal"}`. A Codex thread has no rollout until its first
+turn starts, so the device cannot subscribe to a freshly created thread and subscribes when that
+turn creates the rollout, while a thread created from an app is reopenable with `codex resume <id>`
+only after its first turn. A10's "exactly allow and deny" applies to
+Claude channels only, and `session.approve` rejects any `option_id` the block did not offer. `origin`
+and `control` for a Codex thread follow the table in 4.4, where `shared` is sticky because the daemon
+says nothing when a TUI exits. Apps stay agent-agnostic: they read the five attachment fields.
+See 4.2, 4.4, 5.7, 6.3, 8.10, 8.13 and 9.

@@ -174,7 +174,7 @@ and a session attached before its first turn never being re-checked for ownershi
 
 - **`--permission-mode acceptEdits` and `bypassPermissions`.** Only `default` was driven. Those modes
   relay fewer permission prompts or none; nothing here confirms what the relay does under them.
-- **Codex.** `attach: null` until its shared app-server integration is built.
+- **Codex.** Attaching Codex is a different mechanism and has its own pass; see section 7.
 - **Linux.** The shim, the shell-rc block and the socket paths were exercised on macOS only.
 - **A message still pending when the attachment drops.** Queue survival is unit-tested; the later
   delivery through the ordinary resume path was not driven end to end.
@@ -190,7 +190,112 @@ It was restored with `launchctl bootstrap gui/<uid> ~/Library/LaunchAgents/dev.r
 and the plist was never deleted. Anyone repeating this must not run `uninstall` or `service remove`
 on a machine that carries a real installation, whatever `RC_CLIENT_HOME` says.
 
-## 7. Restart resilience
+## 7. Codex on the shared daemon (A11)
+
+Amendment A11 attaches the device to the local Codex app-server daemon, so a bare `codex` TUI is a
+`control: "shared"` session rather than a mirrored one. Run on 2026-09-11 against a real daemon
+(Codex CLI 0.154.0) and real `codex` TUIs driven under a pseudo-terminal, with a gateway from source
+on port 18787, a device in a scratch `RC_CLIENT_HOME`, and a scripted app on `WS /ws/app` recording
+every frame. This is the Codex counterpart to section 6, and the whole pass was re-run after the
+final refactor.
+
+Static checks with the A11 fixtures in place:
+
+| Command | Result |
+| --- | --- |
+| `cd protocol && uv run --with jsonschema python scripts/validate_fixtures.py` | pass, 137 fixtures, 24 negative cases, 0 problems |
+| `cd client && uv run ruff check . && uv run ruff format --check . && uv run mypy rc_client && uv run pytest -q` | pass, 393 tests, 3 skipped; ruff clean over 96 files, mypy clean over 94 |
+
+The new client tests are `tests/test_codex_daemon_rpc.py` (11, driven against a real in-process
+`AF_UNIX` WebSocket server rather than a mock transport), `tests/test_codex_daemon_sessions.py`
+(32 plus 3 skipped), `tests/test_codex_setup.py` (12), and four tests that decode the A11 fixtures.
+
+### Procedure
+
+```sh
+# 1. Gateway from source on a free port, scratch DATA_DIR
+cd gateway && RC_HOST=127.0.0.1 RC_PORT=18787 PUBLIC_ORIGIN=http://127.0.0.1:18787 \
+  RC_PASSWORD=… DATA_DIR=<scratch> uv run rc-gateway
+
+# 2. A device in a scratch home, with the shared Codex daemon up and supervised
+cd ../client && export RC_CLIENT_HOME=<scratch>
+uv run rc-client enroll --gateway http://127.0.0.1:18787 --pair RC-XXXX-XXXX
+uv run rc-client codex setup
+uv run rc-client run
+
+# 3. A bare codex in a scratch git repository, under a pseudo-terminal
+codex
+```
+
+The one thing a repeat of this pass must get right is the TUI: launch it as a bare `codex`, with no
+`-c`, `--enable`, `--disable` or `--dangerously-bypass-approvals-and-sandbox`, or it runs its own
+embedded app-server and never joins the daemon. Answer the project-trust prompt, then subscribe as
+an app on `WS /ws/app` to the session that appears.
+
+### Results
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| (a) A bare `codex` TUI appears as `origin: "terminal"`, `control: "shared"` | pass | the session arrived within seconds of the trust prompt being answered |
+| (b) Send while the thread is idle | pass | `accepted: "sent"`, `assistant_text` "BEE", `turn_completed` `completed`, and the TUI rendered both the injected message and the answer |
+| (c) Send during a terminal-started turn with `mode: "auto"` | pass | `accepted: "steered"`, carrying `expectedTurnId`, into a running `sleep 8` |
+| (d) `session.stop` on a turn the terminal started | pass | `turn_completed` with `stop_reason: "interrupted"` |
+| (e) An approval raised by a TUI command, answered three ways | pass | options `allow`, `allow_always`, `deny` — the daemon offered three for `touch`, and four where it lists `acceptForSession` — with `input {command, cwd, command_actions}` and `tool_kind: "shell"`. Allow resolved `{option_id: "allow", by: "remote"}` and the file was created; Deny left it absent; answering in the TUI first resolved the block `{option_id: "elsewhere", by: "terminal"}` and the app's late reply returned `{}` |
+| (f) `session.set` for `effort` | pass | the reply carried `effort: "low"` and a `meta` event followed |
+| (g) A thread created from the app reopens in the terminal | pass | `codex resume <id>` joined the same thread, and a later turn reached both sides |
+| (h) Restarting the device under a live shared thread | pass | the session came back as `origin: "terminal"`, `control: "shared"`, `session.history` replayed 5 events, a fresh send was answered, and the TUI stayed alive throughout |
+| (i) Setup and health reporting | pass | `rc-client codex status` reported a successful handshake and loaded supervision; `rc-client status` printed `codex daemon healthy (loaded)` |
+
+Evidence files are run artefacts under the session scratch directory
+`…/scratchpad/client-codex/`: `app-frames.jsonl`, `results-a-d.json`, `results-e-g.json`,
+`results-h.json`, `logs/tui-*.raw` and `device.log`. None is checked into the repository.
+
+One transport fact was found the hard way and is worth recording: the daemon **closes the connection
+when the client offers `permessage-deflate`**, so the WebSocket upgrade has to run with compression
+off. The device connects with `websockets.asyncio.client.unix_connect` to
+`$CODEX_HOME/app-server-control/app-server-control.sock` — overridable with
+`RC_CODEX_DAEMON_SOCKET` — identifies itself as `remote-control`, asks for `experimentalApi`, and
+dispatches every server request to a detached task so a slow approval cannot block the read loop.
+
+### Cleanup, and one side effect
+
+The scratch threads this pass created were removed with `codex delete --force`. Codex's own
+project-trust prompt appended a `[projects."…"]` block to `~/.codex/config.toml`; that was written by
+Codex, not by the device, and was left in place.
+
+### Not driven live by this pass
+
+- **`mode: "queue"` and `mode: "interrupt"` on a shared thread.** Both are ordinary hub paths — a
+  daemon session is an ordinary hub runner, so send, steer, queue, stop, set and answer reuse the
+  same code a remote session uses — and both are unit-tested, but neither was driven against the real
+  daemon here. `mode: "auto"` and `session.stop` were, in (c) and (d).
+- **`session.answer`.** Verified against the fake daemon only; no live thread asked a question.
+- **Attachments** on a shared Codex session.
+- **`session.set` for `model` and `permission_mode`.** Only `effort` was changed live.
+
+### Not covered by this pass
+
+- **Linux.** The systemd user unit is rendered and unit-tested but was never installed or run, and
+  `loginctl enable-linger` was never exercised.
+- **A daemon bootstrapped after the device started.** It affects only sessions created or discovered
+  afterwards; sessions already running keep the runner they have.
+- **Two clients starting a turn on the same thread at once.** What `~/.codex/thread-writer-locks/`
+  enforces across processes is untested.
+- **Thread eviction.** Nothing observed unloads a thread from the daemon, so the behaviour of a
+  daemon that has held threads for weeks is unknown. This is why `shared` is sticky: Codex emits no
+  signal when a TUI exits.
+- **The auto-updater swap.** Codex's `pid-update-loop` replaces the app-server on a new release;
+  what a connected client sees during that swap was never observed.
+- **`approvalsReviewer: "auto_review"`**, which could remove the approval burden entirely, was not
+  exercised.
+
+Two behaviours are by design rather than gaps. A TUI started with `-c`, `--enable`, `--disable` or
+`--dangerously-bypass-approvals-and-sandbox` runs its own private app-server and is mirrored
+read-only as `control: "terminal"`. And a Codex thread has no rollout until its first turn, so the
+device subscribes at that first turn, and a thread created from an app can be `codex resume`d only
+after it.
+
+## 8. Restart resilience
 
 | Step | Result |
 | --- | --- |
@@ -203,7 +308,7 @@ A `claude` child orphaned by killing the daemon can hold the transcript open for
 so a restarted daemon may briefly report a remote session as `control: "terminal"`. It self-corrects
 on the next scan; a client should not treat the first post-restart snapshot as final.
 
-## 8. Docker stack
+## 9. Docker stack
 
 The stack ships no reverse proxy. `docker-compose.yml` defines one non-profile service, `gateway`,
 published on `GATEWAY_BIND:GATEWAY_PORT`; TLS and the public hostname belong to whatever proxy the
@@ -233,7 +338,7 @@ The earlier pass had driven the served installer, a pairing redemption and one l
 through the bundled proxy. That proxy no longer exists and those rows were **not** repeated against
 the published port, so they are not claimed here.
 
-## 9. Amendments and device isolation
+## 10. Amendments and device isolation
 
 Every item below was exercised against a live gateway and daemon on the final tree, not only by
 unit test. A second device was enrolled so one device could try to touch the other's session.
@@ -323,7 +428,7 @@ The current gateway was started against a `DATA_DIR` created earlier in this ses
 A token issued before a gateway restart still authenticated afterwards (200), and `POST /api/logout`
 still revoked it (subsequent request 401). A restart no longer signs every client out.
 
-## 10. Defects found and fixed
+## 11. Defects found and fixed
 
 Cross-component defects found by this pass. Each was fixed in the component that violates the
 contract, with a test. Two further defects found late in the run were handed to the component owners
@@ -386,7 +491,7 @@ Two further hardening changes:
    The script also downloads the wheel with `curl -O -J` and installs the saved file, because of
    defect 2. Test: `test_the_served_install_script_accepts_its_own_origin`.
 
-## 11. Not verified
+## 12. Not verified
 
 - **Codex approvals, live.** This machine's `~/.codex/config.toml` sets `sandbox_mode =
   workspace-write` with network access enabled and trusts `/Users/junbingao`, so writes under the
@@ -415,20 +520,23 @@ Two further hardening changes:
   was not started.
 - **Push delivery.** `/api/push/web/vapid` returns 503 without `WEB_PUSH_CONTACT`; no Web Push or
   APNs message was delivered to a real endpoint.
-- **Linux.** Only macOS was exercised; the systemd unit and `service install` were never run.
+- **Linux.** Only macOS was exercised; the systemd unit, `service install` and the Codex daemon's
+  own systemd user unit were never run.
+- **The Codex daemon's corners.** Concurrent turns from the TUI and the device, thread eviction,
+  reconnect replay and the auto-updater's app-server swap are all untested; section 7 lists them.
 - **`rc-client service install`.** Deliberately skipped so this machine gets no launchd agent.
 - **TLS and the reverse proxy.** Everything ran over plain HTTP on the published port. No proxy
   terminated TLS in front of the gateway, so HSTS, the Nginx Proxy Manager recipe in
   `docs/DEPLOY.md` and `TRUSTED_PROXIES` against a non-loopback proxy are untested end to end.
 
-## 12. Observations, not defects
+## 13. Observations, not defects
 
 - `HEAD` returns 405 on every route, including `/api/health` and `/dist/…`, because the routes are
   declared `GET`-only. `GET` is unaffected and the protocol requires no `HEAD`, but health checkers
   and CDNs often use it.
 - A request naming an unknown `device_id` is answered `device_offline` rather than `not_found`.
 - The `readonly` versus `running` question raised by this pass was settled by amendment A7 and the
-  device now matches it. Verified in section 9.
+  device now matches it. Verified in section 10.
 - `latency_ms` is `null` until the first ping round trip completes, about 25 s after a device
   connects.
 - A mirrored session reports `readonly` during a long *silent* tool call, because the mirror infers
@@ -504,3 +612,11 @@ Then, as an app on `WS /ws/app` with `Authorization: Bearer <token>`:
     `delivery: "delivered"`; send one during a turn and confirm `pending` then `delivered` under the
     same `block_id`; raise one approval and answer it from the app. Never run `rc-client uninstall`
     or `service remove` on a machine that carries a real installation.
+13. Shared Codex (A11): `rc-client codex setup` in the scratch home, confirm `rc-client codex status`
+    reports a successful handshake, then start a bare `codex` in a scratch git repository and answer
+    the trust prompt. The session must appear as `origin: "terminal"`, `control: "shared"`. Send one
+    message while it is idle, steer a running `sleep 8` with `mode: "auto"` and confirm
+    `accepted: "steered"`, `session.stop` a turn, change `effort` with `session.set`, and raise one
+    approval from a TUI command — answer it from the app once and in the TUI once, confirming the
+    second resolves as `{option_id: "elsewhere", by: "terminal"}`. Delete the scratch threads with
+    `codex delete --force` afterwards.

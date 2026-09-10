@@ -72,7 +72,9 @@ func run() async -> (passed: Int, failures: [String]) {
 
     // MARK: - Amendment A10 through the UI model
 
-    if let shared = model.connection.sessions.first(where: { $0.control == .shared }) {
+    if let shared = model.connection.sessions.first(where: {
+        $0.sessionID == DemoFixtures.sharedSessionID
+    }) {
         await model.open(shared)
         await settle { model.chat?.key == shared.id }
         guard let chat = model.chat else {
@@ -91,6 +93,30 @@ func run() async -> (passed: Int, failures: [String]) {
         await model.closeChat()
     } else {
         expect(false, "the demo has an attached session")
+    }
+
+    // MARK: - Amendment A11 through the UI model
+
+    if let codex = model.connection.sessions.first(where: {
+        $0.sessionID == DemoFixtures.codexSharedSessionID
+    }) {
+        await model.open(codex)
+        await settle { model.chat?.key == codex.id }
+        guard let chat = model.chat else {
+            expect(false, "the shared Codex thread opens")
+            return (passed, failures)
+        }
+        expect(chat.isAttached, "the daemon shares the thread with the terminal")
+        expect(chat.allowsSettingsChanges, "shared_settings reopens the model and effort pickers")
+        expect(chat.allowsAttachments, "shared_attachments reopens the attachment button")
+        expect(chat.canStop, "shared_interrupt offers Stop while the terminal's turn runs")
+        expect(!chat.canTakeover, "a shared thread is never taken over")
+        equal(chat.timeline.pendingRequest?.approval?.options.count, 4,
+              "the daemon's four decisions all reach the card")
+        expect(chat.steersRunningTurn, "and a message joins the running turn rather than queueing")
+        await model.closeChat()
+    } else {
+        expect(false, "the demo has a shared Codex thread")
     }
 
     if let hinted = model.connection.sessions.first(where: {

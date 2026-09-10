@@ -129,12 +129,12 @@ struct Composer: View {
         }
     }
 
-    /// On an attached session the picker is inert, because the relay has no way
-    /// to hand bytes to a live CLI. Reaching for it says so rather than
-    /// swallowing the tap.
+    /// On an attached session whose attachment cannot carry bytes the picker is
+    /// inert. Reaching for it says so rather than swallowing the tap. Amendment
+    /// A11: an attachment that does carry them keeps the ordinary menu.
     @ViewBuilder
     private var attachControl: some View {
-        if chat.isAttached {
+        if chat.isAttached, !chat.allowsAttachments {
             Button { blockedControl = .attachments } label: { attachLabel }
                 .buttonStyle(.plain)
                 .foregroundStyle(Theme.ink)
@@ -249,7 +249,19 @@ struct Composer: View {
         switch blockedControl {
         case .attachments: attachmentsOwnedByTerminal
         case .settings: settingsOwnedByTerminal
-        case nil: Text("Attached to the terminal · settings and attachments are changed there")
+        case nil: attachedLabel
+        }
+    }
+
+    /// Amendment A11: the line names only what this attachment cannot do. When
+    /// the device drives both settings and attachments there is nothing to hand
+    /// back, so it says where the conversation is and stops.
+    private var attachedLabel: Text {
+        switch (chat.allowsSettingsChanges, chat.allowsAttachments) {
+        case (true, true): Text("Attached to the terminal")
+        case (true, false): Text("Attached to the terminal · attachments are added there")
+        case (false, true): Text("Attached to the terminal · settings are changed there")
+        case (false, false): Text("Attached to the terminal · settings and attachments are changed there")
         }
     }
 
@@ -303,6 +315,9 @@ struct Composer: View {
     private var placeholder: String {
         if let reason = chat.sendBlockReason { return reason }
         guard chat.isRunning else { return "Message" }
+        // An agent that steers joins the running turn, whoever started it, so
+        // it never says the message is waiting for anything.
+        if chat.steersRunningTurn { return "Message · will steer the turn" }
         return chat.isAttached ? "Message · sent when the terminal is idle" : "Message · will be queued"
     }
 

@@ -180,7 +180,7 @@ async def test_send_while_running_queues_and_launches_at_the_turn_end(tmp_path: 
     assert snapshot["pending"][0]["text"] == "second"
 
     await runner.finish()
-    await hub._drain_queue(entry)
+    await hub.drain_queue(entry)
     assert runner.sent == ["first", "second"]
     assert runner.sources == ["remote", "queue"]
     triggers = [
@@ -437,7 +437,7 @@ async def test_rekeying_moves_the_session_to_the_agents_real_id(tmp_path: Path) 
     entry = SessionEntry(session=session, channel=SessionChannel(registry, session, hub.publish))
     hub.entries["pending-1"] = entry
 
-    await hub._rekey(entry, "real-1")
+    await hub.rekey(entry, "real-1")
     assert "pending-1" not in hub.entries
     assert hub.entries["real-1"].session.session_id == "real-1"
     assert {"type": "session.removed", "session_id": "pending-1"} in frames

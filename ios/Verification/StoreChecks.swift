@@ -172,7 +172,7 @@ enum StoreChecks {
         checks.expect(store.hasSnapshot, "the demo hello arrives")
         checks.equal(store.phase, .connected, "the store reports a connected phase")
         checks.equal(store.devices.count, 3, "hello populates the device list")
-        checks.equal(store.sessions.count, 6, "hello populates the session list")
+        checks.equal(store.sessions.count, 7, "hello populates the session list")
         checks.equal(store.inventorySummary, "3 devices · 1 waiting", "the inventory summary counts waiting sessions")
         checks.equal(store.onlineDevices.count, 2, "only the online devices are offered for a new session")
         checks.expect(store.device(DemoFixtures.macDeviceID)?.agent("claude")?.supports(.takeover) == true,
@@ -234,6 +234,7 @@ enum StoreChecks {
         checks.expect(!locked.canSend, "the composer is disabled while the terminal owns the session")
 
         await sharedSession(connection: connection, gateway: gateway, checks: checks)
+        await codexSharedSession(connection: connection, gateway: gateway, checks: checks)
 
         // Approvals send only the option ids the device supplied.
         guard let waiting = connection.sessions.first(where: { $0.state == .needsApproval }) else {
@@ -263,8 +264,10 @@ enum StoreChecks {
     @MainActor
     private static func sharedSession(connection: ConnectionStore, gateway: DemoGateway,
                                       checks: CheckRunner) async {
-        guard let session = connection.sessions.first(where: { $0.control == .shared }) else {
-            checks.expect(false, "the demo has an attached session")
+        guard let session = connection.sessions.first(where: {
+            $0.sessionID == DemoFixtures.sharedSessionID
+        }) else {
+            checks.expect(false, "the demo has an attached Claude session")
             return
         }
         let chat = ChatStore(session: session, channel: gateway)
@@ -313,11 +316,70 @@ enum StoreChecks {
         checks.expect(chat.timeline.pendingRequest == nil, "answering here resolves the relayed request")
     }
 
+    /// Amendment A11: the same session shape on an attachment that carries the
+    /// settings, the attachments and an interrupt. Nothing is dimmed, Stop is
+    /// offered, and `session.set` reaches the live thread.
+    @MainActor
+    private static func codexSharedSession(connection: ConnectionStore, gateway: DemoGateway,
+                                           checks: CheckRunner) async {
+        guard let session = connection.sessions.first(where: {
+            $0.sessionID == DemoFixtures.codexSharedSessionID
+        }) else {
+            checks.expect(false, "the demo has a shared Codex thread")
+            return
+        }
+        let chat = ChatStore(session: session, channel: gateway)
+        chat.agent = connection.device(session.deviceID)?.agent(session.agent)
+        connection.addFrameHandler("codex-shared") { [weak chat] frame in chat?.receive(frame) }
+        defer { connection.removeFrameHandler("codex-shared") }
+        await chat.open()
+        await settle { chat.timeline.entries.count >= 3 }
+
+        checks.expect(chat.isAttached, "the daemon shares the thread with the terminal")
+        checks.expect(chat.allowsSettingsChanges, "the pickers open because shared_settings is true")
+        checks.expect(chat.allowsAttachments, "and the attachment button because shared_attachments is")
+        checks.expect(chat.canStop, "a running shared thread offers Stop")
+        checks.expect(!chat.canTakeover, "and still never a takeover")
+
+        guard let approval = chat.timeline.pendingRequest?.approval else {
+            checks.expect(false, "the daemon's request is in the transcript")
+            return
+        }
+        checks.equal(approval.options.count, 4, "all four decisions are offered")
+        checks.equal(approval.otherOptions.count, 2, "two of them stack between primary and danger")
+
+        // Section 5's send modes: `auto` joins the running turn, `queue` waits.
+        chat.draft = "also check the drawer's tests"
+        await chat.send(mode: .auto)
+        checks.equal(chat.lastAcceptance, .steered, "auto steers a running shared thread")
+        chat.draft = "and then run the linter"
+        await chat.send(mode: .queue)
+        checks.equal(chat.lastAcceptance, .queued, "queue holds the message instead")
+
+        // An option the block never offered is refused, `elsewhere` included.
+        await chat.approve(requestID: approval.requestID,
+                           optionID: ApprovalPayload.elsewhereOptionID)
+        checks.expect(chat.errorMessage != nil, "elsewhere is a resolution, never a choice to send")
+        chat.clearError()
+
+        await chat.set(effort: "high")
+        await settle { chat.session.effort == "high" }
+        checks.equal(chat.session.effort, "high", "session.set retunes the shared thread")
+
+        await chat.approve(requestID: approval.requestID, optionID: "allow_session")
+        await settle(timeout: 10) { chat.timeline.pendingRequest == nil }
+        checks.expect(chat.timeline.pendingRequest == nil, "and the request is answered from here")
+
+        await chat.stop()
+        await settle(timeout: 10) { !chat.isRunning }
+        checks.expect(!chat.isRunning, "Stop interrupts the turn through the daemon")
+    }
+
     @MainActor
     private static func sessionsList(_ checks: CheckRunner) {
         let store = SessionStore()
         let sessions = DemoFixtures.sessions
-        checks.equal(store.visible(sessions).count, 6, "no filter shows every live session")
+        checks.equal(store.visible(sessions).count, 7, "no filter shows every live session")
         checks.equal(store.visible(sessions).first?.state, .needsApproval,
                      "a session waiting on the user sorts first")
         store.searchText = "vite"
