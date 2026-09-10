@@ -277,6 +277,31 @@ export const sessions: Session[] = [
     updated_at: minutes(8),
   }),
   session({
+    // The CLI exited, so nothing owns this session any more: it belongs to the
+    // Archive group rather than to a device's Active list.
+    session_id: 'ses-exited',
+    device_id: 'dev-mac',
+    title: 'Rewrite the pairing docs',
+    cwd: '/Users/me/dev/remote-control/docs',
+    state: 'stopped',
+    control: 'none',
+    updated_at: minutes(50),
+  }),
+  session({
+    // Archived by hand: listed only while "Show archived" is on.
+    session_id: 'ses-archived',
+    device_id: 'dev-ci',
+    title: 'Drop the legacy ingest path',
+    cwd: '/home/ci/work/api',
+    agent: 'codex',
+    model: 'gpt-5.4-codex',
+    permission_mode: 'on-request',
+    effort: 'medium',
+    state: 'idle',
+    archived: true,
+    updated_at: minutes(60 * 26),
+  }),
+  session({
     session_id: 'ses-otlp',
     device_id: 'dev-ci',
     title: 'Add OTLP traces',

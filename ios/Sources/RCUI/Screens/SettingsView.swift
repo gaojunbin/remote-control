@@ -13,21 +13,14 @@ struct SettingsView: View {
         @Bindable var settings = model.settings
         Form {
             Section {
-                LabeledContent("Gateway") {
-                    Text(model.connection.endpoint?.origin ?? "Demo")
-                        .font(Theme.mono)
-                        .foregroundStyle(Theme.inkSecondary)
-                }
-                LabeledContent("Signed in as") {
-                    Text(model.connection.username).foregroundStyle(Theme.inkSecondary)
-                }
+                SettingsRow("Gateway", value: model.connection.endpoint?.origin ?? "Demo", mono: true)
+                SettingsRow("Signed in as", value: model.connection.username)
                 if !model.connection.gatewayVersion.isEmpty {
-                    LabeledContent("Gateway version") {
-                        Text(model.connection.gatewayVersion).foregroundStyle(Theme.inkSecondary)
-                    }
+                    SettingsRow("Gateway version", value: model.connection.gatewayVersion)
                 }
                 Button("Sign out", role: .destructive) { confirmSignOut = true }
-                    .frame(minHeight: Theme.Touch.minimum)
+                    .font(Theme.Text.label)
+                    .settingsRowLayout()
                     .accessibilityIdentifier("settings.signOut")
             } header: {
                 FieldLabel("Account")
@@ -35,20 +28,20 @@ struct SettingsView: View {
 
             Section {
                 Toggle("Notify me", isOn: $settings.notificationsEnabled)
+                    .font(Theme.Text.label)
+                    .settingsRowLayout()
                     .disabled(!push.isSupported || model.isDemo)
                     .accessibilityIdentifier("settings.notifications")
-                LabeledContent("Status") {
-                    Text(push.statusText).foregroundStyle(Theme.inkSecondary)
-                }
+                SettingsRow("Status", value: push.statusText)
                 if push.authorization == .denied {
                     Button("Open iOS Settings") { push.openSystemSettings() }
-                        .frame(minHeight: Theme.Touch.minimum)
+                        .font(Theme.Text.label)
+                        .settingsRowLayout()
                 }
             } header: {
                 FieldLabel("Notifications")
             } footer: {
-                Text("A notification says which device and session needs you, and nothing else. No prompt text, output or file contents leave the gateway.")
-                    .font(.caption)
+                SettingsFooter("A notification says which device and session needs you, and nothing else. No prompt text, output or file contents leave the gateway.")
             }
 
             Section {
@@ -57,6 +50,8 @@ struct SettingsView: View {
                         Text(backend.title).tag(backend)
                     }
                 }
+                .font(Theme.Text.label)
+                .settingsRowLayout()
                 .accessibilityIdentifier("settings.voiceBackend")
                 .disabled(!model.connection.stt.enabled && settings.voiceBackend == .onDevice)
                 Picker("Language", selection: $settings.voiceLanguage) {
@@ -65,31 +60,31 @@ struct SettingsView: View {
                         Text(languageName(code)).tag(code)
                     }
                 }
+                .font(Theme.Text.label)
+                .settingsRowLayout()
             } header: {
                 FieldLabel("Voice")
             } footer: {
-                Text(voiceFooter).font(.caption)
+                SettingsFooter(voiceFooter)
             }
 
             Section {
                 Toggle("Require Face ID", isOn: $settings.appLockEnabled)
+                    .font(Theme.Text.label)
+                    .settingsRowLayout()
                     .accessibilityIdentifier("settings.appLock")
             } header: {
                 FieldLabel("App lock")
             } footer: {
-                Text("Unlock with Face ID, Touch ID or your passcode when the app returns from the background.")
-                    .font(.caption)
+                SettingsFooter("Unlock with Face ID, Touch ID or your passcode when the app returns from the background.")
             }
 
             Section {
-                LabeledContent("Version") {
-                    Text(Self.appVersion).foregroundStyle(Theme.inkSecondary)
-                }
-                LabeledContent("Protocol") {
-                    Text("v\(RemoteProtocol.version)").foregroundStyle(Theme.inkSecondary)
-                }
+                SettingsRow("Version", value: Self.appVersion)
+                SettingsRow("Protocol", value: "v\(RemoteProtocol.version)")
                 Button("Diagnostics") { showsDiagnostics = true }
-                    .frame(minHeight: Theme.Touch.minimum)
+                    .font(Theme.Text.label)
+                    .settingsRowLayout()
                     .accessibilityIdentifier("settings.diagnostics")
             } header: {
                 FieldLabel("About")
@@ -149,6 +144,59 @@ struct SettingsView: View {
 
     static var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
+    }
+}
+
+/// Label left, value right, one line each. The value is quiet: a settings
+/// screen is a list of labels, not a table of two columns.
+struct SettingsRow: View {
+    let label: String
+    let value: String
+    var mono = false
+
+    init(_ label: String, value: String, mono: Bool = false) {
+        self.label = label
+        self.value = value
+        self.mono = mono
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Theme.Space.medium) {
+            Text(label).font(Theme.Text.label).foregroundStyle(Theme.ink)
+            Spacer(minLength: Theme.Space.small)
+            Text(value)
+                .font(mono ? Theme.Text.metaMono : Theme.Text.meta)
+                .foregroundStyle(Theme.inkSecondary)
+                .lineLimit(1)
+                .truncationMode(mono ? .middle : .tail)
+        }
+        .settingsRowLayout()
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// The sentence under a group. Caption weight, secondary, never a box.
+struct SettingsFooter: View {
+    let text: String
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(Theme.Text.caption)
+            .foregroundStyle(Theme.inkSecondary)
+            .padding(.top, Theme.Space.hair)
+    }
+}
+
+extension View {
+    /// The inset every settings row shares, so labels, toggles and pickers line
+    /// up and the surface has room around them.
+    func settingsRowLayout() -> some View {
+        listRowBackground(Theme.surface)
+            .listRowInsets(EdgeInsets(top: 12, leading: Theme.Space.medium,
+                                      bottom: 12, trailing: Theme.Space.medium))
+            .frame(minHeight: 28)
     }
 }
 

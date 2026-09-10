@@ -19,7 +19,8 @@ from typing import TYPE_CHECKING, Any
 from ..agents.claude.tools import tool_kind, tool_title
 from ..errors import RcError
 from ..logging_setup import logger
-from ..models import now_ms, title_from_text
+from ..models import now_ms
+from . import titles
 from .attach import Attachment
 
 if TYPE_CHECKING:  # pragma: no cover - imported for types only
@@ -254,8 +255,7 @@ class SharedControl:
             raise RcError("conflict", "the session is no longer attached")
         if attachments:
             raise RcError("unsupported", "attachments cannot be delivered to a terminal session")
-        if not entry.session.title:
-            entry.session.title = title_from_text(text)
+        await titles.from_prompt(entry.channel, text)
         item = pending_item(text, request_id)
         if not state.running and not state.waiting and await self._inject(entry, item):
             return {"accepted": "sent"}

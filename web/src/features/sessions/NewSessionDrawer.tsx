@@ -255,7 +255,7 @@ function NewSessionForm({ devices, presetDeviceId, onClose }: FormProps) {
 
       <section>
         <span className="label">{strings.newSession.git}</span>
-        <div className="git-row card">
+        <div className="git-row">
           {git?.is_repo ? (
             <>
               <span className="mono git-branch">{git.branch}</span>

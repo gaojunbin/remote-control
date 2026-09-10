@@ -73,6 +73,14 @@ class Harness:
         self.hub.codex_daemon = self.service
         self.daemon = daemon
 
+    def bubbles(self) -> dict[str, str]:
+        """`block_id -> source` for the user messages, one entry per bubble.
+
+        The daemon sends the same item on `item/started` and `item/completed`,
+        and both events carry the same block id, so the apps show one bubble.
+        """
+        return {event["block_id"]: event["source"] for event in self.events("user_message")}
+
     def events(self, kind: str) -> list[dict[str, Any]]:
         return [
             frame["event"]
@@ -235,22 +243,63 @@ async def test_sending_while_idle_starts_a_turn_and_shows_one_bubble(harness: Ha
 
 
 async def test_our_own_prompt_is_not_echoed_twice(harness: Harness) -> None:
+    """The daemon replays the prompt on `item/started` and again on `item/completed`."""
     await started(harness, loaded=[THREAD])
     await harness.hub.send({"id": "req-1", "session_id": THREAD, "text": "go"})
-    await harness.daemon.notify(
-        "item/completed",
-        {
-            "threadId": THREAD,
-            "item": {
-                "id": "u1",
-                "type": "userMessage",
-                "clientId": None,
-                "content": [{"text": "go"}],
-            },
-        },
-    )
+    await harness.daemon.echo_prompt(THREAD, "go", item_id="u1")
     await asyncio.sleep(0.1)
-    assert len(harness.events("user_message")) == 1
+    assert list(harness.bubbles().values()) == ["remote"]
+
+
+async def test_a_stamped_echo_of_our_own_prompt_is_still_ours(harness: Harness) -> None:
+    """A `clientId` on our own echo must not read as a terminal sharing the thread."""
+    await started(harness, loaded=[THREAD])
+    entry = harness.hub.entry(THREAD)
+    entry.session.origin = "remote"
+    await harness.service.publish_control(entry)
+    harness.daemon.echo_client_id = "dev-99"
+
+    await harness.hub.send({"id": "req-1", "session_id": THREAD, "text": "go"})
+    await harness.daemon.echo_prompt(THREAD, "go", item_id="u1")
+    await asyncio.sleep(0.1)
+    assert list(harness.bubbles().values()) == ["remote"]
+    assert harness.hub.entry(THREAD).session.control == "remote"
+
+    # Another client id on a message we never sent is the terminal typing.
+    await harness.daemon.echo_prompt(THREAD, "and now this", item_id="u2", client_id="tui-7")
+    await settle(lambda: harness.hub.entry(THREAD).session.control == "shared")
+    assert list(harness.bubbles().values()) == ["remote", "terminal"]
+
+
+async def test_only_the_first_match_consumes_an_echo(harness: Harness) -> None:
+    """A terminal user typing the same words still gets their own bubble."""
+    await started(harness, loaded=[THREAD])
+    await harness.hub.send({"id": "req-1", "session_id": THREAD, "text": "go"})
+    await harness.daemon.echo_prompt(THREAD, "go", item_id="u1")
+    await harness.daemon.echo_prompt(THREAD, "go", item_id="u2")
+    await settle(lambda: len(harness.bubbles()) == 2)
+    assert list(harness.bubbles().values()) == ["remote", "terminal"]
+
+
+async def test_a_backfilled_echo_is_not_republished(harness: Harness) -> None:
+    await started(harness, loaded=[THREAD])
+    await harness.hub.send({"id": "req-1", "session_id": THREAD, "text": "go"})
+    await harness.daemon.echo_prompt(THREAD, "go", item_id="u1")
+    await asyncio.sleep(0.1)
+    harness.daemon.replies["thread/items/list"] = {
+        "data": [
+            {
+                "type": "userMessage",
+                "id": "u1",
+                "clientId": None,
+                "content": [{"type": "text", "text": "go"}],
+            }
+        ]
+    }
+    runner = harness.hub.entry(THREAD).runner
+    assert isinstance(runner, CodexDaemonSession)
+    await runner.backfill()
+    assert list(harness.bubbles().values()) == ["remote"]
 
 
 async def test_sending_during_a_turn_steers_it(harness: Harness) -> None:
@@ -692,3 +741,50 @@ async def test_a_loaded_thread_is_never_forgotten(harness: Harness) -> None:
     await harness.service.refresh()
     assert THREAD in harness.hub.entries
     assert [f for f in harness.frames if f.get("type") == "session.removed"] == []
+
+
+# ------------------------------------------------------------------- titles
+
+
+async def test_the_name_codex_gives_a_thread_becomes_the_session_title(
+    harness: Harness,
+) -> None:
+    await started(harness, loaded=[THREAD])
+    assert harness.hub.entry(THREAD).session.title == "Typecheck the web app"
+
+    await harness.daemon.notify(
+        "thread/name/updated", {"threadId": THREAD, "threadName": "Fix the web typecheck"}
+    )
+    await settle(lambda: harness.hub.entry(THREAD).session.title == "Fix the web typecheck")
+    assert harness.events("meta")[-1]["title"] == "Fix the web typecheck"
+    updates = [
+        frame["session"]["title"]
+        for frame in harness.frames
+        if frame.get("type") == "session.updated"
+    ]
+    assert updates[-1] == "Fix the web typecheck"
+
+
+async def test_a_title_the_user_set_survives_a_rename(harness: Harness) -> None:
+    await started(harness, loaded=[THREAD])
+    await harness.hub.set_options({"session_id": THREAD, "title": "Ledger migration"})
+
+    await harness.daemon.notify(
+        "thread/name/updated", {"threadId": THREAD, "threadName": "Fix the web typecheck"}
+    )
+    await asyncio.sleep(0.1)
+    assert harness.hub.entry(THREAD).session.title == "Ledger migration"
+
+
+async def test_a_named_thread_in_history_is_titled_by_its_name(harness: Harness) -> None:
+    harness.daemon.replies["thread/list"] = {"data": [thread_row(name="Fix the web typecheck")]}
+    harness.daemon.replies["thread/loaded/list"] = {"data": []}
+    assert await harness.service.start("/bin/codex") is True
+    assert harness.hub.entry(THREAD).session.title == "Fix the web typecheck"
+
+
+def test_a_thread_summary_separates_its_name_from_its_first_prompt() -> None:
+    assert threads.ThreadSummary.parse(thread_row()).name == ""  # type: ignore[union-attr]
+    named = threads.ThreadSummary.parse(thread_row(name="Fix the web typecheck"))
+    assert named is not None
+    assert (named.name, named.title) == ("Fix the web typecheck", "Fix the web typecheck")

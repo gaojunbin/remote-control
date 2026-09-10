@@ -69,7 +69,7 @@ export function ChatHeader({ session, agent, deviceName, todos, stopping, onStop
         ) : null}
 
         {tokens > 0 || elapsed ? (
-          <span className="pill usage-chip">
+          <span className="pill quiet usage-chip">
             {tokens > 0 ? compactNumber(tokens) : null}
             {tokens > 0 && elapsed ? ' · ' : null}
             {elapsed}

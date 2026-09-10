@@ -6,9 +6,12 @@ interface SettingsState {
   sttLanguage: string;
   pushToTalk: boolean;
   showArchived: boolean;
+  /** Whether the Archive group at the bottom of a session list is open. */
+  archiveExpanded: boolean;
   setSttLanguage: (language: string) => void;
   setPushToTalk: (enabled: boolean) => void;
   setShowArchived: (show: boolean) => void;
+  setArchiveExpanded: (expanded: boolean) => void;
 }
 
 /**
@@ -46,9 +49,11 @@ export const useSettings = create<SettingsState>()(
       sttLanguage: 'auto',
       pushToTalk: true,
       showArchived: false,
+      archiveExpanded: false,
       setSttLanguage: (sttLanguage) => set({ sttLanguage }),
       setPushToTalk: (pushToTalk) => set({ pushToTalk }),
       setShowArchived: (showArchived) => set({ showArchived }),
+      setArchiveExpanded: (archiveExpanded) => set({ archiveExpanded }),
     }),
     { name: 'rc.settings', storage: createJSONStorage(() => storage) },
   ),

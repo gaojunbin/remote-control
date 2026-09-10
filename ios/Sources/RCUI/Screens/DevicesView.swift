@@ -14,7 +14,7 @@ struct DevicesView: View {
         List {
             ForEach(model.connection.devices) { device in
                 DeviceRow(device: device)
-                    .listRowBackground(Theme.surface)
+                    .sessionRowLayout()
                     .accessibilityIdentifier("device.\(device.deviceID)")
                     .contextMenu {
                         Button("Rename") { renaming = device; newName = device.name }
@@ -85,40 +85,46 @@ struct DevicesView: View {
     }
 }
 
+/// The same shape as a session row: name and one number on the first line, a
+/// dot, a word and the machine on the second. No status column, no rules.
 struct DeviceRow: View {
     let device: Device
 
     var body: some View {
-        HStack(alignment: .top, spacing: Theme.Space.small) {
-            Circle()
-                .fill(device.online ? Theme.running : Theme.resting)
-                .frame(width: 8, height: 8)
-                .padding(.top, 6)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(device.name).font(.body.weight(.medium)).foregroundStyle(Theme.ink)
-                CodeText("\(device.hostname) · \(device.platform.rawValue) \(device.arch)")
-                if !device.availableAgents.isEmpty {
-                    Text(device.availableAgents.map(\.displayName).joined(separator: " · "))
-                        .font(.caption)
-                        .foregroundStyle(Theme.inkSecondary)
-                }
-            }
-            Spacer(minLength: Theme.Space.small)
-            VStack(alignment: .trailing, spacing: 3) {
-                Text(device.online ? "online" : "offline")
-                    .font(.footnote)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.small) {
+                Text(device.name).font(Theme.Text.title).foregroundStyle(Theme.ink).lineLimit(1)
+                Spacer(minLength: 0)
+                Text(trailing)
+                    .font(Theme.Text.caption)
                     .foregroundStyle(Theme.inkSecondary)
-                if let latency = device.latencyMS, device.online {
-                    Text("\(latency) ms").font(.caption).foregroundStyle(Theme.inkSecondary)
-                } else if !device.online {
-                    Text(RelativeTime.short(since: device.lastSeen))
-                        .font(.caption).foregroundStyle(Theme.inkSecondary)
-                }
+            }
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(device.online ? Theme.running : Theme.resting)
+                    .frame(width: 8, height: 8)
+                    .accessibilityHidden(true)
+                Text(device.online ? "online" : "offline")
+                    .font(Theme.Text.meta)
+                    .foregroundStyle(Theme.inkSecondary)
+                Text("·").font(Theme.Text.caption).foregroundStyle(Theme.inkSecondary)
+                CodeText("\(device.hostname) · \(device.platform.rawValue) \(device.arch)",
+                         font: Theme.Text.metaMono)
+                Spacer(minLength: 0)
+            }
+            if !device.availableAgents.isEmpty {
+                Text(device.availableAgents.map(\.displayName).joined(separator: " · "))
+                    .font(Theme.Text.caption)
+                    .foregroundStyle(Theme.inkSecondary)
             }
         }
-        .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
+    }
+
+    /// Latency while it answers, and how long ago it last did when it does not.
+    private var trailing: String {
+        if device.online { return device.latencyMS.map { "\($0) ms" } ?? "" }
+        return RelativeTime.short(since: device.lastSeen)
     }
 }
 

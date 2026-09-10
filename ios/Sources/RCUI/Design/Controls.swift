@@ -73,22 +73,75 @@ public struct PrimaryButtonStyle: ButtonStyle {
     }
 }
 
-/// A bordered pill for secondary actions and toolbar chips.
+/// A quiet pill for secondary actions and chips: tinted, never outlined, so a
+/// screen carries one filled button and nothing else with an edge.
 public struct ChipButtonStyle: ButtonStyle {
     public init() {}
 
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.footnote)
+            .font(Theme.Text.meta)
             .foregroundStyle(Theme.ink)
             .padding(.horizontal, Theme.Space.small + 2)
             .frame(minHeight: 32)
-            .background(Theme.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(Theme.border, lineWidth: 0.5))
-            .opacity(configuration.isPressed ? 0.7 : 1)
+            .background(Theme.quietFill, in: Capsule())
+            .opacity(configuration.isPressed ? 0.6 : 1)
             // The pill stays 32 pt tall; the tappable area is 44.
             .frame(minHeight: Theme.Touch.minimum)
             .contentShape(Rectangle())
+    }
+}
+
+/// A dot and a word, in that order, always both. The dot alone is never the
+/// signal, and the word alone loses the glanceable colour.
+public struct StatusLabel: View {
+    let state: SessionState
+    let text: String
+
+    public init(state: SessionState, text: String) {
+        self.state = state
+        self.text = text
+    }
+
+    public var body: some View {
+        HStack(spacing: 5) {
+            StatusDot(state: state)
+            Text(text)
+                .font(Theme.Text.meta)
+                .foregroundStyle(state.isBlockedOnUser ? Theme.attention : Theme.inkSecondary)
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(text)
+    }
+}
+
+/// The caption above a group of rows: uppercase, tracked, secondary, with an
+/// optional trailing count or control on the same line.
+public struct ListGroupHeader<Trailing: View>: View {
+    let title: String
+    let leading: Color?
+    let trailing: Trailing
+
+    public init(_ title: String, dot: Color? = nil,
+                @ViewBuilder trailing: () -> Trailing = { EmptyView() }) {
+        self.title = title
+        leading = dot
+        self.trailing = trailing()
+    }
+
+    public var body: some View {
+        HStack(spacing: Theme.Space.tight) {
+            if let leading {
+                Circle().fill(leading).frame(width: 6, height: 6).accessibilityHidden(true)
+            }
+            Text(title.uppercased())
+                .font(Theme.Text.groupHeader)
+                .kerning(Theme.headerKerning)
+                .foregroundStyle(Theme.inkSecondary)
+            Spacer(minLength: Theme.Space.tight)
+            trailing
+        }
     }
 }
 
@@ -110,8 +163,8 @@ public struct FieldLabel: View {
     public var body: some View {
         HStack {
             Text(text.uppercased())
-                .font(.caption2.weight(.semibold))
-                .kerning(0.6)
+                .font(Theme.Text.groupHeader)
+                .kerning(Theme.headerKerning)
                 .foregroundStyle(Theme.inkSecondary)
             Spacer(minLength: Theme.Space.small)
             trailing
@@ -123,15 +176,17 @@ public struct FieldLabel: View {
 public struct CodeText: View {
     let text: String
     var color: Color = Theme.inkSecondary
+    var font: Font = Theme.mono
 
-    public init(_ text: String, color: Color = Theme.inkSecondary) {
+    public init(_ text: String, color: Color = Theme.inkSecondary, font: Font = Theme.mono) {
         self.text = text
         self.color = color
+        self.font = font
     }
 
     public var body: some View {
         Text(text)
-            .font(Theme.mono)
+            .font(font)
             .foregroundStyle(color)
             .lineLimit(1)
             .truncationMode(.head)
@@ -231,6 +286,6 @@ public struct NoticeBanner: View {
         .padding(.horizontal, Theme.Space.medium)
         .padding(.vertical, Theme.Space.small)
         .background(Theme.surface)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 0.5) }
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 0.5) }
     }
 }

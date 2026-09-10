@@ -29,6 +29,11 @@ class FakeDaemon:
         self.responder: Responder | None = None
         self.answers: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self.connections = 0
+        # What the real daemon stamps on the echo of a prompt. `None` is what it
+        # does for a prompt submitted over the control socket; a string is what a
+        # TUI's own message carries.
+        self.echo_client_id: str | None = None
+        self.echoes = 0
         self._server: Any = None
         self._live: ServerConnection | None = None
 
@@ -88,6 +93,27 @@ class FakeDaemon:
         connection = self._live
         assert connection is not None
         await connection.send(json.dumps({"jsonrpc": "2.0", "method": method, "params": params}))
+
+    async def echo_prompt(
+        self,
+        thread_id: str,
+        text: str,
+        *,
+        item_id: str | None = None,
+        client_id: str | None = None,
+    ) -> None:
+        """Replay a prompt the way the daemon does: the same item, twice."""
+        self.echoes += 1
+        item = {
+            "type": "userMessage",
+            "id": item_id or f"item-{self.echoes}",
+            "clientId": self.echo_client_id if client_id is None else client_id,
+            "content": [{"type": "text", "text": text, "text_elements": []}],
+        }
+        for method, stamp in (("item/started", "startedAtMs"), ("item/completed", "completedAtMs")):
+            await self.notify(
+                method, {"threadId": thread_id, "item": dict(item), "turnId": "turn-1", stamp: 1}
+            )
 
     async def ask(self, request_id: Any, method: str, params: dict[str, Any]) -> None:
         """Send a server-to-client request, the way an approval arrives."""

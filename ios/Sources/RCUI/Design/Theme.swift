@@ -19,6 +19,12 @@ public enum Theme {
     public static let accent = dynamic(light: 0x111111, dark: 0xF2F2F0)
     public static let onAccent = dynamic(light: 0xFFFFFF, dark: 0x111111)
 
+    /// The only line allowed inside a surface, and never after its last row.
+    /// Softer than `border`, which still edges a card that needs an edge.
+    public static let hairline = ink.opacity(0.09)
+    /// The fill behind a quiet chip or a quiet button. Tinted, never outlined.
+    public static let quietFill = ink.opacity(0.06)
+
     public static let running = dynamic(light: 0x22A06B, dark: 0x36BE85)
     public static let attention = dynamic(light: 0xE0862B, dark: 0xF0A050)
     public static let resting = dynamic(light: 0xB5B5B0, dark: 0x6E6E69)
@@ -53,6 +59,28 @@ public enum Theme {
 
     public static let mono = Font.system(.footnote, design: .monospaced)
     public static let monoBody = Font.system(.callout, design: .monospaced)
+
+    /// Hierarchy is carried by type, not by boxes. Everything scales with Dynamic
+    /// Type, so these are the text styles rather than fixed sizes: `.callout` is
+    /// 16 pt at the default setting, `.footnote` 13, `.caption` 12.
+    public enum Text {
+        /// A row title: the name of a session or a device.
+        public static let title = Font.callout.weight(.semibold)
+        /// A settings label, and any row whose weight would shout: the control
+        /// beside it is the point, not the word.
+        public static let label = Font.callout
+        /// The line under a title: status, path, host.
+        public static let meta = Font.footnote
+        /// The smallest supporting line, and the value beside a settings label.
+        public static let caption = Font.caption
+        /// A group header above a surface.
+        public static let groupHeader = Font.caption.weight(.semibold)
+        /// Monospace at meta weight, for a path or a branch in a list row.
+        public static let metaMono = Font.system(.caption, design: .monospaced)
+    }
+
+    /// Tracking on an uppercase group header. Small caps by another name.
+    public static let headerKerning: CGFloat = 0.7
 
     /// The colour a session's status dot uses.
     public static func statusColor(_ state: SessionStateToken) -> Color {
@@ -103,14 +131,21 @@ extension UIColor {
 #endif
 
 extension View {
-    /// A white card with a hairline border and the lightest possible shadow.
+    /// A white card with a hairline border. An edge or a shadow, never both.
     public func card(padding: CGFloat = Theme.Space.medium,
                      radius: CGFloat = Theme.Radius.card) -> some View {
         self.padding(padding)
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .strokeBorder(Theme.border, lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.06), radius: 1, x: 0, y: 1)
+    }
+
+    /// The grouping of last resort: one soft surface, no border, no shadow, no
+    /// divider around it. Sections are told apart by spacing and type instead.
+    public func softSurface(padding: CGFloat = Theme.Space.medium,
+                            radius: CGFloat = Theme.Radius.card) -> some View {
+        self.padding(padding)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 
     public func pageBackground() -> some View {

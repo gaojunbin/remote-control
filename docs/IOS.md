@@ -74,6 +74,62 @@ cannot reach the network even by accident. Every SwiftUI preview and the XCUITes
 Other launch arguments: `--ui-testing`, `--reset-state`, and in debug builds `--voice-preview`,
 which swaps in a scripted speech platform so a UI test never opens the microphone.
 
+## The session list
+
+Two groups, and the rule that splits them lives in `RCCore` as
+`SessionListLayout.build(sessions:devices:query:showsArchived:)`, a pure function of its arguments.
+`SessionsView` only renders what comes back. `docs/DESIGN.md` states the rule; the web app
+implements the same one.
+
+**Active** is what a CLI or the device still holds: `archived` is false and `control` is `remote`,
+`terminal` or `shared`. **Archive** is everything else. `control: "none"` means the CLI exited and
+nothing owns the session, so it lands there whatever its state, and a hand-archived session joins it
+only while the archive toggle in the navigation bar is on. Nothing is removed from the protocol:
+`session.archive` and the swipe action stay where they were.
+
+| Rule | Where |
+| --- | --- |
+| Active keeps its device grouping, in the order the gateway lists devices | `SessionListLayout.build` |
+| Inside a device: `needs_approval` and `needs_input`, then `running` and `starting`, then the rest, each by `updated_at` descending | `SessionListLayout.urgency` |
+| Archive is flat, `updated_at` descending, the device carried on the row | `ArchivedSession` |
+| A device with nothing open keeps its caption and a muted "No open sessions" line | `DeviceSessionGroup` with no sessions |
+| Open or collapsed persists in `UserDefaults` under `sessions.archiveExpanded` | `SessionStore.isArchiveExpanded` |
+| A search whose match is inside the Archive opens it without touching that preference | `SessionList.forcesArchiveOpen` |
+| Search reads the title, the working directory and the agent, and drops a device with no match | `SessionListLayout.matches` |
+
+A row is two lines: the title and the relative time on the first, then a dot, the status word, and
+the working directory on the second. An archived row adds the device between the two. Nothing is
+right-aligned into a second column, because a column of statuses reads as a table.
+
+`Tests/RCCoreTests/SessionGroupingTests.swift` covers the rule on hand-built sessions;
+`Verification/StoreChecks.swift` covers it against the demo fixtures.
+
+## Surfaces and type
+
+Tokens first, screens second. Everything visual comes from `Sources/RCUI/Design/Theme.swift`:
+
+| Token | What it is | Used for |
+| --- | --- | --- |
+| `Theme.hairline` | ink at 9 % | the only line allowed inside a surface, never after its last row |
+| `Theme.quietFill` | ink at 6 % | the fill behind every chip and quiet button |
+| `Theme.Text.title` | `.callout` semibold | a session or device name |
+| `Theme.Text.label` | `.callout` | a settings label, where the control beside it is the point |
+| `Theme.Text.meta` | `.footnote` | the status word and the line under a title |
+| `Theme.Text.caption` | `.caption` | a time, a value, a supporting line |
+| `Theme.Text.groupHeader` | `.caption` semibold, kerned, uppercased | the caption above a group |
+| `Theme.Text.metaMono` | `.caption` monospaced | a path or a branch inside a row |
+
+`softSurface()` is one rounded fill with no border and no shadow; `card()` keeps a hairline border
+for the surfaces that still need an edge, an approval card among them, and no longer carries a
+shadow as well. `ChipButtonStyle` is tinted rather than outlined, so the Todos chip, the composer's
+model and permission chips, "Take over" and "Back to latest" all lost their borders in one place.
+`sessionRowLayout()` and `settingsRowLayout()` hold the row insets, so Sessions and Devices share
+one rhythm and Settings shares another.
+
+Settings reads like iOS grouped settings: an uppercase caption, one soft surface, label left and
+control right, and the explanation as a footnote under the group rather than inside it. A monospace
+value truncates in the middle, so a gateway origin keeps its scheme and its host.
+
 ## Attached terminal sessions
 
 Amendment A10 adds `control: "shared"`: a live CLI owns the session and the device is attached to

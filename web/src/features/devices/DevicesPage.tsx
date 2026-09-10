@@ -58,7 +58,7 @@ export function DevicesPage() {
           {strings.devices.emptyHint}
         </div>
       ) : (
-        <ul className="device-list card">
+        <ul className="device-list surface">
           {devices.map((device) => (
             <DeviceRow
               key={device.device_id}

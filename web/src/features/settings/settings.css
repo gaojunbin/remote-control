@@ -1,17 +1,15 @@
-.settings-card {
-  padding: var(--sp-5);
-  margin-bottom: var(--sp-4);
+/* Grouped settings: a caption, one soft surface, label-left / control-right. */
+
+.settings {
   max-width: 620px;
 }
 
-.settings-card h2 {
-  font-size: var(--fs-15);
-  font-weight: 600;
-  margin-bottom: var(--sp-3);
+.settings-section + .settings-section {
+  margin-top: var(--sp-6);
 }
 
-.settings-card > .hint {
-  margin: -4px 0 var(--sp-3);
+.settings-group {
+  padding: 0 var(--sp-5);
 }
 
 .settings-row {
@@ -19,14 +17,14 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-4);
-  min-height: 40px;
-  padding: var(--sp-2) 0;
-  border-top: 1px solid var(--line);
+  min-height: 52px;
+  padding: var(--sp-3) 0;
   font-size: var(--fs-14);
+  line-height: 1.45;
 }
 
-.settings-row:first-of-type {
-  border-top: none;
+.settings-row + .settings-row {
+  border-top: 1px solid var(--hairline);
 }
 
 .settings-row .hint {
@@ -34,6 +32,33 @@
   text-align: right;
 }
 
-.settings-actions {
-  margin-top: var(--sp-4);
+/* A row that is itself the action, the way a grouped settings list does it. */
+.settings-action {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: var(--ink);
+  font-size: var(--fs-14);
+}
+
+.settings-action:hover {
+  color: var(--ink-secondary);
+}
+
+.settings-note {
+  margin: var(--sp-2) var(--sp-4) 0;
+  font-size: var(--fs-12);
+  line-height: 1.5;
+  color: var(--ink-tertiary);
+}
+
+@media (max-width: 640px) {
+  .settings-group {
+    padding: 0 var(--sp-4);
+  }
+
+  .settings-note {
+    margin-inline: var(--sp-3);
+  }
 }

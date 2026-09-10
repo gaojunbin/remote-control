@@ -21,6 +21,7 @@ from ..git import create_worktree, session_git, slugify
 from ..logging_setup import logger
 from ..models import AgentInfo, Session, now_ms, title_from_text
 from ..registry import Registry
+from . import titles
 from .attach import Attachment
 from .channel import SessionChannel
 from .shared import EXIT_SETTLE, SharedControl, SharedState
@@ -162,7 +163,8 @@ class SessionHub:
         cwd = str(Path(cwd).expanduser().resolve())
 
         first_message = str(params.get("first_message") or "")
-        title = str(params.get("title") or "") or title_from_text(first_message)
+        chosen = title_from_text(str(params.get("title") or ""))
+        title = chosen or title_from_text(first_message)
         worktree = bool(params.get("worktree"))
         if worktree:
             cwd = await create_worktree(cwd, slugify(title or agent))
@@ -187,6 +189,9 @@ class SessionHub:
         self.entries[session.session_id] = entry
         entry.channel.start()
         self.registry.upsert_session(session)
+        if chosen:
+            # A title the user typed outranks anything the agent later produces.
+            titles.pin(self.registry, session.session_id)
 
         try:
             entry.runner = await self._build_runner(entry, info, resume=None)
@@ -252,6 +257,7 @@ class SessionHub:
         if old_id == real_id:
             return
         self.registry.rekey_session(old_id, real_id)
+        titles.rekey(self.registry, old_id, real_id)
         attachments.rekey(old_id, real_id)
         self.entries.pop(old_id, None)
         entry.session.session_id = real_id
@@ -318,9 +324,7 @@ class SessionHub:
         runner = entry.runner
         if runner is None:
             raise RcError("agent_unavailable", "the session is not running")
-        if not entry.session.title:
-            entry.session.title = title_from_text(text)
-            await entry.channel.publish_summary()
+        await titles.from_prompt(entry.channel, text)
         await runner.send(text, attachments)
 
     def _terminal_conflict_message(self, entry: SessionEntry) -> str:
@@ -472,6 +476,11 @@ class SessionHub:
             raise RcError("unsupported", "change it in the terminal")
         if entry.runner is not None:
             await entry.runner.apply_settings(model, permission_mode, effort)
+        if title is not None:
+            title = title_from_text(str(title))
+            if title:
+                # A title the user typed outranks anything the agent produces.
+                titles.pin(self.registry, entry.session.session_id)
         await entry.channel.set_meta(
             model=model, permission_mode=permission_mode, effort=effort, title=title
         )

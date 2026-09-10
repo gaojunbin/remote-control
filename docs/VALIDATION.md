@@ -190,6 +190,26 @@ It was restored with `launchctl bootstrap gui/<uid> ~/Library/LaunchAgents/dev.r
 and the plist was never deleted. Anyone repeating this must not run `uninstall` or `service remove`
 on a machine that carries a real installation, whatever `RC_CLIENT_HOME` says.
 
+### Titles from Claude's own transcript, 2026-09-11
+
+Claude Code names a session for itself and writes the result into the transcript as a row of its own,
+`{"type":"ai-title","aiTitle":"…","sessionId":"…"}`. The `claude-agent-sdk` message stream carries
+nothing equivalent — `SystemMessage`, `ResultMessage` and the task messages have no title field, and
+the SDK's own title handling reads the same file — so the device reads the row rather than the
+stream.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| The row exists on this machine | pass | 35 transcripts under `~/.claude/projects` carry one; several were written by this repository's own SDK-driven tests, so a session the device drives gets one too |
+| The parser reads it | pass | `TitleTail.read_new()` returned the title for each of four real transcripts and `""` on the next read; `TranscriptTailer.translate` turned the row into the internal `ai_title` emit; `find_transcript` located each file from its session id alone |
+| A session the device drives picks it up live | pass | a real `ClaudeRunner` in a scratch working directory, one turn of "Reply with exactly OK": the title moved from the first-prompt `Reply with exactly OK` to the CLI's own `Session title` after `MirrorService._watch_titles()` and `_read_titles()`, with the transcript found by glob under `~/.claude/projects` |
+| A `/rename` outranks a generated title | pass | no `custom-title` row existed on this machine, so one was produced by Claude Code's own writer — `claude_agent_sdk._internal.session_mutations.rename_session`, the function behind `/rename` — against the throwaway session above. It appended `{"type":"custom-title","customTitle":"Ledger migration","sessionId":"64a44d16-…"}` and the device parsed it as a user-set title. The CLI's own reader agrees on precedence: `_internal/sessions.py` takes the last `customTitle` before any `aiTitle` |
+
+The attached and mirrored-terminal paths share `TranscriptTailer`, which the parser check above
+exercised against real files; neither was re-driven against a live TUI in this pass. Both row shapes
+are internal to Claude Code and its documentation warns they may change, so the parser treats an
+unrecognised or malformed row as "not a title" and a format change would cost the titles alone.
+
 ## 7. Codex on the shared daemon (A11)
 
 Amendment A11 attaches the device to the local Codex app-server daemon, so a bare `codex` TUI is a
@@ -294,6 +314,27 @@ Two behaviours are by design rather than gaps. A TUI started with `-c`, `--enabl
 read-only as `control: "terminal"`. And a Codex thread has no rollout until its first turn, so the
 device subscribes at that first turn, and a thread created from an app can be `codex resume`d only
 after it.
+
+### The prompt echo and the thread name, 2026-09-11
+
+Three scratch scripts were run against the **real** daemon on this machine (Codex CLI 0.154.0,
+`~/.codex/app-server-control/app-server-control.sock`), using the device's own `rpc.py` and
+`transport.py`: `initialize`, `thread/start` in a scratch working directory, `turn/start`, and
+`thread/name/set`. Every thread they created was removed afterwards with `thread/delete`, which the
+daemon accepts and answers `{}`.
+
+| Question | Answer |
+| --- | --- |
+| What does the echo of our own prompt look like? | `{"type":"userMessage","id":"01a08d1c-7951-7363-8cd7-5dedfe2185e4","clientId":null,"content":[{"type":"text","text":"Reply with the single word: pong","text_elements":[]}]}` |
+| How often does it arrive? | **Twice**, as `item/started` and then `item/completed`, with the same item id both times, and once more from `thread/items/list` on a backfill |
+| Does `turn/start` name the item? | No. Its result is `{"turn":{"id":…,"items":[],"status":"inProgress",…}}`, so the text is the only key the echo can be matched on |
+| Does `initialize` hand us a client id? | No: `{userAgent, codexHome, platformFamily, platformOs}` |
+| What does a rename look like? | `thread/name/updated` with `{"threadId":…,"threadName":"Probe title from set"}`, and `thread/read` then reports the same `name` |
+| Does the daemon name a thread it started over the socket? | Not within 90 s of a completed turn, and `name` stayed `null`. Threads named in `thread/list` were named by the TUI, which generates the title itself and calls `thread/name/set`. A device-created thread therefore keeps its first-prompt title unless a terminal renames it |
+
+The duplicated bubble reported against A11 is explained by the second row of that table: the echo was
+recognised on `item/started`, which consumed it, and the identical `item/completed` was then
+published as a `terminal` message. The device now remembers the item id of an echo it has matched.
 
 ## 8. Restart resilience
 

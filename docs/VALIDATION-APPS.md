@@ -9,7 +9,9 @@ Nothing here re-tests the backend for its own sake; the backend is the fixture t
 
 Sections 3 and 4 are later passes, added when amendments A10 and A11 landed. Both were driven against
 the web mock gateway and the iOS demo rather than a live device, and say so; the live proof for A10 is
-section 6 of `docs/VALIDATION.md`, and for A11 its "Codex on the shared daemon" section.
+section 6 of `docs/VALIDATION.md`, and for A11 its "Codex on the shared daemon" section. Section 9 is
+a later pass again, on the session grouping and the visual rules; it changed no protocol behaviour and
+ran against the offline demo, so it sits after the closing sections rather than among the live ones.
 
 ## Environment
 
@@ -498,6 +500,63 @@ number of installed agents rather than the whole history.
   mock and demo data. Nothing in either app has spoken to a real `codex` app-server daemon, so the
   four-option approval, the steered send and the "answered in the terminal" card have not been seen
   end to end from a browser or a phone.
+
+## 9. Session grouping and the visual pass (iOS)
+
+2026-09-11, iPhone 17 simulator (`32BBA636-AC71-4804-84E2-ED98992C86B6`, iOS 27) against the offline
+demo. No gateway, no device, no CLI: the change is app-side and reads only fields the session object
+already carries. `docs/DESIGN.md` states the rule both apps implement.
+
+The four suites `docs/IOS.md` prescribes, all green:
+
+| Suite | Command | Result |
+| --- | --- | --- |
+| Core regressions | `swift run RCVerify` | 839 checks, was 822 |
+| SwiftUI layer | `swift run RCUIVerify` | 69 checks, was 68 |
+| Unit tests | `swift test` | 98 tests in 10 suites, was 88 in 9 |
+| Simulator build | `xcodebuild … -destination 'generic/platform=iOS Simulator' build` | BUILD SUCCEEDED |
+| UI tests | `xcodebuild … -only-testing:RemoteControlUITests test` | 8 tests, 0 failures, was 6 |
+
+New checks, and what each one proves:
+
+- **Active membership.** `remote`, `terminal` and `shared` are Active; `control: "none"` is not.
+  Covered for every value rather than for the ones the demo happens to hold.
+- **The archive toggle.** A hand-archived session is hidden with the toggle off and joins the
+  Archive with it on. It never returns to Active, whatever holds it.
+- **Order inside a device.** `needs_input`, `needs_approval`, `starting`, `running`, `idle`, in that
+  order, with `updated_at` breaking ties. `starting` counts as working.
+- **The Archive is flat.** Newest first across devices, each row carrying its own device name.
+- **A device with nothing open.** It keeps its caption and its place in the list, and the caption
+  sits on the canvas rather than in an empty surface. Driven in the simulator against
+  `ci-runner-01`, whose only session is archived: `testDeviceWithNoOpenSessionsSaysSo`.
+- **Device order is stable.** A device whose session needs approval does not jump above one that
+  does not; the order comes from the device list.
+- **Search.** Title, working directory and agent match; whitespace and case are ignored; a device
+  with no match drops out instead of showing an empty caption.
+- **A search reaches into the Archive.** A match inside opens the group without touching the stored
+  preference, and a search that misses leaves it shut. Driven in the simulator as well:
+  `testArchiveGroupOpensOnTapAndOnSearch` taps the header open, taps it shut, then finds the same
+  row by searching for "OTLP".
+- **The open or collapsed choice survives a relaunch.** A second `SessionStore` on the same
+  `UserDefaults` reads it back.
+- **A session on a device the gateway never listed** still gets a group rather than disappearing.
+
+The six existing UI tests passed unchanged, so the visual pass moved no accessibility identifier and
+broke no behaviour: the shared-session delivery chips, the four-option Codex approval, the attach
+hint, the pairing sheet and the new-session sheet are all where they were.
+
+Screenshots before and after — Sessions, the Archive collapsed and open, chat, Devices and Settings —
+were taken from the same simulator on the demo data and handed to the review.
+
+### Not verified in this pass
+
+- **Dark mode.** The tokens define dark values and the new ones follow them, but no screen was
+  reviewed in dark mode; v1 is still designed light.
+- **Dynamic Type.** The new type scale uses text styles rather than fixed sizes, so it scales, but
+  no size above the default was exercised.
+- **VoiceOver.** Row labels were kept and the Archive header carries a label and a hint, which the
+  accessibility tree shows, but nothing was driven with the screen reader on.
+- **A long device list or a long Archive.** The demo carries three devices and one archived session.
 
 ## Smoke procedure
 

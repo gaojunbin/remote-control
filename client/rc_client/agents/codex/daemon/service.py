@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from ....errors import RcError
 from ....logging_setup import logger
 from ....models import Session
+from ....sessions import titles
 from ..models import ModelCatalog, catalog_cache
 from . import approvals, threads
 from .rpc import DaemonClient
@@ -218,8 +219,10 @@ class CodexDaemonService:
                 )
             )
             entry.channel.start()
-        if not entry.session.title and summary.title:
-            entry.session.title = summary.title
+        if summary.name:
+            await titles.from_agent(entry.channel, summary.name)
+        else:
+            await titles.from_prompt(entry.channel, summary.title)
         if loaded:
             self._loaded.add(summary.thread_id)
             await self._attach(entry)
@@ -323,6 +326,9 @@ class CodexDaemonService:
         if method == "thread/closed":
             await self._thread_closed(thread_id)
             return
+        if method == "thread/name/updated":
+            await self._thread_named(thread_id, str(params.get("threadName") or ""))
+            return
         if method == "serverRequest/resolved":
             session = self._session(thread_id)
             if session is not None:
@@ -353,6 +359,16 @@ class CodexDaemonService:
             self._known.add(summary.thread_id)
             self._loaded.add(summary.thread_id)
             await self._adopt(summary, loaded=True)
+
+    async def _thread_named(self, thread_id: str, name: str) -> None:
+        """Codex named the thread from its conversation; the sidebars follow it.
+
+        The name arrives for every subscriber, so a thread named in a terminal
+        renames itself in the apps too. It never overrides a title the user set.
+        """
+        entry = self.hub.entries.get(thread_id)
+        if entry is not None and name:
+            await titles.from_agent(entry.channel, name)
 
     async def _thread_closed(self, thread_id: str) -> None:
         self._loaded.discard(thread_id)

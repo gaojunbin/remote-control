@@ -14,6 +14,10 @@ interface Props {
 
 export function DeviceRow({ device, sessionCount, onRename, onRevoke }: Props) {
   const agents = device.agents.filter((a) => a.available);
+  const reach = device.online
+    ? latency(device.latency_ms)
+    : strings.devices.lastSeen(relativeTime(device.last_seen));
+
   return (
     <li className="device-row">
       <div className="device-main">
@@ -21,8 +25,16 @@ export function DeviceRow({ device, sessionCount, onRename, onRevoke }: Props) {
           <OnlineDot online={device.online} />
           <span>{device.name}</span>
         </div>
-        <div className="device-meta mono">
-          {device.hostname} · {device.platform} · {device.arch}
+        <div className="device-meta">
+          <span className="mono">
+            {device.hostname} · {device.platform} · {device.arch}
+          </span>
+          <span className="device-reach">
+            {sessionCount > 0
+              ? strings.devices.sessionsCount(sessionCount)
+              : strings.devices.noSessions}{' '}
+            · {reach}
+          </span>
         </div>
       </div>
 
@@ -37,14 +49,6 @@ export function DeviceRow({ device, sessionCount, onRename, onRevoke }: Props) {
             </span>
           ))
         )}
-      </div>
-
-      <div className="device-sessions">
-        {sessionCount > 0 ? strings.devices.sessionsCount(sessionCount) : strings.devices.noSessions}
-      </div>
-
-      <div className="device-latency mono">
-        {device.online ? latency(device.latency_ms) : strings.devices.lastSeen(relativeTime(device.last_seen))}
       </div>
 
       <Popover

@@ -165,6 +165,62 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "11-attach-hint")
     }
 
+    /// The session nothing owns any more sits in one collapsed group at the
+    /// bottom, and a search reaches inside it without opening it by hand.
+    func testArchiveGroupOpensOnTapAndOnSearch() {
+        app.launch()
+
+        let archived = app.buttons["session.demo-session-otlp"]
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
+        XCTAssertFalse(archived.exists, "a session whose CLI exited is not in Active")
+
+        // The list is lazy, so the group has to be scrolled into view first.
+        let archive = app.buttons["sessions.archive"]
+        XCTAssertTrue(scrollDown(to: archive), "the Archive group is at the foot")
+        XCTAssertTrue(archive.label.contains("1"), "and its header counts what is inside")
+
+        archive.tap()
+        XCTAssertTrue(scrollDown(to: archived), "one tap opens it")
+        attach(name: "15-archive-open")
+
+        XCTAssertTrue(scrollDown(to: archive), "the header is still reachable")
+        archive.tap()
+        XCTAssertTrue(archived.waitForNonExistence(timeout: 10), "and another closes it")
+
+        // A search finds it wherever it is, without a second tap. The search
+        // bar hides itself while the list is scrolled away from the top.
+        for _ in 0..<6 where !app.searchFields.firstMatch.exists { app.swipeDown() }
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "the list is searchable")
+        field.tap()
+        field.typeText("OTLP")
+        XCTAssertTrue(archived.waitForExistence(timeout: 10),
+                      "a match inside the Archive opens it on its own")
+        attach(name: "16-archive-search")
+    }
+
+    /// Scrolls the list until the element is on screen and can be tapped, so a
+    /// lazy row at the foot of the page is never a matter of swipe distance.
+    private func scrollDown(to element: XCUIElement, swipes: Int = 6) -> Bool {
+        for _ in 0..<swipes {
+            if element.exists && element.isHittable { return true }
+            app.swipeUp()
+        }
+        return element.exists && element.isHittable
+    }
+
+    /// A device with nothing open keeps its caption and says so in one line.
+    func testDeviceWithNoOpenSessionsSaysSo() {
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
+        app.swipeUp()
+        app.swipeUp()
+        let empty = app.staticTexts["sessions.empty.demo-ci-runner"]
+        XCTAssertTrue(empty.waitForExistence(timeout: 15),
+                      "the machine is still listed, with a caption instead of rows")
+        XCTAssertEqual(empty.label, "No open sessions")
+    }
+
     func testNewSessionSheetOffersDeviceAndAgent() {
         app.launch()
         let newSession = app.buttons["sessions.new"]

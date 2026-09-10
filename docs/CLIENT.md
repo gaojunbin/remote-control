@@ -144,6 +144,31 @@ advertise `steer`, so an app can redirect a turn in flight instead of queueing. 
 `session.history` pages backwards with `before_seq` and forwards with `after_seq`; the second form
 is how the gateway backfills events produced while its link to the device was down.
 
+### Titles
+
+A session has three possible names, in order of precedence:
+
+1. **A title the user set**, through `session.create`, `session.set`, or `/rename` in a Claude Code
+   terminal, which writes a `custom-title` row into the transcript. It sticks: nothing an agent
+   produces replaces it, whichever way it was set. Which sessions were named this way is
+   device-local state, kept in the registry rather than on the wire.
+2. **The agent's own summary of the conversation**, which replaces a first-prompt title whenever it
+   arrives and again whenever it changes. Claude Code generates one shortly after the first turn and
+   writes it as an `ai-title` row, then writes another when a plan is accepted; Codex names a thread
+   and announces it with `thread/name/updated`. The device reads the Claude rows in all three places
+   a transcript is read: a session it drives itself, an attached session and a mirrored terminal one.
+3. **The first line of the first message**, which is what a session is called until something better
+   shows up.
+
+Every source is capped at 60 characters. A change is published as a `meta` event and a republished
+session summary, so the sidebars follow it live.
+
+Both transcript rows are internal to Claude Code and documented as liable to change, so they are
+parsed defensively: a row of an unknown shape, or one whose title field is missing, empty or not a
+string, is read as "not a title" and never as an error. Nothing about the tail depends on them, so a
+format change costs the titles and nothing else. When several titles arrive in one read they are
+applied in order, which is what stops a generated title that lands after a rename from winning.
+
 ## Terminal sessions
 
 Every ten seconds the daemon scans for agent sessions it did not create:
@@ -359,6 +384,16 @@ client to connect names the daemon for every thread, so the name is deliberate).
   resumed yet. It is still `shared` and `turn/start` still works on it; the subscription is taken the
   moment the first turn creates the rollout. The same applies in reverse: a thread created from an
   app can only be reopened with `codex resume <id>` **after** its first turn.
+- The daemon echoes the prompt that started a turn back as a `userMessage` item, on `item/started`
+  and again on `item/completed` with the same item id, and the observed `clientId` of our own
+  injection is `null`. The device matches that echo against the prompts it has sent, keyed by text,
+  and then remembers the item id, so the second event, a backfill and a reconnect all drop it
+  instead of adding a `terminal` bubble beside the one the apps already show. One echo is spent per
+  message sent, so a terminal user typing the same words still gets their own bubble. A `clientId`
+  that has never appeared on an echo of ours is a TUI sharing the thread, which is what turns a
+  `remote` thread `shared`.
+- `thread/name/updated` carries `{threadId, threadName}` and reaches every subscriber, so a thread
+  named in a terminal renames itself in the apps. It never overrides a title the user set.
 - Approvals arrive as JSON-RPC requests that fan out to every subscriber. The options come from the
   daemon's own `availableDecisions` for that prompt, mapped onto `allow`, `allow_session`,
   `allow_always` and `deny`. Whoever answers first wins; when somebody else answers,

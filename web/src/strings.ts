@@ -109,6 +109,8 @@ export const strings = {
     allDevices: 'All devices',
     archive: 'Archive',
     unarchive: 'Unarchive',
+    archiveGroup: (n: number) => `Archive · ${n}`,
+    noOpenSessions: 'No open sessions',
     showArchived: 'Show archived',
     hideArchived: 'Hide archived',
     archived: 'Archived',

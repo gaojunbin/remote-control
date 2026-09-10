@@ -33,6 +33,19 @@ _MESSAGE_ID_RE = re.compile(r'message_id="([^"]{1,64})"')
 CHANNEL_DELIVERED = "channel_delivered"
 CHANNEL_ABSORBED = "channel_absorbed"
 
+# Claude Code names a session after its own reading of the conversation and
+# writes the result into the transcript as a row of its own. It may do so more
+# than once — the title is generated shortly after the first turn, and accepting
+# a plan replaces it — and the last one is the current title. `/rename` in the
+# terminal writes the other shape, which is the user's own title and outranks
+# every generated one. Both are internal to Claude Code and may change, so an
+# unknown or malformed row is read as "not a title" rather than as an error.
+AI_TITLE_ROW = "ai-title"
+CUSTOM_TITLE_ROW = "custom-title"
+TITLE = "session_title"
+_TITLE_ROWS = {AI_TITLE_ROW: ("aiTitle", False), CUSTOM_TITLE_ROW: ("customTitle", True)}
+_SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,80}")
+
 
 def channel_message_id(text: str, server: str = CHANNEL_SERVER) -> str | None:
     """The `message_id` of a channel tag this device wrote, if that is what it is."""
@@ -119,6 +132,63 @@ def discover(
     return found
 
 
+def find_transcript(session_id: str) -> Path | None:
+    """The transcript of one session, in whichever project directory Claude filed it.
+
+    A session this device drives is never mirrored, so its path is not known
+    from a scan; the id is unique across projects, which makes a glob enough.
+    """
+    if not _SESSION_ID.fullmatch(session_id):
+        return None
+    for path in PROJECTS_DIR.glob(f"*/{session_id}.jsonl"):
+        return path
+    return None
+
+
+@dataclass(slots=True, frozen=True)
+class Title:
+    """A title read from a transcript, and whether the user chose it."""
+
+    text: str
+    by_user: bool
+
+
+def read_title(row: dict[str, Any]) -> Title | None:
+    """The title a transcript row carries, or `None` when it carries none."""
+    shape = _TITLE_ROWS.get(str(row.get("type") or ""))
+    if shape is None:
+        return None
+    field_name, by_user = shape
+    value = row.get(field_name)
+    text = value.strip() if isinstance(value, str) else ""
+    return Title(text=text, by_user=by_user) if text else None
+
+
+@dataclass(slots=True)
+class TitleTail:
+    """Watch a transcript for nothing but the titles it carries.
+
+    Sessions this device drives get their events from the SDK, which does not
+    carry the title, and mirroring their transcript would publish every message
+    twice. Reading only the title rows costs one incremental read per tick.
+    """
+
+    path: str
+    tail: FileTail = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.tail = FileTail(path=self.path)
+
+    def read_new(self) -> list[Title]:
+        """Every title among the rows appended since the last read, in order.
+
+        All of them, not just the last: a generated title that lands after a
+        rename must not win, and applying them in order is what decides that.
+        """
+        found = [read_title(row) for row in self.tail.read_new()]
+        return [title for title in found if title is not None]
+
+
 def _text_of(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -175,6 +245,11 @@ class TranscriptTailer:
 
     def translate(self, row: dict[str, Any]) -> list[Emit]:
         row_type = row.get("type")
+        if row_type in _TITLE_ROWS:
+            title = read_title(row)
+            if title is None:
+                return []
+            return [Emit(TITLE, {"title": title.text, "by_user": title.by_user})]
         if row_type == "user":
             return self._channel_echo(row) or self._user(row)
         if row_type == "assistant":

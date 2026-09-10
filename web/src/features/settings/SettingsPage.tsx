@@ -34,6 +34,12 @@ export function SettingsPage() {
   }, []);
 
   const webPushAvailable = config?.push.web_enabled !== false && push !== 'unsupported';
+  const connection =
+    socketStatus === 'open'
+      ? strings.settings.connected
+      : socketStatus === 'reconnecting' || socketStatus === 'connecting'
+        ? strings.settings.connecting
+        : strings.settings.offline;
 
   return (
     <>
@@ -41,114 +47,116 @@ export function SettingsPage() {
         <h1>{strings.settings.title}</h1>
       </div>
 
-      <section className="settings-card card">
-        <h2>{strings.settings.account}</h2>
-        <div className="settings-row">
-          <span>{strings.settings.signedInAs}</span>
-          <strong>{username ?? '—'}</strong>
-        </div>
-        <div className="settings-row">
-          <span>{strings.settings.connection}</span>
-          <span className="hint">
-            {socketStatus === 'open'
-              ? strings.settings.connected
-              : socketStatus === 'reconnecting' || socketStatus === 'connecting'
-                ? strings.settings.connecting
-                : strings.settings.offline}
-          </span>
-        </div>
-        <div className="settings-actions">
-          <Button
-            onClick={async () => {
-              await logout();
-              navigate('/login', { replace: true });
-            }}
-          >
-            {strings.settings.signOut}
-          </Button>
-        </div>
-      </section>
-
-      <section className="settings-card card">
-        <h2>{strings.settings.notifications}</h2>
-        <p className="hint">{strings.settings.pushDescription}</p>
-        <div className="settings-row">
-          <span>{strings.settings.pushEnable}</span>
-          {!webPushAvailable ? (
-            <span className="hint">
-              {push === 'unsupported'
-                ? strings.settings.pushUnsupported
-                : strings.settings.pushServerDisabled}
-            </span>
-          ) : push === 'denied' ? (
-            <span className="hint">{strings.settings.pushBlocked}</span>
-          ) : (
-            <Button
-              small
-              busy={pushBusy}
+      <div className="settings">
+        <section className="settings-section">
+          <h2 className="group-title">{strings.settings.account}</h2>
+          <div className="settings-group surface">
+            <div className="settings-row">
+              <span>{strings.settings.signedInAs}</span>
+              <strong>{username ?? '—'}</strong>
+            </div>
+            <div className="settings-row">
+              <span>{strings.settings.connection}</span>
+              <span className="hint">{connection}</span>
+            </div>
+            <button
+              type="button"
+              className="settings-row settings-action"
               onClick={async () => {
-                setPushBusy(true);
-                try {
-                  setPush(push === 'subscribed' ? await disablePush() : await enablePush());
-                } catch {
-                  setPush(await currentPushState());
-                } finally {
-                  setPushBusy(false);
-                }
+                await logout();
+                navigate('/login', { replace: true });
               }}
             >
-              {push === 'subscribed'
-                ? strings.settings.pushDisableAction
-                : strings.settings.pushEnableAction}
-            </Button>
+              {strings.settings.signOut}
+            </button>
+          </div>
+        </section>
+
+        <section className="settings-section">
+          <h2 className="group-title">{strings.settings.notifications}</h2>
+          <div className="settings-group surface">
+            <div className="settings-row">
+              <span>{strings.settings.pushEnable}</span>
+              {!webPushAvailable ? (
+                <span className="hint">
+                  {push === 'unsupported'
+                    ? strings.settings.pushUnsupported
+                    : strings.settings.pushServerDisabled}
+                </span>
+              ) : push === 'denied' ? (
+                <span className="hint">{strings.settings.pushBlocked}</span>
+              ) : (
+                <Button
+                  small
+                  busy={pushBusy}
+                  onClick={async () => {
+                    setPushBusy(true);
+                    try {
+                      setPush(push === 'subscribed' ? await disablePush() : await enablePush());
+                    } catch {
+                      setPush(await currentPushState());
+                    } finally {
+                      setPushBusy(false);
+                    }
+                  }}
+                >
+                  {push === 'subscribed'
+                    ? strings.settings.pushDisableAction
+                    : strings.settings.pushEnableAction}
+                </Button>
+              )}
+            </div>
+          </div>
+          <p className="settings-note">{strings.settings.pushDescription}</p>
+        </section>
+
+        <section className="settings-section">
+          <h2 className="group-title">{strings.settings.voice}</h2>
+          {stt.enabled ? (
+            <div className="settings-group surface">
+              <div className="settings-row">
+                <span>{strings.settings.voiceLanguage}</span>
+                <Menu
+                  align="end"
+                  ariaLabel={strings.settings.voiceLanguage}
+                  value={language}
+                  onSelect={setLanguage}
+                  options={stt.languages.map((code) => ({ id: code, label: languageLabel(code) }))}
+                  label={languageLabel(language)}
+                />
+              </div>
+              <div className="settings-row">
+                <span>{strings.settings.pushToTalk}</span>
+                <Switch
+                  checked={pushToTalk}
+                  onChange={setPushToTalk}
+                  label={strings.settings.pushToTalk}
+                />
+              </div>
+            </div>
+          ) : (
+            <p className="settings-note">{strings.settings.voiceServerDisabled}</p>
           )}
-        </div>
-      </section>
+        </section>
 
-      <section className="settings-card card">
-        <h2>{strings.settings.voice}</h2>
-        {stt.enabled ? (
-          <>
+        <section className="settings-section">
+          <h2 className="group-title">{strings.settings.about}</h2>
+          <div className="settings-group surface">
             <div className="settings-row">
-              <span>{strings.settings.voiceLanguage}</span>
-              <Menu
-                align="end"
-                ariaLabel={strings.settings.voiceLanguage}
-                value={language}
-                onSelect={setLanguage}
-                options={stt.languages.map((code) => ({ id: code, label: languageLabel(code) }))}
-                label={languageLabel(language)}
-              />
+              <span>{strings.settings.origin}</span>
+              <span className="mono hint">{config?.public_origin ?? window.location.origin}</span>
             </div>
             <div className="settings-row">
-              <span>{strings.settings.pushToTalk}</span>
-              <Switch
-                checked={pushToTalk}
-                onChange={setPushToTalk}
-                label={strings.settings.pushToTalk}
-              />
+              <span>{strings.settings.gatewayVersion}</span>
+              <span className="mono hint">{gatewayVersion ?? version ?? '—'}</span>
             </div>
-          </>
-        ) : (
-          <p className="hint">{strings.settings.voiceServerDisabled}</p>
-        )}
-      </section>
-
-      <section className="settings-card card">
-        <h2>{strings.settings.about}</h2>
-        <div className="settings-row">
-          <span>{strings.settings.origin}</span>
-          <span className="mono hint">{config?.public_origin ?? window.location.origin}</span>
-        </div>
-        <div className="settings-row">
-          <span>{strings.settings.gatewayVersion}</span>
-          <span className="mono hint">{gatewayVersion ?? version ?? '—'}</span>
-        </div>
-        <div className="settings-row">
-          <span>{strings.settings.protocolVersion}</span>
-          <span className="mono hint">{protocol ?? '—'}</span>
-        </div>
-      </section>
+            <div className="settings-row">
+              <span>{strings.settings.protocolVersion}</span>
+              <span className="mono hint">{protocol ?? '—'}</span>
+            </div>
+          </div>
+        </section>
+      </div>
     </>
   );
 }

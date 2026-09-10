@@ -5,12 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from ....models import now_ms
+from ....models import MAX_TITLE, now_ms
 
 # Every real turn spawns a short-lived thread that only generates a title; those
 # would otherwise flicker into the session list on every message.
 EPHEMERAL = "ephemeral"
-MAX_TITLE = 60
 
 
 def is_ephemeral(thread: dict[str, Any]) -> bool:
@@ -44,6 +43,9 @@ class ThreadSummary:
     thread_id: str
     cwd: str
     title: str
+    # The thread's own name, which Codex generates from the conversation. Empty
+    # when it has none yet, and then `title` falls back to the first prompt.
+    name: str
     model: str | None
     effort: str | None
     created_at: int
@@ -66,6 +68,7 @@ class ThreadSummary:
             thread_id=thread_id,
             cwd=str(thread.get("cwd") or ""),
             title=title,
+            name=name[:MAX_TITLE],
             model=model if isinstance(model, str) and model else None,
             effort=effort if isinstance(effort, str) and effort else None,
             created_at=created,

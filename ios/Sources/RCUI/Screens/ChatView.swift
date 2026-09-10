@@ -103,14 +103,23 @@ private struct SubtitleBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.tight) {
             HStack(spacing: Theme.Space.tight) {
-                StatusDot(state: session.state, size: 6)
+                StatusLabel(state: session.state, text: session.statusLabel)
+                    .layoutPriority(2)
+                Text("·").font(Theme.Text.caption).foregroundStyle(Theme.inkSecondary)
                 Text(device?.name ?? session.deviceID)
-                    .font(.caption)
+                    .font(Theme.Text.caption)
                     .foregroundStyle(Theme.inkSecondary)
-                CodeText(session.cwd)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                Text("·").font(Theme.Text.caption).foregroundStyle(Theme.inkSecondary)
+                CodeText(session.cwd, font: Theme.Text.metaMono)
                 if let branch = session.git?.branch {
-                    Text("·").font(.caption).foregroundStyle(Theme.inkSecondary)
-                    Text(branch).font(Theme.mono).foregroundStyle(Theme.inkSecondary).lineLimit(1)
+                    Text("·").font(Theme.Text.caption).foregroundStyle(Theme.inkSecondary)
+                    Text(branch)
+                        .font(Theme.Text.metaMono)
+                        .foregroundStyle(Theme.inkSecondary)
+                        .lineLimit(1)
+                        .layoutPriority(1)
                 }
                 Spacer(minLength: 0)
             }
@@ -131,7 +140,7 @@ private struct SubtitleBar: View {
                     }
                     if let usage = session.usage, usage.totalTokens > 0 {
                         Text(metrics(usage))
-                            .font(.caption)
+                            .font(Theme.Text.caption)
                             .foregroundStyle(Theme.inkSecondary)
                             .accessibilityLabel("\(usage.totalTokens) tokens used")
                             .accessibilityIdentifier("chat.usage")
@@ -141,9 +150,9 @@ private struct SubtitleBar: View {
             }
         }
         .padding(.horizontal, Theme.Space.page)
-        .padding(.vertical, Theme.Space.tight)
+        .padding(.bottom, Theme.Space.small)
         .background(Theme.canvas)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 0.5) }
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.hairline).frame(height: 0.5) }
     }
 
     private func metrics(_ usage: SessionUsage) -> String {

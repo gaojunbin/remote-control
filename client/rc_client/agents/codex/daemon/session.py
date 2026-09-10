@@ -12,7 +12,6 @@ import asyncio
 import contextlib
 import time
 import uuid
-from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -24,6 +23,7 @@ from ....sessions.channel import SessionChannel
 from ..models import ModelCatalog
 from ..translate import CodexTranslator, item_type, normalise
 from .dialogs import DialogDesk
+from .echoes import EchoLog
 from .rpc import DaemonClient
 
 log = logger("rc_client.codex.daemon.session")
@@ -33,9 +33,6 @@ OUTPUT_THROTTLE = 0.2
 DRAIN_TIMEOUT = 15.0
 BACKFILL_ITEMS = 200
 BACKFILL_PAGE = 100
-# How many of our own prompts to keep around so the daemon's echo of them can be
-# recognised and dropped; a turn only ever echoes the message that started it.
-ECHO_MEMORY = 8
 
 ControlCallback = Callable[[], Awaitable[None]]
 TurnEndCallback = Callable[[], Awaitable[None]]
@@ -89,7 +86,7 @@ class CodexDaemonSession:
             pending_diff=self._translator.pending_diff,
         )
         self._last_output_flush: dict[str, float] = {}
-        self._echoes: deque[str] = deque(maxlen=ECHO_MEMORY)
+        self._echoes = EchoLog()
         self._last_item_id: str | None = None
         self._subscribed = False
         self._terminal_seen = False
@@ -338,22 +335,24 @@ class CodexDaemonSession:
     async def _accept_user_message(self, item: dict[str, Any]) -> bool:
         """Decide whether a `userMessage` item is news, and who typed it.
 
-        A non-null `clientId` means a terminal typed it, which is the only
-        signal the daemon offers that a TUI is sharing this thread. Our own
-        injections come back with a null `clientId` and a body we recognise,
-        and we have already published those with their own block id.
+        The daemon echoes the prompt that started a turn on both `item/started`
+        and `item/completed`, so recognising it once is not enough: the item id
+        of an echo we matched stays known, and every later sighting of it — the
+        second event, a backfill, a reconnect — is dropped. What is left after
+        that is somebody else's message, and a `clientId` that is not one the
+        daemon has stamped on an echo of ours names the terminal typing it,
+        which is the only signal the daemon offers that a TUI is there.
         """
-        client_id = item.get("clientId")
-        if client_id:
-            if not self._terminal_seen:
-                self._terminal_seen = True
-                if self._on_terminal_seen is not None:
-                    await self._on_terminal_seen()
-            return True
-        text = _text_of(item.get("content"))
-        if text and text in self._echoes:
-            self._echoes.remove(text)
+        item_id = str(item.get("id") or "")
+        if self._echoes.recognised(item_id):
             return False
+        client_id = str(item.get("clientId") or "")
+        if self._echoes.claim(item_id, _text_of(item.get("content")), client_id):
+            return False
+        if client_id and not self._echoes.owns(client_id) and not self._terminal_seen:
+            self._terminal_seen = True
+            if self._on_terminal_seen is not None:
+                await self._on_terminal_seen()
         return True
 
     async def _apply(self, emit: Any) -> None:
@@ -412,7 +411,7 @@ class CodexDaemonSession:
         if self.channel.session.control == "shared":
             fields["delivery"] = "delivered"
         await self.channel.emit("user_message", **fields)
-        self._echoes.append(str(inputs[0]["text"]))
+        self._echoes.remember(str(inputs[0]["text"]))
         self._turn_started_at = now_ms()
         params: dict[str, Any] = {
             "threadId": thread_id,
@@ -456,7 +455,7 @@ class CodexDaemonSession:
             )
         except RcError:
             return False
-        self._echoes.append(text)
+        self._echoes.remember(text)
         fields: dict[str, Any] = {
             "block_id": f"user:{uuid.uuid4()}",
             "text": text,

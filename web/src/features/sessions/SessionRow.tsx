@@ -9,12 +9,19 @@ interface Props {
   session: Session;
   deviceName: string;
   online: boolean;
+  /** Archive rows carry the device in the meta line; active rows are grouped by it. */
+  showDevice?: boolean;
   onOpen: () => void;
 }
 
-export function SessionRow({ session, deviceName, online, onOpen }: Props) {
+export function SessionRow({ session, deviceName, online, showDevice = false, onOpen }: Props) {
   const setArchived = useSessions((s) => s.setArchived);
   const attention = session.state === 'needs_approval' || session.state === 'needs_input';
+  const state = session.archived
+    ? strings.sessions.archived
+    : online
+      ? sessionStateLabel(session)
+      : strings.sessions.deviceOffline;
 
   return (
     <li className="session-row">
@@ -23,11 +30,12 @@ export function SessionRow({ session, deviceName, online, onOpen }: Props) {
         <span className="session-text">
           <span className="session-title">{session.title}</span>
           <span className="session-sub mono">
-            {deviceName} · {tildePath(session.cwd)}
+            {showDevice ? `${deviceName} · ` : ''}
+            {tildePath(session.cwd)}
           </span>
         </span>
         <span className={`session-state${attention ? ' attention' : ''}`}>
-          {online ? sessionStateLabel(session) : strings.sessions.deviceOffline}
+          {state}
           <span className="session-time"> · {relativeTime(session.updated_at)}</span>
         </span>
       </button>

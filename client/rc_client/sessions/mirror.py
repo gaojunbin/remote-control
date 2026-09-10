@@ -19,8 +19,9 @@ from ..agents.codex.daemon.service import CodexDaemonService
 from ..agents.codex.runtime import resolve_binary as resolve_codex
 from ..config import MirrorConfig
 from ..logging_setup import logger
-from ..models import Session, now_ms, title_from_text
+from ..models import Session, now_ms
 from ..procscan import file_writers
+from . import titles
 from .hub import SessionEntry, SessionHub
 
 log = logger("rc_client.mirror")
@@ -55,6 +56,8 @@ class MirrorService:
         self.codex_daemon = codex_daemon
         self._claude: dict[str, ClaudeMirror] = {}
         self._codex: dict[str, CodexMirror] = {}
+        # Title-only tails for Claude sessions this device drives itself.
+        self._titles: dict[str, transcripts.TitleTail] = {}
         self._tasks: list[asyncio.Task[None]] = []
 
     def start(self) -> None:
@@ -99,8 +102,52 @@ class MirrorService:
             await self.codex_daemon.tick(resolve_codex())
         self._adopt_claude(found_claude)
         self._adopt_codex(found_codex)
+        await self._watch_titles()
         await self._refresh_claude_control()
         await self._refresh_codex_control()
+
+    def _driven_claude(self) -> set[str]:
+        """Claude sessions this device is running right now.
+
+        Their events come from the SDK, so the mirror never adopts them; the
+        title the CLI writes for itself reaches nobody unless it is read here.
+        """
+        return {
+            session_id
+            for session_id, entry in self.hub.entries.items()
+            if entry.session.agent == "claude"
+            and entry.session.origin == "remote"
+            and entry.runner is not None
+        }
+
+    async def _watch_titles(self) -> None:
+        """Keep one title-only tail per session this device drives."""
+        wanted = self._driven_claude()
+        for session_id in list(self._titles):
+            if session_id not in wanted:
+                self._titles.pop(session_id, None)
+        for session_id in sorted(wanted - set(self._titles)):
+            path = await asyncio.to_thread(transcripts.find_transcript, session_id)
+            if path is not None:
+                self._titles[session_id] = transcripts.TitleTail(path=str(path))
+
+    async def _read_titles(self) -> None:
+        """Publish any title the CLI has written since the last read."""
+        for session_id, tail in list(self._titles.items()):
+            entry = self.hub.entries.get(session_id)
+            if entry is None:
+                self._titles.pop(session_id, None)
+                continue
+            for title in await asyncio.to_thread(tail.read_new):
+                await self._apply_title(entry, title)
+
+    @staticmethod
+    async def _apply_title(entry: SessionEntry, title: transcripts.Title) -> None:
+        """A `/rename` in the terminal is as sticky as one set from an app."""
+        if title.by_user:
+            await titles.from_user(entry.channel, title.text)
+        else:
+            await titles.from_agent(entry.channel, title.text)
 
     def _offset_key(self, session_id: str) -> str:
         return f"mirror-offset:{session_id}"
@@ -305,6 +352,7 @@ class MirrorService:
             if entry is None:
                 continue
             await self._tail_one(session_id, entry, codex_mirror.tailer)
+        await self._read_titles()
 
     async def _tail_one(self, session_id: str, entry: SessionEntry, tailer: Tailer) -> None:
         """Read what is new, then report turn state as those rows left it.
@@ -333,6 +381,15 @@ class MirrorService:
         if emit.kind in _CHANNEL_ECHOES:
             await self._channel_echo(entry, emit)
             return
+        if emit.kind == transcripts.TITLE:
+            await self._apply_title(
+                entry,
+                transcripts.Title(
+                    text=str(emit.fields.get("title") or ""),
+                    by_user=bool(emit.fields.get("by_user")),
+                ),
+            )
+            return
         if entry.shared is not None and emit.kind == "tool_call":
             status = str(emit.fields.get("status") or "")
             if status in {"succeeded", "failed"}:
@@ -342,8 +399,8 @@ class MirrorService:
         if emit.kind == "todos":
             await entry.channel.publish_todos(list(emit.fields.get("items") or []))
             return
-        if emit.kind == "user_message" and not entry.session.title:
-            entry.session.title = title_from_text(str(emit.fields.get("text") or ""))
+        if emit.kind == "user_message":
+            await titles.from_prompt(entry.channel, str(emit.fields.get("text") or ""))
         await entry.channel.emit(emit.kind, **emit.fields)
 
     async def _channel_echo(self, entry: SessionEntry, emit: Any) -> None:

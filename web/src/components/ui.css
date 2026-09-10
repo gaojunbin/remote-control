@@ -8,8 +8,8 @@
   height: 36px;
   padding: 0 var(--sp-4);
   border-radius: var(--r-pill);
-  border: 1px solid var(--line);
-  background: var(--surface);
+  border: none;
+  background: var(--surface-muted);
   color: var(--ink);
   font-size: var(--fs-14);
   font-weight: 500;
@@ -19,7 +19,7 @@
 }
 
 .btn:hover:not(:disabled) {
-  background: var(--surface-hover);
+  background: var(--surface-active);
 }
 
 .btn:active:not(:disabled) {
@@ -33,7 +33,6 @@
 
 .btn.primary {
   background: var(--ink);
-  border-color: var(--ink);
   color: var(--ink-inverse);
 }
 
@@ -43,27 +42,25 @@
 
 .btn.primary:disabled {
   background: #b9b9b4;
-  border-color: #b9b9b4;
   color: #fff;
   opacity: 1;
 }
 
 .btn.danger {
   color: var(--danger);
-  border-color: #eccdc9;
-}
-
-.btn.danger:hover:not(:disabled) {
   background: var(--danger-soft);
 }
 
+.btn.danger:hover:not(:disabled) {
+  background: #fbdedb;
+}
+
 .btn.ghost {
-  border-color: transparent;
   background: transparent;
 }
 
 .btn.ghost:hover:not(:disabled) {
-  background: var(--surface-hover);
+  background: var(--surface-muted);
 }
 
 .btn.small {
@@ -98,8 +95,99 @@
 
 .card {
   background: var(--surface);
-  border: 1px solid var(--line);
   border-radius: var(--r-lg);
+  box-shadow: var(--shadow-soft);
+}
+
+/*
+ * A list of rows on one surface: hairlines part the rows, never the last one,
+ * and the surface itself carries no border.
+ */
+.surface {
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+
+/* Group caption above a surface: the only place small caps are used. */
+.group-title {
+  font-size: var(--fs-11);
+  line-height: 1.4;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-tertiary);
+  font-weight: 600;
+  margin: 0 0 var(--sp-2);
+  padding-left: var(--sp-4);
+}
+
+/* Search field shared by the Sessions page and the chat sidebar. */
+.search-field {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 34px;
+  padding: 0 var(--sp-3);
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--surface-muted);
+  color: var(--ink-tertiary);
+  max-width: 320px;
+  transition: background var(--dur-fast) var(--ease);
+}
+
+.search-field:focus-within {
+  background: var(--surface-active);
+}
+
+.search-field input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: var(--fs-14);
+  color: var(--ink);
+  min-width: 0;
+}
+
+.search-field input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+/* A device group with nothing open in it. */
+.group-empty {
+  padding: 0 var(--sp-4) var(--sp-1);
+  font-size: var(--fs-13);
+  line-height: 1.5;
+  color: var(--ink-tertiary);
+}
+
+/*
+ * The Archive caption doubles as the disclosure control. The chevron sits in
+ * the gutter so the label lines up with the device captions above it.
+ */
+.archive-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2) var(--sp-1) 0;
+  border: none;
+  background: transparent;
+  transition: color var(--dur-fast) var(--ease);
+}
+
+.archive-head:hover {
+  color: var(--ink-secondary);
+}
+
+.archive-chevron {
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.archive-chevron.open {
+  transform: rotate(90deg);
 }
 
 .field {
@@ -183,22 +271,36 @@
   align-items: center;
   gap: 6px;
   height: 28px;
-  padding: 0 10px;
+  padding: 0 11px;
   border-radius: var(--r-pill);
-  border: 1px solid var(--line);
-  background: var(--surface);
+  border: none;
+  background: var(--surface-muted);
   font-size: var(--fs-13);
   color: var(--ink);
   white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease);
 }
 
 .pill:hover:not(:disabled) {
-  background: var(--surface-hover);
+  background: var(--surface-active);
 }
 
 .pill:disabled {
   color: var(--ink-tertiary);
-  background: var(--surface-sunken);
+  background: var(--surface-muted);
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* A chip that reads as state rather than as a control. */
+.pill.quiet {
+  background: transparent;
+  color: var(--ink-secondary);
+  padding: 0 2px;
+}
+
+.pill.quiet:hover:not(:disabled) {
+  background: transparent;
 }
 
 .badge {
@@ -309,6 +411,7 @@
   padding: var(--sp-10) var(--sp-4);
   text-align: center;
   color: var(--ink-secondary);
+  line-height: 1.5;
 }
 
 .empty strong {

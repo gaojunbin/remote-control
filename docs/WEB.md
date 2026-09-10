@@ -10,9 +10,9 @@ hand-written CSS with no framework. It talks only to the gateway and follows
 | --- | --- |
 | `/login` | Password sign-in against the gateway |
 | `/devices` | Device list with online state, agents and session counts; rename and revoke; **Add device** with the copyable one-liner, the pairing code, its expiry, and live handshake steps |
-| `/sessions` | Every session across every device, with a status dot, the device and working directory, and **New session** in a right-hand drawer |
+| `/sessions` | Every session across every device: Active grouped by device, one collapsed **Archive** at the foot, and **New session** in a right-hand drawer |
 | `/sessions/:deviceId/:sessionId` | The chat: sidebar, timeline, composer, status line |
-| `/settings` | Account and sign out, browser notifications, voice language and push-to-talk, and an About block with the gateway origin, both versions and the connection state |
+| `/settings` | Grouped settings — account and sign out, browser notifications, voice language and push-to-talk, and an About group with the gateway origin, both versions and the connection state |
 
 ## Commands
 
@@ -36,9 +36,10 @@ cd web && npm ci
 
 `mock/server.ts` implements the app-facing half of the protocol — the HTTP API, `WS /ws/app` and
 `WS /ws/stt` — so the whole UI can be developed with no gateway and no device. It ships two devices
-and nine sessions covering running, needs-approval, idle, terminal-controlled, shared through the
-Claude channel, shared through the Codex daemon, Codex, and terminal sessions on a device that has
-neither the shim nor the Codex daemon. Opening the
+and eleven sessions covering running, needs-approval, idle, terminal-controlled, shared through the
+Claude channel, shared through the Codex daemon, Codex, terminal sessions on a device that has
+neither the shim nor the Codex daemon, a session whose CLI exited (`control: "none"`) and one
+archived by hand, so both halves of the Archive group are on screen. Opening the
 running session plays a scripted turn: streamed thinking, streamed Markdown, tool rows with a live
 output box, a failing shell run, two diffs, an approval and a question. Answering both drives the
 turn to completion. The shared session plays the A10 path end to end: a send while the terminal is
@@ -88,6 +89,11 @@ focuses an open tab or opens `/sessions/<device_id>/<session_id>`.
 
 ## Behaviour worth knowing
 
+- **The session list** is one selector, `selectSessionSections` in `src/stores/sessions.ts`. It
+  partitions into Active and Archive, groups Active by device, orders each group, filters on the
+  search text and keeps a device with nothing open in the list. Both the Sessions page and the chat
+  sidebar render its result, so the two lists cannot drift; `tests/sessionSections.test.ts` owns the
+  rule. `docs/DESIGN.md` states it in full.
 - **Reconnect** backs off exponentially to 5 s, replies to `ping`, and treats 60 s of silence as a
   half-open socket. Subscriptions are re-issued with the latest `since_seq`.
 - **Close codes** 4401 and 4403 end the session and return to login; every other code reconnects.
@@ -170,11 +176,18 @@ terminal", saying why this session cannot be driven from here:
 The "Take over" button beside the hint follows the agent's `takeover` capability, in the composer
 bar and in the status line alike.
 
-## Responsive
+## Layout and styling
+
+`src/styles/tokens.css` holds every colour, size, radius and shadow, and `src/components/ui.css`
+the primitives built on them — `.surface` for a grouped list, `.group-title` for the caption above
+one, `.pill`, `.badge`, `.btn` and the status dots. A visual change belongs in those two files
+before it belongs in a component. The rules they encode are in `docs/DESIGN.md`: one canvas, soft
+surfaces instead of bordered boxes, list rows instead of tables, one hairline between rows, one
+filled primary button per surface, and tinted rather than outlined chips.
 
 At 1024 px and above the chat is two panes with the session sidebar. Below that the sidebar
 collapses into the Sessions page, the chat runs full width with a back button, and the composer
-sticks above the keyboard.
+sticks above the keyboard. Every page was checked at 400 px.
 
 ## Validation
 

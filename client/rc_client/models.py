@@ -15,6 +15,10 @@ Attach = Literal["channel", "daemon"]
 Origin = Literal["remote", "terminal"]
 
 
+# The longest title the apps are given for a session (PROTOCOL.md section 8).
+MAX_TITLE = 60
+
+
 def now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -147,8 +151,8 @@ class Session:
 
 
 def title_from_text(text: str) -> str:
-    """First line of the first message, at most 60 characters (PROTOCOL §8 rule)."""
+    """The first line of some text, capped at `MAX_TITLE` (PROTOCOL §8 rule)."""
     line = text.strip().splitlines()[0].strip() if text.strip() else ""
-    if len(line) > 60:
-        return line[:59].rstrip() + "…"
+    if len(line) > MAX_TITLE:
+        return line[: MAX_TITLE - 1].rstrip() + "…"
     return line

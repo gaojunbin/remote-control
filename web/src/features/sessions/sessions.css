@@ -2,66 +2,28 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  margin-bottom: var(--sp-4);
+  margin-bottom: var(--sp-5);
 }
 
-.search-field {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  height: 34px;
-  padding: 0 var(--sp-3);
-  border: 1px solid var(--line);
-  border-radius: var(--r-pill);
-  background: var(--surface);
-  color: var(--ink-tertiary);
-  max-width: 320px;
-}
-
-.search-field input {
-  flex: 1;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: var(--fs-14);
-  color: var(--ink);
-  min-width: 0;
-}
-
-.search-field input::-webkit-search-cancel-button {
-  appearance: none;
-}
+/* --- session list ----------------------------------------------------- */
 
 .session-group + .session-group {
   margin-top: var(--sp-6);
-}
-
-.group-title {
-  font-size: var(--fs-11);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-secondary);
-  font-weight: 500;
-  margin-bottom: var(--sp-2);
-  padding-left: var(--sp-1);
 }
 
 .session-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  overflow: hidden;
 }
 
 .session-row {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--line);
 }
 
-.session-row:last-child {
-  border-bottom: none;
+.session-row + .session-row {
+  border-top: 1px solid var(--hairline);
 }
 
 .session-open {
@@ -86,11 +48,14 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .session-title {
-  font-weight: 500;
+  font-size: var(--fs-15);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -98,6 +63,7 @@
 
 .session-sub {
   font-size: var(--fs-12);
+  line-height: 1.45;
   color: var(--ink-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -107,6 +73,7 @@
 .session-state {
   flex: none;
   font-size: var(--fs-13);
+  line-height: 1.45;
   color: var(--ink-secondary);
   white-space: nowrap;
 }
@@ -120,7 +87,7 @@
 }
 
 .session-archive {
-  margin-right: var(--sp-4);
+  margin-right: var(--sp-3);
   opacity: 0;
 }
 
@@ -280,12 +247,15 @@
   flex: none;
 }
 
+/* Inside the white drawer a group reads as sunken, not as a raised card. */
 .git-row {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
   min-height: 52px;
+  border-radius: var(--r-md);
+  background: var(--surface-muted);
 }
 
 .git-branch {
@@ -402,7 +372,12 @@
     padding-left: 15px;
   }
 
+  .session-row {
+    align-items: flex-start;
+  }
+
   .session-archive {
     opacity: 1;
+    margin-top: 9px;
   }
 }

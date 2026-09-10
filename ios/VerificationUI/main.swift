@@ -144,11 +144,12 @@ func run() async -> (passed: Int, failures: [String]) {
 
     // MARK: - Session list presentation
 
-    let sessions = SessionStore()
-    equal(sessions.visible(model.connection.sessions).first?.state, .needsApproval,
+    let sessions = SessionStore(defaults: UserDefaults(suiteName: "rc-ui-verify-\(UUID().uuidString)")!)
+    let list = sessions.list(model.connection.sessions, devices: model.connection.devices)
+    equal(list.active.first?.sessions.first?.state, .needsApproval,
           "a session waiting on the user sorts first")
-    equal(sessions.grouped(model.connection.sessions, devices: model.connection.devices).count, 3,
-          "the list groups by device")
+    equal(list.active.count, 3, "Active groups by device")
+    equal(list.archive.count, 1, "and the session nothing owns sits in the Archive")
 
     // MARK: - Push reconciliation
 

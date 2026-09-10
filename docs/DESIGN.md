@@ -23,13 +23,62 @@ them: device (with its latency), agent as a segmented control showing the detect
 default model, working directory with recent paths and a browser, git status with an "Isolate in
 worktree" toggle, and an optional first message. One primary button, "Start session".
 
-**Chat.** A sidebar of sessions grouped by device, a header with the title, `device:path · branch`,
-a Todos chip, usage and elapsed time, and a Stop button. The timeline runs down the middle on the
+**Chat.** A sidebar of sessions grouped by device with the Archive collapsed at its foot, a header
+with the title, `device:path · branch`, a Todos chip, usage and elapsed time, and a Stop button. The timeline runs down the middle on the
 page's own canvas. The composer sits at the bottom with model, permission mode and voice language
 pickers on a row beneath it.
 
 Below 1024 px the web sidebar collapses into the Sessions page and the chat runs full width, which
 is the layout iOS uses natively.
+
+## Session lists: Active and Archive
+
+Every session list follows one rule — the web Sessions page, the web chat sidebar and the iOS
+`SessionsView`. The UI may differ; the logic may not. It reads only fields the session already
+carries: `control`, `state`, `archived`, `updated_at` and `title`.
+
+**Active** is what a CLI or the device still holds: `archived` is false and `control` is `remote`,
+`terminal` or `shared`. Those sessions are running, waiting for an answer, or idle with the terminal
+still open.
+
+**Archive** is everything else. `control: "none"` means the CLI exited and nothing owns the session
+any more, so it lands there whatever its state. A session the user archived by hand joins it, but
+only while the "show archived" preference is on; with the preference off it is not listed at all.
+Archiving stays a row action and `session.archive` stays in the protocol.
+
+- Active keeps its grouping by device, one caption per device, in the order the device list uses.
+  Inside a device: `needs_approval` and `needs_input` first, then `running` and `starting`, then the
+  rest, each by `updated_at` descending.
+- A device with nothing open still shows its caption, with a one-line muted "No open sessions"
+  under it rather than an empty box.
+- Archive is one collapsed group at the bottom, captioned "Archive · N", opened by a click or a tap.
+  Inside it, order by `updated_at` descending and carry the device in the row meta rather than as a
+  group, because a mixed list has no group to sit under.
+- The open or closed choice persists per client — `localStorage` on the web, `UserDefaults` on iOS.
+  A search opens the group on its own whenever a match is inside it, and the choice is untouched.
+
+## Surfaces, rows and controls
+
+The app is one canvas, not a stack of boxes. These rules hold on every screen in both apps.
+
+- **Few edges.** Pages sit on the canvas. Sections are separated by spacing and type hierarchy. Where
+  grouping is needed it is one soft surface: a background one step off the canvas, a 14–16 px radius,
+  no border, and at most a very soft shadow. Never a border *and* a shadow *and* a divider on the
+  same element.
+- **Lists, not tables.** Device and session rows are list rows: no column rules, no header row. At
+  most one hairline between two rows inside a surface, at 8–10 % alpha, and none after the last one.
+- **Settings** read like macOS System Settings: a caption above each group, one soft surface with
+  label-left / control-right rows inside, generous inset padding, and an explanation as a small
+  footnote under the group rather than inside it. No fieldsets, no card inside a card.
+- **Chips and badges** are text-only or tinted pills. Nothing is outlined. Status is an 8 px dot plus
+  a word, coloured from the state palette below.
+- **Type carries the hierarchy.** Row and section titles are 15–17 px semibold, meta is 12–13 px in
+  the secondary ink, and 11–12 px uppercase-tracked captions are used for group headers only. Line
+  height stays at or above 1.4.
+- **Buttons.** One filled primary per surface; everything else is quiet, either text or tinted. Icon
+  buttons carry no border.
+- **Tokens first.** A visual change starts in `web/src/styles/tokens.css` and the iOS equivalent, not
+  in a component.
 
 ## The timeline
 
@@ -177,7 +226,8 @@ but the design was not reviewed in dark mode.
 | --- | --- | --- |
 | Canvas | `#F5F5F4` | The page |
 | Surface | `#FFFFFF` | Cards, sheets, rows |
-| Line | `#E6E5E1` | Hairline borders |
+| Line | `#E6E5E1` | Field and modal edges |
+| Hairline | `rgba(17,17,17,.08)` | The one divider between two rows on a surface |
 | Ink | `#111111` | Primary text, and the primary button fill |
 | Ink secondary | `#6B6B6B` | Metadata |
 | Running | `#22A06B` | Green status |
@@ -187,9 +237,10 @@ but the design was not reviewed in dark mode.
 | Diff add / remove | `#1F7A4D` / `#C23A2C` | Diff counts and gutters |
 
 Type is the system UI face — Inter-like on the web, SF on iOS — with `ui-monospace` for paths,
-commands, tool titles, code and pairing codes. Radii are 12–16 px on cards and sheets and 999 px on
-pills. Shadows stay quiet: `0 1px 2px rgba(0,0,0,.06)` for a raised surface, `0 24px 60px
-rgba(0,0,0,.12)` for a modal. Motion is 120–200 ms on a single easing curve, and disabled entirely
+commands, tool titles, code and pairing codes. Radii are 14–16 px on grouped surfaces, 12 px on
+fields and sheets, and 999 px on pills. Shadows stay quiet: `0 1px 2px rgba(24,24,22,.04), 0 0 1px
+rgba(24,24,22,.06)` lifts a grouped surface off the canvas in place of a border, and `0 24px 60px
+rgba(0,0,0,.12)` carries a modal. Motion is 120–200 ms on a single easing curve, and disabled entirely
 under `prefers-reduced-motion`.
 
 Every user-visible string lives in one catalog per app — `web/src/strings.ts` and

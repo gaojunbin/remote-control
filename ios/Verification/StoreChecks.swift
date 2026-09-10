@@ -377,19 +377,61 @@ enum StoreChecks {
 
     @MainActor
     private static func sessionsList(_ checks: CheckRunner) {
-        let store = SessionStore()
+        let defaults = UserDefaults(suiteName: "rc-verify-\(UUID().uuidString)")!
+        let store = SessionStore(defaults: defaults)
         let sessions = DemoFixtures.sessions
-        checks.equal(store.visible(sessions).count, 7, "no filter shows every live session")
-        checks.equal(store.visible(sessions).first?.state, .needsApproval,
-                     "a session waiting on the user sorts first")
+        let devices = DemoFixtures.devices
+
+        let list = store.list(sessions, devices: devices)
+        checks.equal(list.active.count, 3, "Active names every device, empty or not")
+        checks.equal(list.activeCount, 6, "a live CLI or device still holds six sessions")
+        checks.equal(list.archive.count, 1, "the session nothing owns falls to the Archive")
+        checks.equal(list.archive.first?.session.sessionID, DemoFixtures.doneSessionID,
+                     "and it is the one whose control is none")
+        checks.equal(list.archive.first?.deviceName, "ci-runner-01",
+                     "an archived row carries its device, because the Archive is one flat list")
+        checks.equal(list.active.first?.deviceName, "mac-studio-office",
+                     "groups carry the device name, in the order the gateway lists them")
+        checks.equal(list.active.first?.sessions.first?.state, .needsApproval,
+                     "a session waiting on the user sorts first inside its device")
+        checks.equal(list.active.last?.sessions.count, 0,
+                     "a device whose sessions all ended keeps its place with nothing under it")
+        checks.expect(!list.forcesArchiveOpen, "nothing opens the Archive without a search")
+        checks.expect(!store.showsArchiveContents(of: list), "and it starts collapsed")
+
+        store.isArchiveExpanded = true
+        checks.expect(store.showsArchiveContents(of: list), "one tap opens it")
+        checks.expect(SessionStore(defaults: defaults).isArchiveExpanded,
+                      "and the choice outlives the launch")
+        store.isArchiveExpanded = false
+
         store.searchText = "vite"
-        checks.equal(store.visible(sessions).count, 1, "search matches the title")
+        let byTitle = store.list(sessions, devices: devices)
+        checks.equal(byTitle.activeCount, 1, "search matches the title")
+        checks.equal(byTitle.active.count, 1, "and a machine with no match drops out entirely")
         store.searchText = "/work/api"
-        checks.equal(store.visible(sessions).count, 1, "search matches the working directory")
+        let byPath = store.list(sessions, devices: devices)
+        checks.equal(byPath.archive.count, 1, "search matches the working directory")
+        checks.expect(byPath.forcesArchiveOpen, "a match inside the Archive opens it")
+        checks.expect(store.showsArchiveContents(of: byPath),
+                      "whatever the stored preference says")
         store.searchText = ""
-        let groups = store.grouped(sessions, devices: DemoFixtures.devices)
-        checks.equal(groups.count, 3, "sessions group by device")
-        checks.equal(groups.first?.deviceName, "mac-studio-office", "groups carry the device name")
+
+        let archivedByHand = Session(sessionID: "s", deviceID: DemoFixtures.macDeviceID,
+                                     agent: "claude", title: "Old", cwd: "/tmp",
+                                     control: .remote, updatedAt: DemoFixtures.now, archived: true)
+        checks.equal(SessionListLayout.bucket(archivedByHand, showsArchived: false), .hidden,
+                     "a hand-archived session is hidden while the toggle is off")
+        checks.equal(SessionListLayout.bucket(archivedByHand, showsArchived: true), .archive,
+                     "and joins the Archive when it is on")
+        store.showsArchived = true
+        checks.equal(store.list(sessions + [archivedByHand], devices: devices).archive.count, 2,
+                     "the toggle adds it to the same group, not to a third one")
+        store.showsArchived = false
+
+        checks.equal(SessionListLayout.urgency(.needsInput), 0, "waiting on the user comes first")
+        checks.equal(SessionListLayout.urgency(.starting), 1, "a starting agent counts as working")
+        checks.equal(SessionListLayout.urgency(.stopped), 2, "everything at rest comes last")
 
         checks.equal(RelativeTime.short(since: DemoFixtures.now - 240_000), "4m", "relative minutes")
         checks.equal(RelativeTime.short(since: DemoFixtures.now - 10_800_000), "3h", "relative hours")

@@ -1,60 +1,43 @@
 import Foundation
 import Observation
 
-public struct DeviceSessionGroup: Identifiable, Sendable, Equatable {
-    public let id: String
-    public let deviceName: String
-    public let online: Bool
-    public let sessions: [Session]
-
-    public init(id: String, deviceName: String, online: Bool, sessions: [Session]) {
-        self.id = id
-        self.deviceName = deviceName
-        self.online = online
-        self.sessions = sessions
-    }
-}
-
-/// Filtering and grouping for the Sessions tab. It owns no network state; the
-/// list itself lives in `ConnectionStore` and is corrected by every `hello`.
+/// Filtering, grouping and the one piece of list state that outlives a launch.
+/// It owns no network state; the list itself lives in `ConnectionStore` and is
+/// corrected by every `hello`. The rule that splits Active from Archive is
+/// `SessionListLayout`, a pure function this class only feeds.
 @MainActor
 @Observable
 public final class SessionStore {
-    public var searchText = ""
-    public var showsArchived = false
-
-    public init() {}
-
-    public func visible(_ sessions: [Session]) -> [Session] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return sessions
-            .filter { showsArchived ? true : !$0.archived }
-            .filter { session in
-                guard !query.isEmpty else { return true }
-                return session.title.lowercased().contains(query)
-                    || session.cwd.lowercased().contains(query)
-                    || session.agent.lowercased().contains(query)
-            }
-            .sorted { lhs, rhs in
-                if lhs.state.isBlockedOnUser != rhs.state.isBlockedOnUser { return lhs.state.isBlockedOnUser }
-                if lhs.state.isWorking != rhs.state.isWorking { return lhs.state.isWorking }
-                return lhs.updatedAt > rhs.updatedAt
-            }
+    private enum Key {
+        static let archiveExpanded = "sessions.archiveExpanded"
     }
 
-    public func grouped(_ sessions: [Session], devices: [Device]) -> [DeviceSessionGroup] {
-        let ordered = visible(sessions)
-        var seen: [String] = []
-        for session in ordered where !seen.contains(session.deviceID) { seen.append(session.deviceID) }
-        return seen.map { deviceID in
-            let device = devices.first { $0.deviceID == deviceID }
-            return DeviceSessionGroup(
-                id: deviceID,
-                deviceName: device?.name ?? deviceID,
-                online: device?.online ?? false,
-                sessions: ordered.filter { $0.deviceID == deviceID }
-            )
-        }
+    @ObservationIgnored private let defaults: UserDefaults
+
+    public var searchText = ""
+    /// The existing toggle: hand-archived sessions join the Archive group only
+    /// while this is on.
+    public var showsArchived = false
+    /// Whether the Archive group is open. Persisted per client, so the choice
+    /// survives a relaunch.
+    public var isArchiveExpanded: Bool {
+        didSet { defaults.set(isArchiveExpanded, forKey: Key.archiveExpanded) }
+    }
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        isArchiveExpanded = defaults.bool(forKey: Key.archiveExpanded)
+    }
+
+    public func list(_ sessions: [Session], devices: [Device]) -> SessionList {
+        SessionListLayout.build(sessions: sessions, devices: devices,
+                                query: searchText, showsArchived: showsArchived)
+    }
+
+    /// What the Archive group renders as: open because the reader opened it, or
+    /// because a search found something inside.
+    public func showsArchiveContents(of list: SessionList) -> Bool {
+        isArchiveExpanded || list.forcesArchiveOpen
     }
 }
 
