@@ -208,8 +208,11 @@ else
 fi
 
 # The shared Codex app-server daemon is what lets the apps see and drive a Codex
-# session started in a terminal. `codex setup` is idempotent and never enables
-# OpenAI remote control.
+# session started in a terminal. Only the standalone build can bootstrap it, so
+# `codex setup` installs that build when it is missing, whatever other `codex`
+# happens to be on PATH. It is idempotent and never enables OpenAI remote
+# control. It never removes another Codex install either: a foreign one on PATH
+# is only warned about, in the lines printed below.
 if [ "$CODEX" -eq 1 ]; then
     log "Setting up the shared Codex daemon ..."
     "$RC" codex setup || log "warning: the shared Codex daemon is not ready; run '$RC codex status'"

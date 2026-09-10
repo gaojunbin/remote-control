@@ -98,9 +98,13 @@ version. Resolution order for `claude`:
 `RC_CLAUDE_BIN`, then `PATH`, then `~/.local/bin`, `~/.claude/local`, `~/.npm-global/bin`,
 `/usr/local/bin`, `/opt/homebrew/bin`, `~/node_modules/.bin`, `~/.yarn/bin`.
 
-For `codex`: `RC_CODEX_BIN`, then `PATH`, then `~/.codex/packages/standalone/releases/*/bin`,
-`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`. `CODEX_HOME` moves the Codex home
-directory the daemon reads.
+For `codex`: `RC_CODEX_BIN`, then the standalone build at
+`~/.codex/packages/standalone/current/bin/codex`, then `PATH`, then
+`~/.codex/packages/standalone/releases/*/bin`, `~/.local/bin`, `/opt/homebrew/bin`,
+`/usr/local/bin`, `/usr/bin`. The standalone build comes ahead of `PATH` deliberately: it is the
+build the shared daemon runs, and a session this device starts has to be the same one. `CODEX_HOME`
+moves the Codex home directory the daemon reads, and both standalone paths with it, exactly as the
+official installer does.
 
 What each agent advertises:
 
@@ -287,24 +291,54 @@ the apps instead, through the model, permission-mode and effort pickers.
 
 `install.sh` runs `rc-client codex setup` unless you pass `--no-codex`. It is idempotent:
 
-1. Find a standalone Codex at `~/.codex/packages/standalone/current/bin/codex`. If none exists and
-   `~/.local/bin` is already on `PATH`, download `https://chatgpt.com/codex/install.sh` to a
-   temporary file, check that it really is a shell script, and run it with `CODEX_NON_INTERACTIVE=1`.
-   Otherwise print the two commands to run by hand and stop. The condition matters: Codex's own
-   installer rewrites a shell profile when its target directory is not on `PATH`, which would replace
-   a symlinked dotfile with a regular file.
-2. `codex app-server daemon bootstrap`, never `--remote-control`. Remote control enrols the machine
-   with OpenAI's relay, which this project does not use, and the device only ever logs the
-   `remoteControl/status/changed` it receives.
-3. Install supervision, because the bootstrap uses a pid backend and leaves none: a launchd agent
-   `dev.remote-control.codex-daemon` on macOS, a `rc-codex-daemon.service` systemd user unit on
-   Linux. `codex app-server daemon start` is idempotent and returns immediately, so both run it at
-   login and again every five minutes rather than trying to hold a process open. On Linux run
+1. Find the standalone Codex at `~/.codex/packages/standalone/current/bin/codex`. **Only that path
+   counts.** An npm or Homebrew `codex` earlier on `PATH` is the same CLI but not the install the
+   daemon manages, and step 2 refuses to run without the standalone one whichever build invokes it:
+
+   ```
+   Error: managed standalone Codex install not found at
+   ~/.codex/packages/standalone/current/codex
+
+   This command requires the standalone install managed by the Codex installer, because the
+   daemon starts and updates app-server from that fixed path.
+   ```
+
+   If it is missing and `~/.local/bin` is already on `PATH`, download
+   `https://chatgpt.com/codex/install.sh` to a temporary file, check that it really is a shell
+   script, and run it with `CODEX_NON_INTERACTIVE=1`. Otherwise print the two commands to run by
+   hand and stop. The condition matters: Codex's own installer rewrites a shell profile when its
+   target directory is not on `PATH`, which would replace a symlinked dotfile with a regular file.
+   `CODEX_HOME` and `CODEX_INSTALL_DIR` move both of those directories, and are read here for the
+   same reason the installer reads them.
+2. `codex app-server daemon bootstrap` **on the standalone binary**, never `--remote-control`, and
+   never on whatever `PATH` resolved. Remote control enrols the machine with OpenAI's relay, which
+   this project does not use, and the device only ever logs the `remoteControl/status/changed` it
+   receives.
+3. Install supervision on the same standalone binary, because the bootstrap uses a pid backend and
+   leaves none: a launchd agent `dev.remote-control.codex-daemon` on macOS, a
+   `rc-codex-daemon.service` systemd user unit on Linux. `codex app-server daemon start` is
+   idempotent and returns immediately, so both run it at login and again every five minutes rather
+   than trying to hold a process open. On Linux run
    `loginctl enable-linger $USER` so it survives logging out.
 4. Verify with a real WebSocket handshake on the socket, not a file-exists check.
 
-`rc-client codex status` prints the binary, whether the socket is there, whether it answers, and the
-state of our supervision. `rc-client status` summarises the same thing in one line.
+`rc-client codex status` prints the standalone binary the daemon commands use, what `codex` on
+`PATH` resolves to, whether the socket is there, whether it answers, and the state of our
+supervision. When those first two are different installs it adds a warning, which `install.sh`
+prints too:
+
+```
+warning: PATH resolves codex to /opt/homebrew/bin/codex, not the standalone build; terminal
+sessions started with it may not join the shared daemon.
+  Remove it (npm uninstall -g @openai/codex, or brew uninstall codex) or put
+  /Users/you/.local/bin first on PATH.
+```
+
+The comparison is by realpath, because the standalone build is normally reached through two
+symlinks. `rc-client status` carries the same warning in its one-line summary: `codex daemon
+healthy (loaded); warning: foreign codex on PATH`.
+
+Removing a Codex install is always yours to do — this tool never uninstalls one.
 `rc-client uninstall` removes our launchd agent or unit and leaves Codex, its daemon and its
 sessions completely alone.
 
@@ -447,8 +481,11 @@ daemon for a change to take effect.
 | `[claude] setting_sources` | `["project", "local"]` | Which Claude settings layers a remote session loads |
 
 Environment overrides, useful for development and for unusual installs: `RC_CLIENT_HOME` moves the
-whole directory, `RC_CLAUDE_BIN` and `RC_CODEX_BIN` pin an agent executable, and `CODEX_HOME` moves
-the Codex home the daemon reads.
+whole directory, `RC_CLAUDE_BIN` and `RC_CODEX_BIN` pin an agent executable, `CODEX_HOME` moves the
+Codex home the daemon reads and the standalone build inside it, and `CODEX_INSTALL_DIR` moves the
+directory the official Codex installer symlinks into. The last two are read here because Codex's own
+installer reads them; setting either to something the installer does not use would put `codex setup`
+and Codex out of step.
 
 ## Known limitations
 
@@ -467,6 +504,16 @@ the Codex home the daemon reads.
 - The process scan runs about every ten seconds, so a very short terminal session can finish before
   the mirror sees the CLI holding it and appears directly as `control: "none"`. Only the live-control
   window is missed, never the timeline.
+- Whether a foreign `codex` on `PATH` joins the shared daemon is unverified, which is why the
+  warning in `codex status` says "may not join" rather than "will not". The npm package is a thin
+  launcher around the same native binary as the standalone build and reads the same `CODEX_HOME`,
+  so its TUI may well reach the same control socket; it may equally be refused, since the daemon
+  starts and updates app-server from the standalone path alone. Two attempts to settle it by
+  driving a TUI on a synthetic pty failed — neither build painted a frame or created a thread
+  there, so the standalone control run produced nothing either and the npm result means nothing.
+  Answering it needs a real terminal. What is verified: a foreign build cannot bootstrap the daemon
+  unless the standalone install is present, and when it is, the bootstrap delegates to the
+  standalone binary.
 - The Codex daemon path is macOS only so far. The systemd unit that supervises it renders and is
   unit-tested, but has never been enabled on a real Linux machine.
 - A Codex thread created from an app cannot be reopened with `codex resume` until its first turn

@@ -1,9 +1,14 @@
 """`rc-client codex setup` and `rc-client codex status`.
 
-Three steps, each safe to repeat: make sure a standalone Codex exists, ask it to
-bootstrap its shared daemon, and register our own supervision because the
+Three steps, each safe to repeat: make sure the standalone Codex exists, ask it
+to bootstrap its shared daemon, and register our own supervision because the
 bootstrap leaves none. The one thing this never does is enable remote control:
 that enrols the machine with OpenAI's relay, which is not what this project is.
+
+"Codex exists" means the standalone build specifically. `daemon bootstrap`
+refuses to run without it whichever build invokes it, so an npm or Homebrew
+`codex` earlier on PATH must never be mistaken for one, and is only ever
+reported. Nothing here removes another Codex install.
 """
 
 from __future__ import annotations
@@ -11,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import stat
 import tempfile
 from dataclasses import dataclass
@@ -21,14 +27,15 @@ import httpx
 from .... import __version__
 from ....logging_setup import logger
 from ....service import codex as supervision
-from ..runtime import resolve_binary
+from ..runtime import STANDALONE
 from .rpc import handshake_ok
 from .transport import socket_exists, socket_path
 
 log = logger("rc_client.codex.setup")
 
-STANDALONE = Path.home() / ".codex/packages/standalone/current/bin/codex"
-LOCAL_BIN = Path.home() / ".local/bin"
+# Where the official installer puts its `codex` symlink, and therefore the
+# directory whose absence from PATH makes it rewrite a shell profile.
+LOCAL_BIN = Path(os.environ.get("CODEX_INSTALL_DIR") or (Path.home() / ".local/bin"))
 INSTALL_URL = "https://chatgpt.com/codex/install.sh"
 DOWNLOAD_TIMEOUT = 60.0
 BOOTSTRAP_TIMEOUT = 60.0
@@ -36,8 +43,10 @@ MAX_INSTALLER_BYTES = 1024 * 1024
 
 MANUAL_COMMANDS = (
     f"curl -fsSL {INSTALL_URL} | sh",
-    'export PATH="$HOME/.local/bin:$PATH"',
+    f'export PATH="{LOCAL_BIN}:$PATH"',
 )
+
+MISSING = "The standalone Codex install is missing"
 
 # Codex's own installer rewrites the shell profile when its target directory is
 # not already on PATH, replacing a symlinked dotfile with a regular file. The
@@ -56,11 +65,23 @@ def on_path(directory: Path, path_value: str | None = None) -> bool:
     return str(directory.expanduser().resolve()) in path_entries(path_value)
 
 
-def installer_plan(has_codex: bool, local_bin_on_path: bool) -> str:
-    """What to do about a missing standalone Codex, without ever touching a dotfile."""
-    if has_codex:
+def installer_plan(has_standalone: bool, local_bin_on_path: bool) -> str:
+    """What to do about a missing standalone Codex, without ever touching a dotfile.
+
+    Only the standalone build counts. An npm or Homebrew `codex` earlier on PATH
+    is the same CLI but not the install the daemon manages, and treating it as
+    "present" is what used to skip the installer and fail the bootstrap.
+    """
+    if has_standalone:
         return INSTALL_PRESENT
     return INSTALL_RUN if local_bin_on_path else INSTALL_MANUAL
+
+
+def standalone_binary() -> str | None:
+    """The standalone build, or None when the official installer has not run."""
+    if STANDALONE.is_file() and os.access(STANDALONE, os.X_OK):
+        return str(STANDALONE)
+    return None
 
 
 def looks_like_shell_script(text: str) -> bool:
@@ -74,7 +95,7 @@ class DaemonStatus:
     """What `rc-client codex status` reports, and `rc-client status` summarises."""
 
     binary: str | None
-    standalone: bool
+    path_codex: str | None
     socket: str
     socket_present: bool
     handshake: bool
@@ -84,29 +105,59 @@ class DaemonStatus:
     def healthy(self) -> bool:
         return self.handshake
 
+    @property
+    def foreign_codex(self) -> str | None:
+        """A `codex` on PATH that is not the build the shared daemon manages.
+
+        Compared by realpath, because the standalone install is reached through
+        two symlinks: `~/.local/bin/codex` into `current`, and `current` into the
+        release directory.
+        """
+        if self.path_codex is None:
+            return None
+        if self.binary is not None and os.path.realpath(self.path_codex) == os.path.realpath(
+            self.binary
+        ):
+            return None
+        return self.path_codex
+
+    def warnings(self) -> list[str]:
+        foreign = self.foreign_codex
+        if foreign is None:
+            return []
+        return [
+            f"warning: PATH resolves codex to {foreign}, not the standalone build; "
+            "terminal sessions started with it may not join the shared daemon.",
+            "  Remove it (npm uninstall -g @openai/codex, or brew uninstall codex) "
+            f"or put {LOCAL_BIN} first on PATH.",
+        ]
+
     def lines(self) -> list[str]:
         return [
-            f"codex binary        {self.binary or 'not found'}",
-            f"standalone install  {'yes' if self.standalone else 'no'}",
+            f"daemon binary       {self.binary or 'standalone not installed'}",
+            f"codex on PATH       {self.path_codex or 'not found'}",
             f"daemon socket       {self.socket}",
             f"socket present      {'yes' if self.socket_present else 'no'}",
             f"handshake           {'ok' if self.handshake else 'failed'}",
             f"supervision         {self.supervision}",
+            *self.warnings(),
         ]
 
     def summary(self) -> str:
         if self.handshake:
-            return f"healthy ({self.supervision})"
-        if self.socket_present:
-            return "socket present but not answering"
-        return "not bootstrapped"
+            state = f"healthy ({self.supervision})"
+        elif self.socket_present:
+            state = "socket present but not answering"
+        else:
+            state = "not bootstrapped"
+        return f"{state}; warning: foreign codex on PATH" if self.foreign_codex else state
 
 
 async def status() -> DaemonStatus:
     present = socket_exists()
     return DaemonStatus(
-        binary=resolve_binary(),
-        standalone=STANDALONE.is_file(),
+        binary=standalone_binary(),
+        path_codex=shutil.which("codex"),
         socket=str(socket_path()),
         socket_present=present,
         handshake=await handshake_ok(__version__) if present else False,
@@ -167,27 +218,31 @@ async def bootstrap(binary: str) -> tuple[bool, str]:
 
 
 async def setup(install_missing: bool = True) -> tuple[bool, list[str]]:
-    """Bring the shared daemon up on this machine. Returns (ok, printable lines)."""
+    """Bring the shared daemon up on this machine. Returns (ok, printable lines).
+
+    Every step works on the standalone build alone. Whatever `codex` PATH happens
+    to resolve to is only ever reported, never used and never removed.
+    """
     lines: list[str] = []
-    binary = resolve_binary()
-    plan = installer_plan(bool(binary), on_path(LOCAL_BIN))
+    binary = standalone_binary()
+    plan = installer_plan(binary is not None, on_path(LOCAL_BIN))
     if plan == INSTALL_MANUAL:
-        lines.append("Codex is not installed and ~/.local/bin is not on your PATH.")
+        lines.append(f"{MISSING} and {LOCAL_BIN} is not on your PATH.")
         lines.append("Run these two commands, then re-run `rc-client codex setup`:")
         lines.extend(f"  {command}" for command in MANUAL_COMMANDS)
         return False, lines
     if plan == INSTALL_RUN:
         if not install_missing:
-            lines.append("Codex is not installed; re-run without --no-install to install it.")
+            lines.append(f"{MISSING}; re-run without --no-install to install it.")
             return False, lines
         ok, detail = await install_codex()
         lines.append(f"Codex installer: {'ok' if ok else 'failed'}")
         if not ok:
             lines.append(f"  {detail}")
             return False, lines
-        binary = resolve_binary()
-    if not binary:
-        lines.append("Codex is still not on PATH; open a new shell and re-run.")
+        binary = standalone_binary()
+    if binary is None:
+        lines.append(f"{MISSING} at {STANDALONE}; the installer did not leave a binary there.")
         return False, lines
     ok, detail = await bootstrap(binary)
     lines.append(f"Daemon bootstrap: {detail}")
