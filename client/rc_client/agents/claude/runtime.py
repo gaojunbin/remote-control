@@ -41,6 +41,14 @@ def candidate_paths() -> list[str]:
 
 
 def resolve_binary() -> str | None:
+    """The real executable, never the device's own shim.
+
+    The shim only appends channel flags for a person at a terminal, but the
+    daemon drives Claude over pipes, so pointing the SDK at the wrapper would
+    only add a process to every session.
+    """
+    from ...channel.shim import is_shim
+
     seen: set[str] = set()
     for candidate in candidate_paths():
         path = os.path.abspath(os.path.expanduser(candidate))
@@ -48,7 +56,7 @@ def resolve_binary() -> str | None:
         if real in seen:
             continue
         seen.add(real)
-        if os.path.isfile(path) and os.access(path, os.X_OK):
+        if os.path.isfile(path) and os.access(path, os.X_OK) and not is_shim(path):
             return path
     return None
 

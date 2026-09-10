@@ -20,7 +20,9 @@ from ..git import create_worktree, session_git, slugify
 from ..logging_setup import logger
 from ..models import AgentInfo, Session, now_ms, title_from_text
 from ..registry import Registry
+from .attach import Attachment
 from .channel import SessionChannel
+from .shared import EXIT_SETTLE, SharedControl, SharedState
 
 log = logger("rc_client.hub")
 
@@ -48,6 +50,7 @@ class SessionEntry:
     holder_pid: int | None = None
     holder_identity: tuple[int, str] | None = None
     transcript: str | None = None
+    shared: SharedState | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -64,6 +67,7 @@ class SessionHub:
         self.device_id = device_id
         self._agents = agents
         self.entries: dict[str, SessionEntry] = {}
+        self.shared = SharedControl(self)
 
     # ------------------------------------------------------------- accessors
 
@@ -115,6 +119,9 @@ class SessionHub:
 
     async def close(self) -> None:
         for entry in list(self.entries.values()):
+            if entry.shared is not None:
+                entry.shared.attachment.detach()
+                entry.shared = None
             if entry.runner is not None:
                 with contextlib.suppress(Exception):
                     await entry.runner.close()
@@ -265,6 +272,11 @@ class SessionHub:
         mode = str(params.get("mode") or "auto")
 
         async with entry.lock:
+            if entry.shared is not None:
+                result = await self.shared.send(entry, request_id, text, attachments)
+                if request_id:
+                    self.registry.remember_request(session_id, request_id, result)
+                return result
             if entry.session.control == "terminal":
                 raise RcError("conflict", self._terminal_conflict_message(entry))
             if entry.runner is None:
@@ -327,10 +339,10 @@ class SessionHub:
         entry.queue.append(
             {"id": queued_id, "text": text, "ts": now_ms(), "attachments": attachments}
         )
-        await entry.channel.publish_queue(self._queue_snapshot(entry))
+        await entry.channel.publish_queue(self.queue_snapshot(entry))
         return {"accepted": "queued", "queued_id": queued_id}
 
-    def _queue_snapshot(self, entry: SessionEntry) -> list[dict[str, Any]]:
+    def queue_snapshot(self, entry: SessionEntry) -> list[dict[str, Any]]:
         """The wire form of the queue: attachments stay on the device."""
         return [{"id": item["id"], "text": item["text"], "ts": item["ts"]} for item in entry.queue]
 
@@ -354,12 +366,17 @@ class SessionHub:
         return entry.queue.pop(0)
 
     async def _send_queued(self, entry: SessionEntry, item: dict[str, Any]) -> None:
-        await entry.channel.publish_queue(self._queue_snapshot(entry))
+        await entry.channel.publish_queue(self.queue_snapshot(entry))
         runner = entry.runner
         if runner is None:
             return
         try:
-            await runner.send(str(item["text"]), item.get("attachments") or None, source="queue")
+            await runner.send(
+                str(item["text"]),
+                item.get("attachments") or None,
+                source="queue",
+                block_id=item.get("block_id"),
+            )
         except RcError as exc:
             await entry.channel.error(exc.message, code=exc.code)
 
@@ -383,12 +400,24 @@ class SessionHub:
 
     async def stop(self, params: dict[str, Any]) -> dict[str, Any]:
         entry = self.entry(str(params.get("session_id") or ""))
+        if entry.shared is not None and not self._shared_interrupt(entry):
+            raise RcError("unsupported", "stop it in the terminal")
         if entry.runner is not None:
             await entry.runner.interrupt()
         return {}
 
+    def _shared_interrupt(self, entry: SessionEntry) -> bool:
+        try:
+            return self.agent_info(entry.session.agent).shared_interrupt
+        except RcError:
+            return False
+
     async def approve(self, params: dict[str, Any]) -> dict[str, Any]:
         entry = self.entry(str(params.get("session_id") or ""))
+        if entry.shared is not None:
+            return await self.shared.approve(
+                entry, str(params.get("request_id") or ""), str(params.get("option_id") or "")
+            )
         if entry.runner is None:
             raise RcError("conflict", "the session is not running")
         ok = await entry.runner.approve(
@@ -402,6 +431,8 @@ class SessionHub:
 
     async def answer(self, params: dict[str, Any]) -> dict[str, Any]:
         entry = self.entry(str(params.get("session_id") or ""))
+        if entry.shared is not None:
+            raise RcError("unsupported", "answer the question in the terminal")
         if entry.runner is None:
             raise RcError("conflict", "the session is not running")
         answers = params.get("answers")
@@ -419,6 +450,10 @@ class SessionHub:
         permission_mode = params.get("permission_mode")
         effort = params.get("effort")
         title = params.get("title")
+        if entry.shared is not None and any(
+            value is not None for value in (model, permission_mode, effort)
+        ):
+            raise RcError("unsupported", "change it in the terminal")
         if entry.runner is not None:
             await entry.runner.apply_settings(model, permission_mode, effort)
         await entry.channel.set_meta(
@@ -452,7 +487,7 @@ class SessionHub:
         entry.queue = [item for item in entry.queue if item["id"] != queued_id]
         if len(entry.queue) == before:
             raise RcError("not_found", "that message is not queued")
-        await entry.channel.publish_queue(self._queue_snapshot(entry))
+        await entry.channel.publish_queue(self.queue_snapshot(entry))
         return {}
 
     async def archive(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -468,6 +503,9 @@ class SessionHub:
     async def delete(self, params: dict[str, Any]) -> dict[str, Any]:
         session_id = str(params.get("session_id") or "")
         entry = self.entry(session_id)
+        if entry.shared is not None:
+            entry.shared.attachment.detach()
+            entry.shared = None
         if entry.runner is not None:
             await entry.runner.close()
         await entry.channel.close()
@@ -481,6 +519,8 @@ class SessionHub:
         from ..agents.claude.holders import release_holder
 
         entry = self.entry(str(params.get("session_id") or ""))
+        if entry.shared is not None:
+            raise RcError("conflict", "already attached")
         info = self.agent_info(entry.session.agent)
         if "takeover" not in info.capabilities:
             raise RcError("unsupported", f"{entry.session.agent} sessions cannot be taken over")
@@ -499,3 +539,67 @@ class SessionHub:
         await entry.channel.notice("info", "took over from the terminal")
         await self._resume(entry)
         return {"session": entry.session.to_dict()}
+
+    # ------------------------------------------------------------ attachment
+
+    async def attach_registered(self, attachment: Attachment) -> None:
+        """A channel bridge claimed a terminal session (A10: `terminal → shared`)."""
+        entry = self._attach_entry(attachment)
+        if entry is None:
+            attachment.detach()
+            return
+        async with entry.lock:
+            await self.shared.registered(entry, attachment)
+
+    def _attach_entry(self, attachment: Attachment) -> SessionEntry | None:
+        entry = self.entries.get(attachment.session_id)
+        if entry is not None:
+            if entry.runner is not None:
+                # This device already drives the session; a second writer would
+                # interleave two conversations in one transcript.
+                log.warning("refusing a channel attachment for a session we drive")
+                return None
+            return entry
+        session = Session(
+            session_id=attachment.session_id,
+            device_id=self.device_id,
+            agent="claude",
+            cwd=attachment.cwd,
+            title="",
+            state="idle",
+            origin="terminal",
+            control="shared",
+        )
+        entry = self.register_mirrored(session)
+        entry.channel.start()
+        return entry
+
+    async def attach_permission_request(
+        self, attachment: Attachment, payload: dict[str, Any]
+    ) -> None:
+        entry = self.entries.get(attachment.session_id)
+        if entry is None:
+            return
+        async with entry.lock:
+            await self.shared.permission_request(entry, payload)
+
+    async def attach_closed(self, attachment: Attachment) -> None:
+        """The bridge went away: back to the terminal if the CLI is still alive."""
+        entry = self.entries.get(attachment.session_id)
+        if entry is None or entry.shared is None:
+            return
+        await asyncio.sleep(EXIT_SETTLE)
+        control = await self._holder_control(entry)
+        async with entry.lock:
+            await self.shared.closed(entry, attachment, control)
+
+    async def _holder_control(self, entry: SessionEntry) -> str:
+        from ..agents.claude.holders import scan_holders
+
+        scan = await scan_holders()
+        if not scan.complete:
+            return "terminal"
+        holder = scan.for_session(entry.session.session_id, entry.session.cwd)
+        entry.holder_pid = holder.pid if holder else None
+        entry.holder_identity = holder.identity if holder else None
+        return "terminal" if holder is not None else "none"

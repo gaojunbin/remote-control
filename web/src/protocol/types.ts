@@ -44,6 +44,12 @@ export type Capability =
   | 'history'
   | (string & {});
 
+/**
+ * How a terminal-started session can be attached (amendment A10).
+ * `channel` is the Claude channel shim, `daemon` the Codex shared app-server.
+ */
+export type AttachMode = 'channel' | 'daemon';
+
 export interface AgentInfo {
   agent: AgentId;
   available: boolean;
@@ -56,6 +62,12 @@ export interface AgentInfo {
   efforts: Choice[];
   default_effort: string | null;
   capabilities: Capability[];
+  /** Amendment A10: how this agent's terminal sessions can be attached. */
+  attach?: AttachMode | null;
+  /** A10: whether the device is prepared to attach. Hints on `terminal` only. */
+  attach_ready?: boolean;
+  /** A10: whether `session.stop` works on `shared` sessions. Defaults to false. */
+  shared_interrupt?: boolean;
 }
 
 export interface Device {
@@ -90,7 +102,11 @@ export type SessionState =
   | 'stopped'
   | 'readonly';
 
-export type ControlOwner = 'remote' | 'terminal' | 'none';
+/**
+ * Amendment A10: `shared` is a live CLI process the device is attached to.
+ * Apps treat it like `remote` for the composer, approvals and the queue.
+ */
+export type ControlOwner = 'remote' | 'terminal' | 'shared' | 'none';
 
 export interface Usage {
   input_tokens: number;
@@ -185,12 +201,20 @@ interface EventBase {
   first_seq?: number;
 }
 
+/**
+ * Amendment A10, `shared` sessions only. `pending`: held by the device until
+ * the terminal turn ends; `delivered`: injected into the CLI; `absorbed`: the
+ * CLI read it as mid-turn data and the device will re-inject it.
+ */
+export type MessageDelivery = 'pending' | 'delivered' | 'absorbed';
+
 export interface UserMessageEvent extends EventBase {
   kind: 'user_message';
   block_id: string;
   text: string;
   attachments?: Attachment[];
   source: 'remote' | 'terminal' | 'queue';
+  delivery?: MessageDelivery;
 }
 
 export interface AssistantTextEvent extends EventBase {

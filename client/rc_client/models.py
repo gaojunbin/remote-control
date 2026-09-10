@@ -9,7 +9,9 @@ from typing import Any, Literal
 SessionState = Literal[
     "starting", "idle", "running", "needs_approval", "needs_input", "error", "stopped", "readonly"
 ]
-Control = Literal["remote", "terminal", "none"]
+Control = Literal["remote", "terminal", "shared", "none"]
+# How a terminal session of this agent can be attached (amendment A10).
+Attach = Literal["channel", "daemon"]
 Origin = Literal["remote", "terminal"]
 
 
@@ -41,6 +43,9 @@ class AgentInfo:
     efforts: list[Choice] = field(default_factory=list)
     default_effort: str | None = None
     capabilities: list[str] = field(default_factory=list)
+    attach: Attach | None = None
+    attach_ready: bool = False
+    shared_interrupt: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -55,6 +60,9 @@ class AgentInfo:
             "efforts": [choice.to_dict() for choice in self.efforts],
             "default_effort": self.default_effort,
             "capabilities": list(self.capabilities),
+            "attach": self.attach,
+            "attach_ready": self.attach_ready,
+            "shared_interrupt": self.shared_interrupt,
         }
 
 

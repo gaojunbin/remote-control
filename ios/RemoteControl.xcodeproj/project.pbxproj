@@ -30,12 +30,12 @@
 		319681D64976BEDFD1E4A8F1 /* RemoteControlApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlApp.swift; sourceTree = "<group>"; };
 		78F4A72703A42B20E0238D0F /* RealGatewaySmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealGatewaySmokeTests.swift; sourceTree = "<group>"; };
 		7A15A638BF8E1A3A2FB0177E /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
-		7ADF56FCC644E7FEB89AA3BD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		7ADF56FCC644E7FEB89AA3BD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		7B12959012019876EF2DF4C8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C1444D854EA83C84AA0D5CE5 /* RemoteControl.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RemoteControl.entitlements; sourceTree = "<group>"; };
 		CA419C050590BF9887362C8D /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = .; sourceTree = SOURCE_ROOT; };
 		D2EBBFC1636811F2D9E55698 /* RemoteControlUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlUITests.swift; sourceTree = "<group>"; };
-		DF6F831755BBDAA7D4A65987 /* RemoteControl.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RemoteControl.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DF6F831755BBDAA7D4A65987 /* RemoteControl.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RemoteControl.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EC30630437AF61F94C6734ED /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		F58970B5FE06B4FBE49E91AC /* RemoteControlUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RemoteControlUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -151,6 +151,9 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
+					1D783117E46740BCF2804575 = {
+						DevelopmentTeam = "";
+					};
 					73E91C0C3AEFFAE019D8BE9D = {
 						DevelopmentTeam = "";
 						TestTargetID = 1D783117E46740BCF2804575;
@@ -322,7 +325,6 @@
 				CODE_SIGN_ENTITLEMENTS = App/RemoteControl.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 9DF9GJBLTF;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Remote Control";
@@ -356,7 +358,6 @@
 				CODE_SIGN_ENTITLEMENTS = App/RemoteControl.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 9DF9GJBLTF;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Remote Control";

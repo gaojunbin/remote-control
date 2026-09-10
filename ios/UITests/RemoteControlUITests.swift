@@ -49,6 +49,75 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "03-sent")
     }
 
+    /// Amendment A10: an attached terminal session takes a message from here,
+    /// says it is waiting for the terminal, then says it went in, and its
+    /// relayed permission request is answered from the app.
+    func testSharedSessionDeliversAndApproves() {
+        app.launch()
+
+        let row = app.buttons["session.demo-session-shared"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the attached demo session is listed")
+        row.tap()
+
+        let composer = app.textViews["composer.prompt"].firstMatch
+        let composerField = composer.exists ? composer : app.textFields["composer.prompt"].firstMatch
+        XCTAssertTrue(composerField.waitForExistence(timeout: 15),
+                      "the composer is enabled on an attached session")
+        XCTAssertFalse(app.buttons["chat.takeover"].exists,
+                       "an attached session never offers a takeover")
+
+        let note = app.descendants(matching: .any)["composer.terminalNote"]
+        XCTAssertTrue(note.waitForExistence(timeout: 10),
+                      "one line says what the terminal owns")
+        XCTAssertTrue(note.label.contains("Attached to the terminal"),
+                      "and it is the consolidated line, not one sentence per control")
+
+        attach(name: "06-shared-idle")
+
+        // Reaching for a control the terminal owns explains that control.
+        app.buttons["composer.model"].tap()
+        XCTAssertTrue(note.label.contains("Change it in the terminal"),
+                      "tapping the model chip says where the model is changed")
+        XCTAssertFalse(app.buttons["session.model"].exists, "and never opens the settings sheet")
+        attach(name: "06b-shared-blocked")
+
+        composerField.tap()
+        composerField.typeText("mention the iOS app too")
+        app.buttons["composer.send"].tap()
+
+        let pending = app.descendants(matching: .any)["chat.message.pending"]
+        XCTAssertTrue(pending.waitForExistence(timeout: 10), "the held message is in the transcript")
+        XCTAssertTrue(pending.label.contains("waiting for the terminal"),
+                      "and its chip says it is waiting for the terminal")
+        attach(name: "07-shared-pending")
+
+        let delivered = app.descendants(matching: .any)["chat.message.delivered"]
+        XCTAssertTrue(delivered.waitForExistence(timeout: 15),
+                      "the replacement event marks the same message delivered")
+        attach(name: "08-shared-delivered")
+
+        let approval = app.buttons["approval.primary"]
+        XCTAssertTrue(approval.waitForExistence(timeout: 15), "the relayed request is answerable here")
+        attach(name: "09-shared-approval")
+        approval.tap()
+        XCTAssertTrue(approval.waitForNonExistence(timeout: 15), "answering resolves the request")
+        attach(name: "10-shared-answered")
+    }
+
+    /// Amendment A10: a terminal session the device cannot attach says what the
+    /// machine is missing instead of pretending the composer will work.
+    func testTerminalSessionExplainsHowToAttach() {
+        app.launch()
+
+        let row = app.buttons["session.demo-session-rename"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the unattachable terminal session is listed")
+        row.tap()
+
+        let hint = app.descendants(matching: .any)["chat.attachHint"]
+        XCTAssertTrue(hint.waitForExistence(timeout: 15), "the session says how to make it controllable")
+        attach(name: "11-attach-hint")
+    }
+
     func testNewSessionSheetOffersDeviceAndAgent() {
         app.launch()
         let newSession = app.buttons["sessions.new"]

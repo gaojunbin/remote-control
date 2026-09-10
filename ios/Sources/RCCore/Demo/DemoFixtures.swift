@@ -5,9 +5,15 @@ import Foundation
 public enum DemoFixtures {
     public static let macDeviceID = "demo-mac-studio"
     public static let ciDeviceID = "demo-ci-runner"
+    public static let laptopDeviceID = "demo-macbook-air"
     public static let liveSessionID = "demo-session-auth"
     public static let approvalSessionID = "demo-session-vite"
     public static let doneSessionID = "demo-session-otlp"
+    /// Amendment A10: a terminal session this device is attached to.
+    public static let sharedSessionID = "demo-session-shared"
+    /// Amendment A10: a terminal session on a device whose shim is not
+    /// installed, so the app can only explain how to make it controllable.
+    public static let attachHintSessionID = "demo-session-rename"
 
     public static var now: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
@@ -24,7 +30,20 @@ public enum DemoFixtures {
             defaultPermissionMode: "acceptEdits",
             efforts: [AgentOption(id: "medium", label: "Medium"), AgentOption(id: "high", label: "High")],
             defaultEffort: "high",
-            capabilities: [.worktree, .takeover, .interrupt, .queue, .attachments, .effort, .history])
+            capabilities: [.worktree, .takeover, .interrupt, .queue, .attachments, .effort, .history],
+            attach: .channel, attachReady: true, sharedInterrupt: false)
+    }
+
+    /// The same agent on a machine where the `claude` shim was never installed,
+    /// so its terminal sessions cannot be attached (amendment A10).
+    public static var claudeWithoutShim: AgentInfo {
+        AgentInfo(
+            agent: "claude", available: true, version: "2.1.266", path: "/usr/local/bin/claude",
+            models: claude.models, defaultModel: claude.defaultModel,
+            permissionModes: claude.permissionModes, defaultPermissionMode: "default",
+            efforts: claude.efforts, defaultEffort: claude.defaultEffort,
+            capabilities: claude.capabilities,
+            attach: .channel, attachReady: false, sharedInterrupt: false)
     }
 
     public static var codex: AgentInfo {
@@ -46,6 +65,10 @@ public enum DemoFixtures {
                    hostname: "mac-studio.local", arch: "arm64", clientVersion: "0.1.0",
                    online: true, lastSeen: now, createdAt: now - 8_640_000, latencyMS: 18,
                    agents: [claude, codex]),
+            Device(deviceID: laptopDeviceID, name: "macbook-air", platform: .macos,
+                   hostname: "macbook-air.local", arch: "arm64", clientVersion: "0.1.0",
+                   online: true, lastSeen: now, createdAt: now - 4_320_000, latencyMS: 41,
+                   agents: [claudeWithoutShim]),
             Device(deviceID: ciDeviceID, name: "ci-runner-01", platform: .linux,
                    hostname: "ci-runner-01", arch: "x86_64", clientVersion: "0.1.0",
                    online: false, lastSeen: now - 3_600_000, createdAt: now - 86_400_000,
@@ -80,6 +103,22 @@ public enum DemoFixtures {
                     model: "claude-sonnet-4-5", permissionMode: "default",
                     createdAt: now - 10_800_000, updatedAt: now - 120_000, lastSeq: 0,
                     turn: TurnMarker(turnID: "demo-turn-terminal", startedAt: now - 120_000)),
+            // Amendment A10: a CLI still owns this session, but the device is
+            // attached to it, so the composer and approvals work as usual.
+            Session(sessionID: sharedSessionID, deviceID: macDeviceID, agent: "claude",
+                    title: "Tidy the release notes", cwd: "/Users/me/dev/remote-control/docs",
+                    git: GitInfo(branch: "main", dirty: true),
+                    state: .idle, origin: .terminal, control: .shared,
+                    model: "claude-sonnet-4-5", permissionMode: "default",
+                    createdAt: now - 5_400_000, updatedAt: now - 90_000, lastSeq: 0),
+            // Amendment A10: the same CLI on a machine without the shim. The
+            // app can only say how to make the next run controllable.
+            Session(sessionID: attachHintSessionID, deviceID: laptopDeviceID, agent: "claude",
+                    title: "Rename the pairing flow", cwd: "/Users/me/dev/remote-control/client",
+                    git: GitInfo(branch: "pairing", dirty: true),
+                    state: .readonly, origin: .terminal, control: .terminal,
+                    model: "claude-sonnet-4-5", permissionMode: "default",
+                    createdAt: now - 2_700_000, updatedAt: now - 300_000, lastSeq: 0),
             Session(sessionID: doneSessionID, deviceID: ciDeviceID, agent: "codex",
                     title: "Add OTLP traces", cwd: "/work/api",
                     git: nil, state: .idle, origin: .remote, control: .none,
@@ -201,10 +240,45 @@ public enum DemoFixtures {
         ]
     }
 
+    /// The transcript of the attached terminal session: the developer typed in
+    /// the CLI, and the app is reading along.
+    public static func sharedHistory(base: Int64 = now - 240_000) -> [SessionEvent] {
+        [
+            SessionEvent(seq: 1, ts: base, kind: SessionEvent.userMessageKind, blockID: "u-1",
+                         body: .userMessage(UserMessagePayload(
+                            text: "Draft the release notes for 0.1.0 from the merged pull requests.",
+                            source: .terminal))),
+            SessionEvent(seq: 2, ts: base + 1_100, kind: SessionEvent.assistantTextKind, blockID: "a-1",
+                         body: .assistantText(StreamTextPayload(
+                            text: """
+                            Drafted `docs/RELEASE-NOTES.md` from the 14 merged pull requests, grouped by \
+                            gateway, device client and apps.
+                            """, done: true))),
+            SessionEvent(seq: 3, ts: base + 1_400, kind: SessionEvent.turnCompletedKind,
+                         body: .turnCompleted(TurnCompletedPayload(turnID: "demo-turn-shared",
+                                                                   stopReason: .completed, durationMS: 31_000)))
+        ]
+    }
+
+    /// The transcript of the terminal session the device cannot attach to.
+    public static func attachHintHistory(base: Int64 = now - 300_000) -> [SessionEvent] {
+        [
+            SessionEvent(seq: 1, ts: base, kind: SessionEvent.userMessageKind, blockID: "u-1",
+                         body: .userMessage(UserMessagePayload(
+                            text: "Rename the pairing flow to enrolment across the client.",
+                            source: .terminal))),
+            SessionEvent(seq: 2, ts: base + 900, kind: SessionEvent.assistantTextKind, blockID: "a-1",
+                         body: .assistantText(StreamTextPayload(
+                            text: "Renamed 23 symbols and updated the install script.", done: true)))
+        ]
+    }
+
     public static func history(for sessionID: String) -> [SessionEvent] {
         switch sessionID {
         case liveSessionID: liveHistory()
         case approvalSessionID: approvalHistory()
+        case sharedSessionID: sharedHistory()
+        case attachHintSessionID: attachHintHistory()
         default: [
             SessionEvent(seq: 1, ts: now - 3_600_000, kind: SessionEvent.userMessageKind, blockID: "u-1",
                          body: .userMessage(UserMessagePayload(text: "Add OTLP traces to the API."))),

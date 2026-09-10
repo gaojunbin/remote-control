@@ -58,6 +58,10 @@ public final class ChatStore {
     /// rather than failing after the draft has been cleared.
     public var connectionReady = true
     public var deviceOnline = true
+    /// What the device said this agent can do, from the same inventory. It
+    /// decides whether takeover is offered and whether a `shared` session can
+    /// be interrupted from here (amendment A10).
+    public var agent: AgentInfo?
 
     @ObservationIgnored private let channel: any GatewayChannel
     @ObservationIgnored private let onSessionChange: @MainActor (Session) -> Void
@@ -82,11 +86,59 @@ public final class ChatStore {
 
     /// Whether this app may type. Amendment A7: read-only follows `control`,
     /// never `state` — a terminal session is locked whether it is running or
-    /// idle, and unlocking it means taking over.
+    /// idle, and unlocking it means taking over. Amendment A10: an attached
+    /// session is never read-only, because the device can inject into it.
     public var isReadOnly: Bool { session.isControlledByTerminal }
 
-    /// Stopping a turn the terminal owns is not ours to do.
-    public var canStop: Bool { isRunning && !isReadOnly }
+    /// Amendment A10: a live CLI owns the session and the device is attached.
+    public var isAttached: Bool { session.isAttached }
+
+    /// Stopping a turn the terminal owns is not ours to do. A channel cannot
+    /// interrupt a running turn either, so an attached session offers Stop only
+    /// when the agent lists `interrupt` *and* the device reports that the
+    /// attachment itself can interrupt.
+    public var canStop: Bool {
+        guard isRunning, !isReadOnly else { return false }
+        guard isAttached else { return true }
+        guard let agent else { return false }
+        return agent.supports(.interrupt) && agent.sharedInterrupt
+    }
+
+    /// Amendment A10: takeover is a `terminal` affordance, and only when the
+    /// agent advertises the capability.
+    public var canTakeover: Bool { isReadOnly && agent?.supports(.takeover) == true }
+
+    /// Amendment A10: the relay cannot hand bytes to a live CLI, and a terminal
+    /// session takes no input from here at all.
+    public var allowsAttachments: Bool { !isAttached && !isReadOnly }
+
+    /// Amendment A10: `session.set` is unsupported for model, permission mode
+    /// and effort while a live CLI owns the session.
+    public var allowsSettingsChanges: Bool { !isAttached }
+
+    /// Amendment A10: `session.answer` is unsupported on an attached session.
+    /// A question the CLI asked is answered in the terminal; the app mirrors
+    /// the block read-only. Approvals are relayed and stay answerable.
+    public var allowsAnswers: Bool { !isAttached && !isReadOnly }
+
+    /// Amendment A10: what a `terminal` session would need before this app
+    /// could control it, or nil when the agent cannot be attached at all. The
+    /// words belong to the app; this only says which case applies.
+    public enum AttachHint: Sendable, Hashable {
+        /// Claude: the `claude` shim is not installed on the device.
+        case installShim
+        /// Codex: the shared app-server daemon is not running.
+        case startDaemon
+        /// The device is prepared, but this CLI was started without it.
+        case restartSession
+    }
+
+    public var attachHint: AttachHint? {
+        guard isReadOnly, let agent, let attach = agent.attach else { return nil }
+        if agent.attachReady { return .restartSession }
+        return attach == .daemon ? .startDaemon : .installShim
+    }
+
     public var canSend: Bool {
         sendBlockReason == nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -105,7 +157,10 @@ public final class ChatStore {
     public var statusLine: String? {
         // The same line whether the terminal turn is running or idle: what the
         // user needs to know is that typing here requires taking over.
-        if isReadOnly { return "Controlled by the terminal · Take over to send" }
+        if isReadOnly {
+            return canTakeover ? "Controlled by the terminal · Take over to send" : "Controlled by the terminal"
+        }
+        if isAttached { return attachedStatusLine }
         switch session.state {
         case .needsApproval: return "Waiting for your approval"
         case .needsInput: return "Waiting for your answer"
@@ -117,6 +172,23 @@ public final class ChatStore {
         case .error: return session.stateDetail ?? "The agent reported an error"
         case .stopped: return "Stopped"
         default: return nil
+        }
+    }
+
+    /// Amendment A10: an attached session always says whose terminal it is,
+    /// because the CLI is still the one driving.
+    private var attachedStatusLine: String {
+        let attached = "terminal · attached"
+        switch session.state {
+        case .needsApproval: return "Waiting for your approval"
+        case .needsInput: return "Waiting for your answer"
+        case .running:
+            return session.queued > 0
+                ? "\(attached) · \(session.queued) message\(session.queued == 1 ? "" : "s") waiting"
+                : "\(attached) · working"
+        case .error: return session.stateDetail ?? "The agent reported an error"
+        case .stopped: return "Stopped"
+        default: return attached
         }
     }
 

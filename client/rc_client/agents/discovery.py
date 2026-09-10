@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
+from ..channel import shim
 from ..models import AgentInfo, Choice
 from .claude import runtime as claude_runtime
 from .codex import runtime as codex_runtime
@@ -73,6 +74,9 @@ async def detect_claude() -> AgentInfo:
         efforts=list(CLAUDE_EFFORTS),
         default_effort=None,
         capabilities=list(CLAUDE_CAPABILITIES),
+        attach="channel",
+        attach_ready=shim.status().ready,
+        shared_interrupt=False,
     )
 
 
@@ -92,6 +96,7 @@ async def detect_codex() -> AgentInfo:
         efforts=list(catalog.efforts) if catalog else [],
         default_effort=catalog.default_effort if catalog else None,
         capabilities=list(CODEX_CAPABILITIES),
+        attach=None,
     )
 
 

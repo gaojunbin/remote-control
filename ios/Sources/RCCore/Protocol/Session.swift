@@ -123,7 +123,13 @@ public struct Session: Codable, Sendable, Hashable, Identifiable {
     public var id: String { "\(deviceID)/\(sessionID)" }
 
     /// The composer is disabled while a live CLI process owns the input.
+    /// Amendment A10: `shared` is deliberately excluded — a live CLI owns the
+    /// session but the device is attached to it, so this app may still type.
     public var isControlledByTerminal: Bool { control == .terminal }
+
+    /// Amendment A10: a live CLI process owns the session and the device is
+    /// attached to it. Composer, approvals and queue behave as for `remote`.
+    public var isAttached: Bool { control == .shared }
 
     /// Last path component of the working directory, for a compact subtitle.
     public var folderName: String {

@@ -520,10 +520,17 @@ The agent and option arrays are shortened here; the fixture holds the full objec
 | `efforts` | `LabeledId[]` | yes | Empty array when the agent has no effort levels |
 | `default_effort` | string \| null | yes | |
 | `capabilities` | string[] | yes | Subset of `worktree`, `takeover`, `interrupt`, `queue`, `steer`, `attachments`, `effort`, `history` |
+| `attach` | `channel` \| `daemon` \| null | no | How this agent's terminal sessions can be attached. `channel` is the Claude channel shim, `daemon` the Codex shared app-server. Null or absent means terminal sessions can only be taken over or resumed. |
+| `attach_ready` | boolean | no | Whether the device is prepared to attach: for Claude the `claude` shim is installed and on `PATH`, for Codex the shared daemon socket exists. Apps use it only to word the hint on a `terminal` session. |
+| `shared_interrupt` | boolean | no | Whether the attachment can interrupt a running turn. `session.stop` on a `shared` session needs this **and** capability `interrupt`. False when absent. |
 
 Capabilities gate the UI. `steer` decides whether a message sent during a running turn is steered or
 queued; `takeover` decides whether a terminal-controlled session offers "Take over"; `history`
 decides whether the app can page backwards.
+
+`capabilities` is unchanged by the attachment fields. `takeover` keeps its meaning and applies to
+`control: "terminal"` only; `attach`, `attach_ready` and `shared_interrupt` describe
+`control: "shared"` instead (4.4).
 
 ### 4.3 Permission-mode ids exposed by the device
 
@@ -547,7 +554,7 @@ Model ids are the agents' native ids.
 | `state` | see 4.5 | yes | |
 | `state_detail` | string \| null | yes | One line of context for the current state |
 | `origin` | `remote` \| `terminal` | yes | Who created the session |
-| `control` | `remote` \| `terminal` \| `none` | yes | Who owns the input right now. A live CLI process is `terminal`; `none` means nobody owns it and the session is resumable. |
+| `control` | `remote` \| `terminal` \| `shared` \| `none` | yes | Who owns the input right now. See the table below. |
 | `model` | string \| null | yes | |
 | `permission_mode` | string \| null | yes | |
 | `effort` | string \| null | yes | |
@@ -559,6 +566,20 @@ Model ids are the agents' native ids.
 | `todos` | `{total, done}` \| null | yes | Counts for the header chip |
 | `usage` | `Usage` \| null | yes | |
 | `queued` | integer | yes | Number of queued remote messages |
+
+#### `control` values
+
+| Value | Meaning |
+| --- | --- |
+| `remote` | The device daemon runs the agent process for this session: one created with origin `remote`, or a terminal session that was resumed or taken over. |
+| `terminal` | A live CLI process owns the session and the device has **no** way in. The composer is disabled; "Take over" is offered only when the agent has capability `takeover`. |
+| `shared` | A live CLI process owns the session **and the device is attached to it**: for Claude through a channel the CLI loads, for Codex through the shared app-server. Apps enable the composer and approvals exactly as for `remote`, hide "Take over", and hide Stop unless the agent lists capability `interrupt` **and** reports `shared_interrupt: true` (4.2). Claude channels cannot interrupt a running turn; Codex can. |
+| `none` | No process owns the session; the next `session.send` resumes it under device control. |
+
+Control moves `terminal → shared` when the attachment registers, `shared → terminal` when the
+attachment drops while the CLI process is still alive, and `shared → none` when the CLI exits. Each
+transition travels the way every other `control` change does: a `meta` event carrying `control`
+(5.11), a `status` event when the state changes with it (5.10), and a republished session summary.
 
 `fixtures/app/session.updated.json`
 
@@ -619,6 +640,10 @@ Model ids are the agents' native ids.
 | `error` | The session failed; `state_detail` says how |
 | `stopped` | The agent process ended |
 | `readonly` | A mirrored terminal session that is not currently working: `control == "terminal"` **and** no turn in progress. While the terminal-driven turn runs, the device reports `running`, `needs_approval` or `needs_input` as usual (amendment A7). |
+
+A `shared` session reports `idle` when no turn is in progress; `readonly` stays reserved for
+`control == "terminal"`. While a turn runs, whether the terminal started it or the device injected
+it, the device reports `running`, `needs_approval` or `needs_input` as usual.
 
 ### 4.6 Git
 
@@ -709,6 +734,15 @@ are timeline entries or state updates.
 | `text` | string | yes | |
 | `attachments` | `Attachment[]` | no | Metadata only |
 | `source` | `remote` \| `terminal` \| `queue` | yes | Where the message came from |
+| `delivery` | `pending` \| `delivered` \| `absorbed` | no | Set only on `shared` sessions; see below |
+
+`delivery` reports what happened to a message injected into an attached CLI and is absent for an
+ordinary prompt. `pending` means the device accepted the message and is holding it until the
+terminal turn ends. `delivered` means it was injected into the CLI. `absorbed` means the CLI treated
+it as mid-turn data rather than a prompt, so the device will re-inject it at the next idle point.
+The block keeps its `block_id` throughout, and each re-injection is a replacement event carrying
+`delivery: "delivered"`. `source` stays `remote` for messages apps send into a shared session and
+`terminal` for messages typed in the CLI.
 
 `fixtures/events/user_message.json`
 
@@ -952,6 +986,16 @@ options it is given and never assumes a specific id. Claude typically offers `al
 `allow_session`, `deny`; Codex offers `accept`, `acceptForSession`, `decline`, `cancel`. Every
 `approval` includes at least one option with `style: "primary"` (accept) and one with
 `style: "danger"` (reject), so a UI can place them consistently.
+
+On a `shared` session the device emits an `approval` block for every permission request the
+attachment relays. `options` are exactly
+`[{id: "allow", label: "Allow", style: "primary"}, {id: "deny", label: "Deny", style: "danger"}]`,
+because session-scoped grants are not available through the relay. `input` carries
+`{tool_name, description, input_preview}` as the relay supplies it, and `diff` is absent since the
+relay provides none. The dialog in the terminal stays open alongside the relayed request and
+whichever side answers first wins; when the terminal answers first the device resolves the block
+with `decision.by: "terminal"`. A pending approval becomes `expired` when the CLI exits or the
+attachment drops.
 
 `fixtures/events/approval.pending.json`
 
@@ -1774,7 +1818,7 @@ Every request carries `id`. `session.stop` is idempotent. `session.delete` remov
 the device registry and does **not** delete the agent's own transcripts. `device.dirs` returns
 directories only, excludes hidden entries, and defaults to the home directory when `path` is
 omitted. `session.takeover` needs capability `takeover` and applies to `control: "terminal"`
-sessions.
+sessions; on a `shared` session it fails with `conflict`.
 
 #### `session.send` modes
 
@@ -1796,6 +1840,17 @@ The result's `accepted` field reports what actually happened: `sent`, `queued` o
 - `session.set` with `effort` on Claude may need the SDK connection restarted before the next turn.
   The device replies immediately with the updated `Session` and applies the change lazily. The same
   applies to `permission_mode` when the agent cannot change it live.
+
+#### Requests on a `shared` session
+
+| Request | Behaviour |
+| --- | --- |
+| `session.send` | Accepted whatever `mode` says; `steered` never applies. When the session is idle the device injects at once, replies `accepted: "sent"` and emits `user_message {delivery: "delivered"}`. When a turn is running, `auto` and `queue` alike, the device holds the message locally, replies `accepted: "queued"` with a `queued_id`, emits `user_message {delivery: "pending"}` **and** a `queue` event listing it, then injects it once the transcript shows the turn ended and replaces the block with `delivery: "delivered"`. `session.queue_remove` works on pending items. Attachments are refused with `unsupported` ("attachments cannot be delivered to a terminal session"). |
+| `session.approve` | Relays `allow` or `deny`. Any other `option_id` is `bad_request`. Replying to a request the terminal already answered is a no-op returning `{}`. |
+| `session.answer` | `unsupported`. Questions the CLI asks are answered in the terminal; the device mirrors the `question` block read-only. |
+| `session.stop` | `unsupported` unless the agent lists capability `interrupt` **and** reports `shared_interrupt: true`. Message: "stop it in the terminal". |
+| `session.set` | `unsupported` for `model`, `permission_mode` and `effort` ("change it in the terminal"). `title` works. |
+| `session.takeover` | `conflict` ("already attached"). |
 
 `fixtures/app/session.create.json`
 
@@ -2445,6 +2500,17 @@ by `block_id` like any other.
    todo chip and a stale queue count after every reconnect.
 9. **Render unknown agents generically**, using the agent id as the label, and ignore unknown fields
    and unknown event kinds rather than failing.
+10. **Treat `shared` like `remote`.** A session with `control: "shared"` gets the same composer,
+    approvals, queue and user-message rows as a remote session. Never offer "Take over" on it, and
+    show Stop only when the agent has capability `interrupt` and reports `shared_interrupt: true`.
+    Render `delivery: "pending"` as a quiet "waiting for the terminal" chip on the bubble and
+    `delivery: "absorbed"` as "will be re-sent".
+11. **Hint how to attach.** On a `terminal` session whose agent has `attach` set, the take-over bar
+    may carry one line about the attachment: with `attach_ready: false`, that the terminal must be
+    started through the device's shim (Claude) or with the shared daemon running (Codex); with
+    `attach_ready: true`, that the running CLI was started without the attachment.
+12. **Label `shared` as "terminal · attached"** in the status line, and give it the same dot colour
+    as `remote` in the session list.
 
 ---
 
@@ -2504,6 +2570,14 @@ by `block_id` like any other.
       `bad_request`, and caps either form at `limit` with an accurate `has_more`.
 - [ ] Reports accurate `capabilities` per agent, and never advertises `steer` or `takeover` it
       cannot perform.
+- [ ] Reports `control: "shared"` only while the attachment is live, and moves the session to
+      `terminal` or `none` as soon as it drops.
+- [ ] On a `shared` session injects only while the transcript is idle, holds everything else as
+      `user_message {delivery: "pending"}` with a matching `queue` event, and replaces the block
+      with `delivery: "delivered"` once it is injected.
+- [ ] Offers exactly `allow` and `deny` on a relayed approval, resolves it with
+      `decision.by: "terminal"` when the terminal answered first, and expires it when the CLI exits
+      or the attachment drops.
 
 ### 9.3 App
 
@@ -2517,6 +2591,10 @@ by `block_id` like any other.
       once resolved or expired.
 - [ ] Disables the composer from `control`, not from `state`, and offers "Take over" when the
       agent has that capability.
+- [ ] Treats `control: "shared"` like `remote` for the composer, approvals and queue, never offers
+      "Take over" on it, and shows Stop only when the agent has capability `interrupt` **and**
+      reports `shared_interrupt: true`.
+- [ ] Renders `user_message.delivery` rather than assuming every message reached the agent.
 - [ ] Stops reconnecting on close code 4401, clears the stored credential and returns to login;
       reconnects with backoff on any code other than 4401 and 4403.
 - [ ] Never auto-resends a `session.send`; retries reuse the original `id`.
@@ -2533,6 +2611,7 @@ by `block_id` like any other.
 | `fixtures/device/` | One frame per device-socket type |
 | `fixtures/device/forwarded/` | All fifteen forwarded requests as the device receives them, plus the A9 backfill variant |
 | `fixtures/events/` | One event per kind, and one `tool_call` per `tool_kind` |
+| `fixtures/objects/` | Bare `Session` and `AgentInfo` objects that no frame fixture carries |
 | `fixtures/http/` | One body per HTTP request and response |
 | `fixtures/stt/` | The five speech-to-text text frames |
 | `fixtures/timelines/claude.json` | A complete Claude Code turn, 41 events |
@@ -2605,3 +2684,21 @@ its replay buffer; for every session whose device `last_seq` is ahead it request
 `session.history {after_seq: <buffer tail>}`, appends the returned events to the buffer and fans them
 out to current subscribers as ordinary `session.event` frames. Apps need no change, because they
 apply events by `block_id`. See 6.4 and 7.1.
+
+**2026-09-10 A10 — `control: "shared"` for attached terminal sessions.** `control` gains a fourth
+value, `shared`: a live CLI process owns the session **and** the device is attached to it, through a
+channel the Claude CLI loads or through the Codex shared app-server. Apps treat `shared` like
+`remote` for the composer, approvals, queue and user-message rows, never offer "Take over" on it,
+and show Stop only when the agent has capability `interrupt` and reports `shared_interrupt: true`.
+`AgentInfo` gains three optional fields, `attach` (`channel | daemon | null`), `attach_ready` and
+`shared_interrupt`; `capabilities` is unchanged. `user_message` gains an optional `delivery`
+(`pending | delivered | absorbed`), set only on `shared` sessions, because the device may inject a
+message only while the CLI is idle and holds it otherwise. A relayed `approval` offers exactly
+`allow` and `deny`, carries `{tool_name, description, input_preview}` as its `input` and no `diff`,
+and resolves with `decision.by: "terminal"` when the terminal answers first. On a `shared` session
+`session.send` and `session.approve` work, `session.answer` and `session.takeover` do not,
+`session.stop` needs capability `interrupt` together with `shared_interrupt`, and `session.set`
+accepts only `title`. `session.send`
+keeps the existing result vocabulary: `accepted: "sent"` when the message is injected straight away,
+`accepted: "queued"` with a `queued_id` when it is held. `readonly` stays reserved for
+`control == "terminal"` (A7). See 4.2, 4.4, 4.5, 5.2, 5.7, 6.3, 8.10 and 9.

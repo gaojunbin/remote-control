@@ -301,6 +301,19 @@
   color: var(--ink-secondary);
 }
 
+/* A10: where a message sent into an attached terminal session got to. */
+.delivery-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 6px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--ink-tertiary);
+  font-size: var(--fs-11);
+  white-space: nowrap;
+}
+
 /* thinking */
 
 .thinking-head {
@@ -905,6 +918,32 @@
   background: var(--surface-sunken);
   font-size: var(--fs-13);
   color: var(--ink-secondary);
+}
+
+.takeover-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* A10: one quiet line explaining why this terminal session cannot be driven. */
+.takeover-hint {
+  font-size: var(--fs-12);
+  color: var(--ink-tertiary);
+}
+
+/**
+ * A disabled control swallows pointer events, so its own `title` never shows.
+ * The wrapper carries the tooltip and the control stops hit-testing.
+ */
+.tip {
+  display: inline-flex;
+}
+
+.tip > :disabled,
+.tip .pill:disabled {
+  pointer-events: none;
 }
 
 .action-error {

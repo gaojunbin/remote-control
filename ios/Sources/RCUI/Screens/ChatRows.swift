@@ -58,7 +58,11 @@ private struct UserMessageRow: View {
                 }
                 .foregroundStyle(Theme.inkSecondary)
             }
-            if payload.source == .terminal {
+            if payload.delivery == .pending {
+                DeliveryChip(label: Text("waiting for the terminal"))
+            } else if payload.delivery == .absorbed {
+                DeliveryChip(label: Text("will be re-sent"))
+            } else if payload.source == .terminal {
                 Text("sent from the terminal").font(.caption).foregroundStyle(Theme.inkSecondary)
             } else if payload.source == .queue {
                 Text("sent from the queue").font(.caption).foregroundStyle(Theme.inkSecondary)
@@ -69,7 +73,43 @@ private struct UserMessageRow: View {
         .background(Theme.surfaceSunken,
                     in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("You said: \(payload.text)")
+        .accessibilityLabel(spokenLabel)
+        .accessibilityIdentifier(identifier)
+    }
+
+    /// The chip is inside a combined element, so its words have to reach
+    /// VoiceOver through the bubble's own label.
+    private var spokenLabel: Text {
+        let said = Text("You said: \(payload.text)")
+        switch payload.delivery {
+        case .some(.pending): return said + Text(", waiting for the terminal")
+        case .some(.absorbed): return said + Text(", will be re-sent")
+        default: return said
+        }
+    }
+
+    /// Amendment A10: the row names its delivery state, so a test and VoiceOver
+    /// reach the chip even though the bubble is one combined element.
+    private var identifier: String {
+        guard let delivery = payload.delivery else { return "chat.message" }
+        return "chat.message.\(delivery.rawValue)"
+    }
+}
+
+/// Amendment A10: the small grey pill under a message the device is still
+/// holding for the terminal, or has to inject again.
+private struct DeliveryChip: View {
+    let label: Text
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "clock").font(.caption2)
+            label.font(.caption)
+        }
+        .foregroundStyle(Theme.inkSecondary)
+        .padding(.horizontal, Theme.Space.tight)
+        .padding(.vertical, 2)
+        .background(Theme.surface, in: Capsule())
     }
 }
 

@@ -179,6 +179,7 @@ export function ChatPage() {
       <div className="chat-main">
         <ChatHeader
           session={session}
+          agent={agent}
           deviceName={device?.name ?? deviceId}
           todos={chat?.todos ?? []}
           stopping={stopping}

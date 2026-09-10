@@ -1,0 +1,193 @@
+"""The `claude` shim that makes an interactive session attachable.
+
+Claude Code only loads a self-hosted channel behind
+`--dangerously-load-development-channels`, so the device wraps the executable
+instead of asking the user to remember two flags. The wrapper is deliberately
+inert for everything that is not a human at a terminal: the device's own remote
+sessions drive `claude` over pipes and must reach the real binary unchanged.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+import stat
+from dataclasses import dataclass
+from pathlib import Path
+
+from ..config import client_home, ensure_dirs
+from . import paths
+from .mcp_config import write_mcp_config
+
+MARKER = "rc-client claude shim"
+CHANNEL_FLAG = "--dangerously-load-development-channels"
+CHANNEL_VALUE = f"server:{paths.CHANNEL_SERVER_NAME}"
+
+# Flags that mean "this is not an interactive session" or "the caller already
+# configured channels itself". Any of them and the shim steps aside.
+PASS_THROUGH_FLAGS = (
+    "-p",
+    "--print",
+    "--input-format",
+    "--output-format",
+    "--sdk-url",
+    CHANNEL_FLAG,
+    "--mcp-config",
+)
+
+
+def should_attach(argv: list[str], stdin_tty: bool, stdout_tty: bool) -> bool:
+    """Whether the shim should append the channel flags to this invocation."""
+    if not stdin_tty or not stdout_tty:
+        return False
+    for token in argv:
+        if token in PASS_THROUGH_FLAGS:
+            return False
+        if any(token.startswith(f"{flag}=") for flag in PASS_THROUGH_FLAGS):
+            return False
+    return True
+
+
+def is_shim(path: str | Path) -> bool:
+    """True when `path` is a wrapper this device wrote."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            head = handle.read(512)
+    except OSError:
+        return False
+    return MARKER in head
+
+
+def real_claude(skip_dir: Path | None = None) -> str | None:
+    """The first `claude` on PATH that is not one of our wrappers."""
+    skip = str(skip_dir or paths.bin_dir())
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        if not directory or os.path.abspath(directory) == os.path.abspath(skip):
+            continue
+        candidate = Path(directory) / "claude"
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK) and not is_shim(candidate):
+            return str(candidate)
+    return None
+
+
+def render(real: str) -> str:
+    """The wrapper script, with the install-time fallback baked in."""
+    return SHIM_TEMPLATE.format(
+        marker=MARKER,
+        shim_dir=_quote(str(paths.bin_dir())),
+        real=_quote(real),
+        home=_quote(str(client_home())),
+        mcp_config=_quote(str(paths.mcp_config_path())),
+        channel_flag=CHANNEL_FLAG,
+        channel_value=CHANNEL_VALUE,
+    )
+
+
+def _quote(value: str) -> str:
+    """Single-quote a value for POSIX sh."""
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+@dataclass(slots=True)
+class ShimStatus:
+    installed: bool
+    path: str
+    on_path: bool
+    real: str | None
+    mcp_config: str
+
+    @property
+    def ready(self) -> bool:
+        return self.installed and self.on_path
+
+
+def status() -> ShimStatus:
+    target = paths.shim_path()
+    installed = target.is_file() and is_shim(target)
+    resolved = shutil.which("claude")
+    return ShimStatus(
+        installed=installed,
+        path=str(target),
+        on_path=bool(resolved and is_shim(resolved)),
+        real=real_claude(),
+        mcp_config=str(paths.mcp_config_path()),
+    )
+
+
+def install() -> ShimStatus:
+    """Write the wrapper and the MCP config; both are rewritten on every call."""
+    ensure_dirs()
+    target = paths.shim_path()
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    real = real_claude() or ""
+    target.write_text(render(real), encoding="utf-8")
+    target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IRUSR | stat.S_IWUSR)
+    write_mcp_config()
+    return status()
+
+
+def remove() -> bool:
+    """Delete the wrapper, leaving anything we did not write alone."""
+    target = paths.shim_path()
+    if not target.is_file() or not is_shim(target):
+        return False
+    target.unlink()
+    return True
+
+
+SHIM_TEMPLATE = """#!/bin/sh
+# {marker}
+#
+# Appends the Claude Code channel flags when a person starts an interactive
+# session, so the remote-control device can attach to it. Every other
+# invocation - piped, --print, or already carrying channel flags - reaches the
+# real executable untouched. Managed by `rc-client shim install`.
+set -u
+
+RC_SHIM_DIR={shim_dir}
+RC_FALLBACK_CLAUDE={real}
+RC_CLIENT_HOME=${{RC_CLIENT_HOME:-{home}}}
+RC_MCP_CONFIG={mcp_config}
+export RC_CLIENT_HOME
+
+is_shim() {{
+    head -n 3 "$1" 2>/dev/null | grep -q '{marker}'
+}}
+
+find_real() {{
+    saved_ifs=$IFS
+    IFS=:
+    for dir in $PATH; do
+        [ -n "$dir" ] || dir=.
+        if [ "$dir" != "$RC_SHIM_DIR" ] && [ -x "$dir/claude" ] && ! is_shim "$dir/claude"; then
+            IFS=$saved_ifs
+            printf '%s\\n' "$dir/claude"
+            return 0
+        fi
+    done
+    IFS=$saved_ifs
+    return 1
+}}
+
+REAL=$(find_real) || REAL=$RC_FALLBACK_CLAUDE
+if [ -z "$REAL" ] || [ ! -x "$REAL" ]; then
+    printf 'rc-client: cannot find the real claude executable\\n' >&2
+    exit 127
+fi
+
+attach=1
+[ -t 0 ] && [ -t 1 ] || attach=0
+[ -f "$RC_MCP_CONFIG" ] || attach=0
+for arg in "$@"; do
+    case "$arg" in
+        -p|--print|--input-format|--output-format|--sdk-url|{channel_flag}|--mcp-config) attach=0 ;;
+        --print=*|--input-format=*|--output-format=*|--sdk-url=*|--mcp-config=*) attach=0 ;;
+        {channel_flag}=*) attach=0 ;;
+    esac
+done
+
+if [ "$attach" -eq 1 ]; then
+    exec "$REAL" "$@" {channel_flag} {channel_value} --mcp-config "$RC_MCP_CONFIG"
+fi
+exec "$REAL" "$@"
+"""

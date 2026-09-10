@@ -52,8 +52,13 @@ class SessionRunner(Protocol):
         text: str,
         attachments: list[dict[str, Any]] | None = None,
         source: str = "remote",
+        block_id: str | None = None,
     ) -> None:
-        """Start a turn. ``source`` is the protocol trigger: `remote`, `terminal` or `queue`."""
+        """Start a turn. ``source`` is the protocol trigger: `remote`, `terminal` or `queue`.
+
+        ``block_id`` reuses an existing bubble instead of opening a new one, so a
+        message already shown as pending is replaced in place when it goes out.
+        """
         ...
 
     async def interrupt(self) -> bool: ...

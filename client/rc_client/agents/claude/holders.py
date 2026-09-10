@@ -44,12 +44,21 @@ class HolderScan:
         return matches[0] if len(matches) == 1 else None
 
 
+def _is_background(argv: list[str]) -> bool:
+    """True for the helper processes Claude Code spawns, never for a TUI.
+
+    Matching whole tokens rather than the joined command line matters: the
+    device's own shim adds `--mcp-config <path>`, and a substring test would
+    write off every session started through it as a background helper.
+    """
+    return any(token.lstrip("-").split("=", 1)[0] in _BACKGROUND_MARKERS for token in argv[1:])
+
+
 def _looks_like_claude(proc: Proc) -> bool:
     argv = proc.argv
     if not argv:
         return False
-    joined = proc.command
-    if any(marker in joined for marker in _BACKGROUND_MARKERS):
+    if _is_background(argv):
         return False
     for token in argv[:3]:
         base = os.path.basename(token)

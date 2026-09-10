@@ -45,6 +45,17 @@ export const claudeAgent: AgentInfo = {
     'effort',
     'history',
   ],
+  // Amendment A10: this device installs the `claude` shim, so a terminal
+  // session started through it can be attached instead of taken over.
+  attach: 'channel',
+  attach_ready: true,
+  shared_interrupt: false,
+};
+
+/** The same agent on a device where the shim is not installed yet (A10). */
+export const claudeNoShim: AgentInfo = {
+  ...claudeAgent,
+  attach_ready: false,
 };
 
 export const codexAgent: AgentInfo = {
@@ -100,7 +111,7 @@ export const devices: Device[] = [
     last_seen: minutes(2),
     created_at: minutes(60 * 24 * 30),
     latency_ms: 42,
-    agents: [claudeAgent, codexMissing],
+    agents: [claudeNoShim, codexMissing],
   },
 ];
 
@@ -184,6 +195,29 @@ export const sessions: Session[] = [
     updated_at: minutes(1),
   }),
   session({
+    // Amendment A10: a terminal session the device is attached to. The composer
+    // and approvals work; the model and permission mode belong to the terminal.
+    session_id: 'ses-shared',
+    device_id: 'dev-mac',
+    title: 'Wire the channel shim',
+    cwd: '/Users/me/dev/remote-control/protocol',
+    state: 'idle',
+    origin: 'terminal',
+    control: 'shared',
+    updated_at: minutes(2),
+  }),
+  session({
+    // A10: the shim is not installed on this device, so the hint asks for it.
+    session_id: 'ses-attach',
+    device_id: 'dev-ci',
+    title: 'Nightly perf sweep',
+    cwd: '/home/ci/work/api',
+    state: 'readonly',
+    origin: 'terminal',
+    control: 'terminal',
+    updated_at: minutes(8),
+  }),
+  session({
     session_id: 'ses-otlp',
     device_id: 'dev-ci',
     title: 'Add OTLP traces',
@@ -207,6 +241,10 @@ export function historyFor(sessionId: string): SessionEvent[] {
       return viteHistory();
     case 'ses-terminal':
       return terminalHistory();
+    case 'ses-shared':
+      return sharedHistory();
+    case 'ses-attach':
+      return attachHistory();
     case 'ses-otlp':
       return codexHistory();
     default:
@@ -309,6 +347,60 @@ function terminalHistory(): SessionEvent[] {
       kind: 'notice',
       level: 'info',
       text: 'This session is driven from a terminal on mac-studio-office.',
+    },
+  ];
+}
+
+/** A10: a terminal-typed prompt on a session the device is attached to. */
+function sharedHistory(): SessionEvent[] {
+  const base = minutes(9);
+  return [
+    {
+      seq: 1,
+      ts: base,
+      kind: 'user_message',
+      block_id: 'sh-u0',
+      source: 'terminal',
+      text: 'add the channel handshake to the protocol doc',
+    },
+    {
+      seq: 2,
+      ts: base + 2_400,
+      kind: 'assistant_text',
+      block_id: 'sh-a0',
+      done: true,
+      text: 'Documented the handshake in §11. Anything typed here also reaches the terminal.',
+    },
+    {
+      seq: 3,
+      ts: base + 2_600,
+      kind: 'turn_completed',
+      turn_id: 'shared-turn-0',
+      stop_reason: 'completed',
+      duration_ms: 2_500,
+    },
+  ];
+}
+
+/** A10: a terminal session that could be attached but was not. */
+function attachHistory(): SessionEvent[] {
+  const base = minutes(8);
+  return [
+    {
+      seq: 1,
+      ts: base,
+      kind: 'user_message',
+      block_id: 'at-u1',
+      source: 'terminal',
+      text: 'run the perf sweep and summarise the regressions',
+    },
+    {
+      seq: 2,
+      ts: base + 3_000,
+      kind: 'assistant_text',
+      block_id: 'at-a1',
+      done: true,
+      text: 'Sweep finished. Two endpoints regressed by more than 5%.',
     },
   ];
 }

@@ -126,9 +126,10 @@ struct SessionRow: View {
             }
             Spacer(minLength: Theme.Space.small)
             VStack(alignment: .trailing, spacing: 3) {
-                Text(session.state.label)
+                Text(session.statusLabel)
                     .font(.footnote)
                     .foregroundStyle(session.state.isBlockedOnUser ? Theme.attention : Theme.inkSecondary)
+                    .lineLimit(1)
                 Text(RelativeTime.short(since: session.updatedAt))
                     .font(.caption)
                     .foregroundStyle(Theme.inkSecondary)
@@ -137,7 +138,7 @@ struct SessionRow: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(session.title), \(session.state.label), \(session.cwd)")
+        .accessibilityLabel("\(session.title), \(session.statusLabel), \(session.cwd)")
     }
 }
 

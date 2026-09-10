@@ -59,7 +59,32 @@ public struct SessionControl: WireEnum {
     public init(rawValue: String) { self.rawValue = rawValue }
     public static let remote = SessionControl(rawValue: "remote")
     public static let terminal = SessionControl(rawValue: "terminal")
+    /// Amendment A10: a live CLI process owns the session and the device is
+    /// attached to it, so this app types into the same conversation.
+    public static let shared = SessionControl(rawValue: "shared")
     public static let none = SessionControl(rawValue: "none")
+}
+
+/// Amendment A10: how a device can attach to an agent's terminal sessions.
+public struct AgentAttach: WireEnum {
+    public let rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
+    /// The Claude channel shim loaded by the CLI.
+    public static let channel = AgentAttach(rawValue: "channel")
+    /// The Codex shared app-server daemon.
+    public static let daemon = AgentAttach(rawValue: "daemon")
+}
+
+/// Amendment A10: what became of a message sent into a `shared` session.
+public struct MessageDelivery: WireEnum {
+    public let rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
+    /// Held by the device until the terminal-driven turn ends.
+    public static let pending = MessageDelivery(rawValue: "pending")
+    /// Injected into the live CLI session.
+    public static let delivered = MessageDelivery(rawValue: "delivered")
+    /// Taken by the CLI as mid-turn data; the device will inject it again.
+    public static let absorbed = MessageDelivery(rawValue: "absorbed")
 }
 
 /// Who created a session, or what triggered a turn or message.

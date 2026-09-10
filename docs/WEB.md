@@ -36,11 +36,16 @@ cd web && npm ci
 
 `mock/server.ts` implements the app-facing half of the protocol — the HTTP API, `WS /ws/app` and
 `WS /ws/stt` — so the whole UI can be developed with no gateway and no device. It ships two devices
-and five sessions covering running, needs-approval, idle, terminal-controlled and Codex. Opening the
+and seven sessions covering running, needs-approval, idle, terminal-controlled, shared, Codex, and
+a terminal session on a device that has no shim installed. Opening the
 running session plays a scripted turn: streamed thinking, streamed Markdown, tool rows with a live
 output box, a failing shell run, two diffs, an approval and a question. Answering both drives the
-turn to completion. Pairing walks `waiting → enrolled → online → agents` over about six seconds, and
-the speech socket returns scripted partials and a final transcript. The mock and the tests share
+turn to completion. The shared session plays the A10 path end to end: a send while the terminal is
+idle is injected at once and answers with a relayed Allow/Deny approval, a send during that turn is
+held and shows the "waiting for the terminal" chip until the turn ends, and `session.set`,
+`session.stop` and `session.takeover` answer with the errors the contract specifies. Pairing walks
+`waiting → enrolled → online → agents` over about six seconds, and the speech socket returns
+scripted partials and a final transcript. The mock and the tests share
 `mock/fixtures.ts`, so a fixture change shows up in both.
 
 ## Structure
@@ -86,11 +91,52 @@ focuses an open tab or opens `/sessions/<device_id>/<session_id>`.
 - **Uncertain delivery** is never resent automatically. The composer offers a Retry that reuses the
   original request id.
 - **The composer is gated on `control`**, never on `state`.
+- **`control: "shared"`** (amendment A10) is a live terminal session the device is attached to. It
+  behaves like `remote`: the composer, the queue and approvals all work. What belongs to the
+  terminal is disabled — Stop, the model, permission mode and effort pickers, and attachments — and
+  "Take over" never appears, because there is nothing to take over.
 - **Long output folds** beyond 20 lines, and `output_truncated` adds "Open full output", which
   fetches the untruncated block.
 - **Reading position** holds: the timeline auto-follows until you scroll away, then counts new
   blocks behind a "Back to latest" button.
 - **Failed actions** surface in a dismissible banner above the composer rather than failing silently.
+
+## Shared terminal sessions
+
+A session whose `control` is `shared` is driven by a live CLI that loaded the device's channel, so
+the app can inject prompts and answer permission prompts without killing the process.
+
+| Surface | Behaviour |
+| --- | --- |
+| Composer | Enabled, exactly as for `remote`. Placeholder, send label and queue are unchanged |
+| Take over | Never shown. The device is already attached |
+| Stop | Shown only when the agent lists the `interrupt` capability **and** the device reports `shared_interrupt`. A Claude channel cannot interrupt, so Stop and "Interrupt & send" both disappear |
+| Model / permission mode / effort | Disabled, with the tooltip "Change it in the terminal". The title is still editable |
+| Attachments | Disabled, with the tooltip "Attachments cannot be delivered to a terminal session" |
+| Status label | "terminal · attached" in the sidebar and the Sessions list; the dot uses the session `state`, so it matches `remote` |
+| Approvals | Relayed, with Allow and Deny only. No session-scoped grant reaches the relay |
+
+Control changes arrive as a `meta` event carrying `control`, with a `status` event only when the
+session state moves as well, so the app never infers the owner from a status change. The transitions
+are `terminal → shared` when the attachment registers, `shared → terminal` when it drops, and
+`shared → none` when the CLI exits.
+
+A message sent into a shared session carries a `delivery` field. The bubble shows a quiet chip for
+the two states that are not yet final: "waiting for the terminal" while the device holds the message
+until the running turn ends, and "will be re-sent" when the CLI read it as mid-turn data. The device
+replaces the block under its original `block_id` once the message lands, and the chip disappears.
+
+A `terminal` session whose agent reports `attach` adds one secondary line under "Controlled by the
+terminal", saying why this session cannot be driven from here:
+
+| `attach` | `attach_ready` | Hint |
+| --- | --- | --- |
+| `channel` | `false` | "Start claude through the remote-control shim to control it from here" |
+| `daemon` | `false` | "Start the Codex app-server daemon on this device to control it from here" |
+| either | `true` | "This terminal session was started without the attachment; restart it to control it from here" |
+
+The "Take over" button beside the hint follows the agent's `takeover` capability, in the composer
+bar and in the status line alike.
 
 ## Responsive
 

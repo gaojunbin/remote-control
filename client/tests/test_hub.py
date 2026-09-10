@@ -28,6 +28,7 @@ class FakeRunner:
         self.steered: list[str] = []
         self.interrupts = 0
         self.settings: list[tuple[Any, Any, Any]] = []
+        self.block_ids: list[str | None] = []
         self.closed = False
         self._busy = False
         self._steer = steer
@@ -40,7 +41,9 @@ class FakeRunner:
         text: str,
         attachments: list[dict[str, Any]] | None = None,
         source: str = "remote",
+        block_id: str | None = None,
     ) -> None:
+        self.block_ids.append(block_id)
         self.sent.append(text)
         self.sources.append(source)
         self.attachments.append(attachments)

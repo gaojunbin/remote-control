@@ -3,11 +3,12 @@
 Remote control for the coding agents you already run. `remote-control` is a self-hosted control
 plane: a **gateway** on your own VPS sits between the **developer machines** where Claude Code and
 Codex are installed and the **apps** you carry — a web UI and a native iOS client. Add a machine
-with one pairing command, see every session on it (including the ones you started yourself in a
-terminal), and drive a session the way you drive a chat: send text or dictate it, watch answers,
-thinking, tool calls and diffs stream in, approve or deny a tool, answer a question, stop a turn,
-queue the next one. Model credentials never leave the machine; the gateway routes and indexes but
-never runs an agent.
+with one pairing command, see every session on it, and drive a session the way you drive a chat:
+send text or dictate it, watch answers, thinking, tool calls and diffs stream in, approve or deny a
+tool, answer a question, stop a turn, queue the next one. A `claude` you started yourself in a
+terminal is not just mirrored: the device attaches to the live session, so you can pick it up from a
+phone without killing what it is running. Model credentials never leave the machine; the gateway
+routes and indexes but never runs an agent.
 
 ## Architecture
 
@@ -84,6 +85,17 @@ live — gateway ready, device handshake, detected agents — and the device app
 connects. Now open **Sessions → New session**, choose the device, the agent, a working directory and
 an optional first message, and start working.
 
+To also drive the `claude` sessions you start in your own terminal, install the shim on that machine
+and open a new shell:
+
+```sh
+~/.rc-client/venv/bin/rc-client shim install
+```
+
+Every interactive `claude` in a new shell then shows a one-time development-channels confirmation —
+choose "I am using this for local development" — and appears in the apps as **terminal · attached**,
+with a live composer.
+
 Full deployment reference, including every `.env` variable, TLS options, upgrades, backups and
 troubleshooting: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
@@ -150,8 +162,10 @@ RCVerify` checks the protocol fixtures with plain Command Line Tools and needs n
 - **Turn control** — stop, queue while a turn runs, steer a Codex turn mid-flight, or interrupt and
   send. Queued messages are visible and removable.
 - **Terminal sessions** — a `claude` or `codex` you started in a terminal is discovered and mirrored
-  read-only. Claude sessions can be taken over when their terminal is idle; the daemon releases the
-  CLI and resumes the session itself.
+  into the same timeline. With the shim installed, a Claude terminal session is *attached* rather
+  than mirrored: you send messages into the live CLI, its permission prompts arrive as approval
+  cards, and whichever side answers first wins. Nothing is killed and nothing is resumed. Takeover
+  is still there for a terminal that was started without the shim, and still only while it is idle.
 - **Voice** — dictation through the gateway's speech-to-text proxy, streamed as 16 kHz PCM16 with
   live partial transcripts. iOS can use on-device recognition instead. The transcript is always an
   editable draft; sending stays a separate action.
@@ -201,8 +215,13 @@ not apply to them; project and local settings do. Change it with `[claude] setti
   was answered.
 - **A successful `session.takeover`.** The refusal path was verified; accepting needs an idle
   interactive CLI that the harness could not hold open.
-- **Linux.** Only macOS was exercised. The systemd unit and `rc-client service install` have not
-  been run anywhere.
+- **Attaching, beyond one configuration.** Attached Claude sessions were driven live on macOS
+  against the real CLI with `permission_mode: "default"` only. `acceptEdits` and `bypassPermissions`
+  relay fewer prompts or none, and neither was exercised.
+- **Attaching to Codex.** Codex reports `attach: null`; its shared app-server integration is not
+  built. Only Claude can be attached today.
+- **Linux.** Only macOS was exercised. The systemd unit, `rc-client service install` and the
+  `claude` shim have not been run anywhere else.
 - **TLS.** The stack was only exercised over plain HTTP on the published port. No reverse proxy,
   certificate or HSTS response was in front of it during validation.
 - **iOS beyond four smoke tests.** Sign-in, a real session, Devices and Settings ran against a live

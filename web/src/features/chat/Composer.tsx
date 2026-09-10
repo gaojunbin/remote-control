@@ -9,6 +9,7 @@ import type { SendMode } from '../../protocol/frames';
 import type { AgentInfo, QueuedMessage, Session } from '../../protocol/types';
 import { VoicePanel } from '../voice/VoicePanel';
 import { useVoice } from '../voice/useVoice';
+import { attachHint, canInterruptShared } from './attach';
 import { readAttachments, textTooLong, type AttachmentDraft } from './attachments';
 
 interface Props {
@@ -54,15 +55,21 @@ export function Composer({
   const pushToTalk = useSettings((s) => s.pushToTalk);
 
   const terminalControlled = session.control === 'terminal';
+  // A10: a shared session is a live CLI the device is attached to. Everything
+  // the composer does works, except what has to go through the terminal.
+  const shared = session.control === 'shared';
   const running =
     session.state === 'running' ||
     session.state === 'needs_approval' ||
     session.state === 'needs_input' ||
     session.state === 'starting';
   const canSteer = agent?.capabilities.includes('steer') ?? false;
+  const canTakeover = agent?.capabilities.includes('takeover') ?? false;
   // A7: the composer is gated on `control`, never on `state` — a mirrored
   // session reports `running` while the terminal drives the turn.
   const disabled = terminalControlled || !deviceOnline;
+  // A10: the channel cannot interrupt a running turn, so neither can we.
+  const canInterrupt = shared ? canInterruptShared(agent) : true;
 
   const submit = useCallback(
     async (mode: SendMode, source?: string) => {
@@ -136,6 +143,9 @@ export function Composer({
       : strings.composer.queue
     : strings.composer.send;
 
+  // A10 §8: only a `terminal` session can be missing its attachment.
+  const hint = terminalControlled ? attachHint(agent) : null;
+
   const placeholder = terminalControlled
     ? strings.composer.placeholderTerminal
     : !deviceOnline
@@ -151,6 +161,7 @@ export function Composer({
         <ComposerBottomRow
           agent={agent}
           session={session}
+          locked={shared}
           language={language}
           sttEnabled={sttEnabled}
           sttLanguages={sttLanguages}
@@ -221,10 +232,21 @@ export function Composer({
 
       {terminalControlled ? (
         <div className="takeover-bar">
-          <span>{strings.status.terminalControlled}</span>
-          <button type="button" className="btn small" onClick={onTakeover}>
-            {strings.chat.takeOver}
-          </button>
+          <span className="takeover-text">
+            {strings.status.terminalControlled}
+            {hint ? <span className="takeover-hint">{hint}</span> : null}
+          </span>
+          {canTakeover ? (
+            <button type="button" className="btn small" onClick={onTakeover}>
+              {strings.chat.takeOver}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {shared ? (
+        <div className="takeover-bar">
+          <span className="takeover-text">{strings.status.terminalAttached}</span>
         </div>
       ) : null}
 
@@ -241,7 +263,7 @@ export function Composer({
           onCompositionEnd={() => (composing.current = false)}
           onChange={(e) => setText(e.target.value)}
           onPaste={(e) => {
-            const files = [...e.clipboardData.files];
+            const files = shared ? [] : [...e.clipboardData.files];
             if (files.length > 0) {
               e.preventDefault();
               void attach(files);
@@ -265,15 +287,20 @@ export function Composer({
               e.target.value = '';
             }}
           />
-          <button
-            type="button"
-            className="icon-btn"
-            aria-label={strings.composer.attach}
-            disabled={disabled}
-            onClick={() => fileInput.current?.click()}
+          <span
+            className="tip"
+            {...(shared ? { title: strings.composer.attachSharedUnsupported } : {})}
           >
-            <Paperclip size={16} />
-          </button>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={strings.composer.attach}
+              disabled={disabled || shared}
+              onClick={() => fileInput.current?.click()}
+            >
+              <Paperclip size={16} />
+            </button>
+          </span>
           {sttEnabled ? (
             <button
               type="button"
@@ -285,7 +312,7 @@ export function Composer({
               <Mic size={16} />
             </button>
           ) : null}
-          {running ? (
+          {running && canInterrupt ? (
             <Popover
               align="end"
               side="top"
@@ -327,6 +354,7 @@ export function Composer({
       <ComposerBottomRow
         agent={agent}
         session={session}
+        locked={shared}
         language={language}
         sttEnabled={sttEnabled}
         sttLanguages={sttLanguages}
@@ -346,6 +374,7 @@ export function Composer({
 function ComposerBottomRow({
   agent,
   session,
+  locked,
   language,
   sttEnabled,
   sttLanguages,
@@ -354,6 +383,8 @@ function ComposerBottomRow({
 }: {
   agent: AgentInfo | null;
   session: Session;
+  /** A10: `session.set` rejects model, permission mode and effort when shared. */
+  locked: boolean;
   language: string;
   sttEnabled: boolean;
   sttLanguages: string[];
@@ -365,38 +396,48 @@ function ComposerBottomRow({
   const efforts = agent?.efforts ?? [];
   const labelOf = (list: { id: string; label: string }[], value: string | null, fallback: string) =>
     list.find((item) => item.id === value)?.label ?? fallback;
+  const lock = locked ? { title: strings.composer.lockedToTerminal } : {};
 
   return (
     <div className="composer-bottom">
       {models.length > 0 ? (
-        <Menu
-          side="top"
-          ariaLabel={strings.composer.model}
-          value={session.model}
-          options={models.map((m) => ({ id: m.id, label: m.label }))}
-          onSelect={(model) => onSetOption({ model })}
-          label={labelOf(models, session.model, agentLabel(session.agent))}
-        />
+        <span className="tip" {...lock}>
+          <Menu
+            side="top"
+            ariaLabel={strings.composer.model}
+            value={session.model}
+            disabled={locked}
+            options={models.map((m) => ({ id: m.id, label: m.label }))}
+            onSelect={(model) => onSetOption({ model })}
+            label={labelOf(models, session.model, agentLabel(session.agent))}
+          />
+        </span>
       ) : null}
       {modes.length > 0 ? (
-        <Menu
-          side="top"
-          ariaLabel={strings.composer.permissionMode}
-          value={session.permission_mode}
-          options={modes.map((m) => ({ id: m.id, label: m.label }))}
-          onSelect={(permission_mode) => onSetOption({ permission_mode })}
-          label={labelOf(modes, session.permission_mode, strings.composer.permissionMode)}
-        />
+        <span className="tip" {...lock}>
+          <Menu
+            side="top"
+            ariaLabel={strings.composer.permissionMode}
+            value={session.permission_mode}
+            disabled={locked}
+            options={modes.map((m) => ({ id: m.id, label: m.label }))}
+            onSelect={(permission_mode) => onSetOption({ permission_mode })}
+            label={labelOf(modes, session.permission_mode, strings.composer.permissionMode)}
+          />
+        </span>
       ) : null}
       {efforts.length > 0 ? (
-        <Menu
-          side="top"
-          ariaLabel={strings.composer.effort}
-          value={session.effort}
-          options={efforts.map((e) => ({ id: e.id, label: e.label }))}
-          onSelect={(effort) => onSetOption({ effort })}
-          label={labelOf(efforts, session.effort, strings.composer.effort)}
-        />
+        <span className="tip" {...lock}>
+          <Menu
+            side="top"
+            ariaLabel={strings.composer.effort}
+            value={session.effort}
+            disabled={locked}
+            options={efforts.map((e) => ({ id: e.id, label: e.label }))}
+            onSelect={(effort) => onSetOption({ effort })}
+            label={labelOf(efforts, session.effort, strings.composer.effort)}
+          />
+        </span>
       ) : null}
       {sttEnabled ? (
         <Menu

@@ -80,7 +80,9 @@ All against a scratch git repository, `permission_mode: "default"`.
 ## 5. Terminal mirroring
 
 A real `claude` process started outside the daemon, in a scratch repository, with a clean
-environment. The daemon discovered it within about 6 s.
+environment, and **without** the shim, so the daemon could only mirror it. The daemon discovered it
+within about 6 s. Section 6 covers the same situation with the shim installed, where the device
+attaches instead and the composer stays live.
 
 | Step | Result |
 | --- | --- |
@@ -97,7 +99,98 @@ session inherits `CLAUDE_CODE_CHILD_SESSION`, which turns transcript saving off,
 is the only thing the mirror can read: strip `CLAUDE_*` from the child environment. A first run in a
 new directory shows a project-trust dialog that must be answered before anything is written.
 
-## 6. Restart resilience
+Both refusals above apply to `control: "terminal"`, a CLI the device has no way into. Taking over is
+no longer the only route to a live composer: a session started through the shim reports
+`control: "shared"` and accepts messages and approvals directly.
+
+## 6. Attached terminal sessions (A10)
+
+Run on 2026-09-10, after A10 landed. This is the only part of the document driven against a real
+**interactive** Claude Code TUI rather than a `-p` run: a `claude` 2.1.267 started through the shim
+under `pexpect`, a gateway from source on port 18787, and a scratch device at a scratch
+`RC_CLIENT_HOME`, with a scripted app on `WS /ws/app` recording every frame. Every prompt was tiny.
+
+Static checks were re-run with the A10 fixtures in place:
+
+| Command | Result |
+| --- | --- |
+| `cd protocol && uv run --with jsonschema python scripts/validate_fixtures.py` | pass, 133 fixtures, 23 negative cases, 0 problems |
+| `cd client && uv run ruff check . && uv run ruff format --check . && uv run mypy rc_client && uv run pytest -q` | pass, 323 tests, 3 skipped |
+
+The new client tests are `tests/test_attach_channel.py` (7), `tests/test_shared_control.py` (24) and
+`tests/test_shim.py` (30), covering bridge framing, a real socket round trip including
+buffer-then-reconnect, inject-only-when-idle, dedupe by message id, absorbed re-injection, the
+approval relay with its terminal-resolved and stale-reply cases, both close transitions, and the
+shim script executed for real against a pipe.
+
+### Procedure
+
+```sh
+# 1. Gateway from source on a free port, scratch DATA_DIR
+cd gateway && RC_HOST=127.0.0.1 RC_PORT=18787 PUBLIC_ORIGIN=http://127.0.0.1:18787 \
+  RC_PASSWORD=… DATA_DIR=<scratch> uv run rc-gateway
+
+# 2. A device in a scratch home, with the shim installed
+cd ../client && export RC_CLIENT_HOME=<scratch>
+uv run rc-client enroll --gateway http://127.0.0.1:18787 --pair RC-XXXX-XXXX
+uv run rc-client shim install --no-shell-rc
+uv run rc-client run
+
+# 3. An interactive CLI through the shim, in a scratch git repository,
+#    with CLAUDE_* stripped from the environment
+PATH="$RC_CLIENT_HOME/bin:$PATH" claude
+```
+
+Answer the project-trust dialog, then the development-channels dialog with "I am using this for
+local development". Then, as an app on `WS /ws/app`, subscribe to the session that appears.
+
+### Results
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| (a) The session appears as `control: "shared"` | pass | `session.updated` within a second of the dialog being answered |
+| (b) Send while idle | pass | one `user_message` with `delivery: "delivered"`, then `assistant_text` and `turn_completed`, seq 22–27 |
+| (c) Send during a terminal turn (`sleep 8`) | pass | `delivery: "pending"` plus a `queue` entry, then the **same** `block_id` republished as `delivered` once the turn ended, seq 28–44 |
+| (d) Relayed approval, both answers | pass | Allow wrote `hello.txt`; Deny left `bye.txt` absent, seq 48–56 and 60–66 |
+| (e) Answered in the TUI first | pass | the card resolved with `decision.by: "terminal"`, seq 72–75 |
+| (f) `/exit` in the CLI | pass | `meta {control: "none"}` at seq 81 |
+| (g) A remote SDK session with the shim first on `PATH` | pass | `session.create` streamed `OK`; the shim passed the pipe-driven run through untouched |
+
+Two further checks beyond the list, both live:
+
+- **`shared → terminal`.** Killing the bridge while the CLI kept running moved control back to
+  `terminal`, and the takeover bar returned. This is the transition the process scan gets wrong if it
+  treats every `claude` carrying `mcp` on its command line as a non-holder, which the shim's own
+  `--mcp-config` guarantees; that bug was found here and fixed.
+- **Bridge reconnect.** Restarting `rc-client run` under a live attached session: the bridge
+  reconnected, replayed its registration and the session returned to `shared` without touching the
+  CLI.
+
+Three defects were found by this pass and fixed with regression tests: the holder scan above, a
+mirror that read turn state before reading new rows and so closed every turn one tail interval early,
+and a session attached before its first turn never being re-checked for ownership.
+
+### Not covered by this pass
+
+- **`--permission-mode acceptEdits` and `bypassPermissions`.** Only `default` was driven. Those modes
+  relay fewer permission prompts or none; nothing here confirms what the relay does under them.
+- **Codex.** `attach: null` until its shared app-server integration is built.
+- **Linux.** The shim, the shell-rc block and the socket paths were exercised on macOS only.
+- **A message still pending when the attachment drops.** Queue survival is unit-tested; the later
+  delivery through the ordinary resume path was not driven end to end.
+- **A session attached before its first turn, across a daemon restart.** It has no transcript yet, so
+  the scan that promotes a live CLI to `control: "terminal"` cannot see it. It has no content either,
+  and the next turn creates the transcript.
+
+### One incident worth recording
+
+While testing `rc-client uninstall` against a fake `HOME`, `launchctl bootout` stopped the
+maintainer's **real** device service: launchd is scoped by service label, not by `RC_CLIENT_HOME`.
+It was restored with `launchctl bootstrap gui/<uid> ~/Library/LaunchAgents/dev.remote-control.client.plist`
+and the plist was never deleted. Anyone repeating this must not run `uninstall` or `service remove`
+on a machine that carries a real installation, whatever `RC_CLIENT_HOME` says.
+
+## 7. Restart resilience
 
 | Step | Result |
 | --- | --- |
@@ -110,7 +203,7 @@ A `claude` child orphaned by killing the daemon can hold the transcript open for
 so a restarted daemon may briefly report a remote session as `control: "terminal"`. It self-corrects
 on the next scan; a client should not treat the first post-restart snapshot as final.
 
-## 7. Docker stack
+## 8. Docker stack
 
 The stack ships no reverse proxy. `docker-compose.yml` defines one non-profile service, `gateway`,
 published on `GATEWAY_BIND:GATEWAY_PORT`; TLS and the public hostname belong to whatever proxy the
@@ -140,7 +233,7 @@ The earlier pass had driven the served installer, a pairing redemption and one l
 through the bundled proxy. That proxy no longer exists and those rows were **not** repeated against
 the published port, so they are not claimed here.
 
-## 8. Amendments and device isolation
+## 9. Amendments and device isolation
 
 Every item below was exercised against a live gateway and daemon on the final tree, not only by
 unit test. A second device was enrolled so one device could try to touch the other's session.
@@ -230,7 +323,7 @@ The current gateway was started against a `DATA_DIR` created earlier in this ses
 A token issued before a gateway restart still authenticated afterwards (200), and `POST /api/logout`
 still revoked it (subsequent request 401). A restart no longer signs every client out.
 
-## 9. Defects found and fixed
+## 10. Defects found and fixed
 
 Cross-component defects found by this pass. Each was fixed in the component that violates the
 contract, with a test. Two further defects found late in the run were handed to the component owners
@@ -293,7 +386,7 @@ Two further hardening changes:
    The script also downloads the wheel with `curl -O -J` and installs the saved file, because of
    defect 2. Test: `test_the_served_install_script_accepts_its_own_origin`.
 
-## 10. Not verified
+## 11. Not verified
 
 - **Codex approvals, live.** This machine's `~/.codex/config.toml` sets `sandbox_mode =
   workspace-write` with network access enabled and trusts `/Users/junbingao`, so writes under the
@@ -328,14 +421,14 @@ Two further hardening changes:
   terminated TLS in front of the gateway, so HSTS, the Nginx Proxy Manager recipe in
   `docs/DEPLOY.md` and `TRUSTED_PROXIES` against a non-loopback proxy are untested end to end.
 
-## 11. Observations, not defects
+## 12. Observations, not defects
 
 - `HEAD` returns 405 on every route, including `/api/health` and `/dist/…`, because the routes are
   declared `GET`-only. `GET` is unaffected and the protocol requires no `HEAD`, but health checkers
   and CDNs often use it.
 - A request naming an unknown `device_id` is answered `device_offline` rather than `not_found`.
 - The `readonly` versus `running` question raised by this pass was settled by amendment A7 and the
-  device now matches it. Verified in section 8.
+  device now matches it. Verified in section 9.
 - `latency_ms` is `null` until the first ping round trip completes, about 25 s after a device
   connects.
 - A mirrored session reports `readonly` during a long *silent* tool call, because the mirror infers
@@ -405,3 +498,9 @@ Then, as an app on `WS /ws/app` with `Authorization: Bearer <token>`:
     -d`. Check `GET http://127.0.0.1:18787/api/health` and its security headers, install a device
     with the one-liner from `POST /api/devices/pairing`, run one turn, then `docker compose down -v`
     and delete the `.env`.
+12. Attaching (A10): `rc-client shim install --no-shell-rc` in the scratch home, restart the daemon,
+    then start an interactive `claude` with the shim first on `PATH` and answer both dialogs. The
+    session must appear as `control: "shared"`. Send one message while it is idle and confirm
+    `delivery: "delivered"`; send one during a turn and confirm `pending` then `delivered` under the
+    same `block_id`; raise one approval and answer it from the app. Never run `rc-client uninstall`
+    or `service remove` on a machine that carries a real installation.

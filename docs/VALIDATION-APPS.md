@@ -7,6 +7,10 @@ on this Mac, and the real `claude` and `codex` CLIs.
 `docs/VALIDATION.md` covers the gateway and the device daemon and is the companion to this file.
 Nothing here re-tests the backend for its own sake; the backend is the fixture the apps run against.
 
+Section 3 is a later pass, added when amendment A10 landed. It was driven against the web mock
+gateway and the iOS demo rather than a live device, and says so; the live proof for A10 is section 6
+of `docs/VALIDATION.md`.
+
 ## Environment
 
 | Component | Version |
@@ -78,7 +82,7 @@ which Chrome logs itself and which is the correct response to an unauthenticated
 | Sign out | Returns to the login screen | — |
 | Mobile | At 390 px the sidebar collapses, the chat has a back button, and the page has no horizontal overflow (0 px) | `web-33-mobile-sessions.png`, `web-34-mobile-chat.png` |
 
-Checks after the change in section 3:
+Checks after the change in section 4:
 
 ```
 cd web && npm run typecheck && npm run lint && npm test -- --run && npm run build
@@ -123,7 +127,7 @@ The message the app sent is on the device, not only on the screen:
 {"seq": 85, "kind": "assistant_text", "text": "DONE", "done": true, "first_seq": 83}
 ```
 
-Other iOS checks, all green after the change in section 3:
+Other iOS checks, all green after the change in section 4:
 
 | Command | Result |
 | --- | --- |
@@ -133,7 +137,108 @@ Other iOS checks, all green after the change in section 3:
 | `xcodebuild … -destination 'generic/platform=iOS Simulator' build` | BUILD SUCCEEDED |
 | `xcodebuild test … -only-testing:RemoteControlUITests` with no gateway env | 3 demo tests passed, 4 real-gateway tests skipped |
 
-## 3. Defects found in the apps, and fixed
+## 3. Attached terminal sessions (A10) in the apps
+
+Amendment A10 landed after the run above. This section records what each app does with
+`control: "shared"`, `user_message.delivery` and the `attach` hints.
+
+### Web
+
+Driven against the bundled mock gateway (`npm run dev:mock`) in headless Chrome, not against a live
+device: the mock was extended for this so both new shapes exist side by side — an attached session
+with `control: "shared"` and a `terminal` session on a device whose agent reports `attach: "channel"`
+with `attach_ready: false`.
+
+What the app does:
+
+- A `shared` session is treated as `remote` for the composer, the approval cards, the queue and the
+  user-message rows. It gets a quiet "Attached to the terminal session" bar instead of the takeover
+  bar, and the status label reads **terminal · attached**.
+- "Take over" is never offered on a `shared` session. Stop is hidden unless the agent lists the
+  `interrupt` capability **and** reports `shared_interrupt: true`, which Claude does not.
+- The model, permission-mode and effort pickers and the attachment button are disabled, each with a
+  tooltip saying to change it in the terminal. The disabled controls set `pointer-events: none`, so a
+  disabled picker cannot swallow the hover that shows its own tooltip.
+- A held message carries a "waiting for the terminal" chip and appears in the queue; an absorbed one
+  reads "will be re-sent". The chip clears when the same `block_id` comes back as `delivered`, and no
+  second bubble appears.
+- A relayed approval offers exactly Allow and Deny, with no session-scoped middle option.
+- A `terminal` session whose agent advertises an attach method shows the hint that matches
+  `attach_ready`: install the shim when it is false, restart this session when it is true.
+
+| Check | Result |
+| --- | --- |
+| `npm run typecheck && npm run lint && npm test -- --run && npm run build` | tsc clean, eslint clean, 155 vitest tests passed |
+| Headless-Chrome pass over the mock | 26 assertions, all passed |
+
+Screenshots, under the run scratch directory `…/scratchpad/web-attach/shots/`:
+
+| File | What it shows |
+| --- | --- |
+| `a10-01-shared-idle.png` | A shared session idle: live composer, attached bar, no Take over, no Stop |
+| `a10-02-shared-approval.png` | A relayed approval card with only Allow and Deny |
+| `a10-03-pending-chip.png` | A held message with the "waiting for the terminal" chip and its queue row |
+| `a10-04-delivered.png` | The same block after injection, chip gone, no duplicate bubble |
+| `a10-05-terminal-restart-hint.png` | A `terminal` session with `attach_ready: true`: restart it to attach |
+| `a10-06-terminal-shim-hint.png` | A `terminal` session with `attach_ready: false`: install the shim |
+| `a10-07-shared-390.png` | The shared session at 390 px |
+| `a10-08-after-takeover.png` | A `meta` control transition unlocking the composer live |
+
+### iOS
+
+Driven in demo mode on an iPhone 17 simulator running iOS 27.0, not against a live attached session:
+the in-memory demo gateway carries a shared Claude session on `mac-studio-office` and a `terminal`
+session on `macbook-air` whose Claude reports `attach_ready: false`, so both new shapes exist side
+by side as they do on the web.
+
+The models gained `SessionControl.shared`, `AgentAttach`, `MessageDelivery`, the three `AgentInfo`
+fields `attach`, `attach_ready` and `shared_interrupt`, and `delivery` on `user_message`.
+
+What the app does:
+
+- A `shared` session enables the composer exactly as `remote` does. "Take over" never appears on it,
+  and on a `terminal` session it appears only when the agent lists the `takeover` capability.
+- Stop is hidden unless the agent reports `shared_interrupt`.
+- The model, permission-mode and effort controls and attachments are disabled, each carrying the
+  reason rather than only greying out.
+- A `terminal` session whose agent advertises an attach method shows the hint that matches
+  `attach_ready`.
+- A held message carries the "waiting for the terminal" chip and an absorbed one "will be re-sent",
+  and the chip clears when the same `block_id` returns as delivered.
+- A `question` on a shared session is mirrored read-only, "Answer this in the terminal", because
+  `session.answer` is refused there.
+
+Two latent accessibility defects were found and fixed on the way: a container
+`accessibilityIdentifier` was hiding the buttons inside a card, and the status line was masking the
+attach hint.
+
+| Command | Result |
+| --- | --- |
+| `swift run RCVerify` | PASS, 766 checks against the real `protocol/fixtures`, `objects/` included: 466 protocol, 104 timeline, 25 transport, 21 socket, 13 stt, 16 persistence, 29 markdown, 92 stores |
+| `swift test` | 66 tests in 8 suites passed |
+| `swift run RCUIVerify` | PASS, 61 UI checks |
+| `xcodegen generate` then `xcodebuild … -destination 'generic/platform=iOS Simulator' build` | BUILD SUCCEEDED |
+| UI tests on the iPhone 17 simulator | 9 executed, 0 failures, 4 real-gateway tests skipped |
+
+The two new UI tests are `testSharedSessionDeliversAndApproves` and
+`testTerminalSessionExplainsHowToAttach`. All of the above ran with
+`DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer`.
+
+Screenshots, under the run scratch directory `…/scratchpad/ios-attach/screens/`:
+
+| File | What it shows |
+| --- | --- |
+| `06-shared-idle.png` | A shared session idle: live composer, no Take over, no Stop |
+| `07-shared-pending.png` | A held message with the "waiting for the terminal" chip |
+| `08-shared-delivered.png` | The same block after injection, chip gone |
+| `09-shared-approval.png` | A relayed approval card with only Allow and Deny |
+| `10-shared-answered.png` | The card after it was answered from the phone |
+| `11-attach-hint.png` | A `terminal` session with `attach_ready: false`: install the shim |
+
+Not verified on iOS: nothing was driven against a real attached session, only the demo; and the
+delivery chips were asserted by accessibility label rather than by pixels.
+
+## 4. Defects found in the apps, and fixed
 
 ### iOS — signing in was forgotten again as soon as the app was backgrounded
 
@@ -172,7 +277,7 @@ renders the login screen for every path, so no protected page mounts and no auth
 goes out. Test: "never issues an authenticated request while signed out", which fails on the old
 router with `['/api/session', '/api/sessions']`.
 
-## 4. Defects found in other components, reported and since fixed
+## 5. Defects found in other components, reported and since fixed
 
 `gateway/`, `client/` and `protocol/` belong to other owners, so these were reproduced and reported
 rather than fixed here. The client owner fixed all four; each entry below records the original
@@ -275,7 +380,7 @@ in `config.toml`. Re-verified on a fresh enrolment: **95** sessions, 50 Claude a
 101 unbounded before. The bound is per agent, so the worst case on a busy machine is 50 times the
 number of installed agents rather than the whole history.
 
-## 5. Observations, not defects
+## 6. Observations, not defects
 
 - `strings.status.idle`, `strings.chat.outputTruncated` and `strings.chat.inputTruncated` are in the
   web catalog but never rendered: idle shows no status line by design, and a truncated block shows
@@ -287,7 +392,7 @@ number of installed agents rather than the whole history.
   immediately after a gateway restart, both signed out instantly. Recorded, not explained.
 - `ENGINE-FACTS.md` records Claude Code 2.1.266; this machine now runs 2.1.267.
 
-## 6. Not verified
+## 7. Not verified
 
 - **`allow_session`, the middle approval option.** Allow and Deny were both driven end to end; the
   session-scoped grant was never chosen, so nothing checked that a second write goes through
@@ -298,13 +403,17 @@ number of installed agents rather than the whole history.
 - **Attachments** on either app, **Web Push** and **APNs** delivery, and **speech to text** on either
   app: the gateway ran with `STT_PROVIDER=none` and no `WEB_PUSH_CONTACT`, so the mic is hidden on
   web by design and nothing exercised `/ws/stt`.
-- **iOS keychain restore**, for the signing reason in section 3.
+- **iOS keychain restore**, for the signing reason in section 4.
 - **`session.takeover` from an app.** The read-only state was verified; taking over needs an idle
   terminal session, which this run never held.
 - **iOS on a physical device**, dark mode, VoiceOver, and any iOS flow beyond the four tests above:
   new session, add device, directory picker, voice and push were exercised only by the offline demo
   suite the iOS owner wrote.
 - **`session.delete`** has no entry point in either app.
+- **Attached sessions against a real device.** Both apps were driven against fixtures for A10: the
+  web mock gateway and the iOS demo. The live proof that the two ends agree is on the device side,
+  in section 6 of `docs/VALIDATION.md`, where a scripted app drove a real attached CLI. No browser
+  and no phone has yet typed into one.
 
 ## Smoke procedure
 
@@ -325,4 +434,9 @@ About ten minutes, four short agent turns.
 7. `cd ios && xcodegen generate`, build for the simulator, then run
    `-only-testing:RemoteControlUITests/RealGatewaySmokeTests` with `TEST_RUNNER_RC_E2E_GATEWAY`,
    `TEST_RUNNER_RC_E2E_PASSWORD` and `TEST_RUNNER_RC_E2E_SESSION` set. Four tests, no skips.
-8. Stop the daemon and the gateway. Delete the scratch `DATA_DIR` and `RC_CLIENT_HOME`.
+8. Attached sessions (A10), against fixtures rather than a device: `cd web && npm run dev:mock`,
+   open the shared session and confirm a live composer, no Take over, no Stop, disabled pickers, and
+   a message sent during the terminal's turn showing "waiting for the terminal" and then clearing.
+   Open the `terminal` session and confirm the attach hint. On iOS, run the app with `--demo` and
+   check the same two sessions.
+9. Stop the daemon and the gateway. Delete the scratch `DATA_DIR` and `RC_CLIENT_HOME`.

@@ -357,3 +357,118 @@ export function afterAnswer(): Step[] {
 
   return steps;
 }
+
+/**
+ * Amendment A10: a short turn inside a session shared with a live terminal.
+ * The user message is emitted by the server, because only it knows whether the
+ * device could inject the text or had to hold it.
+ */
+/** The first few words of a prompt, quoted, for the mock's own narration. */
+function words(text: string, count: number): string {
+  const parts = text.split(/\s+/).filter(Boolean);
+  const head = parts.slice(0, count).join(' ');
+  return `"${head}${parts.length > count ? '…' : ''}"`;
+}
+
+export function sharedTurn(prompt: string, nonce: string, withApproval: boolean): Step[] {
+  const steps: Step[] = [];
+  let at = 0;
+  const push = (delay: number, event: Step['event']) => {
+    at += delay;
+    steps.push({ after: at, event });
+  };
+
+  push(0, (seq, ts) => ({ seq, ts, kind: 'status', state: 'running' }));
+  push(60, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'turn_started',
+    turn_id: `shared-${nonce}`,
+    trigger: 'remote',
+  }));
+  push(700, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'assistant_text',
+    block_id: `sh-a-${nonce}`,
+    done: false,
+    delta: 'Reading the channel registration on the running CLI',
+  }));
+  push(600, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'assistant_text',
+    block_id: `sh-a-${nonce}`,
+    done: !withApproval,
+    delta: ` — the session id matches, so ${words(prompt, 6)} arrived as a prompt.`,
+  }));
+
+  if (withApproval) {
+    push(700, (seq, ts) => ({
+      seq,
+      ts,
+      kind: 'approval',
+      block_id: `sh-ap-${nonce}`,
+      request_id: `req-shared-${nonce}`,
+      tool: 'Bash',
+      tool_kind: 'shell',
+      title: 'rc-client channel --status',
+      // A10 §5.7: the relay hands over exactly these three fields, no diff.
+      input: {
+        tool_name: 'Bash',
+        description: 'Print the channel attachment status',
+        input_preview: 'rc-client channel --status',
+      },
+      status: 'pending',
+      options: [
+        { id: 'allow', label: 'Allow', style: 'primary' },
+        { id: 'deny', label: 'Deny', style: 'danger' },
+      ],
+    }));
+    push(20, (seq, ts) => ({ seq, ts, kind: 'status', state: 'needs_approval' }));
+    return steps;
+  }
+
+  push(400, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'turn_completed',
+    turn_id: `shared-${nonce}`,
+    stop_reason: 'completed',
+    duration_ms: 1_800,
+  }));
+  push(20, (seq, ts) => ({ seq, ts, kind: 'status', state: 'idle' }));
+  return steps;
+}
+
+/** Emitted once a relayed permission request is answered from an app. */
+export function sharedAfterApproval(nonce: string, allowed: boolean): Step[] {
+  const steps: Step[] = [];
+  let at = 0;
+  const push = (delay: number, event: Step['event']) => {
+    at += delay;
+    steps.push({ after: at, event });
+  };
+
+  push(120, (seq, ts) => ({ seq, ts, kind: 'status', state: 'running' }));
+  push(500, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'assistant_text',
+    block_id: `sh-a2-${nonce}`,
+    done: true,
+    text: allowed
+      ? 'The channel reports one attached session and no pending injections.'
+      : 'Skipped the status command. Run `rc-client channel --status` in the terminal instead.',
+  }));
+  push(400, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'turn_completed',
+    turn_id: `shared-${nonce}`,
+    stop_reason: 'completed',
+    duration_ms: 3_400,
+  }));
+  push(20, (seq, ts) => ({ seq, ts, kind: 'status', state: 'idle' }));
+  return steps;
+}

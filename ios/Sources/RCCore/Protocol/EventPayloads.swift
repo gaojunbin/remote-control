@@ -18,11 +18,16 @@ public struct UserMessagePayload: Codable, Sendable, Hashable {
     public let text: String
     public let attachments: [AttachmentInfo]
     public let source: EventSource
+    /// Amendment A10: set only on `shared` sessions. Absent means the message
+    /// was an ordinary prompt that reached the agent directly.
+    public let delivery: MessageDelivery?
 
-    public init(text: String, attachments: [AttachmentInfo] = [], source: EventSource = .remote) {
+    public init(text: String, attachments: [AttachmentInfo] = [], source: EventSource = .remote,
+                delivery: MessageDelivery? = nil) {
         self.text = text
         self.attachments = attachments
         self.source = source
+        self.delivery = delivery
     }
 
     public init(from decoder: Decoder) throws {
@@ -30,6 +35,7 @@ public struct UserMessagePayload: Codable, Sendable, Hashable {
         text = try values.decodeIfPresent(String.self, forKey: .text) ?? ""
         attachments = try values.decodeIfPresent([AttachmentInfo].self, forKey: .attachments) ?? []
         source = try values.decodeIfPresent(EventSource.self, forKey: .source) ?? .remote
+        delivery = try values.decodeIfPresent(MessageDelivery.self, forKey: .delivery)
     }
 }
 

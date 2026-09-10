@@ -104,6 +104,11 @@ class RolloutTailer:
     def seek_to_end(self) -> None:
         self.tail.seek_to_end()
 
+    @property
+    def busy(self) -> bool:
+        """Whether a turn is in progress, as the rows read so far leave it."""
+        return self.running
+
     def read_new(self) -> list[dict[str, Any]]:
         return self.tail.read_new()
 

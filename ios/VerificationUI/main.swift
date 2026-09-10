@@ -26,7 +26,7 @@ func run() async -> (passed: Int, failures: [String]) {
     await settle { model.connection.hasSnapshot }
     expect(model.isDemo, "the demo launch argument enters demo mode")
     expect(model.connection.hasSnapshot, "the demo hello arrives")
-    equal(model.connection.devices.count, 2, "the demo serves two devices")
+    equal(model.connection.devices.count, 3, "the demo serves three devices")
     equal(model.tab, .sessions, "the app opens on the sessions tab")
 
     // Opening a session installs a chat store and pushes navigation.
@@ -53,16 +53,55 @@ func run() async -> (passed: Int, failures: [String]) {
 
     // MARK: - Amendment A7 through the UI model
 
-    if let terminal = model.connection.sessions.first(where: { $0.control == .terminal }) {
-        equal(terminal.state, .running, "the demo terminal session is mid-turn")
+    if let terminal = model.connection.sessions.first(where: {
+        $0.control == .terminal && $0.state == .running
+    }) {
         let locked = ChatStore(session: terminal, channel: DemoGateway())
+        locked.agent = model.agent(for: terminal)
         locked.draft = "hello"
         expect(locked.isReadOnly, "a running terminal session is still read-only")
         expect(!locked.canStop, "the app does not stop a terminal turn")
+        expect(locked.canTakeover, "and the agent advertises takeover")
         equal(locked.statusLine, "Controlled by the terminal · Take over to send",
               "the takeover line shows while the terminal turn runs")
+        equal(locked.attachHint, ChatStore.AttachHint.restartSession,
+              "a prepared device says the running process was started without the attachment")
     } else {
         expect(false, "the demo has a terminal-controlled session")
+    }
+
+    // MARK: - Amendment A10 through the UI model
+
+    if let shared = model.connection.sessions.first(where: { $0.control == .shared }) {
+        await model.open(shared)
+        await settle { model.chat?.key == shared.id }
+        guard let chat = model.chat else {
+            expect(false, "the attached session opens")
+            return (passed, failures)
+        }
+        expect(!chat.isReadOnly, "an attached session types like a remote one")
+        expect(chat.isAttached, "and knows a terminal owns it")
+        expect(!chat.canTakeover, "takeover is never offered on an attached session")
+        expect(!chat.canStop, "and a Claude channel cannot interrupt the turn")
+        expect(!chat.allowsAttachments, "attachments cannot reach a live CLI")
+        expect(!chat.allowsSettingsChanges, "model, permission mode and effort stay in the terminal")
+        equal(chat.statusLine, "terminal · attached", "the status names the terminal")
+        equal(shared.statusLabel, "terminal · attached", "and so does the session list")
+        equal(shared.statusToken, SessionState.idle.token, "with the same dot colour as a remote session")
+        await model.closeChat()
+    } else {
+        expect(false, "the demo has an attached session")
+    }
+
+    if let hinted = model.connection.sessions.first(where: {
+        $0.sessionID == DemoFixtures.attachHintSessionID
+    }) {
+        let locked = ChatStore(session: hinted, channel: DemoGateway())
+        locked.agent = model.agent(for: hinted)
+        equal(locked.attachHint, ChatStore.AttachHint.installShim,
+              "a device without the shim says how to install it")
+    } else {
+        expect(false, "the demo has a terminal session the device cannot attach")
     }
 
     // MARK: - Deep links
@@ -82,7 +121,7 @@ func run() async -> (passed: Int, failures: [String]) {
     let sessions = SessionStore()
     equal(sessions.visible(model.connection.sessions).first?.state, .needsApproval,
           "a session waiting on the user sorts first")
-    equal(sessions.grouped(model.connection.sessions, devices: model.connection.devices).count, 2,
+    equal(sessions.grouped(model.connection.sessions, devices: model.connection.devices).count, 3,
           "the list groups by device")
 
     // MARK: - Push reconciliation

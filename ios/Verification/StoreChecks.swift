@@ -171,10 +171,10 @@ enum StoreChecks {
         await settle { store.hasSnapshot }
         checks.expect(store.hasSnapshot, "the demo hello arrives")
         checks.equal(store.phase, .connected, "the store reports a connected phase")
-        checks.equal(store.devices.count, 2, "hello populates the device list")
-        checks.equal(store.sessions.count, 4, "hello populates the session list")
-        checks.equal(store.inventorySummary, "2 devices · 1 waiting", "the inventory summary counts waiting sessions")
-        checks.equal(store.onlineDevices.count, 1, "only the online device is offered for a new session")
+        checks.equal(store.devices.count, 3, "hello populates the device list")
+        checks.equal(store.sessions.count, 6, "hello populates the session list")
+        checks.equal(store.inventorySummary, "3 devices · 1 waiting", "the inventory summary counts waiting sessions")
+        checks.equal(store.onlineDevices.count, 2, "only the online devices are offered for a new session")
         checks.expect(store.device(DemoFixtures.macDeviceID)?.agent("claude")?.supports(.takeover) == true,
                       "capabilities survive the hello round trip")
         await store.signOut()
@@ -211,7 +211,9 @@ enum StoreChecks {
         checks.equal(chat.pendingSends.count, 0, "an accepted message leaves the pending list")
         checks.expect(chat.unconfirmedSend == nil, "an accepted message is not shown as unconfirmed")
         checks.equal(chat.draft, "", "sending clears the draft")
-        await settle { chat.timeline.queue.count == 1 }
+        // The demo holds the message for a couple of seconds before injecting
+        // it, so these waits have to outlast that on a loaded machine.
+        await settle(timeout: 10) { chat.timeline.queue.count == 1 }
         checks.equal(chat.timeline.queue.count, 1, "the queue snapshot carries the queued message")
 
         // Streaming from the scripted turn lands in one block.
@@ -225,10 +227,13 @@ enum StoreChecks {
             return
         }
         let locked = ChatStore(session: readonly, channel: gateway)
+        locked.agent = connection.device(readonly.deviceID)?.agent(readonly.agent)
         checks.expect(locked.isReadOnly, "a terminal-controlled session is read-only")
         checks.expect(locked.statusLine?.contains("Take over") == true, "the read-only status offers a takeover")
         locked.draft = "hello"
         checks.expect(!locked.canSend, "the composer is disabled while the terminal owns the session")
+
+        await sharedSession(connection: connection, gateway: gateway, checks: checks)
 
         // Approvals send only the option ids the device supplied.
         guard let waiting = connection.sessions.first(where: { $0.state == .needsApproval }) else {
@@ -253,11 +258,66 @@ enum StoreChecks {
         connection.removeFrameHandler("approving")
     }
 
+    /// Amendment A10: an attached session types, queues and approves like a
+    /// remote one, and the device reports what became of each message.
+    @MainActor
+    private static func sharedSession(connection: ConnectionStore, gateway: DemoGateway,
+                                      checks: CheckRunner) async {
+        guard let session = connection.sessions.first(where: { $0.control == .shared }) else {
+            checks.expect(false, "the demo has an attached session")
+            return
+        }
+        let chat = ChatStore(session: session, channel: gateway)
+        chat.agent = connection.device(session.deviceID)?.agent(session.agent)
+        connection.addFrameHandler("shared") { [weak chat] frame in chat?.receive(frame) }
+        defer { connection.removeFrameHandler("shared") }
+        await chat.open()
+        await settle { chat.timeline.entries.count >= 3 }
+        checks.expect(!chat.isReadOnly, "an attached session is not read-only")
+        checks.expect(chat.isAttached, "and reports itself as attached")
+        checks.expect(!chat.canTakeover, "takeover is never offered on an attached session")
+        checks.equal(chat.statusLine, "terminal · attached", "an idle attached session names the terminal")
+        checks.expect(!chat.allowsSettingsChanges,
+                      "model, permission mode and effort belong to the terminal")
+        checks.expect(!chat.allowsAttachments, "and attachments cannot reach a live CLI")
+
+        chat.draft = "also mention the iOS app in the notes"
+        await chat.send()
+        // The demo holds the message for a couple of seconds before injecting
+        // it, so these waits have to outlast that on a loaded machine.
+        await settle(timeout: 10) { chat.timeline.queue.count == 1 }
+        guard let held = chat.timeline.entries.last(where: { $0.userMessage?.delivery != nil }) else {
+            checks.expect(false, "the held message is in the transcript")
+            return
+        }
+        checks.equal(held.userMessage?.delivery, .pending, "a held message says it is waiting")
+        checks.equal(chat.timeline.queue.count, 1, "and it is listed in the queue")
+        checks.equal(chat.lastAcceptance, .queued,
+                     "a held send is accepted with the ordinary queued acceptance")
+
+        await settle(timeout: 10) { chat.timeline.entry(id: held.id)?.userMessage?.delivery == .delivered }
+        checks.equal(chat.timeline.entry(id: held.id)?.userMessage?.delivery, .delivered,
+                     "the replacement event marks the same block delivered")
+        checks.expect(chat.timeline.queue.isEmpty, "and clears the queue")
+
+        await settle(timeout: 10) { chat.timeline.pendingRequest != nil }
+        guard let approval = chat.timeline.pendingRequest?.approval else {
+            checks.expect(false, "the relayed approval arrives")
+            return
+        }
+        checks.equal(approval.options.map(\.id), ["allow", "deny"],
+                     "a relayed request offers exactly allow and deny")
+        checks.expect(!chat.canStop, "a Claude channel cannot interrupt the turn it is attached to")
+        await chat.approve(requestID: approval.requestID, optionID: "allow")
+        await settle(timeout: 10) { chat.timeline.pendingRequest == nil }
+        checks.expect(chat.timeline.pendingRequest == nil, "answering here resolves the relayed request")
+    }
+
     @MainActor
     private static func sessionsList(_ checks: CheckRunner) {
         let store = SessionStore()
         let sessions = DemoFixtures.sessions
-        checks.equal(store.visible(sessions).count, 4, "no filter shows every live session")
+        checks.equal(store.visible(sessions).count, 6, "no filter shows every live session")
         checks.equal(store.visible(sessions).first?.state, .needsApproval,
                      "a session waiting on the user sorts first")
         store.searchText = "vite"
@@ -266,7 +326,7 @@ enum StoreChecks {
         checks.equal(store.visible(sessions).count, 1, "search matches the working directory")
         store.searchText = ""
         let groups = store.grouped(sessions, devices: DemoFixtures.devices)
-        checks.equal(groups.count, 2, "sessions group by device")
+        checks.equal(groups.count, 3, "sessions group by device")
         checks.equal(groups.first?.deviceName, "mac-studio-office", "groups carry the device name")
 
         checks.equal(RelativeTime.short(since: DemoFixtures.now - 240_000), "4m", "relative minutes")

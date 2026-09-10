@@ -25,6 +25,14 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
     public let efforts: [AgentOption]
     public let defaultEffort: String?
     public let capabilities: [AgentCapability]
+    /// Amendment A10: how this agent's terminal sessions can be attached, or
+    /// nil when they can only be taken over or resumed.
+    public let attach: AgentAttach?
+    /// Whether the device is prepared to attach the next terminal session.
+    /// Apps use it only to word the hint on a `terminal` session.
+    public let attachReady: Bool
+    /// Whether `session.stop` works on a `shared` session.
+    public let sharedInterrupt: Bool
 
     public var id: String { agent }
 
@@ -58,7 +66,9 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
                 models: [AgentOption] = [], defaultModel: String? = nil,
                 permissionModes: [AgentOption] = [], defaultPermissionMode: String? = nil,
                 efforts: [AgentOption] = [], defaultEffort: String? = nil,
-                capabilities: [AgentCapability] = []) {
+                capabilities: [AgentCapability] = [],
+                attach: AgentAttach? = nil, attachReady: Bool = false,
+                sharedInterrupt: Bool = false) {
         self.agent = agent
         self.available = available
         self.version = version
@@ -70,14 +80,19 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
         self.efforts = efforts
         self.defaultEffort = defaultEffort
         self.capabilities = capabilities
+        self.attach = attach
+        self.attachReady = attachReady
+        self.sharedInterrupt = sharedInterrupt
     }
 
     enum CodingKeys: String, CodingKey {
-        case agent, available, version, path, models, efforts, capabilities
+        case agent, available, version, path, models, efforts, capabilities, attach
         case defaultModel = "default_model"
         case permissionModes = "permission_modes"
         case defaultPermissionMode = "default_permission_mode"
         case defaultEffort = "default_effort"
+        case attachReady = "attach_ready"
+        case sharedInterrupt = "shared_interrupt"
     }
 
     public init(from decoder: Decoder) throws {
@@ -93,6 +108,9 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
         efforts = try values.decodeIfPresent([AgentOption].self, forKey: .efforts) ?? []
         defaultEffort = try values.decodeIfPresent(String.self, forKey: .defaultEffort)
         capabilities = try values.decodeIfPresent([AgentCapability].self, forKey: .capabilities) ?? []
+        attach = try values.decodeIfPresent(AgentAttach.self, forKey: .attach)
+        attachReady = try values.decodeIfPresent(Bool.self, forKey: .attachReady) ?? false
+        sharedInterrupt = try values.decodeIfPresent(Bool.self, forKey: .sharedInterrupt) ?? false
     }
 }
 

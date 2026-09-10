@@ -62,7 +62,25 @@ means, then labels the button with the decision:
 | Running, agent supports steering | Send | "Codex is working · your message will steer the turn" |
 | Running, agent does not | Queue | "Claude Code is working · your message will be queued" |
 | Terminal-controlled | disabled | "Controlled by the terminal · take over to send" |
+| Terminal, attached | Send | "terminal · attached", and the composer behaves as for a remote session |
 | Device offline | disabled | "Device offline" |
+
+An **attached** terminal session is the one case where a live CLI and a live composer coexist. It
+looks like an ordinary session on purpose: the same composer, the same approval cards, the same
+queue. Three things mark it. The takeover bar is replaced by a quiet line saying the session is
+attached to the terminal, and "Take over" is not offered at all. The model, permission-mode and
+effort pickers and the attachment button are disabled, each with a tooltip pointing at the terminal,
+because those belong to the process someone else started. And Stop is hidden unless the device says
+the attachment can interrupt, which for Claude it cannot.
+
+A message sent into an attached session cannot always be delivered at once, so the bubble says where
+it is. A quiet chip under the text reads "waiting for the terminal" while the device holds it until
+the running turn ends, and "will be re-sent" if the CLI read it as mid-turn data. The chip
+disappears when the message lands; the bubble itself is replaced in place, never duplicated.
+
+A `terminal` session that *could* be attached gets one secondary line under "Controlled by the
+terminal" saying why it is not: install the shim on that machine, or restart this session through it.
+The line is a hint, not an error, and it sits at metadata weight.
 
 **Interrupt & send** is always a separate, explicit action, never the default. **Stop** is separate
 from Send and lives in the header, so no one stops a turn while reaching for the send button.
@@ -113,6 +131,11 @@ One word per state, the same word in both apps and in notifications.
 | `error` | "Errored" | red |
 | device offline | "Device offline" | gray |
 
+One label comes from `control` rather than `state`: an attached terminal session reads **"terminal ·
+attached"** and takes the same dot colour as a session the device runs itself, because from the
+user's side it behaves the same way. `readonly` keeps its own label and stays reserved for a
+terminal session the device cannot reach.
+
 Colour is never the only signal: the dot always sits next to the word.
 
 ## Palette and type
@@ -146,8 +169,9 @@ Every user-visible string lives in one catalog per app — `web/src/strings.ts` 
 
 - **Dark mode as a designed theme.** The tokens exist on iOS; the design does not.
 - **Multiple users, workspaces and sharing.** One password, one account, one flat device list.
-- **A terminal emulator.** Mirroring a session read-only is not the same as an SSH pane, and it is
-  deliberately not one. If you need a shell, use a shell.
+- **A terminal emulator.** Mirroring a session, or attaching to one, is not the same as an SSH pane,
+  and it is deliberately not one. You get the agent's conversation, not its screen. If you need a
+  shell, use a shell.
 - **File browsing and editing.** The directory picker exists to choose a working directory, nothing
   more.
 - **A session-level search.** There is a session-list search, not a transcript search.

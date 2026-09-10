@@ -44,7 +44,9 @@ Pairing codes are single use and expire after ten minutes. If enrollment fails, 
 | `rc-client status` | Print the device identity, paths and service state |
 | `rc-client agents` | Print the detected agents as JSON |
 | `rc-client service install\|uninstall\|start\|stop\|status` | Manage the background service |
-| `rc-client uninstall [--purge]` | Remove the service, and with `--purge` the config, state and logs |
+| `rc-client shim install\|remove\|status [--no-shell-rc]` | Manage the `claude` shim that makes terminal sessions attachable |
+| `rc-client channel` | The channel bridge Claude Code spawns; never run it by hand |
+| `rc-client uninstall [--purge] [--no-shell-rc]` | Remove the service and the shim, and with `--purge` the config, state and logs |
 
 Exit codes: `0` success, `1` runtime failure, `2` usage error, `3` not enrolled.
 
@@ -59,6 +61,9 @@ directory to your `PATH` to call it by name.
   venv/                     the private Python environment the installer creates
   state/rc-client.sqlite3   sessions, events, request idempotency, tail offsets
   state/attachments/        files received with a message
+  state/claude-mcp.json     the channel server definition the shim passes to Claude Code
+  state/channel.sock        where channel bridges register (see below)
+  bin/claude                the shim that starts an attachable Claude session
   logs/                     rc-client.out.log and rc-client.err.log (macOS)
 ```
 
@@ -149,6 +154,7 @@ input, using `lsof` on macOS to find the process holding the transcript:
 | `control` | Meaning | What the apps do |
 | --- | --- | --- |
 | `terminal` | A live CLI process owns the session | Composer disabled, "Controlled by the terminal · Take over" |
+| `shared` | A live CLI process owns it **and the device is attached** | Composer and approvals as for `remote`; see "Attached terminal sessions" |
 | `none` | No process holds it; the session is resumable | Sending resumes it and control moves to `remote` |
 | `remote` | This daemon is driving it | Normal |
 
@@ -162,6 +168,84 @@ Two environment notes. A `claude` started from inside another Claude Code sessio
 `CLAUDE_CODE_CHILD_SESSION`, which turns transcript saving off, and the transcript is the only thing
 the mirror can read. And a first run in a new directory shows a project-trust dialog that must be
 answered before anything is written.
+
+## Attached terminal sessions
+
+A terminal session normally has to be *taken over* to be driven from a phone, which means killing
+the CLI and resuming it — losing its sub-agents, background commands and loops. Claude Code 2.1.267
+and later can instead load a **channel**: an MCP server that injects user messages into the live
+session and relays its permission prompts. When one is attached the session reports
+`control: "shared"`, and the apps treat it exactly like a session the device runs itself.
+
+### How it works
+
+```
+claude (your terminal)
+  └── rc-client channel        stdio MCP server, spawned by the CLI
+        └── state/channel.sock  newline-delimited JSON, one line per message
+              └── rc-client run  the daemon
+```
+
+The bridge reads `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PROJECT_DIR` from its own environment,
+registers with the daemon and stays until stdin closes. It survives a daemon restart: frames are
+buffered and the registration is replayed on reconnect. It logs nothing but warnings, and never the
+text of a message.
+
+The daemon injects a message **only when the session is idle**. A message injected during a turn is
+handed to the model as untrusted external data it is told not to obey, which is why anything sent
+mid-turn is held on the device, shown as `delivery: "pending"` with a `queue` entry, and injected at
+the next idle point — the same bubble then becomes `delivery: "delivered"`. If the CLI absorbs an
+injection anyway the bubble becomes `delivery: "absorbed"` and the device re-sends it once. Turn
+state comes from the transcript, which the daemon already tails, so it lags reality by up to two
+seconds.
+
+### The shim
+
+Claude Code refuses to load a self-hosted channel without
+`--dangerously-load-development-channels`, and there is no way to allowlist one on a personal
+account. The installer therefore writes `~/.rc-client/bin/claude`, a POSIX shell wrapper, and puts
+that directory in front of `PATH` in your shell startup file inside a marked block:
+
+```
+# >>> remote-control >>>
+export PATH="/Users/me/.rc-client/bin:$PATH"
+# <<< remote-control <<<
+```
+
+The block is appended, never rewritten, so a startup file that is a symlink into a dotfile
+repository stays one. `install.sh --no-shell-rc` skips it, and `rc-client uninstall` removes it by
+its markers.
+
+The wrapper appends the channel flags **only** when stdin and stdout are both terminals and the
+command line carries none of `-p`, `--print`, `--input-format`, `--output-format`, `--sdk-url`,
+`--mcp-config` or `--dangerously-load-development-channels`. Every other invocation reaches the real
+executable unchanged, which is what keeps the device's own remote sessions — driven over pipes with
+`stream-json` — out of the attachment path entirely. The daemon resolves the real binary itself and
+never points the SDK at the wrapper.
+
+Open a new terminal after installing, then run `claude` as usual. **Claude Code shows a one-time
+confirmation per session** warning about development channels; choose "I am using this for local
+development" and the device attaches within a second. `rc-client shim status` prints where the shim
+is, whether it is first on `PATH`, and which executable it wraps.
+
+### What works and what does not
+
+| From the apps | On a `shared` session |
+| --- | --- |
+| Send a message | Yes, injected at the next idle point |
+| Approve or deny a tool call | Yes, `allow` and `deny` only — the relay offers no session-scoped grant |
+| Answer a question | No, `unsupported`: answer it in the terminal |
+| Stop the turn | No, `unsupported`: a channel cannot interrupt. Codex will differ |
+| Change model, permission mode or effort | No, `unsupported`: change it in the terminal |
+| Rename | Yes |
+| Take over | No, `conflict`: the session is already attached |
+| Attachments | No, `unsupported`: they cannot be delivered to a terminal session |
+
+Whoever answers a permission prompt first wins. When the terminal answers, the device sees the tool
+run or be refused in the transcript and closes the block with `decision.by: "terminal"`; a later
+reply from an app is a no-op. When the attachment drops, pending approvals become `expired`, and the
+session moves to `terminal` if the CLI process is still alive or to `none` if it exited. Messages
+still held in the queue stay there and go out through the ordinary resume path.
 
 ## Attachments
 
@@ -192,9 +276,12 @@ lost` line now carries the exception message, so a failure of that kind is reada
 ## Uninstalling
 
 ```sh
-rc-client uninstall           # stop and remove the service, keep the data
+rc-client uninstall           # stop and remove the service and the shim, keep the data
 rc-client uninstall --purge   # also delete config, state and logs
 ```
+
+`uninstall` also deletes `bin/claude` and strips the `# >>> remote-control >>>` block from your
+shell startup file. Pass `--no-shell-rc` to leave that file alone.
 
 or, from the gateway's own script:
 
@@ -278,3 +365,14 @@ the Codex home the daemon reads.
 - The process scan runs about every ten seconds, so a very short terminal session can finish before
   the mirror sees the CLI holding it and appears directly as `control: "none"`. Only the live-control
   window is missed, never the timeline.
+- Attaching is Claude only. Codex reports `attach: null` until its shared app-server lands.
+- A session that is attached before its first turn has no transcript, so after a daemon restart it
+  is invisible to the scan that promotes a live CLI to `control: "terminal"`. It has no content
+  either; the next turn creates the transcript and the session appears normally.
+- `rc-client uninstall` and `rc-client service stop` reach launchd by service label, which is
+  per-user and not per-`RC_CLIENT_HOME`. Running either against a scratch home therefore stops the
+  real service as well. Restore it with
+  `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.remote-control.client.plist`.
+- `attach_ready` reports whether the *daemon's* `PATH` resolves `claude` to the shim, which the
+  service files set at install time. It does not prove that your interactive shell does, so a
+  session started before you opened a new terminal shows as `terminal`, not `shared`.

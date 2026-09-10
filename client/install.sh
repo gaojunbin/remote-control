@@ -16,6 +16,7 @@ PAIR=""
 NAME=""
 MANUAL=0
 UNINSTALL=0
+SHELL_RC=1
 
 RC_HOME="${RC_CLIENT_HOME:-$HOME/.rc-client}"
 VENV="$RC_HOME/venv"
@@ -31,6 +32,7 @@ Usage: install.sh --pair RC-XXXX-XXXX [options]
   --pair CODE        pairing code from the web UI (required unless --uninstall)
   --name NAME        device name shown in the apps (default: this hostname)
   --gateway ORIGIN   override the gateway origin baked into this script
+  --no-shell-rc      do not add the shim directory to your shell startup file
   --manual           print the steps instead of running them
   --uninstall        stop and remove the service, keep ~/.rc-client
   -h, --help         show this message
@@ -45,6 +47,7 @@ while [ $# -gt 0 ]; do
         --name=*) NAME="${1#*=}"; shift ;;
         --gateway) GATEWAY="${2:-}"; shift 2 ;;
         --gateway=*) GATEWAY="${1#*=}"; shift ;;
+        --no-shell-rc) SHELL_RC=0; shift ;;
         --manual) MANUAL=1; shift ;;
         --uninstall) UNINSTALL=1; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -69,7 +72,8 @@ esac
 
 if [ "$UNINSTALL" -eq 1 ]; then
     if [ -x "$VENV/bin/rc-client" ]; then
-        "$VENV/bin/rc-client" uninstall || true
+        [ "$SHELL_RC" -eq 1 ] || set -- --no-shell-rc
+        "$VENV/bin/rc-client" uninstall "$@" || true
     fi
     log "remote-control service removed. Delete $RC_HOME to remove the data as well."
     exit 0
@@ -121,6 +125,7 @@ Manual installation on $PLATFORM/$ARCH:
   5. uv pip install --python "$VENV/bin/python" --upgrade ./rc_client-*.whl
   6. "$VENV/bin/rc-client" enroll --gateway "$GATEWAY" --pair <your pairing code>
   7. "$VENV/bin/rc-client" service install && "$VENV/bin/rc-client" service start
+  8. "$VENV/bin/rc-client" shim install   # lets the apps drive terminal Claude sessions
 
 The pairing code is single use and expires after 10 minutes.
 MANUAL
@@ -188,6 +193,16 @@ log "Registering the background service ..."
 "$RC" service install || fail "could not install the service"
 "$RC" service start || fail "could not start the service"
 
+# The shim lets the apps attach to a Claude session started in a terminal. It is
+# inert for every non-interactive invocation, so installing it is safe even for
+# someone who never uses that feature.
+log "Installing the claude shim ..."
+if [ "$SHELL_RC" -eq 1 ]; then
+    "$RC" shim install || log "warning: could not install the claude shim"
+else
+    "$RC" shim install --no-shell-rc || log "warning: could not install the claude shim"
+fi
+
 log ""
 log "Detected agents:"
 "$RC" agents | sed -n 's/.*"agent": "\(.*\)",/  - \1/p' || true
@@ -196,5 +211,7 @@ log "remote-control is running. Useful commands:"
 log "  $RC status          show the device and service status"
 log "  $RC service stop    stop the daemon"
 log "  $RC uninstall       remove the service (add --purge to delete $RC_HOME)"
+log ""
+log "  $RC shim status     show the claude shim used to attach terminal sessions"
 log ""
 log "Add $VENV/bin to your PATH to call rc-client directly."

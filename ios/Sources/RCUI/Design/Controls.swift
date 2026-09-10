@@ -46,6 +46,16 @@ extension SessionState {
     }
 }
 
+extension Session {
+    /// What the session list and the chat header say beside the dot.
+    /// Amendment A10: an attached session names the terminal that owns it.
+    public var statusLabel: String { isAttached ? "terminal · attached" : state.label }
+
+    /// Amendment A10: `shared` takes the same dot colour as `remote`, which is
+    /// what `state` already gives, because `shared` never reports `readonly`.
+    public var statusToken: SessionStateToken { state.token }
+}
+
 /// The black pill used for the one primary action on a screen.
 public struct PrimaryButtonStyle: ButtonStyle {
     var fullWidth = true

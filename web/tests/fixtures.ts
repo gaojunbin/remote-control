@@ -31,3 +31,12 @@ export function listFixtures(subdir = ''): { path: string; name: string }[] {
 export function readFixture<T>(name: string): T {
   return JSON.parse(readFileSync(join(FIXTURE_ROOT, name), 'utf8')) as T;
 }
+
+/**
+ * A fixture the suite reads at module scope. Returns an empty object when
+ * `protocol/fixtures/` is absent, so the package still runs on its own; every
+ * suite that uses one is gated on `fixturesAvailable()`.
+ */
+export function fixtureOrEmpty<T>(name: string): T {
+  return fixturesAvailable() ? readFixture<T>(name) : ({} as T);
+}

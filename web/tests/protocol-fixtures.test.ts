@@ -91,7 +91,8 @@ function assertSession(session: Session): void {
     'stopped',
     'readonly',
   ]).toContain(session.state);
-  expect(['remote', 'terminal', 'none']).toContain(session.control);
+  // Amendment A10 adds `shared`: attached to a live terminal session.
+  expect(['remote', 'terminal', 'shared', 'none']).toContain(session.control);
   expect(['remote', 'terminal']).toContain(session.origin);
   expect(typeof session.last_seq).toBe('number');
   if (session.usage) assertUsage(session.usage);
@@ -133,6 +134,10 @@ function assertEvent(event: SessionEvent): void {
       break;
     case 'user_message':
       expect(['remote', 'terminal', 'queue']).toContain(event.source);
+      // Amendment A10: delivery is present on shared sessions only.
+      if (event.delivery !== undefined) {
+        expect(['pending', 'delivered', 'absorbed']).toContain(event.delivery);
+      }
       // Amendment A3: inbound attachments describe size, never bytes.
       for (const attachment of event.attachments ?? []) {
         expect(typeof attachment.size).toBe('number');
@@ -183,6 +188,18 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
     expect(files.length).toBeGreaterThan(20);
     for (const file of files) {
       assertEvent(readFixture<SessionEvent>(file.name));
+    }
+  });
+
+  it('decodes the standalone object fixtures', () => {
+    // Amendment A10 added `objects/`: sessions and agents on their own.
+    const files = listFixtures('objects');
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      const object = readFixture<Record<string, unknown>>(file.name);
+      if ('session_id' in object) assertSession(object as unknown as Session);
+      else if ('agent' in object) assertAgent(object as unknown as AgentInfo);
+      else throw new Error(`unknown object fixture ${file.name}`);
     }
   });
 

@@ -9,6 +9,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { randomUUID } from 'node:crypto';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type {
+  AgentInfo,
   Device,
   Session,
   SessionEvent,
@@ -16,7 +17,14 @@ import type {
   QueuedMessage,
 } from '../src/protocol/types';
 import { HOME, devices, historyFor, recentDirs, sessions } from './fixtures';
-import { afterAnswer, afterApproval, turnScript, type Step } from './script';
+import {
+  afterAnswer,
+  afterApproval,
+  sharedAfterApproval,
+  sharedTurn,
+  turnScript,
+  type Step,
+} from './script';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const PASSWORD = process.env.RC_PASSWORD ?? 'dev';
@@ -33,6 +41,8 @@ const state = {
   queues: new Map<string, QueuedMessage[]>(),
   pairings: new Map<string, { expires_at: number; timers: NodeJS.Timeout[] }>(),
   tokens: new Set<string>(),
+  /** A10: messages the device accepted but could not inject yet, per session. */
+  held: new Map<string, { block_id: string; text: string; queued_id: string }[]>(),
 };
 
 for (const session of state.sessions) {
@@ -43,6 +53,11 @@ for (const session of state.sessions) {
 
 const findSession = (id: string): Session | undefined =>
   state.sessions.find((s) => s.session_id === id);
+
+const agentFor = (session: Session): AgentInfo | undefined =>
+  state.devices
+    .find((d) => d.device_id === session.device_id)
+    ?.agents.find((a) => a.agent === session.agent);
 
 const blockIdOf = (event: SessionEvent): string | undefined =>
   'block_id' in event && typeof event.block_id === 'string' ? event.block_id : undefined;
@@ -516,6 +531,9 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
     case 'session.send': {
       const session = findSession(sessionId);
       if (!session) return replyError(conn, id, 'not_found', 'no such session');
+      // A10 §6.3: a shared session accepts every send; the device decides
+      // between injecting now and holding until the terminal turn ends.
+      if (session.control === 'shared') return sharedSend(conn, id, session, frame);
       if (session.control === 'terminal') {
         return replyError(conn, id, 'conflict', 'controlled by terminal; take over first');
       }
@@ -536,6 +554,10 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
 
     case 'session.stop': {
       const session = findSession(sessionId);
+      // A10 §6.3: the Claude channel cannot interrupt a running turn.
+      if (session?.control === 'shared' && agentFor(session)?.shared_interrupt !== true) {
+        return replyError(conn, id, 'unsupported', 'stop it in the terminal');
+      }
       if (session?.turn) {
         emit(sessionId, {
           seq: nextSeq(sessionId),
@@ -554,6 +576,11 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
     case 'session.approve': {
       const requestId = String(frame.request_id ?? '');
       const optionId = String(frame.option_id ?? '');
+      const shared = findSession(sessionId)?.control === 'shared';
+      // A10 §6.3: the relay carries `allow` and `deny` and nothing else.
+      if (shared && optionId !== 'allow' && optionId !== 'deny') {
+        return replyError(conn, id, 'bad_request', 'the relay accepts allow or deny only');
+      }
       const all = state.events.get(sessionId) ?? [];
       const approval = [...all]
         .reverse()
@@ -569,6 +596,11 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       }
       reply(conn, id, {});
       if (sessionId === 'ses-flaky') play(sessionId, afterApproval());
+      if (shared) {
+        play(sessionId, sharedAfterApproval(sharedNonce, optionId === 'allow'), () =>
+          flushHeld(sessionId),
+        );
+      }
       return;
     }
 
@@ -595,6 +627,11 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
     case 'session.set': {
       const session = findSession(sessionId);
       if (!session) return replyError(conn, id, 'not_found', 'no such session');
+      // A10 §6.3: the terminal owns the model, the permission mode and the effort.
+      const optionKeys = ['model', 'permission_mode', 'effort'] as const;
+      if (session.control === 'shared' && optionKeys.some((k) => typeof frame[k] === 'string')) {
+        return replyError(conn, id, 'unsupported', 'change it in the terminal');
+      }
       if (typeof frame.model === 'string') session.model = frame.model;
       if (typeof frame.permission_mode === 'string') session.permission_mode = frame.permission_mode;
       if (typeof frame.effort === 'string') session.effort = frame.effort;
@@ -607,6 +644,10 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
 
     case 'session.queue_remove': {
       const queuedId = String(frame.queued_id ?? '');
+      state.held.set(
+        sessionId,
+        (state.held.get(sessionId) ?? []).filter((h) => h.queued_id !== queuedId),
+      );
       const pending = (state.queues.get(sessionId) ?? []).filter((q) => q.id !== queuedId);
       emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending });
       reply(conn, id, {});
@@ -616,9 +657,20 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
     case 'session.takeover': {
       const session = findSession(sessionId);
       if (!session) return replyError(conn, id, 'not_found', 'no such session');
+      // A10 §6.3: there is nothing to take over — the device is already attached.
+      if (session.control === 'shared') return replyError(conn, id, 'conflict', 'already attached');
       session.control = 'remote';
       session.state = 'idle';
       broadcast({ type: 'session.updated', session });
+      // A10 §6.5: apps learn a new owner from `meta.control`; `status` follows
+      // only because taking over also moves the session to `idle`.
+      emit(sessionId, {
+        seq: nextSeq(sessionId),
+        ts: Date.now(),
+        kind: 'meta',
+        control: 'remote',
+      });
+      emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'status', state: 'idle' });
       emit(sessionId, {
         seq: nextSeq(sessionId),
         ts: Date.now(),
@@ -734,6 +786,93 @@ function dirEntries(path: string, home: string): { name: string; path: string; i
     path: `${path}/${name}`,
     is_git: relative === '/dev/remote-control' || name === 'remote-control' || name === 'api',
   }));
+}
+
+/* ------------------------------------------------------- A10 shared sessions */
+
+let sharedNonce = '0';
+let sharedApprovalShown = false;
+
+/**
+ * `session.send` on a session the device is attached to. Injects at once when
+ * the terminal is idle, and holds the message otherwise (A10 §6.3).
+ */
+function sharedSend(
+  conn: AppConn,
+  id: unknown,
+  session: Session,
+  frame: Record<string, unknown>,
+): void {
+  const sessionId = session.session_id;
+  const attachments = Array.isArray(frame.attachments) ? frame.attachments : [];
+  if (attachments.length > 0) {
+    return replyError(conn, id, 'unsupported', 'attachments cannot be delivered to a terminal session');
+  }
+  const text = String(frame.text ?? '');
+  const blockId = `sh-u-${Date.now()}`;
+  const busy =
+    session.state === 'running' ||
+    session.state === 'needs_approval' ||
+    session.state === 'needs_input';
+
+  if (!busy) {
+    emitUserMessage(sessionId, blockId, text, 'delivered');
+    reply(conn, id, { accepted: 'sent' });
+    playShared(sessionId, text);
+    return;
+  }
+
+  const queuedId = String(id);
+  emitUserMessage(sessionId, blockId, text, 'pending');
+  const pending = [...(state.queues.get(sessionId) ?? []), { id: queuedId, text, ts: Date.now() }];
+  emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending });
+  state.held.set(sessionId, [
+    ...(state.held.get(sessionId) ?? []),
+    { block_id: blockId, text, queued_id: queuedId },
+  ]);
+  reply(conn, id, { accepted: 'queued', queued_id: queuedId });
+}
+
+function emitUserMessage(
+  sessionId: string,
+  blockId: string,
+  text: string,
+  delivery: 'pending' | 'delivered',
+): void {
+  emit(sessionId, {
+    seq: nextSeq(sessionId),
+    ts: Date.now(),
+    kind: 'user_message',
+    block_id: blockId,
+    source: 'remote',
+    text,
+    delivery,
+  });
+}
+
+function playShared(sessionId: string, text: string): void {
+  sharedNonce = String(Date.now()).slice(-6);
+  const withApproval = !sharedApprovalShown;
+  sharedApprovalShown = true;
+  play(
+    sessionId,
+    sharedTurn(text, sharedNonce, withApproval),
+    withApproval ? undefined : () => flushHeld(sessionId),
+  );
+}
+
+/**
+ * The terminal turn ended: inject everything held, replacing each block with
+ * `delivery: "delivered"` under its original `block_id`.
+ */
+function flushHeld(sessionId: string): void {
+  const items = state.held.get(sessionId) ?? [];
+  if (items.length === 0) return;
+  state.held.set(sessionId, []);
+  for (const item of items) emitUserMessage(sessionId, item.block_id, item.text, 'delivered');
+  emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending: [] });
+  const last = items[items.length - 1];
+  if (last) setTimeout(() => playShared(sessionId, last.text), 500);
 }
 
 let demoStarted = false;

@@ -176,6 +176,12 @@ export const strings = {
     failed: 'failed',
     cancelled: 'cancelled',
     queuedLabel: 'Queued',
+    deliveryPending: 'waiting for the terminal',
+    deliveryAbsorbed: 'will be re-sent',
+    attachHintChannel: 'Start claude through the remote-control shim to control it from here',
+    attachHintDaemon: 'Start the Codex app-server daemon on this device to control it from here',
+    attachHintRestart:
+      'This terminal session was started without the attachment; restart it to control it from here',
     queuedRemove: 'Remove from queue',
     approvalNeeded: 'Needs your approval',
     approvalResolved: (by: string, label: string) => `${label} · decided by ${by}`,
@@ -200,6 +206,7 @@ export const strings = {
     needsInput: 'Waiting for your answer',
     terminalControlled: 'Controlled by the terminal',
     terminalBusy: 'a turn is running there',
+    terminalAttached: 'Attached to the terminal session',
     starting: 'Starting the agent…',
     stopped: 'Stopped',
     errored: 'Errored',
@@ -217,6 +224,8 @@ export const strings = {
     interruptAndSend: 'Interrupt & send',
     sendOptions: 'Send options',
     attach: 'Attach files',
+    attachSharedUnsupported: 'Attachments cannot be delivered to a terminal session',
+    lockedToTerminal: 'Change it in the terminal',
     attachTooMany: (max: number) => `At most ${max} attachments.`,
     attachTooLarge: (name: string, max: string) => `${name} is larger than ${max}.`,
     attachFailed: (name: string) => `Could not read ${name}.`,
@@ -347,9 +356,11 @@ export function stateLabel(state: string): string {
 
 /**
  * Row label for a session. Amendment A7 lets a terminal-controlled session
- * report `running`, so `control` has to stay visible in the list.
+ * report `running`, so `control` has to stay visible in the list. A10 adds
+ * `shared`: a terminal session the device is attached to.
  */
 export function sessionStateLabel(session: { state: string; control: string }): string {
+  if (session.control === 'shared') return 'terminal · attached';
   if (session.control !== 'terminal') return stateLabel(session.state);
   const busy =
     session.state === 'running' ||

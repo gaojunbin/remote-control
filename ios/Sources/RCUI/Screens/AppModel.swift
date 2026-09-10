@@ -100,6 +100,7 @@ public final class AppModel {
         await closeChat()
         guard let channel = connection.channel else { return }
         let store = ChatStore(session: session, channel: channel)
+        store.agent = agent(for: session)
         store.draft = await drafts.draft(account: connection.account, key: session.id)
         chat = store
         connection.addFrameHandler("chat") { [weak store] frame in store?.receive(frame) }

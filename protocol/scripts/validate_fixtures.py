@@ -178,6 +178,9 @@ DIR_SCHEMAS = {
 }
 PATH_SCHEMAS = {
     "history/page.json": ("app_frames.json", "ReplySessionHistory"),
+    "objects/session.shared-idle.json": ("objects.json", "Session"),
+    "objects/session.shared-running.json": ("objects.json", "Session"),
+    "objects/agent.claude-attach.json": ("objects.json", "AgentInfo"),
     "app/reply.session.create.json": ("app_frames.json", "ReplySessionCreate"),
     "app/reply.session.send.json": ("app_frames.json", "ReplySessionSend"),
     "app/reply.session.set.json": ("app_frames.json", "ReplySessionSet"),

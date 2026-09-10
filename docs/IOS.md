@@ -74,6 +74,56 @@ cannot reach the network even by accident. Every SwiftUI preview and the XCUITes
 Other launch arguments: `--ui-testing`, `--reset-state`, and in debug builds `--voice-preview`,
 which swaps in a scripted speech platform so a UI test never opens the microphone.
 
+## Attached terminal sessions
+
+Amendment A10 adds `control: "shared"`: a live CLI owns the session and the device is attached to
+it, so the app types into the same conversation instead of taking it over.
+
+| Session | Composer | Take over | Stop | Model, permissions, effort | Attachments |
+| --- | --- | --- | --- | --- | --- |
+| `remote` | enabled | no | when a turn runs | yes | yes |
+| `shared` | enabled | never | only with capability `interrupt` and `shared_interrupt: true` | no | no |
+| `terminal` | disabled | when the agent has `takeover` | no | yes | no |
+| `none` | enabled, the next send resumes the session | no | no | yes | yes |
+
+`Session.isControlledByTerminal` stays false for `shared`; `Session.isAttached` is the new flag, and
+`ChatStore.isAttached` mirrors it. The chat status line reads `terminal · attached`, plus
+`· working` or `· N messages waiting` while the terminal's turn runs, and the session list shows the
+same words through `Session.statusLabel` with the dot colour a remote session would get.
+
+Two controls are inert on a `shared` session, and one quiet line above the message field says who
+owns them: "Attached to the terminal · settings and attachments are changed there". The attachment
+button and the model and permission chips are dimmed; reaching for one swaps that line for its own
+sentence for four seconds ("Attachments cannot be delivered to a terminal session", "Change it in
+the terminal") rather than swallowing the tap. The same sentences are the accessibility hints on
+those controls and the footers of the session settings sheet.
+
+A message sent into a `shared` session may be held by the device until the terminal-driven turn
+ends. `user_message` then carries `delivery`, and the bubble shows a chip: `pending` reads "waiting
+for the terminal" and `absorbed` reads "will be re-sent". The device replaces the same `block_id`
+when the message goes in, so the chip disappears on its own. The chip lives inside a combined
+accessibility element, so its words are appended to the bubble's label as well.
+
+A `terminal` session whose agent reports an `attach` method gets one line under the takeover bar,
+driven by `ChatStore.attachHint`:
+
+| Case | Line |
+| --- | --- |
+| `attach: "channel"`, `attach_ready: false` | Start claude through the remote-control shim to control it from here |
+| `attach: "daemon"`, `attach_ready: false` | Start the Codex app-server daemon on this device to control it from here |
+| `attach_ready: true` | This terminal session was started without the attachment; restart it to control it from here |
+
+Nothing is offered that the device cannot do: `session.takeover` is never shown on a `shared`
+session, Stop is hidden unless the agent's capabilities include `interrupt` *and* the device reports
+`shared_interrupt: true` (a Claude channel cannot interrupt a running turn, so it reports false even
+though Claude lists `interrupt`), and "Take over" appears on a `terminal` session only when the
+agent's capabilities include `takeover`.
+
+The demo carries both cases: `demo-session-shared` on `mac-studio-office`, whose Claude reports
+`attach: "channel"`, `attach_ready: true`, `shared_interrupt: false`, and `demo-session-rename` on
+`macbook-air`, whose Claude has no shim installed. Sending into the shared session shows the message
+held, then delivered, then a relayed permission request with exactly Allow and Deny.
+
 ## Voice
 
 Two backends, chosen in Settings:

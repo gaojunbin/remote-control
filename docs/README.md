@@ -5,9 +5,9 @@ These documents go deeper.
 
 | Document | Read it when you want to |
 | --- | --- |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Understand the components, the data flow, the block timeline, where state lives, and why the boundaries fall where they do |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Understand the components, the data flow, the block timeline, how a terminal session is attached, where state lives, and why the boundaries fall where they do |
 | [DEPLOY.md](DEPLOY.md) | Deploy or operate the gateway: every `.env` variable, TLS, upgrades, backups, speech-to-text, push, troubleshooting |
-| [CLIENT.md](CLIENT.md) | Install, run or debug the device daemon: the installer, `rc-client` commands, services, agent discovery, terminal mirroring |
+| [CLIENT.md](CLIENT.md) | Install, run or debug the device daemon: the installer, `rc-client` commands, services, agent discovery, terminal mirroring, the `claude` shim and attached sessions |
 | [WEB.md](WEB.md) | Build, run or change the browser app, including its mock gateway |
 | [IOS.md](IOS.md) | Build, run or ship the iPhone app, including the TestFlight prerequisites |
 | [DESIGN.md](DESIGN.md) | Change the interface: the prototype screens, composer semantics, approval rules, status vocabulary, design tokens |

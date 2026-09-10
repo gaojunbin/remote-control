@@ -16,6 +16,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     private var cursors: [String: Int] = [:]
     private var scripted: Task<Void, Never>?
     private var pairing: Task<Void, Never>?
+    /// The injection script for the attached session runs on its own task, so
+    /// it neither cancels nor is cancelled by the live turn.
+    private var injecting: Task<Void, Never>?
 
     public init() {
         endpoint = (try? GatewayEndpoint("https://demo.remote-control.invalid"))
@@ -48,6 +51,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     public func disconnect() async {
         scripted?.cancel(); scripted = nil
         pairing?.cancel(); pairing = nil
+        injecting?.cancel(); injecting = nil
         continuation.yield(.state(.disconnected))
     }
 
@@ -183,6 +187,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             throw GatewayErrorBody(code: .conflict, message: "Controlled by the terminal; take over first.")
         }
         let text = request.body["text"]?.stringValue ?? ""
+        if session.isAttached {
+            return try inject(sessionID: id, requestID: request.id, text: text)
+        }
         let running = session.state.isWorking
         emit(sessionID: id, body: .userMessage(UserMessagePayload(text: text,
                                                                   source: running ? .queue : .remote)))
@@ -198,8 +205,56 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         return try JSONValue.encode(SendResult(accepted: .sent))
     }
 
+    /// Amendment A10: a message for an attached session is held by the device
+    /// and injected when the terminal is next idle, so the app first sees it as
+    /// `pending` and then the same block again as `delivered`.
+    private func inject(sessionID: String, requestID: String, text: String) throws -> JSONValue {
+        let blockID = "shared-\(requestID)"
+        emit(sessionID: sessionID, blockID: blockID,
+             body: .userMessage(UserMessagePayload(text: text, source: .remote, delivery: .pending)))
+        emit(sessionID: sessionID, body: .queue(QueuePayload(pending: [
+            QueuedMessage(id: requestID, text: text, ts: DemoFixtures.now)
+        ])))
+        injecting?.cancel()
+        injecting = Task { [weak self] in
+            await self?.playInjection(sessionID: sessionID, blockID: blockID, text: text)
+        }
+        return try JSONValue.encode(SendResult(accepted: .queued, queuedID: requestID))
+    }
+
+    private func playInjection(sessionID: String, blockID: String, text: String) async {
+        try? await Task.sleep(for: .milliseconds(2_400))
+        guard !Task.isCancelled else { return }
+        emit(sessionID: sessionID, blockID: blockID,
+             body: .userMessage(UserMessagePayload(text: text, source: .remote, delivery: .delivered)))
+        emit(sessionID: sessionID, body: .queue(QueuePayload(pending: [])))
+        emit(sessionID: sessionID, body: .status(StatusPayload(state: .running)))
+        update(sessionID: sessionID) { session in
+            session.state = .running
+            session.turn = TurnMarker(turnID: "demo-turn-shared", startedAt: DemoFixtures.now)
+            session.queued = 0
+        }
+        try? await Task.sleep(for: .milliseconds(900))
+        guard !Task.isCancelled else { return }
+        emit(sessionID: sessionID, blockID: "ap-shared", body: .approval(ApprovalPayload(
+            requestID: "demo-approval-shared", tool: "Bash", kind: .shell,
+            title: "git commit -am 'Draft 0.1.0 release notes'",
+            input: ["tool_name": "Bash",
+                    "description": "Commit the drafted release notes",
+                    "input_preview": "git commit -am 'Draft 0.1.0 release notes'"],
+            options: [ApprovalOption(id: "allow", label: "Allow", style: .primary),
+                      ApprovalOption(id: "deny", label: "Deny", style: .danger)],
+            status: .pending)))
+        emit(sessionID: sessionID, body: .status(StatusPayload(state: .needsApproval)))
+        update(sessionID: sessionID) { $0.state = .needsApproval }
+    }
+
     private func stop(_ request: GatewayRequest) throws -> JSONValue {
         let id = try requireSessionID(request)
+        // Amendment A10: a Claude channel cannot interrupt a running turn.
+        guard try !session(id).isAttached else {
+            throw GatewayErrorBody(code: .unsupported, message: "Stop it in the terminal.")
+        }
         scripted?.cancel(); scripted = nil
         emit(sessionID: id, body: .turnCompleted(TurnCompletedPayload(turnID: "demo-turn",
                                                                       stopReason: .interrupted, durationMS: 4_000)))
@@ -225,11 +280,18 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
                                              decision: ApprovalDecision(optionID: optionID, by: .remote))))
         emit(sessionID: id, body: .status(StatusPayload(state: .running)))
         update(sessionID: id) { $0.state = .running }
+        if (try? session(id))?.isAttached == true { startReplyScript(sessionID: id) }
         return .object([:])
     }
 
     private func applySet(_ request: GatewayRequest) throws -> JSONValue {
         let id = try requireSessionID(request)
+        // Amendment A10: only the title is ours to change on an attached session.
+        if try session(id).isAttached,
+           request.body["model"] != nil || request.body["permission_mode"] != nil
+            || request.body["effort"] != nil {
+            throw GatewayErrorBody(code: .unsupported, message: "Change it in the terminal.")
+        }
         update(sessionID: id) { session in
             if let model = request.body["model"]?.stringValue { session.model = model }
             if let mode = request.body["permission_mode"]?.stringValue { session.permissionMode = mode }
@@ -241,6 +303,10 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
 
     private func takeover(_ request: GatewayRequest) throws -> JSONValue {
         let id = try requireSessionID(request)
+        // Amendment A10: an attached session is already under joint control.
+        guard try !session(id).isAttached else {
+            throw GatewayErrorBody(code: .conflict, message: "Already attached.")
+        }
         update(sessionID: id) { $0.control = .remote; $0.state = .idle }
         emit(sessionID: id, body: .notice(NoticePayload(level: .info, text: "You took over from the terminal.")))
         return try JSONValue.encode(SessionResult(session: try session(id)))

@@ -22,10 +22,12 @@ enum TimelineChecks {
     /// happening. A terminal session runs and goes idle like any other.
     @MainActor
     private static func terminalControl(_ checks: CheckRunner) {
-        func store(state: SessionState, control: SessionControl) -> ChatStore {
+        func store(state: SessionState, control: SessionControl,
+                   agent: AgentInfo? = DemoFixtures.claude) -> ChatStore {
             let session = Session(sessionID: "s", deviceID: "d", agent: "claude", title: "T",
                                   cwd: "/tmp", state: state, control: control)
             let chat = ChatStore(session: session, channel: DemoGateway())
+            chat.agent = agent
             chat.draft = "hello"
             return chat
         }
@@ -52,6 +54,65 @@ enum TimelineChecks {
         let resumable = store(state: .idle, control: .none)
         checks.expect(!resumable.isReadOnly, "a session nobody holds can be resumed from here")
         checks.expect(resumable.canSend, "and typed into")
+
+        // Amendment A10: takeover is an affordance, not an assumption.
+        let noTakeover = store(state: .readonly, control: .terminal,
+                               agent: AgentInfo(agent: "claude", available: true))
+        checks.expect(!noTakeover.canTakeover, "takeover needs the capability")
+        checks.equal(noTakeover.statusLine, "Controlled by the terminal",
+                     "and the status line does not promise one")
+
+        // Amendment A10: an attached session behaves like a remote one.
+        let attachedIdle = store(state: .idle, control: .shared)
+        checks.expect(!attachedIdle.isReadOnly, "an attached session is never read-only")
+        checks.expect(attachedIdle.isAttached, "and knows it is attached")
+        checks.expect(attachedIdle.canSend, "so the composer is enabled")
+        checks.expect(!attachedIdle.canTakeover, "takeover is never offered while attached")
+        checks.expect(attachedIdle.attachHint == nil, "and the terminal hint belongs to terminal sessions")
+        checks.equal(attachedIdle.statusLine, "terminal · attached", "the status names the terminal")
+        checks.expect(!attachedIdle.allowsSettingsChanges,
+                      "model, permission mode and effort stay in the terminal")
+        checks.expect(!attachedIdle.allowsAttachments, "and attachments cannot be relayed")
+        checks.expect(!attachedIdle.allowsAnswers, "and a question the CLI asked is answered there")
+
+        let attachedRunning = store(state: .running, control: .shared)
+        checks.expect(attachedRunning.isRunning, "an attached turn runs like any other")
+        checks.expect(!attachedRunning.canStop, "a channel cannot interrupt the turn it rides on")
+        checks.equal(attachedRunning.statusLine, "terminal · attached · working",
+                     "and the status says the terminal is busy")
+
+        let interruptible = store(state: .running, control: .shared,
+                                  agent: AgentInfo(agent: "codex", available: true,
+                                                   capabilities: [.interrupt],
+                                                   attach: .daemon, attachReady: true,
+                                                   sharedInterrupt: true))
+        checks.expect(interruptible.canStop, "an attachment that can interrupt offers Stop")
+
+        let interruptWithoutCapability = store(state: .running, control: .shared,
+                                               agent: AgentInfo(agent: "codex", available: true,
+                                                                attach: .daemon, attachReady: true,
+                                                                sharedInterrupt: true))
+        checks.expect(!interruptWithoutCapability.canStop,
+                      "and only when the agent lists interrupt as well")
+
+        // Amendment A10: hints on a terminal session the device could attach.
+        let shimMissing = store(state: .readonly, control: .terminal,
+                                agent: DemoFixtures.claudeWithoutShim)
+        checks.equal(shimMissing.attachHint, .installShim,
+                     "an unprepared Claude device says how to prepare it")
+
+        let shimReady = store(state: .readonly, control: .terminal)
+        checks.equal(shimReady.attachHint, .restartSession,
+                     "a prepared device blames the running process instead")
+
+        let daemonMissing = store(state: .readonly, control: .terminal,
+                                  agent: AgentInfo(agent: "codex", available: true,
+                                                   capabilities: [.takeover], attach: .daemon))
+        checks.equal(daemonMissing.attachHint, .startDaemon, "and Codex names its daemon")
+
+        let noAttach = store(state: .readonly, control: .terminal,
+                             agent: AgentInfo(agent: "claude", available: true, capabilities: [.takeover]))
+        checks.expect(noAttach.attachHint == nil, "an agent that cannot be attached says nothing")
     }
 
     /// Amendment A8: a block holds the position of its first appearance, live,

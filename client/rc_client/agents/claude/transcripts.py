@@ -7,6 +7,7 @@ mtime without appending a byte, which would otherwise look like live activity.
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,6 +24,30 @@ MAX_TRANSCRIPTS = 50
 MAX_AGE_DAYS = 14
 _SKIP_PREFIXES = ("<command-name>", "<local-command-", "<command-message>", "<command-args>")
 _SKIP_TEXTS = {"No response requested.", "(no content)"}
+
+# Amendment A10: a message this device injected through the channel comes back
+# wrapped in a <channel> tag whose attributes repeat the `meta` we sent, so the
+# id we chose is the correlation key. Neither shape becomes a second bubble.
+CHANNEL_SERVER = "rc"
+_MESSAGE_ID_RE = re.compile(r'message_id="([^"]{1,64})"')
+CHANNEL_DELIVERED = "channel_delivered"
+CHANNEL_ABSORBED = "channel_absorbed"
+
+
+def channel_message_id(text: str, server: str = CHANNEL_SERVER) -> str | None:
+    """The `message_id` of a channel tag this device wrote, if that is what it is."""
+    head = text[:400]
+    if not head.lstrip().startswith(f'<channel source="{server}"'):
+        return None
+    match = _MESSAGE_ID_RE.search(head)
+    return match.group(1) if match else None
+
+
+def _channel_origin(row: dict[str, Any], server: str = CHANNEL_SERVER) -> bool:
+    origin = row.get("origin")
+    if not isinstance(origin, dict):
+        return False
+    return origin.get("kind") == "channel" and origin.get("server") == server
 
 
 @dataclass(slots=True)
@@ -137,6 +162,11 @@ class TranscriptTailer:
     def offset(self, value: int) -> None:
         self.tail.offset = value
 
+    @property
+    def busy(self) -> bool:
+        """Whether a turn is in progress, as the rows read so far leave it."""
+        return self.awaiting_reply
+
     def seek_to_end(self) -> None:
         self.tail.seek_to_end()
 
@@ -146,10 +176,35 @@ class TranscriptTailer:
     def translate(self, row: dict[str, Any]) -> list[Emit]:
         row_type = row.get("type")
         if row_type == "user":
-            return self._user(row)
+            return self._channel_echo(row) or self._user(row)
         if row_type == "assistant":
             return self._assistant(row)
+        if row_type == "attachment":
+            return self._attachment(row)
         return []
+
+    def _channel_echo(self, row: dict[str, Any]) -> list[Emit]:
+        """An injected message reappearing as a user row: a turn just started."""
+        if not _channel_origin(row):
+            return []
+        message = row.get("message") or {}
+        message_id = channel_message_id(_text_of(message.get("content")))
+        if message_id is None:
+            return []
+        self.awaiting_reply = True
+        return [Emit(CHANNEL_DELIVERED, {"message_id": message_id})]
+
+    def _attachment(self, row: dict[str, Any]) -> list[Emit]:
+        """A `queued_command` attachment means the CLI absorbed our injection."""
+        attachment = row.get("attachment")
+        if not isinstance(attachment, dict) or attachment.get("type") != "queued_command":
+            return []
+        if not _channel_origin(attachment):
+            return []
+        message_id = channel_message_id(str(attachment.get("prompt") or ""))
+        if message_id is None:
+            return []
+        return [Emit(CHANNEL_ABSORBED, {"message_id": message_id})]
 
     def _user(self, row: dict[str, Any]) -> list[Emit]:
         message = row.get("message") or {}

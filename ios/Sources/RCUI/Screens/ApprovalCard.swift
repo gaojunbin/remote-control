@@ -21,6 +21,7 @@ struct ApprovalCard: View {
                 Image(systemName: "hand.raised").font(.footnote)
                 Text(payload.status.isActionable ? "Approval needed" : statusText)
                     .font(.footnote.weight(.medium))
+                    .accessibilityIdentifier("chat.approval")
                 Spacer()
                 Text(payload.tool).font(.caption).foregroundStyle(Theme.inkSecondary)
             }
@@ -56,7 +57,6 @@ struct ApprovalCard: View {
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
             .strokeBorder(payload.status.isActionable ? Theme.attention.opacity(0.5) : Theme.border,
                           lineWidth: payload.status.isActionable ? 1 : 0.5))
-        .accessibilityIdentifier("chat.approval")
     }
 
     /// Primary first, then the middle options, then the danger option at the
@@ -126,7 +126,7 @@ struct QuestionCard: View {
     @State private var freeText: [String: String] = [:]
     @State private var isSending = false
 
-    private var isActive: Bool { payload.status.isActionable && !chat.isReadOnly }
+    private var isActive: Bool { payload.status.isActionable && chat.allowsAnswers }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.medium) {
@@ -134,6 +134,7 @@ struct QuestionCard: View {
                 Image(systemName: "questionmark.circle").font(.footnote)
                 Text(payload.status.isActionable ? "The agent has a question" : "Answered")
                     .font(.footnote.weight(.medium))
+                    .accessibilityIdentifier("chat.question")
                 Spacer()
             }
             .foregroundStyle(payload.status.isActionable ? Theme.attention : Theme.inkSecondary)
@@ -181,7 +182,13 @@ struct QuestionCard: View {
                 }
             }
 
-            if payload.status.isActionable {
+            if payload.status.isActionable, chat.isAttached {
+                // Amendment A10: the relay carries approvals, not answers.
+                Text("Answer this in the terminal")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.inkSecondary)
+                    .accessibilityIdentifier("question.terminalOnly")
+            } else if payload.status.isActionable {
                 Button("Submit") { submit() }
                     .buttonStyle(PrimaryButtonStyle())
                     .disabled(isSending || !isActive || !hasAnswerForEveryQuestion)
@@ -192,7 +199,6 @@ struct QuestionCard: View {
             }
         }
         .card()
-        .accessibilityIdentifier("chat.question")
     }
 
     private var hasAnswerForEveryQuestion: Bool {

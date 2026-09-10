@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ..channel.paths import path_with_shim
 from ..config import client_home
 from ..errors import RcError
 
@@ -22,6 +23,7 @@ ExecStart={executable} run
 Restart=always
 RestartSec=5
 Environment=RC_CLIENT_HOME={client_home}
+Environment=PATH={path}
 WorkingDirectory={home}
 NoNewPrivileges=yes
 UMask=0077
@@ -47,7 +49,10 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
 
 def render(executable: str) -> str:
     return UNIT_TEMPLATE.format(
-        executable=executable, home=str(Path.home()), client_home=str(client_home())
+        executable=executable,
+        home=str(Path.home()),
+        client_home=str(client_home()),
+        path=path_with_shim(os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")),
     )
 
 

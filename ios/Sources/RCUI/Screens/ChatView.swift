@@ -225,24 +225,63 @@ private struct Transcript: View {
 }
 
 /// "Claude Code is working · your message will be queued" and its siblings.
+///
+/// Amendment A10: takeover is offered only on a `terminal` session whose agent
+/// advertises the capability, and a terminal session the device could attach to
+/// says how to make the next run controllable from here.
 private struct StatusLine: View {
     let chat: ChatStore
 
     var body: some View {
-        if let text = chat.statusLine {
-            HStack(spacing: Theme.Space.tight) {
-                StatusDot(state: chat.session.state, size: 6)
-                Text(text).font(.footnote).foregroundStyle(Theme.inkSecondary)
-                Spacer(minLength: 0)
-                if chat.isReadOnly {
-                    Button("Take over") { Task { await chat.takeover() } }
-                        .buttonStyle(ChipButtonStyle())
-                        .accessibilityIdentifier("chat.takeover")
+        if chat.statusLine != nil || chat.attachHint != nil {
+            VStack(alignment: .leading, spacing: Theme.Space.tight) {
+                if let text = chat.statusLine {
+                    HStack(spacing: Theme.Space.tight) {
+                        StatusDot(state: chat.session.state, size: 6)
+                        Text(text)
+                            .font(.footnote)
+                            .foregroundStyle(Theme.inkSecondary)
+                            .accessibilityIdentifier("chat.status")
+                        Spacer(minLength: 0)
+                        if chat.canTakeover {
+                            Button("Take over") { Task { await chat.takeover() } }
+                                .buttonStyle(ChipButtonStyle())
+                                .accessibilityIdentifier("chat.takeover")
+                        }
+                    }
+                }
+                if let hint = chat.attachHint {
+                    AttachHintLine(hint: hint)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, Theme.Space.page)
             .padding(.vertical, Theme.Space.tight)
-            .accessibilityIdentifier("chat.status")
+        }
+    }
+}
+
+/// Amendment A10: what a terminal session would need before this app could
+/// control it. One line, under the takeover bar, never a call to action.
+private struct AttachHintLine: View {
+    let hint: ChatStore.AttachHint
+
+    var body: some View {
+        label
+            .font(.caption)
+            .foregroundStyle(Theme.inkSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("chat.attachHint")
+    }
+
+    private var label: Text {
+        switch hint {
+        case .installShim:
+            Text("Start claude through the remote-control shim to control it from here")
+        case .startDaemon:
+            Text("Start the Codex app-server daemon on this device to control it from here")
+        case .restartSession:
+            Text("This terminal session was started without the attachment; restart it to control it from here")
         }
     }
 }

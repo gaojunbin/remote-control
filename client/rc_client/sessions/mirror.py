@@ -186,13 +186,37 @@ class MirrorService:
             return None
         return entry
 
-    async def _refresh_claude_control(self) -> None:
-        if not self._claude:
-            return
-        scan = await scan_holders()
+    def _claude_tracked(self) -> list[tuple[str, SessionEntry, ClaudeMirror | None]]:
+        """Every Claude session whose owner has to be re-checked this round.
+
+        Sessions with a transcript come from the mirror; a session an attachment
+        created before its first turn has no transcript yet, and would otherwise
+        never learn that its CLI has gone.
+        """
+        tracked: list[tuple[str, SessionEntry, ClaudeMirror | None]] = []
         for session_id, mirror in list(self._claude.items()):
             entry = self._live_entry(session_id, self._claude)
-            if entry is None:
+            if entry is not None:
+                tracked.append((session_id, entry, mirror))
+        seen = {session_id for session_id, _, _ in tracked}
+        for session_id, entry in list(self.hub.entries.items()):
+            if session_id in seen or entry.session.agent != "claude":
+                continue
+            if entry.shared is None and entry.session.control != "terminal":
+                continue
+            if entry.runner is None:
+                tracked.append((session_id, entry, None))
+        return tracked
+
+    async def _refresh_claude_control(self) -> None:
+        tracked = self._claude_tracked()
+        if not tracked:
+            return
+        scan = await scan_holders()
+        for session_id, entry, mirror in tracked:
+            running = mirror.tailer.awaiting_reply if mirror is not None else False
+            if entry.shared is not None:
+                await self.hub.shared.tick(entry, running)
                 continue
             if not scan.complete:
                 continue
@@ -200,11 +224,12 @@ class MirrorService:
             if holder is not None:
                 entry.holder_pid = holder.pid
                 entry.holder_identity = holder.identity
-                await self._set_control(entry, "terminal", mirror.tailer.awaiting_reply)
+                await self._set_control(entry, "terminal", running)
             else:
                 entry.holder_pid = None
                 entry.holder_identity = None
-                mirror.tailer.awaiting_reply = False
+                if mirror is not None:
+                    mirror.tailer.awaiting_reply = False
                 await self._set_control(entry, "none", False)
 
     async def _refresh_codex_control(self) -> None:
@@ -248,20 +273,19 @@ class MirrorService:
             entry = self._live_entry(session_id, self._claude)
             if entry is None:
                 continue
-            await self._tail_one(
-                session_id, entry, claude_mirror.tailer, claude_mirror.tailer.awaiting_reply
-            )
+            await self._tail_one(session_id, entry, claude_mirror.tailer)
         for session_id, codex_mirror in list(self._codex.items()):
             entry = self._live_entry(session_id, self._codex)
             if entry is None:
                 continue
-            await self._tail_one(
-                session_id, entry, codex_mirror.tailer, codex_mirror.tailer.running
-            )
+            await self._tail_one(session_id, entry, codex_mirror.tailer)
 
-    async def _tail_one(
-        self, session_id: str, entry: SessionEntry, tailer: Tailer, running: bool
-    ) -> None:
+    async def _tail_one(self, session_id: str, entry: SessionEntry, tailer: Tailer) -> None:
+        """Read what is new, then report turn state as those rows left it.
+
+        Reading the flag first would report the previous pass's state, which
+        closes a turn one tail interval after the message that started it.
+        """
         rows = await asyncio.to_thread(tailer.read_new)
         if not rows:
             return
@@ -269,18 +293,42 @@ class MirrorService:
             for emit in tailer.translate(row):
                 await self._apply(entry, emit)
         self.hub.registry.set_kv(self._offset_key(session_id), str(tailer.offset))
-        await self._after_rows(entry, running)
+        await self._after_rows(entry, tailer.busy)
 
     async def _after_rows(self, entry: SessionEntry, running: bool) -> None:
         entry.session.updated_at = now_ms()
-        if entry.session.control == "terminal":
+        if entry.shared is not None:
+            await self.hub.shared.tick(entry, running)
+        elif entry.session.control == "terminal":
             await entry.channel.set_state("running" if running else "readonly")
         await entry.channel.publish_summary()
 
     async def _apply(self, entry: SessionEntry, emit: Any) -> None:
+        if emit.kind in _CHANNEL_ECHOES:
+            await self._channel_echo(entry, emit)
+            return
+        if entry.shared is not None and emit.kind == "tool_call":
+            status = str(emit.fields.get("status") or "")
+            if status in {"succeeded", "failed"}:
+                await self.hub.shared.tool_finished(
+                    entry, str(emit.fields.get("tool") or ""), status == "failed"
+                )
         if emit.kind == "todos":
             await entry.channel.publish_todos(list(emit.fields.get("items") or []))
             return
         if emit.kind == "user_message" and not entry.session.title:
             entry.session.title = title_from_text(str(emit.fields.get("text") or ""))
         await entry.channel.emit(emit.kind, **emit.fields)
+
+    async def _channel_echo(self, entry: SessionEntry, emit: Any) -> None:
+        """Internal transcript signals about our own injections; never published."""
+        message_id = str(emit.fields.get("message_id") or "")
+        if not message_id:
+            return
+        if emit.kind == transcripts.CHANNEL_DELIVERED:
+            await self.hub.shared.echo_delivered(entry, message_id)
+        else:
+            await self.hub.shared.echo_absorbed(entry, message_id)
+
+
+_CHANNEL_ECHOES = {transcripts.CHANNEL_DELIVERED, transcripts.CHANNEL_ABSORBED}

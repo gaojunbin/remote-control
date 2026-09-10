@@ -1,0 +1,71 @@
+{
+  "agent": "claude",
+  "available": true,
+  "version": "2.1.267",
+  "path": "/Users/me/.local/bin/claude",
+  "models": [
+    {
+      "id": "claude-opus-4-6",
+      "label": "Opus 4.6"
+    },
+    {
+      "id": "claude-sonnet-4-5",
+      "label": "Sonnet 4.5"
+    },
+    {
+      "id": "claude-haiku-4-5",
+      "label": "Haiku 4.5"
+    }
+  ],
+  "default_model": "claude-sonnet-4-5",
+  "permission_modes": [
+    {
+      "id": "default",
+      "label": "Ask before edits"
+    },
+    {
+      "id": "acceptEdits",
+      "label": "Auto-accept edits"
+    },
+    {
+      "id": "plan",
+      "label": "Plan mode"
+    },
+    {
+      "id": "bypassPermissions",
+      "label": "Bypass permissions"
+    }
+  ],
+  "default_permission_mode": "default",
+  "efforts": [
+    {
+      "id": "low",
+      "label": "Low"
+    },
+    {
+      "id": "medium",
+      "label": "Medium"
+    },
+    {
+      "id": "high",
+      "label": "High"
+    },
+    {
+      "id": "max",
+      "label": "Max"
+    }
+  ],
+  "default_effort": "medium",
+  "capabilities": [
+    "worktree",
+    "takeover",
+    "interrupt",
+    "queue",
+    "attachments",
+    "effort",
+    "history"
+  ],
+  "attach": "channel",
+  "attach_ready": true,
+  "shared_interrupt": false
+}

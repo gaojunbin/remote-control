@@ -4,22 +4,25 @@ import { Popover } from '../../components/Popover';
 import { compactNumber, duration, tildePath } from '../../lib/format';
 import { strings } from '../../strings';
 import { useNow } from '../../lib/useNow';
-import type { Session, TodoItem } from '../../protocol/types';
+import { canInterruptShared } from './attach';
+import type { AgentInfo, Session, TodoItem } from '../../protocol/types';
 
 interface Props {
   session: Session;
+  agent: AgentInfo | null;
   deviceName: string;
   todos: TodoItem[];
   stopping: boolean;
   onStop: () => void;
 }
 
-export function ChatHeader({ session, deviceName, todos, stopping, onStop }: Props) {
+export function ChatHeader({ session, agent, deviceName, todos, stopping, onStop }: Props) {
   // A7: a terminal-driven turn also reports `running`, but only the terminal
-  // can stop it — the user has to take over first.
-  const running =
-    (session.state === 'running' || session.state === 'starting') &&
-    session.control !== 'terminal';
+  // can stop it — the user has to take over first. A10: an attached session can
+  // be stopped only when the device says the attachment carries an interrupt.
+  const stoppable =
+    session.control === 'shared' ? canInterruptShared(agent) : session.control !== 'terminal';
+  const running = (session.state === 'running' || session.state === 'starting') && stoppable;
   const now = useNow(session.turn ? 1000 : 0);
   const doneCount = todos.filter((t) => t.status === 'completed').length;
   const total = session.todos?.total ?? todos.length;

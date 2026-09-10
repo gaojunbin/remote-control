@@ -122,6 +122,8 @@ struct TerminalAndOrderingTests {
         let session = Session(sessionID: "s", deviceID: "d", agent: "claude", title: "T",
                               cwd: "/tmp", state: state, control: .terminal)
         let chat = ChatStore(session: session, channel: DemoGateway())
+        // Amendment A10: takeover is offered only when the agent advertises it.
+        chat.agent = DemoFixtures.claude
         chat.draft = "hello"
         #expect(chat.isReadOnly)
         #expect(!chat.canSend)

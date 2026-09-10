@@ -6,7 +6,7 @@ The wire contract shared by the gateway, the device daemon, the web app and the 
 | --- | --- |
 | `PROTOCOL.md` | The normative specification: transport, HTTP API, objects, events, frames, UI semantics, and a conformance checklist per role |
 | `schema/` | JSON Schema draft 2020-12 for every object, event, frame and HTTP body |
-| `fixtures/` | A valid example of every frame type, event kind and HTTP body, plus two full session timelines |
+| `fixtures/` | A valid example of every frame type, event kind and HTTP body, plus bare shared objects and two full session timelines |
 | `fixtures_invalid/` | Frames that must be rejected; they self-test the validator |
 | `scripts/validate_fixtures.py` | Validates the fixtures, enforces the rules JSON Schema cannot express, and reports coverage |
 
@@ -140,6 +140,7 @@ protocol addition.
 | `fixtures/device/` | `device_frames.json` root |
 | `fixtures/device/forwarded/` | `device_frames.json#/$defs/ForwardedRequest` |
 | `fixtures/events/` | `events.json` root |
+| `fixtures/objects/` | `objects.json`, one definition per file, mapped in the validator |
 | `fixtures/http/` | `http.json`, one definition per file, mapped in the validator |
 | `fixtures/stt/` | `stt_frames.json` root |
 | `fixtures/timelines/` | `timeline.json` |

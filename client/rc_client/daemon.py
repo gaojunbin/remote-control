@@ -11,6 +11,8 @@ from typing import Any
 
 from . import config as config_module
 from .agents.discovery import detect_agents
+from .channel import paths as channel_paths
+from .channel.mcp_config import write_mcp_config
 from .child_env import scrub_parent_secrets
 from .config import Config
 from .errors import RcError
@@ -20,6 +22,7 @@ from .git import git_info
 from .logging_setup import logger
 from .models import AgentInfo
 from .registry import Registry
+from .sessions.attach import AttachServer
 from .sessions.hub import SessionHub
 from .sessions.mirror import MirrorService
 
@@ -35,6 +38,7 @@ class Daemon:
         self.agents: list[AgentInfo] = []
         self.hub = SessionHub(self.registry, self._publish, config.device_id, lambda: self.agents)
         self.mirror = MirrorService(self.hub, config.mirror)
+        self.attach = AttachServer(channel_paths.socket_path(), self.hub)
         self.link = GatewayLink(
             config.device_ws_url,
             config.device_token,
@@ -55,6 +59,7 @@ class Daemon:
             device=self.config.device_id,
             agents=",".join(info.agent for info in self.agents if info.available),
         )
+        await self._prepare_attachment()
         self.link.start()
         self.mirror.start()
         self._refresh_task = asyncio.create_task(self._refresh_loop())
@@ -62,6 +67,18 @@ class Daemon:
             await self._wait_for_stop()
         finally:
             await self.shutdown()
+
+    async def _prepare_attachment(self) -> None:
+        """Publish the MCP config the shim points at and open the channel socket.
+
+        Neither is fatal: without them the device simply cannot attach to
+        terminal sessions, and everything else keeps working.
+        """
+        try:
+            write_mcp_config()
+            await self.attach.start()
+        except OSError as exc:
+            log.warning("terminal attachment unavailable", error=str(exc))
 
     async def _wait_for_stop(self) -> None:
         """Block until the process is asked to stop, so shutdown actually runs."""
@@ -88,6 +105,7 @@ class Daemon:
                 await self._refresh_task
             self._refresh_task = None
         await self.mirror.stop()
+        await self.attach.stop()
         await self.hub.close()
         await self.link.stop()
         self.registry.close()

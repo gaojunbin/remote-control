@@ -17,6 +17,8 @@ from typing import Any
 from . import __version__
 from . import config as config_module
 from .agents.discovery import detect_agents
+from .channel import commands as shim_commands
+from .channel.bridge import main as channel_main
 from .config import config_exists, config_path, load_config
 from .daemon import Daemon
 from .enroll import enroll
@@ -44,6 +46,15 @@ def build_parser() -> argparse.ArgumentParser:
     enroll_parser.add_argument("--name", default=None, help="device name shown in the apps")
 
     sub.add_parser("run", help="run the daemon in the foreground")
+    sub.add_parser(
+        "channel", help="run the Claude Code channel bridge (started by the CLI, not by hand)"
+    )
+
+    shim_parser = sub.add_parser("shim", help="manage the claude shim used to attach sessions")
+    shim_parser.add_argument("action", choices=["install", "remove", "status"])
+    shim_parser.add_argument(
+        "--no-shell-rc", action="store_true", help="do not touch the shell startup file"
+    )
     sub.add_parser("status", help="print configuration and service status")
     sub.add_parser("agents", help="print detected agents as JSON")
 
@@ -53,6 +64,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     uninstall_parser = sub.add_parser("uninstall", help="remove the service and its data")
+    uninstall_parser.add_argument(
+        "--no-shell-rc", action="store_true", help="leave the shell startup file alone"
+    )
     uninstall_parser.add_argument(
         "--purge", action="store_true", help="also delete config, state and logs"
     )
@@ -120,12 +134,27 @@ def _cmd_service(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_shim(args: argparse.Namespace) -> int:
+    shell_rc = not args.no_shell_rc
+    if args.action == "install":
+        lines = shim_commands.install(shell_rc=shell_rc)
+    elif args.action == "remove":
+        lines = shim_commands.remove(shell_rc=shell_rc)
+    else:
+        lines = shim_commands.status()
+    for line in lines:
+        print(line)
+    return EXIT_OK
+
+
 def _cmd_uninstall(args: argparse.Namespace) -> int:
     try:
         manager.uninstall()
     except RcError as exc:
         print(f"warning: {exc.message}", file=sys.stderr)
     print("service removed")
+    for line in shim_commands.remove(shell_rc=not args.no_shell_rc):
+        print(line)
     if args.purge:
         home = config_module.client_home()
         if home.exists():
@@ -137,7 +166,8 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    setup_logging(args.log_level)
+    # The channel bridge owns stdout, and its stderr is the CLI's: stay quiet.
+    setup_logging(args.log_level or ("warning" if args.command == "channel" else None))
     handlers: dict[str, Any] = {
         "enroll": _cmd_enroll,
         "run": _cmd_run,
@@ -150,6 +180,10 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_status(args)
         if args.command == "service":
             return _cmd_service(args)
+        if args.command == "shim":
+            return _cmd_shim(args)
+        if args.command == "channel":
+            return int(channel_main())
         if args.command == "uninstall":
             return _cmd_uninstall(args)
     except RcError as exc:

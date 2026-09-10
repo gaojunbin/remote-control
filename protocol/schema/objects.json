@@ -69,10 +69,11 @@
       ]
     },
     "Control": {
-      "description": "Who currently owns session input. A live CLI process owns it as \"terminal\"; \"none\" means nobody owns it and the session is resumable.",
+      "description": "Who currently owns session input. A live CLI process owns it as \"terminal\", or as \"shared\" when the device is attached to that process; \"none\" means nobody owns it and the session is resumable.",
       "enum": [
         "remote",
         "terminal",
+        "shared",
         "none"
       ]
     },
@@ -86,6 +87,13 @@
         "attachments",
         "effort",
         "history"
+      ]
+    },
+    "AttachMode": {
+      "description": "How an agent's terminal sessions can be attached, so that control becomes \"shared\" instead of \"terminal\". \"channel\" is the Claude channel shim, \"daemon\" the Codex shared app-server.",
+      "enum": [
+        "channel",
+        "daemon"
       ]
     },
     "ErrorCode": {
@@ -317,6 +325,25 @@
           "items": {
             "$ref": "#/$defs/Capability"
           }
+        },
+        "attach": {
+          "description": "How this agent's terminal sessions can be attached. Null or absent means they can only be taken over or resumed.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AttachMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attach_ready": {
+          "description": "Whether the device is prepared to attach: the Claude shim is installed and on PATH, or the Codex shared daemon socket exists.",
+          "type": "boolean"
+        },
+        "shared_interrupt": {
+          "description": "Whether session.stop works on a session with control \"shared\". False when absent.",
+          "type": "boolean"
         }
       },
       "required": [

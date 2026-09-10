@@ -36,6 +36,9 @@ def agent_info_from(payload: dict[str, Any]) -> AgentInfo:
         efforts=[Choice(**item) for item in payload.get("efforts") or []],
         default_effort=payload.get("default_effort"),
         capabilities=list(payload.get("capabilities") or []),
+        attach=payload.get("attach"),
+        attach_ready=bool(payload.get("attach_ready")),
+        shared_interrupt=bool(payload.get("shared_interrupt")),
     )
 
 
@@ -43,7 +46,12 @@ def test_device_hello_round_trips_through_the_device_types() -> None:
     hello = load_fixture("device/hello.json")
     assert hello["protocol"] == 1
     agents = [agent_info_from(item) for item in hello["agents"]]
-    assert [info.to_dict() for info in agents] == hello["agents"]
+    # The A10 attachment fields are optional, so a fixture predating them still
+    # round-trips: every key it carries must survive, extras are additions.
+    for info, payload in zip(agents, hello["agents"], strict=True):
+        produced = info.to_dict()
+        assert {key: produced[key] for key in payload} == payload
+        assert set(produced) - set(payload) <= {"attach", "attach_ready", "shared_interrupt"}
     sessions = [Session.from_dict(item) for item in hello["sessions"]]
     assert [session.to_dict() for session in sessions] == hello["sessions"]
 
@@ -171,3 +179,72 @@ def test_timeline_fixtures_replay_through_the_registry_and_the_bounds(agent: str
         for block_id in blocks:
             assert registry.block("sess", block_id) is not None
         registry.close()
+
+
+@pytest.mark.parametrize("name", fixture_names("objects"))
+def test_every_object_fixture_decodes_with_the_device_types(name: str) -> None:
+    payload = load_fixture(f"objects/{name}")
+    if name.startswith("session."):
+        session = Session.from_dict(payload)
+        assert session.to_dict() == payload
+    elif name.startswith("agent."):
+        info = agent_info_from(payload)
+        assert info.to_dict() == payload
+    else:  # pragma: no cover - a new object family needs a decoder here
+        pytest.fail(f"no device decoder for objects/{name}")
+
+
+def test_the_shared_session_fixtures_match_what_an_attached_session_reports() -> None:
+    """A10 4.4/4.5: `shared` is idle or running, never `readonly`."""
+    idle = Session.from_dict(load_fixture("objects/session.shared-idle.json"))
+    running = Session.from_dict(load_fixture("objects/session.shared-running.json"))
+    assert idle.control == "shared" and idle.state == "idle" and idle.turn is None
+    assert running.control == "shared" and running.state in {"running", "needs_approval"}
+    assert idle.origin == "terminal"
+
+
+def test_the_attachable_agent_fixture_matches_what_this_device_advertises() -> None:
+    from rc_client.sessions.shared import APPROVAL_OPTIONS
+
+    info = agent_info_from(load_fixture("objects/agent.claude-attach.json"))
+    assert info.attach == "channel"
+    assert info.attach_ready is True
+    assert info.shared_interrupt is False
+    assert [option["id"] for option in APPROVAL_OPTIONS] == ["allow", "deny"]
+
+
+@pytest.mark.parametrize("delivery", ["pending", "delivered", "absorbed"])
+def test_the_delivery_fixtures_cover_every_state_the_device_emits(delivery: str) -> None:
+    event = load_fixture(f"events/user_message.{delivery}.json")
+    assert event["delivery"] == delivery
+    assert event["source"] == "remote"
+    assert event["kind"] == "user_message"
+    assert should_store(event) is True
+
+
+def test_the_shared_approval_fixtures_offer_exactly_allow_and_deny() -> None:
+    from rc_client.sessions.shared import APPROVAL_OPTIONS
+
+    pending = load_fixture("events/approval.shared-pending.json")
+    terminal = load_fixture("events/approval.shared-terminal.json")
+    assert pending["options"] == APPROVAL_OPTIONS
+    assert terminal["options"] == APPROVAL_OPTIONS
+    assert set(pending["input"]) == {"tool_name", "description", "input_preview"}
+    assert "diff" not in pending
+    assert terminal["decision"] == {"option_id": "allow", "by": "terminal"}
+    assert terminal["block_id"] == pending["block_id"]
+    assert terminal["first_seq"] == pending["seq"]
+
+
+def test_the_rejected_values_are_ones_this_device_never_produces() -> None:
+    """The negative fixtures: `attached` is not a control, `queued` not a delivery."""
+    from rc_client.sessions.shared import pending_item
+
+    invalid = FIXTURE_ROOT.parent / "fixtures_invalid"
+    control = json.loads((invalid / "app__control_attached.json").read_text(encoding="utf-8"))
+    assert control["session"]["control"] == "attached"
+    assert control["session"]["control"] not in {"remote", "terminal", "shared", "none"}
+
+    delivery = json.loads((invalid / "events__delivery_queued.json").read_text(encoding="utf-8"))
+    assert delivery["delivery"] == "queued"
+    assert set(pending_item("hi", "req").keys()) >= {"message_id", "block_id"}

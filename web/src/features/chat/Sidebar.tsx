@@ -76,7 +76,8 @@ export function Sidebar({ activeKey, onNewSession }: Props) {
                 const key = `${session.device_id}/${session.session_id}`;
                 const attention =
                   session.state === 'needs_approval' || session.state === 'needs_input';
-                const terminal = session.control === 'terminal';
+                // A10: a shared session keeps the terminal visible in the list.
+                const terminal = session.control === 'terminal' || session.control === 'shared';
                 return (
                   <li key={key}>
                     <button

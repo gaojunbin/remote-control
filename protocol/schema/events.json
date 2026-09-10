@@ -148,6 +148,14 @@
         "queue"
       ]
     },
+    "Delivery": {
+      "description": "What happened to a user message injected into an attached CLI. Set only on sessions whose control is \"shared\".",
+      "enum": [
+        "pending",
+        "delivered",
+        "absorbed"
+      ]
+    },
     "StopReason": {
       "enum": [
         "completed",
@@ -347,6 +355,9 @@
         },
         "source": {
           "$ref": "#/$defs/Trigger"
+        },
+        "delivery": {
+          "$ref": "#/$defs/Delivery"
         }
       },
       "required": [

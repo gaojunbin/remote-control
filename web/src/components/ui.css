@@ -192,8 +192,13 @@
   white-space: nowrap;
 }
 
-.pill:hover {
+.pill:hover:not(:disabled) {
   background: var(--surface-hover);
+}
+
+.pill:disabled {
+  color: var(--ink-tertiary);
+  background: var(--surface-sunken);
 }
 
 .badge {

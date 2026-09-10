@@ -14,6 +14,7 @@ enum ProtocolChecks {
         for file in files { decode(file, checks: checks) }
 
         objects(checks: checks)
+        sharedControl(checks: checks)
         events(checks: checks)
         frames(checks: checks)
         http(checks: checks)
@@ -48,6 +49,12 @@ enum ProtocolChecks {
                 for key in json.objectValue?.keys ?? [:].keys where encoded[key] == nil {
                     throw ProtocolFailure.malformed("\(name) lost field \(key)")
                 }
+            }
+        }
+        if name.hasPrefix("objects/") {
+            checks.noThrow("\(name) decodes as the object it names") {
+                if name.contains("/session.") { _ = try json.decode(Session.self) }
+                if name.contains("/agent.") { _ = try json.decode(AgentInfo.self) }
             }
         }
         if name.hasPrefix("app/") {
@@ -108,6 +115,114 @@ enum ProtocolChecks {
         }
         checks.expect(completed.usage?.costUSD == nil, "a turn without a cost decodes")
         checks.expect((completed.usage?.totalTokens ?? 0) > 0, "a turn without a cost still reports totals")
+    }
+
+    /// Amendment A10: `shared` sessions, the attachment fields on an agent and
+    /// the delivery state of a message the device is holding.
+    private static func sharedControl(checks: CheckRunner) {
+        if let json = FixtureSource.json("objects/session.shared-idle.json"),
+           let session = try? json.decode(Session.self) {
+            checks.equal(session.control, .shared, "an attached session reports shared control")
+            checks.expect(session.isAttached, "and the app reads it as attached")
+            checks.expect(!session.isControlledByTerminal, "an attached session is not locked to the terminal")
+            checks.equal(session.state, .idle, "an attached session idles rather than going read-only")
+            checks.equal(session.origin, .terminal, "the CLI still started it")
+        } else {
+            checks.expect(false, "objects/session.shared-idle.json decodes as a session")
+        }
+
+        if let json = FixtureSource.json("objects/session.shared-running.json"),
+           let session = try? json.decode(Session.self) {
+            checks.expect(session.isAttached, "a running attached session is still attached")
+            checks.expect(session.state.isWorking, "and reports a turn in progress")
+            checks.equal(session.queued, 1, "a held message counts against the queue")
+        } else {
+            checks.expect(false, "objects/session.shared-running.json decodes as a session")
+        }
+
+        if let json = FixtureSource.json("objects/agent.claude-attach.json"),
+           let agent = try? json.decode(AgentInfo.self) {
+            checks.equal(agent.attach, .channel, "Claude attaches through a channel")
+            checks.expect(agent.attachReady, "the device says the shim is installed")
+            checks.expect(!agent.sharedInterrupt, "a channel cannot interrupt a running turn")
+            checks.expect(agent.supports(.takeover), "takeover is unchanged by the attachment")
+            checks.noThrow("the attachment fields survive a re-encode") {
+                let again = try JSONValue.encode(agent).decode(AgentInfo.self)
+                guard again.attach == agent.attach, again.attachReady == agent.attachReady,
+                      again.sharedInterrupt == agent.sharedInterrupt else {
+                    throw ProtocolFailure.malformed("attachment fields changed")
+                }
+            }
+        } else {
+            checks.expect(false, "objects/agent.claude-attach.json decodes as an agent")
+        }
+
+        // An agent that says nothing about attaching is not attachable.
+        if let hello = FixtureSource.json("app/hello.json"), let frame = try? AppFrame(json: hello),
+           case .hello(let payload) = frame, let claude = payload.devices.first?.agent("claude") {
+            checks.expect(claude.attach == nil, "an agent without an attachment reports none")
+            checks.expect(!claude.attachReady, "and is not ready to attach")
+            checks.expect(!claude.sharedInterrupt, "and does not claim a shared interrupt")
+        }
+
+        for (file, expected) in [("events/user_message.pending.json", MessageDelivery.pending),
+                                 ("events/user_message.delivered.json", .delivered),
+                                 ("events/user_message.absorbed.json", .absorbed)] {
+            guard let json = FixtureSource.json(file), let event = try? json.decode(SessionEvent.self),
+                  let message = event.userMessage else {
+                checks.expect(false, "\(file) decodes as a user message")
+                continue
+            }
+            checks.equal(message.delivery, expected, "\(file) carries its delivery state")
+            checks.equal(message.source, .remote, "a message sent from an app stays remote")
+            checks.noThrow("\(file) keeps its delivery on a re-encode") {
+                guard try JSONValue.encode(event)["delivery"]?.stringValue == expected.rawValue else {
+                    throw ProtocolFailure.malformed("\(file) lost its delivery")
+                }
+            }
+        }
+
+        // The replacement event names the block it supersedes.
+        if let pending = FixtureSource.json("events/user_message.pending.json"),
+           let delivered = FixtureSource.json("events/user_message.delivered.json") {
+            checks.equal(delivered["block_id"]?.stringValue, pending["block_id"]?.stringValue,
+                         "a delivered message replaces the block it was held as")
+        }
+
+        // An ordinary prompt says nothing about delivery.
+        if let json = FixtureSource.json("events/user_message.json"),
+           let event = try? json.decode(SessionEvent.self) {
+            checks.expect(event.userMessage?.delivery == nil, "a normal prompt has no delivery state")
+        }
+
+        if let json = FixtureSource.json("events/approval.shared-pending.json"),
+           let event = try? json.decode(SessionEvent.self), let approval = event.approval {
+            checks.equal(approval.options.map(\.id), ["allow", "deny"],
+                         "a relayed request offers exactly allow and deny")
+            checks.expect(approval.diff == nil, "the relay does not provide a diff")
+            checks.equal(approval.input?["tool_name"]?.stringValue, "Bash",
+                         "the relay passes the tool name through")
+            checks.expect(approval.input?["input_preview"] != nil, "and a preview of the input")
+        } else {
+            checks.expect(false, "events/approval.shared-pending.json decodes")
+        }
+
+        if let json = FixtureSource.json("events/approval.shared-terminal.json"),
+           let event = try? json.decode(SessionEvent.self), let approval = event.approval {
+            checks.equal(approval.status, .resolved, "an approval answered in the terminal resolves")
+            checks.equal(approval.decision?.by, .terminal, "and is attributed to the terminal")
+        } else {
+            checks.expect(false, "events/approval.shared-terminal.json decodes")
+        }
+
+        // A value from a newer device decodes without pretending to be known.
+        let unknownControl = SessionControl(rawValue: "attached")
+        checks.expect(unknownControl != .shared && unknownControl != .terminal,
+                      "an unrecognised control is not mistaken for a known one")
+        let unknownDelivery = MessageDelivery(rawValue: "queued")
+        checks.expect(unknownDelivery != .pending && unknownDelivery != .delivered
+                        && unknownDelivery != .absorbed,
+                      "an unrecognised delivery is not mistaken for a known one")
     }
 
     private static func events(checks: CheckRunner) {

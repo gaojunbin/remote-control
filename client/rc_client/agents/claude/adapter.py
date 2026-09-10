@@ -323,6 +323,7 @@ class ClaudeRunner:
         text: str,
         attachments: list[dict[str, Any]] | None = None,
         source: str = "remote",
+        block_id: str | None = None,
     ) -> None:
         client = self._client
         if client is None:
@@ -342,7 +343,7 @@ class ClaudeRunner:
         self._turn_started_at = now_ms()
         await self.channel.emit(
             "user_message",
-            block_id=f"user:{uuid.uuid4()}",
+            block_id=block_id or f"user:{uuid.uuid4()}",
             text=text,
             source=source,
             **({"attachments": wire_attachments(written)} if written else {}),

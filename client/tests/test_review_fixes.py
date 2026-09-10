@@ -289,7 +289,7 @@ async def test_queued_messages_keep_their_attachments(tmp_path: Path) -> None:
         }
     )
     assert entry.queue[0]["attachments"] == [attachment]
-    snapshot = hub._queue_snapshot(entry)
+    snapshot = hub.queue_snapshot(entry)
     assert snapshot == [{"id": "req-2", "text": "look", "ts": entry.queue[0]["ts"]}]
 
     await runner.finish()

@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 import websockets
+from websockets.asyncio.client import connect as websockets_connect
 from websockets.asyncio.server import ServerConnection, serve
 
 from rc_client import gateway as rc_gateway
@@ -270,11 +271,12 @@ async def test_the_link_is_dialled_directly_and_ignores_configured_proxies(
 ) -> None:
     """A system or environment SOCKS proxy must never reach the gateway link."""
     seen: list[Any] = []
-    real_connect = rc_gateway.connect
 
     def spy(url: str, **kwargs: Any) -> Any:
         seen.append(kwargs.get("proxy", "missing"))
-        return real_connect(url, **kwargs)
+        # `rc_gateway.connect` is this function; naming it here rather than
+        # reading it back off the module keeps the spy honest under monkeypatch.
+        return websockets_connect(url, **kwargs)
 
     monkeypatch.setattr(rc_gateway, "connect", spy)
     link = await link_to(gateway, {})

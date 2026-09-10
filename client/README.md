@@ -7,7 +7,10 @@ model credentials never leave it.
 
 It also mirrors sessions you started yourself in a terminal, so a session
 opened with `claude` or `codex` shows up in the web and iOS apps read-only, and
-a Claude session can be taken over when its terminal is idle.
+a Claude session can be taken over when its terminal is idle. A Claude session
+started through the installed `claude` shim goes further: the daemon *attaches*
+to it, the apps get a live composer and its permission prompts, and the CLI
+keeps running throughout. See "Attached terminal sessions" in `docs/CLIENT.md`.
 
 ## Install
 
@@ -34,7 +37,9 @@ remove the service.
 | `rc-client status` | Print the device identity, paths and service state |
 | `rc-client agents` | Print detected agents as JSON |
 | `rc-client service install\|uninstall\|start\|stop\|status` | Manage the background service |
-| `rc-client uninstall [--purge]` | Remove the service, and with `--purge` the data |
+| `rc-client shim install\|remove\|status [--no-shell-rc]` | Manage the `claude` shim that makes terminal sessions attachable |
+| `rc-client channel` | The channel bridge Claude Code spawns; never run it by hand |
+| `rc-client uninstall [--purge] [--no-shell-rc]` | Remove the service and the shim, and with `--purge` the data |
 
 Exit codes: `0` success, `1` runtime failure, `2` usage error, `3` not enrolled.
 
@@ -45,6 +50,9 @@ Exit codes: `0` success, `1` runtime failure, `2` usage error, `3` not enrolled.
   config.toml               gateway origin, device id, device token, name (0600)
   state/rc-client.sqlite3   sessions, history events, send idempotency, tail offsets
   state/attachments/        files received with a message
+  state/claude-mcp.json     the channel server definition handed to Claude Code
+  state/channel.sock        where channel bridges register
+  bin/claude                the shim that starts an attachable Claude session
   logs/                     service stdout and stderr
 ```
 

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+from ..channel.paths import path_with_shim
 from ..config import client_home, log_dir
 from ..errors import RcError
 
@@ -60,7 +61,7 @@ def render(executable: str) -> str:
         home=escape(str(Path.home())),
         stdout=escape(str(log_dir() / "rc-client.out.log")),
         stderr=escape(str(log_dir() / "rc-client.err.log")),
-        path=escape(os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")),
+        path=escape(path_with_shim(os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"))),
         client_home=escape(str(client_home())),
     )
 
