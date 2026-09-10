@@ -131,6 +131,25 @@ def test_launchd_plist_uses_the_agreed_label_and_paths(client_home: Path) -> Non
     assert launchd.plist_path().parent.name == "LaunchAgents"
 
 
+def test_launchd_start_bootstraps_a_service_that_was_stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`service stop` boots the job out, so `service start` must load it again."""
+    plist = tmp_path / "dev.remote-control.client.plist"
+    plist.write_text("<plist/>", encoding="utf-8")
+    monkeypatch.setattr(launchd, "plist_path", lambda: plist)
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run(*args: str) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        loaded = args[1] != "print"
+        return subprocess.CompletedProcess(list(args), 0 if loaded else 1, "", "")
+
+    monkeypatch.setattr(launchd, "_run", fake_run)
+    launchd.start()
+    assert [args[1] for args in calls] == ["print", "bootstrap"]
+
+
 def test_systemd_unit_restarts_and_names_the_client_home(client_home: Path) -> None:
     rendered = systemd.render("/opt/rc/bin/rc-client")
     assert "ExecStart=/opt/rc/bin/rc-client run" in rendered

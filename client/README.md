@@ -84,7 +84,10 @@ survives logout).
   a bearer token, `hello` / `hello_ack`, ping/pong, a byte-bounded send queue,
   and 1, 2, 4, 8, 15 s reconnect backoff. Receiver, sender and watchdog race
   each other, so 60 s of silence tears the socket down even when no close frame
-  ever arrives.
+  ever arrives. The socket, and the enrollment request too, are dialled
+  directly: environment and system proxies are ignored, because the link is a
+  tunnel to the operator's own gateway and a SOCKS entry would otherwise fail
+  the daemon with an `ImportError` for a package the client does not ship.
 * **Session hub** (`sessions/hub.py`) — creates sessions, routes every
   forwarded request, queues messages while a turn runs, and launches the queue
   at the turn boundary. `session.history` pages backwards with `before_seq` and

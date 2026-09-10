@@ -40,7 +40,11 @@ async def enroll(gateway: str, code: str, name: str | None, agents: list[AgentIn
         "agents": [info.to_dict() for info in agents],
     }
     try:
-        async with httpx.AsyncClient(timeout=ENROLL_TIMEOUT) as client:
+        # Enrollment talks to the same gateway as the WebSocket link and is
+        # dialled just as directly: trusting the environment would route it
+        # through the system proxy, and a SOCKS entry raises ImportError unless
+        # the optional socksio package is installed.
+        async with httpx.AsyncClient(timeout=ENROLL_TIMEOUT, trust_env=False) as client:
             response = await client.post(f"{origin}/api/devices/enroll", json=payload)
     except httpx.HTTPError as exc:
         raise RcError("internal", f"cannot reach {origin}: {type(exc).__name__}") from exc

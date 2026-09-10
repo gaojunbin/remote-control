@@ -84,6 +84,15 @@ def uninstall() -> None:
 
 
 def start() -> None:
+    """Kickstart the job, bootstrapping it first when `stop` booted it out."""
+    target = plist_path()
+    if not target.exists():
+        raise RcError("not_found", "the service is not installed; run rc-client service install")
+    if _run("launchctl", "print", f"{_domain()}/{LABEL}").returncode != 0:
+        result = _run("launchctl", "bootstrap", _domain(), str(target))
+        if result.returncode != 0:
+            raise RcError("internal", f"launchctl bootstrap failed: {result.stderr.strip()[:200]}")
+        return
     result = _run("launchctl", "kickstart", "-k", f"{_domain()}/{LABEL}")
     if result.returncode != 0:
         raise RcError("internal", f"launchctl kickstart failed: {result.stderr.strip()[:200]}")

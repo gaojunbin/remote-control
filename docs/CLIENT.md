@@ -176,6 +176,19 @@ Logs are structured JSON on stderr and never contain tokens, pairing codes, prom
 output. On macOS the service writes them to `~/.rc-client/logs/`; on Linux they go to the journal.
 Raise detail with `rc-client --log-level debug run`.
 
+## Network path
+
+The daemon dials the gateway directly and ignores every proxy setting: neither the WebSocket link
+nor the enrollment request consults `HTTP_PROXY`, `ALL_PROXY` or the system network settings. The
+link is a long-lived tunnel to a gateway the operator runs, so a corporate or local proxy in the
+middle only adds a failure mode.
+
+Before that was pinned down, a machine with a SOCKS proxy in its macOS network settings logged
+`gateway link lost` with an `ImportError` on every reconnect and never came up. The client library
+had adopted the system proxy on its own and SOCKS support needs an extra package. A `gateway link
+lost` line now carries the exception message, so a failure of that kind is readable in
+`~/.rc-client/logs/rc-client.err.log`.
+
 ## Uninstalling
 
 ```sh

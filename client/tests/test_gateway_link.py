@@ -14,7 +14,7 @@ from websockets.asyncio.server import ServerConnection, serve
 
 from rc_client import gateway as rc_gateway
 from rc_client.errors import RcError
-from rc_client.gateway import ByteQueue, GatewayLink
+from rc_client.gateway import ByteQueue, GatewayLink, describe_error
 
 
 class FakeGateway:
@@ -263,3 +263,39 @@ async def test_the_backoff_only_resets_after_a_stable_connection(
         await asyncio.wait_for(gateway.ready.wait(), timeout=10)
     assert gateway.connections >= 4
     await link.stop()
+
+
+async def test_the_link_is_dialled_directly_and_ignores_configured_proxies(
+    gateway: FakeGateway, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A system or environment SOCKS proxy must never reach the gateway link."""
+    seen: list[Any] = []
+    real_connect = rc_gateway.connect
+
+    def spy(url: str, **kwargs: Any) -> Any:
+        seen.append(kwargs.get("proxy", "missing"))
+        return real_connect(url, **kwargs)
+
+    monkeypatch.setattr(rc_gateway, "connect", spy)
+    link = await link_to(gateway, {})
+    assert seen == [None]
+    await link.stop()
+
+
+def test_a_lost_link_is_logged_with_the_exception_message() -> None:
+    reason = describe_error(
+        ImportError("connecting through a SOCKS proxy requires python-socks"), "secret-token"
+    )
+    assert reason == "ImportError: connecting through a SOCKS proxy requires python-socks"
+
+
+def test_the_logged_reason_hides_the_token_and_is_bounded() -> None:
+    masked = describe_error(RuntimeError("rejected token=secret-token"), "secret-token")
+    assert "secret-token" not in masked
+    assert "***" in masked
+
+    long = describe_error(RuntimeError("x" * 500))
+    assert len(long) == rc_gateway.MAX_ERROR_CHARS + 3
+    assert long.endswith("...")
+
+    assert describe_error(RuntimeError()) == "RuntimeError"

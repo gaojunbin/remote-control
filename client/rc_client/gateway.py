@@ -32,9 +32,28 @@ STABLE_CONNECTION_SECONDS = 30.0
 MAX_FRAME_BYTES = 80 * 1024 * 1024
 SEND_QUEUE_ITEMS = 4096
 SEND_QUEUE_BYTES = 96 * 1024 * 1024
+MAX_ERROR_CHARS = 200
 
 Handler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 HelloBuilder = Callable[[], Awaitable[dict[str, Any]]]
+
+
+def describe_error(exc: BaseException, secret: str = "") -> str:
+    """`Class: message` for a log line, truncated and with the token masked.
+
+    The class name alone hides why a link failed (a missing optional
+    dependency and a refused TLS handshake both read as one word), so the
+    message is kept, bounded in length and scrubbed of the device token.
+    """
+    message = str(exc).strip()
+    if secret:
+        message = message.replace(secret, "***")
+    if not message:
+        return type(exc).__name__
+    text = f"{type(exc).__name__}: {message}"
+    if len(text) > MAX_ERROR_CHARS:
+        text = text[:MAX_ERROR_CHARS] + "..."
+    return text
 
 
 class ByteQueue:
@@ -139,7 +158,7 @@ class GatewayLink:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                log.warning("gateway link lost", error=type(exc).__name__)
+                log.warning("gateway link lost", error=describe_error(exc, self._token))
             finally:
                 self._connected = False
                 dropped = self._queue.clear()
@@ -154,12 +173,17 @@ class GatewayLink:
             await asyncio.sleep(delay)
 
     async def _session(self) -> None:
+        # The link is a long-lived tunnel to the operator's own gateway, so it is
+        # dialled directly: the default (proxy=True) would silently adopt the
+        # system or environment proxy, and a SOCKS entry there fails the whole
+        # daemon with an ImportError unless python-socks is installed.
         async with connect(
             self.url,
             additional_headers={"Authorization": f"Bearer {self._token}"},
             max_size=MAX_FRAME_BYTES,
             open_timeout=20,
             ping_interval=None,
+            proxy=None,
         ) as socket:
             log.info("connected to the gateway", url=self.url)
             self._last_frame = time.monotonic()
