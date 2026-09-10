@@ -1,0 +1,4 @@
+# Preserve the upstream bytes of the vendored libraries; see Resources/Markdown/VENDOR.json.
+Sources/RCUI/Resources/Markdown/mermaid.min.js -whitespace
+Sources/RCUI/Resources/Markdown/katex.min.js -whitespace
+Sources/RCUI/Resources/Markdown/katex.min.css -whitespace

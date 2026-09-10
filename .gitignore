@@ -1,0 +1,36 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+web/dist/
+*.tsbuildinfo
+
+# Swift / Xcode
+ios/.build/
+ios/.swiftpm/
+ios/DerivedData/
+ios/*.xcodeproj/xcuserdata/
+ios/*.xcodeproj/project.xcworkspace/xcuserdata/
+ios/build/
+*.xcuserstate
+
+# Runtime & secrets
+.env
+data/
+*.p8
+*.p12
+*.cer
+*.certSigningRequest
+*.mobileprovision

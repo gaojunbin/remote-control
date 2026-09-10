@@ -1,0 +1,16 @@
+{
+  "public_origin": "https://rc.example.com",
+  "stt": {
+    "enabled": true,
+    "languages": [
+      "auto",
+      "zh",
+      "en"
+    ]
+  },
+  "push": {
+    "web_enabled": true,
+    "apns_enabled": false
+  },
+  "version": "0.1.0"
+}

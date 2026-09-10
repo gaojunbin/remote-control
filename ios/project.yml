@@ -1,0 +1,65 @@
+name: RemoteControl
+options:
+  bundleIdPrefix: com.junbingao
+  deploymentTarget:
+    iOS: '17.0'
+  xcodeVersion: '16.0'
+packages:
+  RemoteControlIOS:
+    path: .
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEVELOPMENT_TEAM: ''
+targets:
+  RemoteControl:
+    type: application
+    platform: iOS
+    sources: [App]
+    dependencies:
+      - package: RemoteControlIOS
+        product: RCUI
+    settings:
+      configs:
+        Debug:
+          APNS_ENVIRONMENT: development
+        Release:
+          APNS_ENVIRONMENT: production
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.junbingao.remotecontrol
+        CODE_SIGN_ENTITLEMENTS: App/RemoteControl.entitlements
+        MARKETING_VERSION: '0.1.0'
+        CURRENT_PROJECT_VERSION: 1
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: App/Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: Remote Control
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Attach a picture to a message you send to an agent.
+        INFOPLIST_KEY_NSCameraUsageDescription: Take a photo to attach to a message you send to an agent.
+        INFOPLIST_KEY_NSFaceIDUsageDescription: Unlock Remote Control with Face ID.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Dictate a message. The transcript becomes an editable draft; nothing is sent automatically.
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Turn speech into text. On-device recognition keeps audio on this iPhone; gateway transcription sends audio to your own gateway.
+        TARGETED_DEVICE_FAMILY: '1,2'
+        SUPPORTS_MACCATALYST: NO
+  RemoteControlUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: RemoteControl
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: RemoteControl
+schemes:
+  RemoteControl:
+    build:
+      targets:
+        RemoteControl: all
+    test:
+      targets: [RemoteControlUITests]

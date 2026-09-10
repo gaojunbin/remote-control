@@ -1,0 +1,87 @@
+.popover-root {
+  position: relative;
+  display: inline-flex;
+}
+
+.popover-chevron {
+  color: var(--ink-tertiary);
+}
+
+.popover-panel {
+  position: absolute;
+  z-index: 40;
+  min-width: 200px;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: var(--sp-1);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-pop);
+  animation: rc-pop var(--dur-fast) var(--ease);
+}
+
+@keyframes rc-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+.popover-panel.side-bottom {
+  top: calc(100% + 6px);
+}
+
+.popover-panel.side-top {
+  bottom: calc(100% + 6px);
+}
+
+.popover-panel.align-start {
+  left: 0;
+}
+
+.popover-panel.align-end {
+  right: 0;
+}
+
+.menu {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.menu-item:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.menu-item.selected {
+  background: var(--surface-muted);
+}
+
+.menu-label {
+  font-size: var(--fs-14);
+}
+
+.menu-desc {
+  font-size: var(--fs-12);
+  color: var(--ink-secondary);
+}

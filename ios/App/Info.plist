@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- The gateway may run on the same LAN during development. This only
+		     relaxes ATS for local networking; public hosts still require https,
+		     which GatewayEndpoint enforces independently. -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>RCAPNSEnvironment</key>
+	<string>$(APNS_ENVIRONMENT)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.junbingao.remotecontrol.session</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>remotecontrol</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

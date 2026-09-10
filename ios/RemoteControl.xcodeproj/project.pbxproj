@@ -1,0 +1,497 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0280314155E43380A6EFB2E2 /* RemoteControlApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 319681D64976BEDFD1E4A8F1 /* RemoteControlApp.swift */; };
+		07236D2B59E39C44983977D9 /* RemoteControlUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2EBBFC1636811F2D9E55698 /* RemoteControlUITests.swift */; };
+		4FFF329E1E3E815DCB7FBE46 /* RealGatewaySmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78F4A72703A42B20E0238D0F /* RealGatewaySmokeTests.swift */; };
+		70025633001208385BD564AB /* RCUI in Frameworks */ = {isa = PBXBuildFile; productRef = F1164C525D06F30C646910DE /* RCUI */; };
+		91552BBFECB7EDBEBFCC46C8 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 7ADF56FCC644E7FEB89AA3BD /* PrivacyInfo.xcprivacy */; };
+		A8DBDA562B872D3280A14953 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 7A15A638BF8E1A3A2FB0177E /* Localizable.xcstrings */; };
+		DFB71A5E1EDE66CB13918CBE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7B12959012019876EF2DF4C8 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		CCB758D445CB959BF0231A23 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DA46BBD7B42CF7179B228601 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1D783117E46740BCF2804575;
+			remoteInfo = RemoteControl;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		319681D64976BEDFD1E4A8F1 /* RemoteControlApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlApp.swift; sourceTree = "<group>"; };
+		78F4A72703A42B20E0238D0F /* RealGatewaySmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealGatewaySmokeTests.swift; sourceTree = "<group>"; };
+		7A15A638BF8E1A3A2FB0177E /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		7ADF56FCC644E7FEB89AA3BD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		7B12959012019876EF2DF4C8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		C1444D854EA83C84AA0D5CE5 /* RemoteControl.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RemoteControl.entitlements; sourceTree = "<group>"; };
+		CA419C050590BF9887362C8D /* ios */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ios; path = .; sourceTree = SOURCE_ROOT; };
+		D2EBBFC1636811F2D9E55698 /* RemoteControlUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlUITests.swift; sourceTree = "<group>"; };
+		DF6F831755BBDAA7D4A65987 /* RemoteControl.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RemoteControl.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		EC30630437AF61F94C6734ED /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		F58970B5FE06B4FBE49E91AC /* RemoteControlUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RemoteControlUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B7467508BDD427B7F84E65A1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				70025633001208385BD564AB /* RCUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		6462E45C6AF84C9B7BBE5A98 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				7B12959012019876EF2DF4C8 /* Assets.xcassets */,
+				EC30630437AF61F94C6734ED /* Info.plist */,
+				7A15A638BF8E1A3A2FB0177E /* Localizable.xcstrings */,
+				7ADF56FCC644E7FEB89AA3BD /* PrivacyInfo.xcprivacy */,
+				C1444D854EA83C84AA0D5CE5 /* RemoteControl.entitlements */,
+				319681D64976BEDFD1E4A8F1 /* RemoteControlApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A64BFC3C82E5BB8CD00CFE2E = {
+			isa = PBXGroup;
+			children = (
+				6462E45C6AF84C9B7BBE5A98 /* App */,
+				CC22BFE7034407B86215B0C7 /* Packages */,
+				BE1EB5146AC61E86AA4249B5 /* UITests */,
+				F4F7FBC04EB099C94898CD26 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		BE1EB5146AC61E86AA4249B5 /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				78F4A72703A42B20E0238D0F /* RealGatewaySmokeTests.swift */,
+				D2EBBFC1636811F2D9E55698 /* RemoteControlUITests.swift */,
+			);
+			path = UITests;
+			sourceTree = "<group>";
+		};
+		CC22BFE7034407B86215B0C7 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				CA419C050590BF9887362C8D /* ios */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		F4F7FBC04EB099C94898CD26 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				DF6F831755BBDAA7D4A65987 /* RemoteControl.app */,
+				F58970B5FE06B4FBE49E91AC /* RemoteControlUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1D783117E46740BCF2804575 /* RemoteControl */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4B3E363FA3B81F22FC883715 /* Build configuration list for PBXNativeTarget "RemoteControl" */;
+			buildPhases = (
+				BD7806BC9FC6AB3302463CE1 /* Sources */,
+				AC6738817951C7489A46D5F3 /* Resources */,
+				B7467508BDD427B7F84E65A1 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RemoteControl;
+			packageProductDependencies = (
+				F1164C525D06F30C646910DE /* RCUI */,
+			);
+			productName = RemoteControl;
+			productReference = DF6F831755BBDAA7D4A65987 /* RemoteControl.app */;
+			productType = "com.apple.product-type.application";
+		};
+		73E91C0C3AEFFAE019D8BE9D /* RemoteControlUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 44266B1EEB1F678422472BD9 /* Build configuration list for PBXNativeTarget "RemoteControlUITests" */;
+			buildPhases = (
+				CD07D6723E756F6A21D9D40D /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				129A72908535AC46B629013B /* PBXTargetDependency */,
+			);
+			name = RemoteControlUITests;
+			packageProductDependencies = (
+			);
+			productName = RemoteControlUITests;
+			productReference = F58970B5FE06B4FBE49E91AC /* RemoteControlUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DA46BBD7B42CF7179B228601 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					73E91C0C3AEFFAE019D8BE9D = {
+						DevelopmentTeam = "";
+						TestTargetID = 1D783117E46740BCF2804575;
+					};
+				};
+			};
+			buildConfigurationList = 128F739B2A54B947AC0F1CD8 /* Build configuration list for PBXProject "RemoteControl" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = A64BFC3C82E5BB8CD00CFE2E;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				9E9D0796C01B5B0403C21B8E /* XCLocalSwiftPackageReference "." */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = F4F7FBC04EB099C94898CD26 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1D783117E46740BCF2804575 /* RemoteControl */,
+				73E91C0C3AEFFAE019D8BE9D /* RemoteControlUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AC6738817951C7489A46D5F3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DFB71A5E1EDE66CB13918CBE /* Assets.xcassets in Resources */,
+				A8DBDA562B872D3280A14953 /* Localizable.xcstrings in Resources */,
+				91552BBFECB7EDBEBFCC46C8 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BD7806BC9FC6AB3302463CE1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0280314155E43380A6EFB2E2 /* RemoteControlApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CD07D6723E756F6A21D9D40D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4FFF329E1E3E815DCB7FBE46 /* RealGatewaySmokeTests.swift in Sources */,
+				07236D2B59E39C44983977D9 /* RemoteControlUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		129A72908535AC46B629013B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1D783117E46740BCF2804575 /* RemoteControl */;
+			targetProxy = CCB758D445CB959BF0231A23 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2850081C7A32D9F35E8C7A3B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.junbingao.RemoteControlUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = RemoteControl;
+			};
+			name = Debug;
+		};
+		2B241A338129E36CC96ED536 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		56EEECBE1BBB3119C2B2B2D6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.junbingao.RemoteControlUITests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = RemoteControl;
+			};
+			name = Release;
+		};
+		73ED38D7EF9BCAD92B479947 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APNS_ENVIRONMENT = production;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/RemoteControl.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9DF9GJBLTF;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = App/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Remote Control";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Take a photo to attach to a message you send to an agent.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlock Remote Control with Face ID.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dictate a message. The transcript becomes an editable draft; nothing is sent automatically.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Attach a picture to a message you send to an agent.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Turn speech into text. On-device recognition keeps audio on this iPhone; gateway transcription sends audio to your own gateway.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.junbingao.remotecontrol;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A8C38F66A8FFCE13CC2A0DE8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APNS_ENVIRONMENT = development;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/RemoteControl.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9DF9GJBLTF;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = App/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Remote Control";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Take a photo to attach to a message you send to an agent.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlock Remote Control with Face ID.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dictate a message. The transcript becomes an editable draft; nothing is sent automatically.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Attach a picture to a message you send to an agent.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Turn speech into text. On-device recognition keeps audio on this iPhone; gateway transcription sends audio to your own gateway.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.junbingao.remotecontrol;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		FBE3294DFCCEEFC4713F27AD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		128F739B2A54B947AC0F1CD8 /* Build configuration list for PBXProject "RemoteControl" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FBE3294DFCCEEFC4713F27AD /* Debug */,
+				2B241A338129E36CC96ED536 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		44266B1EEB1F678422472BD9 /* Build configuration list for PBXNativeTarget "RemoteControlUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2850081C7A32D9F35E8C7A3B /* Debug */,
+				56EEECBE1BBB3119C2B2B2D6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		4B3E363FA3B81F22FC883715 /* Build configuration list for PBXNativeTarget "RemoteControl" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A8C38F66A8FFCE13CC2A0DE8 /* Debug */,
+				73ED38D7EF9BCAD92B479947 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		9E9D0796C01B5B0403C21B8E /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F1164C525D06F30C646910DE /* RCUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = RCUI;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = DA46BBD7B42CF7179B228601 /* Project object */;
+}

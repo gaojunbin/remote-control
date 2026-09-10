@@ -1,0 +1,73 @@
+"""Locate the `claude` executable this device should drive and read its version."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import re
+import shutil
+from pathlib import Path
+
+VERSION_TIMEOUT = 3.0
+_VERSION_RE = re.compile(r"(?<!\d)(\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?)")
+
+CLAUDE_HOME = Path.home() / ".claude"
+PROJECTS_DIR = CLAUDE_HOME / "projects"
+
+
+def candidate_paths() -> list[str]:
+    """Resolution order: explicit override, PATH, then the standard install spots."""
+    explicit = os.environ.get("RC_CLAUDE_BIN", "").strip()
+    candidates: list[str] = []
+    if explicit:
+        candidates.append(os.path.expanduser(explicit))
+    found = shutil.which("claude")
+    if found:
+        candidates.append(found)
+    home = Path.home()
+    candidates.extend(
+        str(path)
+        for path in (
+            home / ".local/bin/claude",
+            home / ".claude/local/claude",
+            home / ".npm-global/bin/claude",
+            Path("/usr/local/bin/claude"),
+            Path("/opt/homebrew/bin/claude"),
+            home / "node_modules/.bin/claude",
+            home / ".yarn/bin/claude",
+        )
+    )
+    return candidates
+
+
+def resolve_binary() -> str | None:
+    seen: set[str] = set()
+    for candidate in candidate_paths():
+        path = os.path.abspath(os.path.expanduser(candidate))
+        real = os.path.realpath(path)
+        if real in seen:
+            continue
+        seen.add(real)
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return None
+
+
+async def probe_version(path: str) -> str | None:
+    try:
+        process = await asyncio.create_subprocess_exec(
+            path,
+            "--version",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except OSError:
+        return None
+    try:
+        out, err = await asyncio.wait_for(process.communicate(), timeout=VERSION_TIMEOUT)
+    except TimeoutError:
+        process.kill()
+        await process.wait()
+        return None
+    match = _VERSION_RE.search(out.decode("utf-8", "replace") + err.decode("utf-8", "replace"))
+    return match.group(1) if match else None

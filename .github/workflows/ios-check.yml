@@ -1,0 +1,61 @@
+name: iOS checks
+
+on:
+  push:
+    paths:
+      - 'ios/**'
+      - 'protocol/**'
+      - '.github/workflows/ios-check.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - 'protocol/**'
+      - '.github/workflows/ios-check.yml'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A prefix distinct from callers, so a reusable call cannot cancel its caller.
+  group: ios-check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios-check:
+    name: iOS simulator build, Swift tests and verification
+    runs-on: macos-26
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: ios
+    env:
+      # Pinned together: Apple requires the iOS 26 SDK for App Store uploads,
+      # and the simulator runtime must match the Xcode that ships it. Check the
+      # actions/runner-images inventory before moving any of these.
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      RC_XCODE_VERSION: '26.6'
+      RC_IOS_RUNTIME: '26.5'
+      RC_SIMULATOR_NAME: iPhone 17
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check signing automation with fixtures only
+        run: python3 -m unittest discover -s scripts/ci -p 'test_*.py'
+
+      - name: Build for the simulator and run every check
+        run: bash scripts/ci-check-ios.sh
+
+      - name: Upload build and test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-check-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ios/build/CI/
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6

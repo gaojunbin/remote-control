@@ -1,0 +1,52 @@
+# TLS termination and security headers in front of the gateway.
+#
+# Two modes, selected by DOMAIN in the repository root .env. docker-compose.yml turns DOMAIN into
+# CADDY_SITE_ADDRESS, because Caddy's own `{$VAR:default}` only fills in for an *unset* variable
+# while an empty DOMAIN in .env is set-but-empty:
+#   DOMAIN=rc.example.com   automatic HTTPS from Let's Encrypt (ports 80 and 443 must be reachable
+#                           and the A/AAAA record must point at this host)
+#   DOMAIN=                 plain HTTP on :80, for a LAN box or a host that terminates TLS itself
+#
+# reverse_proxy upgrades WebSockets on its own, so /ws/app, /ws/device and /ws/stt need no rule.
+{
+	admin off
+	servers {
+		timeouts {
+			read_header 10s
+		}
+	}
+}
+
+{$CADDY_SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	# The login route is the only unauthenticated write path; keep its body small.
+	@login path /api/login
+	request_body @login {
+		max_size 4KB
+	}
+
+	# A session.send may carry attachments, so the general body limit has to clear the protocol's
+	# 8 x 6 MiB bound after base64 expansion.
+	request_body {
+		max_size 80MB
+	}
+
+	# The SPA shell and the service worker must never be served from a stale cache: a pinned
+	# index.html would keep loading asset URLs that no longer exist after a deploy.
+	@shell path / /index.html /sw.js /manifest.webmanifest
+	header @shell Cache-Control "no-store"
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' wss:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		# The composer records voice, so the microphone must stay allowed for this origin.
+		Permissions-Policy "camera=(), microphone=(self), geolocation=(), payment=(), usb=()"
+		-Server
+	}
+
+	reverse_proxy gateway:8787
+}

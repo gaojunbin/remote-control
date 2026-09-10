@@ -1,0 +1,589 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remote-control.dev/schema/v1/objects.json",
+  "title": "remote-control shared objects (protocol v1)",
+  "description": "Shared value objects and the error envelope used by HTTP responses and by every WebSocket frame. Objects deliberately keep additionalProperties open: PROTOCOL.md requires every party to ignore unknown fields.",
+  "$defs": {
+    "Timestamp": {
+      "description": "Unix time in milliseconds.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "Seq": {
+      "description": "Per-session monotonically increasing event counter assigned by the device.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "Id": {
+      "description": "Opaque identifier. UUID v4 unless the field description says otherwise.",
+      "type": "string",
+      "minLength": 1
+    },
+    "Uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "PairingCode": {
+      "description": "Single-use pairing code, 10 minute TTL. Crockford base32 alphabet without I, L, O and U.",
+      "type": "string",
+      "pattern": "^RC-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$"
+    },
+    "AgentId": {
+      "description": "Agent identifier. Extensible: unknown values are rendered generically with the id as the label.",
+      "type": "string",
+      "minLength": 1,
+      "examples": [
+        "claude",
+        "codex"
+      ]
+    },
+    "Platform": {
+      "enum": [
+        "macos",
+        "linux"
+      ]
+    },
+    "Arch": {
+      "enum": [
+        "arm64",
+        "x86_64"
+      ]
+    },
+    "SessionState": {
+      "enum": [
+        "starting",
+        "idle",
+        "running",
+        "needs_approval",
+        "needs_input",
+        "error",
+        "stopped",
+        "readonly"
+      ]
+    },
+    "Origin": {
+      "description": "Who created the session.",
+      "enum": [
+        "remote",
+        "terminal"
+      ]
+    },
+    "Control": {
+      "description": "Who currently owns session input. A live CLI process owns it as \"terminal\"; \"none\" means nobody owns it and the session is resumable.",
+      "enum": [
+        "remote",
+        "terminal",
+        "none"
+      ]
+    },
+    "Capability": {
+      "enum": [
+        "worktree",
+        "takeover",
+        "interrupt",
+        "queue",
+        "steer",
+        "attachments",
+        "effort",
+        "history"
+      ]
+    },
+    "ErrorCode": {
+      "enum": [
+        "bad_request",
+        "unauthorized",
+        "forbidden",
+        "not_found",
+        "device_offline",
+        "agent_unavailable",
+        "conflict",
+        "timeout",
+        "internal",
+        "unsupported",
+        "too_large"
+      ]
+    },
+    "Error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ]
+    },
+    "LabeledId": {
+      "description": "An option offered by a device: a stable opaque id plus a human label.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ]
+    },
+    "Usage": {
+      "description": "Token and cost accounting for a session or a turn. Only the token totals are guaranteed: an agent that reports no context or cost figures omits those fields or sends null.",
+      "type": "object",
+      "properties": {
+        "input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "context_used": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "context_window": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cost_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "required": [
+        "input_tokens",
+        "output_tokens",
+        "total_tokens"
+      ]
+    },
+    "Git": {
+      "description": "Git state of a session working directory.",
+      "type": "object",
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "dirty": {
+          "type": "boolean"
+        },
+        "ahead": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "behind": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "worktree": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "branch",
+        "dirty",
+        "ahead",
+        "behind",
+        "worktree"
+      ]
+    },
+    "Attachment": {
+      "description": "Attachment metadata as echoed back in a user_message event. The bytes are not part of the event.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mime": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "name",
+        "mime",
+        "size"
+      ]
+    },
+    "AttachmentUpload": {
+      "description": "Attachment as uploaded in session.send. Decoded size is bounded to 6 MiB each, 8 per request.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mime": {
+          "type": "string",
+          "minLength": 1
+        },
+        "data_base64": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "mime",
+        "data_base64"
+      ]
+    },
+    "AgentInfo": {
+      "description": "One agent as detected on a device.",
+      "type": "object",
+      "properties": {
+        "agent": {
+          "$ref": "#/$defs/AgentId"
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LabeledId"
+          }
+        },
+        "default_model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "permission_modes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LabeledId"
+          }
+        },
+        "default_permission_mode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "efforts": {
+          "description": "Empty array when the agent has no effort levels.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LabeledId"
+          }
+        },
+        "default_effort": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          }
+        }
+      },
+      "required": [
+        "agent",
+        "available",
+        "version",
+        "path",
+        "models",
+        "default_model",
+        "permission_modes",
+        "default_permission_mode",
+        "efforts",
+        "default_effort",
+        "capabilities"
+      ]
+    },
+    "Device": {
+      "type": "object",
+      "properties": {
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "$ref": "#/$defs/Platform"
+        },
+        "hostname": {
+          "type": "string"
+        },
+        "arch": {
+          "$ref": "#/$defs/Arch"
+        },
+        "client_version": {
+          "type": "string"
+        },
+        "online": {
+          "type": "boolean"
+        },
+        "last_seen": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "created_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "latency_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "agents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AgentInfo"
+          }
+        }
+      },
+      "required": [
+        "device_id",
+        "name",
+        "platform",
+        "hostname",
+        "arch",
+        "client_version",
+        "online",
+        "last_seen",
+        "created_at",
+        "latency_ms",
+        "agents"
+      ]
+    },
+    "SessionTurn": {
+      "type": "object",
+      "properties": {
+        "turn_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "started_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "turn_id",
+        "started_at"
+      ]
+    },
+    "SessionTodos": {
+      "type": "object",
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "done": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "total",
+        "done"
+      ]
+    },
+    "Session": {
+      "description": "Session summary. Global identity is (device_id, session_id).",
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "device_id": {
+          "$ref": "#/$defs/Uuid"
+        },
+        "agent": {
+          "$ref": "#/$defs/AgentId"
+        },
+        "title": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1
+        },
+        "git": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Git"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/SessionState"
+        },
+        "state_detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "control": {
+          "$ref": "#/$defs/Control"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "permission_mode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "effort": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "last_seq": {
+          "$ref": "#/$defs/Seq"
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "turn": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionTurn"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "todos": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionTodos"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Usage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "queued": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "session_id",
+        "device_id",
+        "agent",
+        "title",
+        "cwd",
+        "git",
+        "state",
+        "state_detail",
+        "origin",
+        "control",
+        "model",
+        "permission_mode",
+        "effort",
+        "created_at",
+        "updated_at",
+        "last_seq",
+        "archived",
+        "turn",
+        "todos",
+        "usage",
+        "queued"
+      ],
+      "allOf": [
+        {
+          "description": "Amendment A7: readonly means a mirrored terminal session that is not currently working. While the terminal-driven turn runs the device reports running, needs_approval or needs_input instead.",
+          "if": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "const": "readonly"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "control": {
+                "const": "terminal"
+              },
+              "turn": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

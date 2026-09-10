@@ -1,0 +1,446 @@
+"""Drive one Codex session through a private `codex app-server` process."""
+
+from __future__ import annotations
+
+import asyncio
+import time
+import uuid
+from collections.abc import Awaitable, Callable
+from typing import Any
+
+from ...attachments import Attachment, describe, materialise, wire_attachments
+from ...child_env import sanitized_child_env
+from ...errors import RcError
+from ...logging_setup import logger
+from ...models import now_ms
+from ...sessions.channel import SessionChannel
+from ..base import Emit
+from .models import ModelCatalog
+from .rpc import CodexAppServer
+from .translate import CodexTranslator
+
+log = logger("rc_client.codex")
+
+APPROVAL_TIMEOUT = 300.0
+OUTPUT_THROTTLE = 0.2
+DRAIN_TIMEOUT = 15.0
+
+APPROVAL_METHODS = {
+    "item/commandExecution/requestApproval",
+    "item/fileChange/requestApproval",
+    "item/permissions/requestApproval",
+}
+_COMMAND_OPTIONS = [
+    {"id": "accept", "label": "Approve", "style": "primary"},
+    {"id": "acceptForSession", "label": "Approve for this session", "style": "secondary"},
+    {"id": "decline", "label": "Decline", "style": "danger"},
+    {"id": "cancel", "label": "Stop the turn", "style": "secondary"},
+]
+_PERMISSION_OPTIONS = [
+    {"id": "accept", "label": "Grant for this turn", "style": "primary"},
+    {"id": "acceptForSession", "label": "Grant for this session", "style": "secondary"},
+    {"id": "decline", "label": "Decline", "style": "danger"},
+]
+
+TurnEndCallback = Callable[[], Awaitable[None]]
+
+
+class CodexRunner:
+    agent = "codex"
+
+    def __init__(
+        self,
+        channel: SessionChannel,
+        *,
+        binary: str,
+        cwd: str,
+        catalog: ModelCatalog,
+        model: str | None = None,
+        permission_mode: str | None = None,
+        effort: str | None = None,
+        thread_id: str | None = None,
+        on_turn_end: TurnEndCallback | None = None,
+        on_session_id: Callable[[str], Awaitable[None]] | None = None,
+    ) -> None:
+        self.channel = channel
+        self._binary = binary
+        self._cwd = cwd
+        self._catalog = catalog
+        self._model = model
+        self._permission_mode = permission_mode or "on-request"
+        self._effort = effort
+        self._thread_id = thread_id
+        self._on_turn_end = on_turn_end
+        self._on_session_id = on_session_id
+        self._server: CodexAppServer | None = None
+        self._translator = CodexTranslator(cwd=cwd, mirror_user_messages=False)
+        self._turn_id: str | None = None
+        self._turn_started_at = 0
+        self._interrupting = False
+        self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._last_output_flush: dict[str, float] = {}
+        self._turn_done = asyncio.Event()
+        self._turn_done.set()
+        self._turn_epoch = 0
+
+    # ------------------------------------------------------------- lifecycle
+
+    async def start(self) -> None:
+        server = CodexAppServer(
+            self._binary,
+            on_notification=self._on_notification,
+            on_request=self._on_request,
+            env=sanitized_child_env(),
+        )
+        await server.start()
+        self._server = server
+        params: dict[str, Any] = {"cwd": self._cwd, "approvalPolicy": self._permission_mode}
+        if self._model:
+            params["model"] = self._model
+        if self._thread_id:
+            params["threadId"] = self._thread_id
+            params["excludeTurns"] = True
+            result = await server.request("thread/resume", params)
+        else:
+            result = await server.request("thread/start", params)
+        thread = result.get("thread") or {}
+        thread_id = str(thread.get("id") or result.get("threadId") or "")
+        if not thread_id:
+            raise RcError("agent_unavailable", "codex did not return a thread id")
+        self._thread_id = thread_id
+        if self._model is None:
+            model = result.get("model")
+            if isinstance(model, str) and model:
+                self._model = model
+                await self.channel.set_meta(model=model)
+        if self._on_session_id:
+            await self._on_session_id(thread_id)
+
+    async def close(self) -> None:
+        for future in self._pending.values():
+            if not future.done():
+                future.cancel()
+        self._pending.clear()
+        if self._server is not None:
+            await self._server.close()
+            self._server = None
+
+    # ------------------------------------------------------------- streaming
+
+    async def _on_notification(self, method: str, params: dict[str, Any]) -> None:
+        if method == "turn/started":
+            turn = params.get("turn") or {}
+            self._turn_id = str(turn.get("id") or "") or self._turn_id
+        completion: dict[str, Any] | None = None
+        for emit in self._translator.notification(method, params):
+            if emit.kind == "turn_completed":
+                completion = dict(emit.fields)
+                continue
+            await self._apply(emit)
+        if completion is not None:
+            await self._finish_turn(completion)
+
+    async def _apply(self, emit: Emit) -> None:
+        if emit.delta:
+            fields = dict(emit.fields)
+            block_id = str(fields.pop("block_id"))
+            delta = str(fields.pop("delta", ""))
+            await self.channel.emit_delta(emit.kind, block_id, delta, **fields)
+            return
+        if emit.kind == "todos":
+            await self.channel.publish_todos(list(emit.fields.get("items") or []))
+            return
+        if emit.kind == "turn_completed":
+            return
+        if emit.kind == "tool_call" and emit.fields.get("status") == "running":
+            block_id = str(emit.fields.get("block_id") or "")
+            now = time.monotonic()
+            last = self._last_output_flush.get(block_id, 0.0)
+            if emit.fields.get("output") and now - last < OUTPUT_THROTTLE:
+                return
+            self._last_output_flush[block_id] = now
+        await self.channel.emit(emit.kind, **emit.fields)
+
+    async def _finish_turn(self, completion: dict[str, Any]) -> None:
+        duration = int(completion.get("duration_ms") or 0) or max(
+            0, now_ms() - self._turn_started_at
+        )
+        reported = str(completion.get("stop_reason") or "completed")
+        stop_reason = "interrupted" if self._interrupting else reported
+        self._interrupting = False
+        self._turn_id = None
+        self._turn_epoch += 1
+        self._turn_done.set()
+        self._last_output_flush.clear()
+        usage = dict(completion.get("usage") or self._translator.usage)
+        await self.channel.end_turn(stop_reason, duration, usage or None)
+        if self._on_turn_end is not None:
+            await self._on_turn_end()
+
+    # --------------------------------------------------------------- driving
+
+    @property
+    def busy(self) -> bool:
+        return self._turn_id is not None
+
+    @property
+    def supports_steer(self) -> bool:
+        return True
+
+    async def send(
+        self,
+        text: str,
+        attachments: list[dict[str, Any]] | None = None,
+        source: str = "remote",
+    ) -> None:
+        server = self._server
+        if server is None or self._thread_id is None:
+            raise RcError("agent_unavailable", "the Codex session is not connected")
+        prompt = text
+        written: list[Attachment] = []
+        if attachments:
+            written = materialise(self.channel.session.session_id, attachments)
+            prompt = describe(text, written)
+        await self.channel.emit(
+            "user_message",
+            block_id=f"user:{uuid.uuid4()}",
+            text=text,
+            source=source,
+            **({"attachments": wire_attachments(written)} if written else {}),
+        )
+        self._turn_started_at = now_ms()
+        params: dict[str, Any] = {
+            "threadId": self._thread_id,
+            "input": [{"type": "text", "text": prompt}],
+            "approvalPolicy": self._permission_mode,
+        }
+        if self._model:
+            params["model"] = self._model
+        effort = self._catalog.clamp_effort(self._model, self._effort)
+        if effort:
+            params["effort"] = effort
+        epoch = self._turn_epoch
+        self._turn_done.clear()
+        result = await server.request("turn/start", params)
+        turn = result.get("turn") or {}
+        if epoch != self._turn_epoch:
+            # `turn/completed` was dispatched while `turn/start` was still in
+            # flight; the turn is already over, so do not mark it live again.
+            return
+        self._turn_id = str(turn.get("id") or "") or str(uuid.uuid4())
+        await self.channel.begin_turn(source)
+
+    async def steer(self, text: str) -> bool:
+        server = self._server
+        if server is None or self._thread_id is None or self._turn_id is None:
+            return False
+        try:
+            await server.request(
+                "turn/steer",
+                {
+                    "threadId": self._thread_id,
+                    "expectedTurnId": self._turn_id,
+                    "input": [{"type": "text", "text": text}],
+                },
+            )
+        except RcError:
+            return False
+        await self.channel.emit(
+            "user_message", block_id=f"user:{uuid.uuid4()}", text=text, source="remote"
+        )
+        return True
+
+    async def interrupt(self) -> bool:
+        server = self._server
+        if server is None or self._thread_id is None or self._turn_id is None:
+            return False
+        self._interrupting = True
+        await self.channel.set_state("running", "interrupting")
+        for request_id, future in list(self._pending.items()):
+            if not future.done():
+                future.set_result({"option_id": "decline", "answers": None})
+            self._pending.pop(request_id, None)
+        try:
+            await server.request(
+                "turn/interrupt", {"threadId": self._thread_id, "turnId": self._turn_id}
+            )
+        except RcError:
+            log.warning("codex interrupt was rejected; waiting for the turn to settle")
+        # Wait for the terminal notification under one absolute deadline, so a
+        # follow-up `turn/start` cannot race the turn we just stopped.
+        try:
+            await asyncio.wait_for(self._turn_done.wait(), timeout=DRAIN_TIMEOUT)
+        except TimeoutError:
+            log.warning("codex did not settle after interrupt; restarting the app-server")
+            await self.channel.notice("warn", "the agent did not stop in time; reconnecting")
+            await self._restart()
+        return True
+
+    async def _restart(self) -> None:
+        """Rebuild the app-server connection, resuming the same thread."""
+        thread_id = self._thread_id
+        await self.close()
+        self._thread_id = thread_id
+        self._turn_id = None
+        self._turn_epoch += 1
+        self._turn_done.set()
+        await self.start()
+
+    async def apply_settings(
+        self, model: str | None, permission_mode: str | None, effort: str | None
+    ) -> None:
+        if model is not None:
+            self._model = model
+        if permission_mode is not None:
+            self._permission_mode = permission_mode
+        if effort is not None:
+            self._effort = effort
+
+    # ------------------------------------------------------- prompts to user
+
+    async def _on_request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        if method in APPROVAL_METHODS:
+            return await self._handle_approval(method, params)
+        if method == "item/tool/requestUserInput":
+            return await self._handle_question(params)
+        raise RcError("unsupported", f"unhandled codex request {method}")
+
+    async def _wait_for(self, request_id: str) -> dict[str, Any] | None:
+        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        self._pending[request_id] = future
+        try:
+            return await asyncio.wait_for(future, timeout=APPROVAL_TIMEOUT)
+        except TimeoutError:
+            return None
+        except asyncio.CancelledError:
+            if future.cancelled():
+                return None
+            raise
+        finally:
+            self._pending.pop(request_id, None)
+
+    async def _handle_approval(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        permission = method.endswith("permissions/requestApproval")
+        request_id = str(uuid.uuid4())
+        block_id = f"approval:{request_id}"
+        base: dict[str, Any] = {
+            "block_id": block_id,
+            "request_id": request_id,
+            "tool": "Permissions"
+            if permission
+            else ("Shell" if "commandExecution" in method else "Apply patch"),
+            "tool_kind": "other"
+            if permission
+            else ("shell" if "commandExecution" in method else "edit"),
+            "title": self._approval_title(method, params),
+            "input": {
+                key: params[key]
+                for key in ("command", "cwd", "reason", "grantRoot", "permissions")
+                if key in params
+            },
+            "options": _PERMISSION_OPTIONS if permission else _COMMAND_OPTIONS,
+        }
+        # A patch approval carries no patch of its own: the change was streamed
+        # as a fileChange item, so show that diff rather than an empty card.
+        item_id = str(params.get("itemId") or "")
+        if "fileChange" in method and item_id:
+            diff = self._translator.pending_diff(item_id)
+            if diff:
+                base["diff"] = diff
+                base["title"] = str(diff.get("path") or base["title"])
+        await self.channel.emit("approval", status="pending", **base)
+        await self.channel.set_state("needs_approval")
+        decision = await self._wait_for(request_id)
+        option_id = str(decision.get("option_id")) if decision else "decline"
+        allowed = {option["id"] for option in base["options"]}
+        if option_id not in allowed:
+            # An id we never advertised must never be read as consent.
+            log.warning("unknown approval option; declining", method=method)
+            option_id = "decline"
+        await self.channel.emit(
+            "approval",
+            status="resolved" if decision else "expired",
+            **({"decision": {"option_id": option_id, "by": "remote"}} if decision else {}),
+            **base,
+        )
+        await self.channel.set_state("running")
+        if permission:
+            accepted = option_id in {"accept", "acceptForSession"}
+            granted = params.get("permissions") if accepted else {}
+            return {
+                "permissions": granted or {},
+                "scope": "session" if option_id == "acceptForSession" else "turn",
+            }
+        return {"decision": option_id}
+
+    def _approval_title(self, method: str, params: dict[str, Any]) -> str:
+        if "commandExecution" in method:
+            command = params.get("command")
+            text = " ".join(command) if isinstance(command, list) else str(command or "")
+            return text.splitlines()[0][:200] if text else "run a command"
+        if "fileChange" in method:
+            return str(params.get("grantRoot") or "apply a patch")
+        return str(params.get("reason") or "additional permissions")
+
+    async def _handle_question(self, params: dict[str, Any]) -> dict[str, Any]:
+        request_id = str(uuid.uuid4())
+        block_id = f"question:{request_id}"
+        questions: list[dict[str, Any]] = []
+        for index, raw in enumerate((params.get("questions") or [])[:4]):
+            if not isinstance(raw, dict):
+                continue
+            options = [
+                {
+                    "id": f"o{position}",
+                    "label": str(option.get("label") or ""),
+                    "description": str(option.get("description") or ""),
+                }
+                for position, option in enumerate(raw.get("options") or [])
+                if isinstance(option, dict) and option.get("label")
+            ]
+            questions.append(
+                {
+                    "id": str(raw.get("id") or index),
+                    "prompt": str(raw.get("question") or raw.get("header") or ""),
+                    "options": options,
+                    "multi": False,
+                    "allow_text": bool(raw.get("isOther", True)),
+                    "secret": bool(raw.get("isSecret")),
+                }
+            )
+        base = {"block_id": block_id, "request_id": request_id, "questions": questions}
+        await self.channel.emit("question", status="pending", **base)
+        await self.channel.set_state("needs_input")
+        reply = await self._wait_for(request_id)
+        answers = (reply or {}).get("answers") or {}
+        await self.channel.emit(
+            "question",
+            status="resolved" if reply else "expired",
+            **({"answers": answers} if reply else {}),
+            **base,
+        )
+        await self.channel.set_state("running")
+        labels = {
+            question["id"]: {option["id"]: option["label"] for option in question["options"]}
+            for question in questions
+        }
+        payload: dict[str, Any] = {}
+        for key, value in answers.items():
+            chosen = value if isinstance(value, list) else [value]
+            by_id = labels.get(str(key), {})
+            payload[str(key)] = {"answers": [str(by_id.get(str(item), item)) for item in chosen]}
+        return {"answers": payload}
+
+    async def approve(self, request_id: str, option_id: str, message: str | None) -> bool:
+        future = self._pending.get(request_id)
+        if future is None or future.done():
+            return False
+        future.set_result({"option_id": option_id, "message": message})
+        return True
+
+    async def answer(self, request_id: str, answers: dict[str, Any]) -> bool:
+        future = self._pending.get(request_id)
+        if future is None or future.done():
+            return False
+        future.set_result({"answers": answers})
+        return True
