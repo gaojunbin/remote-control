@@ -6,17 +6,19 @@ anything installed on the VPS beyond this stack.
 ## Prerequisites
 
 - A Linux host with Docker and the Compose plugin.
-- Ports 80 and 443 reachable from the internet (443/udp as well, for HTTP/3).
-- A domain whose A or AAAA record points at the host, if you want automatic HTTPS.
-- About 600 MB of memory for the two containers, more if you enable the local speech-to-text
-  profile, which downloads and runs a Whisper model.
+- A reverse proxy you run and configure yourself. The stack contains no TLS terminator: it only
+  publishes the gateway on a host port. Nginx Proxy Manager, Traefik and plain nginx all work; see
+  [Reverse proxy](#reverse-proxy).
+- A domain whose A or AAAA record points at the host, so that proxy can get a certificate.
+- About 512 MB of memory for the gateway, more if you enable the local speech-to-text profile,
+  which downloads and runs a Whisper model.
 
 ## First deployment
 
 ```sh
 git clone <this repository> remote-control && cd remote-control
 cp .env.example .env
-$EDITOR .env          # set PUBLIC_ORIGIN, DOMAIN and RC_PASSWORD
+$EDITOR .env          # set PUBLIC_ORIGIN and RC_PASSWORD
 docker compose up -d
 docker compose logs -f gateway
 ```
@@ -25,14 +27,21 @@ The first run builds three stages: the web app with `npm ci && npm run build`, t
 with `uv build`, and the Python service itself. Expect several minutes. A healthy start logs
 `gateway ready` with the origin, the speech-to-text provider and whether push is enabled.
 
-Verify:
+Verify on the host first, straight against the published port:
 
 ```sh
-curl https://rc.example.com/api/health
+curl http://127.0.0.1:8787/api/health
 # {"ok":true,"version":"0.1.0","protocol":1,"auth":{"mode":"password"},"devices_online":0}
 ```
 
-Then open the origin in a browser, sign in with `RC_PASSWORD`, and add your first device from
+Then point your reverse proxy at that port, following [Reverse proxy](#reverse-proxy), and repeat
+the check through the public hostname:
+
+```sh
+curl https://rc.example.com/api/health
+```
+
+Open the origin in a browser, sign in with `RC_PASSWORD`, and add your first device from
 **Devices → Add device**.
 
 ## `.env` reference
@@ -44,7 +53,8 @@ names the missing one.
 | --- | --- | --- |
 | `PUBLIC_ORIGIN` | — | **Required.** The exact origin apps use, `scheme://host[:port]`, no path and no trailing slash. Checked against the browser's `Origin` header on cookie-authenticated writes, and baked into the pairing command served at `/install.sh` |
 | `RC_PASSWORD` | — | **Required.** The login password for the single user `admin`. Use a long random value |
-| `DOMAIN` | `rc.example.com` | The name Caddy provisions a certificate for. Leave empty to serve plain HTTP on port 80 instead |
+| `GATEWAY_PORT` | `8787` | The host port compose publishes the gateway on. Your reverse proxy forwards here |
+| `GATEWAY_BIND` | `0.0.0.0` | The host address that port binds to. A proxy running as a container reaches the host over the Docker bridge, so loopback only works when the proxy is on the host network |
 | `RC_SECRET` | generated | Signs login tokens. Left empty, one is generated into `DATA_DIR` on first start. Set it explicitly to pin the signing key instead of depending on a file inside the volume |
 | `DATA_DIR` | `/data` | Where SQLite databases and generated keys live. Backed by the `rc-data` volume |
 | `STT_PROVIDER` | `none` | `none` disables voice input. `openai` targets any OpenAI-compatible transcription server |
@@ -58,7 +68,7 @@ names the missing one.
 | `APNS_TOPIC` | `com.junbingao.remotecontrol` | The app's bundle id |
 | `APNS_ENVIRONMENT` | `production` | `production` or `sandbox`. Debug builds register sandbox tokens |
 | `WEB_PUSH_CONTACT` | `mailto:admin@example.com` | The VAPID `sub` claim. Set it to enable Web Push; the key pair is generated into `DATA_DIR` on first start. Empty disables Web Push |
-| `TRUSTED_PROXIES` | `127.0.0.0/8,::1/128` | Comma-separated CIDR networks whose `X-Forwarded-For` the gateway believes |
+| `TRUSTED_PROXIES` | `127.0.0.0/8,::1/128` | Comma-separated CIDR networks whose `X-Forwarded-For` the gateway believes. Must list your proxy's source address as the gateway sees it |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warning` or `error` |
 
 Five more variables exist for running outside compose and are set by the image: `RC_HOST`
@@ -69,30 +79,67 @@ them; `RC_HOST` and `RC_PORT` are useful when another process already holds 8787
 All four APNs values must be present for APNs to be enabled. An unreadable key path is logged as
 `APNs disabled: signing key not found` and the gateway starts anyway.
 
-## TLS
+## Reverse proxy
 
-**With a domain.** Set `DOMAIN` and Caddy provisions a Let's Encrypt certificate on first request
-and renews it. `PUBLIC_ORIGIN` must be the `https://` form of the same name. Nothing else to do.
+The stack terminates nothing. It publishes the gateway on `GATEWAY_BIND:GATEWAY_PORT` and you put
+your own proxy in front to own the hostname, the certificate and the HTTP to HTTPS redirect.
 
-Automatic HTTPS has not been exercised: validation ran with an empty `DOMAIN` throughout, so
-only plain HTTP on port 80 has been tested.
+**Nginx Proxy Manager.** Create a Proxy Host:
 
-**Without one.** Leave `DOMAIN` empty. Compose turns that into the site address `:80` and Caddy
-serves plain HTTP. Set `PUBLIC_ORIGIN` to the `http://` address apps will actually use. This is only
-appropriate on a LAN, behind another proxy that terminates TLS, or for a local test: the login
-password and the bearer token cross the wire in the clear otherwise. The device installer refuses a
-plain-HTTP gateway that is not loopback or an RFC 1918 address, so a public host must be https.
+| Field | Value |
+| --- | --- |
+| Domain Names | your public hostname, e.g. `rc.example.com` |
+| Scheme | `http` |
+| Forward Hostname / IP | the address the proxy can reach the VPS on: the host's IP, `host.docker.internal`, or the Docker bridge gateway (often `172.17.0.1`) when the proxy is itself a container |
+| Forward Port | `GATEWAY_PORT`, `8787` by default |
+| Websockets Support | **on** — without it `/ws/app`, `/ws/device` and `/ws/stt` never upgrade and nothing streams |
+| Block Common Exploits | on, harmless here |
+| SSL | request a certificate, then enable **Force SSL** and **HTTP/2 Support** |
 
-**Behind your own proxy.** Point it at the `caddy` container or replace `caddy` in the compose file
-with your own front end, then add your proxy's address to `TRUSTED_PROXIES`. Make sure it
-*replaces* `X-Forwarded-For` rather than appending: a proxy that appends lets a caller pick the
-first element and therefore its own rate-limit bucket. Whatever front end you use, it must forward
-WebSocket upgrades for `/ws/app`, `/ws/device` and `/ws/stt`.
+In the host's **Advanced** tab add:
 
-The bundled `deploy/Caddyfile` also sets HSTS, a content security policy, `X-Frame-Options: DENY`,
-`nosniff`, `no-referrer`, a permissions policy that keeps the microphone available, a 4 KB body cap
-on `/api/login` and an 80 MB cap elsewhere for attachments, and `no-store` on the SPA shell so a
-deploy never leaves a stale `index.html` pointing at assets that no longer exist.
+```nginx
+client_max_body_size 80m;
+```
+
+nginx defaults to 1 MB, which is smaller than a single dictated audio upload: the gateway accepts
+25 MiB on `/api/stt/transcribe`. 80 MB leaves headroom. Note that it does not bound `session.send`
+attachments — the protocol's eight 6 MiB attachments travel as WebSocket frames after the upgrade,
+which `client_max_body_size` does not apply to; the gateway caps those itself at 72 MiB.
+
+Nothing else is needed: the gateway pings every WebSocket every 25 seconds, so nginx's default
+60 second `proxy_read_timeout` never fires on an idle session.
+
+**Then, in `.env`:**
+
+- Set `PUBLIC_ORIGIN` to the `https://` origin the browser will show, no path and no trailing slash.
+  A mismatch down to the scheme or port makes the browser's login return 403.
+- Put the proxy's source network in `TRUSTED_PROXIES`, as the gateway sees it. A proxy on the host
+  network is loopback or the host address; a containerised proxy arrives from its Docker network
+  subnet, which `docker network inspect <network>` prints. `172.16.0.0/12` covers the default bridge
+  ranges. Make sure the proxy *replaces* `X-Forwarded-For` rather than appending: a proxy that
+  appends lets a caller pick the first element and therefore its own rate-limit bucket. Nginx Proxy
+  Manager replaces it.
+
+**Security headers.** The gateway sets them itself on every HTTP response: a content security
+policy, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
+a permissions policy that keeps the microphone available for the composer, and HSTS whenever
+`PUBLIC_ORIGIN` is `https://`. It sends no `Server` banner. Do not add a second, conflicting
+content security policy in the proxy; the browser enforces the intersection of both and the app
+will break in ways that are hard to read.
+
+**Body limits and caching** are the gateway's job too. `/api/login` accepts 4 KB, the device and
+push routes 16 KB, and an audio upload 25 MiB; the SPA shell, the service worker and the manifest
+are served `no-store` so a deploy never leaves a stale `index.html` pointing at assets that no
+longer exist.
+
+**Any other proxy** needs the same four things: forward to the published port, forward WebSocket
+upgrades, raise the body limit, and replace `X-Forwarded-For`.
+
+**Plain HTTP** is only appropriate on a LAN, on loopback, or for a local test: the login password
+and the bearer token cross the wire in the clear otherwise. Set `PUBLIC_ORIGIN` to the `http://`
+address apps will actually use. The device installer refuses a plain-HTTP gateway that is not
+loopback or an RFC 1918 address, so a publicly reachable host must be https.
 
 ## Lifecycle
 
@@ -100,7 +147,6 @@ deploy never leaves a stale `index.html` pointing at assets that no longer exist
 docker compose up -d                      # build if needed, then start
 docker compose ps                         # gateway should be "healthy"
 docker compose logs -f gateway            # structured JSON to stderr
-docker compose logs -f caddy              # certificate provisioning lives here
 docker compose restart gateway
 docker compose down                       # stop, keep the volumes
 docker compose down -v                    # stop and DELETE the volumes
@@ -200,13 +246,15 @@ to `HEAD`.
 | Container exits immediately | `rc-gateway: DATA_DIR /data is not writable` | The volume is owned by the wrong uid; the image runs as 10001 |
 | Login works in the app, fails in the browser | 403 on `/api/login` | `PUBLIC_ORIGIN` does not match the origin the browser actually used, down to scheme and port |
 | Login returns 429 | `login rate limited` | Five attempts per minute per IP. Wait, and check `TRUSTED_PROXIES` if everyone shares one bucket |
-| No certificate | `docker compose logs caddy` | The A/AAAA record does not point here, or port 80 is blocked. Caddy needs both 80 and 443 |
+| The hostname does not answer | `curl http://127.0.0.1:8787/api/health` on the host | If that works, the fault is in your reverse proxy: wrong forward host or port, or the container cannot reach `GATEWAY_BIND` |
+| Everything loads but nothing streams | no `app connected` line | Websockets Support is off in the proxy host, so the `/ws/*` upgrade never reaches the gateway |
 | Install one-liner 404s | `install script missing` | The image was built with `--target gateway` instead of `release`; rebuild with `docker compose build` |
 | Device never appears | `device connected` absent | The daemon cannot reach the origin, or its token was revoked. Check `rc-client status` on the machine |
 | A new device brings in old terminal sessions | none | Expected: a freshly enrolled machine mirrors its recent Claude and Codex transcripts, capped at 50 sessions from the last 14 days. Narrow it with `[mirror] max_sessions` and `max_age_days` in the device's `config.toml`, described in `docs/CLIENT.md` |
-| Device flaps | `device disconnected` every few minutes | A proxy in front is timing out idle WebSockets; the gateway pings every 25 s, so allow at least 60 s |
+| Device flaps | `device disconnected` every few minutes | The proxy is timing out idle WebSockets; the gateway pings every 25 s, so allow at least 60 s. nginx's 60 s default is enough |
 | Sessions listed but every action fails | `device_offline` replies | The daemon is not connected; the index still shows its last known summaries |
 | Voice button missing | `GET /api/config` shows `stt.enabled: false` | `STT_PROVIDER` is `none` |
+| Upload rejected with 413 | nginx returns it before the gateway logs anything | `client_max_body_size` is still at nginx's 1 MB default; set it to `80m` in the proxy host's Advanced tab |
 | Dictation fails mid-utterance | `stt backend unreachable` or `stt backend rejected the request` | Wrong `STT_BASE_URL`, missing `STT_API_KEY`, or an unknown `STT_MODEL` |
 | Browser notifications never arrive | `web push delivery failed` | Subscriptions were created against a different VAPID key; unsubscribe and subscribe again |
 | iPhone notifications never arrive | `apns delivery abandoned` | Wrong topic, wrong environment, or an expired key |

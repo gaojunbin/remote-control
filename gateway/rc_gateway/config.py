@@ -80,8 +80,12 @@ class Config:
     trusted_proxy_networks: tuple[str, ...] = field(default=DEFAULT_TRUSTED_PROXIES)
 
     @property
-    def secure_cookie(self) -> bool:
+    def https_origin(self) -> bool:
         return self.public_origin.startswith("https://")
+
+    @property
+    def secure_cookie(self) -> bool:
+        return self.https_origin
 
     @property
     def web_push_enabled(self) -> bool:

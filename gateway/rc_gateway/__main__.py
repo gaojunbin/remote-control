@@ -27,6 +27,8 @@ def main() -> int:
         access_log=False,
         ws_max_size=WS_MAX_MESSAGE_BYTES,
         proxy_headers=False,
+        # The gateway advertises no version banner; SecurityHeaders sets the rest.
+        server_header=False,
     )
     return 0
 

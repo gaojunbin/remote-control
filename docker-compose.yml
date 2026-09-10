@@ -1,11 +1,12 @@
-# remote-control stack: gateway + TLS proxy, with an optional local speech-to-text service.
+# remote-control stack: the gateway, plus an optional local speech-to-text service.
 #
-#   cp .env.example .env      # then set PUBLIC_ORIGIN, DOMAIN and RC_PASSWORD
+#   cp .env.example .env      # then set PUBLIC_ORIGIN and RC_PASSWORD
 #   docker compose up -d
 #
-# Only PUBLIC_ORIGIN and RC_PASSWORD are required; DOMAIN is optional and switches Caddy between
-# automatic HTTPS and plain HTTP on port 80. The gateway is not published on the host: Caddy is the
-# only way in.
+# PUBLIC_ORIGIN and RC_PASSWORD are the only required values. The stack ships no TLS proxy: it
+# publishes the gateway on GATEWAY_BIND:GATEWAY_PORT and the operator's own reverse proxy owns the
+# public hostname, the certificate and the HTTP to HTTPS redirect. The gateway sets its own security
+# headers, so nothing is lost by not having one in the stack. See docs/DEPLOY.md.
 
 services:
   gateway:
@@ -19,8 +20,10 @@ services:
     env_file: .env
     environment:
       DATA_DIR: /data
-    expose:
-      - "8787"
+    ports:
+      # A proxy running as a container reaches this through the Docker bridge, so 0.0.0.0 is the
+      # default; see GATEWAY_BIND in .env.example before narrowing it.
+      - "${GATEWAY_BIND:-0.0.0.0}:${GATEWAY_PORT:-8787}:8787"
     # The image already drops to uid 10001; this is the outer layer. /data stays writable, and
     # /tmp is a tmpfs because Starlette spools a large upload there before the size cap trips.
     read_only: true
@@ -48,36 +51,6 @@ services:
       retries: 3
       start_period: 15s
 
-  caddy:
-    image: caddy:2-alpine
-    container_name: rc-caddy
-    restart: unless-stopped
-    depends_on:
-      gateway:
-        condition: service_started
-    environment:
-      # Compose resolves an empty DOMAIN to the plain-HTTP site address; Caddy cannot do that
-      # itself because its default only applies to a variable that is not set at all.
-      CADDY_SITE_ADDRESS: ${DOMAIN:-:80}
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    # Caddy keeps NET_BIND_SERVICE so it can take 80 and 443, and needs a writable /data for
-    # the certificates it provisions.
-    cap_drop:
-      - ALL
-    cap_add:
-      - NET_BIND_SERVICE
-    security_opt:
-      - no-new-privileges:true
-    pids_limit: 128
-    mem_limit: 256m
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-
   # Optional: an OpenAI-compatible Whisper server on the internal network, so voice input never
   # leaves the VPS. Start it with `docker compose --profile local-stt up -d` and set
   #   STT_PROVIDER=openai
@@ -98,6 +71,4 @@ services:
 
 volumes:
   rc-data:
-  caddy-data:
-  caddy-config:
   stt-models:

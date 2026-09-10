@@ -23,8 +23,8 @@ Files in `rc_gateway/` that contain adapted upstream code, with their origin:
 | `apns.py` | `cc_remote/relay/native_push.py` | ES256 provider-token cache, the documented APNs failure reasons, and the logging filters that keep device tokens and HPACK header blocks out of the log |
 | `logging.py` | `cc_remote/relay/log_safety.py` | Fail-closed credential redaction applied before any handler formats a record |
 
-Deployment files in `deploy/`, `gateway/Dockerfile` and the root `docker-compose.yml` follow the
-structure of upstream's `deploy/Caddyfile`, `deploy/Dockerfile` and `deploy/docker-compose.yml`.
+`gateway/Dockerfile` and the root `docker-compose.yml` follow the structure of upstream's
+`deploy/Dockerfile` and `deploy/docker-compose.yml`.
 
 ### MIT License
 

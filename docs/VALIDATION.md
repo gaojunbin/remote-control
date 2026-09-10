@@ -112,26 +112,33 @@ on the next scan; a client should not treat the first post-restart snapshot as f
 
 ## 7. Docker stack
 
-`docker compose build` from the repository root built all three stages, including `npm ci` and
-`npm run build` for the web app and `uv build` for the client wheel. Image `rc-gateway:latest`,
-269 MB. `docker compose up -d` with `PUBLIC_ORIGIN=http://127.0.0.1`, empty `DOMAIN` and an
-`RC_PASSWORD` brought up gateway (healthy) and Caddy on 80/443.
+The stack ships no reverse proxy. `docker-compose.yml` defines one non-profile service, `gateway`,
+published on `GATEWAY_BIND:GATEWAY_PORT`; TLS and the public hostname belong to whatever proxy the
+operator runs. This section was re-run on 2026-09-10 after that change, with a scratch root `.env`
+copied from `.env.example` and `PUBLIC_ORIGIN=http://127.0.0.1:18787`, `GATEWAY_PORT=18787`,
+`GATEWAY_BIND=127.0.0.1`.
 
-| Check through Caddy on `http://127.0.0.1` | Result |
+`docker compose config --services` printed exactly `gateway`; the `stt` service stayed behind its
+`local-stt` profile and the only volume left is `rc-data`. `docker compose up -d --build` rebuilt
+all three stages (`npm ci && npm run build`, `uv build`, the service) into `rc-gateway:latest`,
+269 MB, and `docker compose ps` reported `healthy` with `127.0.0.1:18787->8787/tcp`.
+
+| Check on the published port | Result |
 | --- | --- |
-| `GET /api/health` | `{"ok":true,"version":"0.1.0","protocol":1,…}` |
-| `POST /api/login` | 200 |
-| `GET /install.sh` | 5171 bytes with the origin substituted |
-| `GET /dist/rc_client-latest.whl` | 200, a valid 75942-byte wheel with 48 entries |
-| `GET /` | the built web app, with CSP, HSTS, `X-Frame-Options: DENY`, `nosniff`, `no-referrer` |
-| Served installer, end to end | uv, venv, wheel download, install, enrol, agents detected |
-| Re-redeeming the spent pairing code | 409, as PROTOCOL section 2 requires |
-| One remote Claude turn through the container | `turn_completed` with `stop_reason: "completed"`, reply "OK" |
-| A5 through Caddy | every `session.event` on the wire carried the device's UUID |
+| `GET /api/health` | `{"ok":true,"version":"0.1.0","protocol":1,"auth":{"mode":"password"},"devices_online":0}` |
+| Security headers on that response | CSP, `x-content-type-options: nosniff`, `x-frame-options: DENY`, `referrer-policy: no-referrer`, `permissions-policy: … microphone=(self) …`, all from the gateway itself |
+| `server:` response header | absent — uvicorn runs with `server_header=False` |
+| `strict-transport-security` | absent, correctly: `PUBLIC_ORIGIN` is `http://` |
+| `GET /` | 200, the built web app, `cache-control: no-store, must-revalidate` |
+| `GET /index.html`, `/sw.js`, `/manifest.webmanifest` | 200 each, all `no-store, must-revalidate` |
+| `WS /ws/app` with no credential | upgrade accepted (HTTP 101) through the published port, then closed `4401 unauthorized`, as PROTOCOL section 4 requires |
 
-The device and app WebSockets both ran through Caddy (`ws://127.0.0.1/ws/device`, `/ws/app`).
-Teardown with `docker compose down -v` removed the containers and volumes; the scratch `.env` was
-deleted afterwards.
+Teardown with `docker compose down -v` removed the container, the volume and the network; the
+scratch `.env` was deleted afterwards.
+
+The earlier pass had driven the served installer, a pairing redemption and one live Claude turn
+through the bundled proxy. That proxy no longer exists and those rows were **not** repeated against
+the published port, so they are not claimed here.
 
 ## 8. Amendments and device isolation
 
@@ -152,8 +159,7 @@ by an HTTP 403 on the upgrade.
 ### A5 — `device_id` on forwarded session frames
 
 Every `session.event` the gateway pushes carries the device identity derived from the socket, never
-one the frame claimed. Confirmed on the source gateway (8 of 8 events in a turn) and through Caddy
-in the container.
+one the frame claimed. Confirmed on the source gateway, 8 of 8 events in a turn.
 
 ### A6 — queue snapshot on subscribe
 
@@ -318,7 +324,9 @@ Two further hardening changes:
   APNs message was delivered to a real endpoint.
 - **Linux.** Only macOS was exercised; the systemd unit and `service install` were never run.
 - **`rc-client service install`.** Deliberately skipped so this machine gets no launchd agent.
-- **TLS.** Caddy ran with an empty `DOMAIN`, so only plain HTTP on port 80 was tested.
+- **TLS and the reverse proxy.** Everything ran over plain HTTP on the published port. No proxy
+  terminated TLS in front of the gateway, so HSTS, the Nginx Proxy Manager recipe in
+  `docs/DEPLOY.md` and `TRUSTED_PROXIES` against a non-loopback proxy are untested end to end.
 
 ## 11. Observations, not defects
 
@@ -392,7 +400,8 @@ Then, as an app on `WS /ws/app` with `Authorization: Bearer <token>`:
 10. Upgrade path: start the gateway against a `DATA_DIR` from an older build and enrol a device.
     A fresh volume hides every schema regression, so this is the check that matters before a
     release. Keep a copy of an old `DATA_DIR` for it.
-11. Docker: write a root `.env` with `PUBLIC_ORIGIN=http://127.0.0.1`, an empty `DOMAIN` and an
-    `RC_PASSWORD`, then `docker compose build && docker compose up -d`. Check
-    `GET http://127.0.0.1/api/health`, install a device with the one-liner from
-    `POST /api/devices/pairing`, run one turn, then `docker compose down -v` and delete the `.env`.
+11. Docker: write a root `.env` with `PUBLIC_ORIGIN=http://127.0.0.1:18787`, `GATEWAY_PORT=18787`,
+    `GATEWAY_BIND=127.0.0.1` and an `RC_PASSWORD`, then `docker compose build && docker compose up
+    -d`. Check `GET http://127.0.0.1:18787/api/health` and its security headers, install a device
+    with the one-liner from `POST /api/devices/pairing`, run one turn, then `docker compose down -v`
+    and delete the `.env`.

@@ -89,7 +89,9 @@ docker build -f gateway/Dockerfile --target gateway -t rc-gateway .   # from the
 docker compose up -d                                                   # the whole stack
 ```
 
-Compose runs the gateway behind Caddy and reads the repository root `.env`; see `deploy/Caddyfile`
-for the TLS and security-header configuration and `.env.example` for every setting.
+Compose reads the repository root `.env` and publishes the gateway on `GATEWAY_BIND:GATEWAY_PORT`;
+it ships no TLS terminator, so the operator's own reverse proxy owns the public hostname. The
+gateway sets its security headers itself, in `rc_gateway/headers.py`. See `.env.example` for every
+setting and `docs/DEPLOY.md` for the proxy configuration.
 
 Code lifted from cc-remote is credited in `THIRD_PARTY_NOTICES.md`.

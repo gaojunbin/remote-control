@@ -21,6 +21,7 @@ from .apns import ApnsProvider
 from .auth_store import AuthSessionStore
 from .config import Config, load_config
 from .devices import DeviceStore
+from .headers import SecurityHeaders
 from .hub import Hub
 from .index import SessionIndex
 from .logging import logger
@@ -136,6 +137,10 @@ def create_app(state: GatewayState | None = None) -> FastAPI:
         paths=(stt_routes.UPLOAD_PATH,),
         max_bytes=stt_routes.MAX_UPLOAD_BYTES,
     )
+
+    # Outermost, so the headers also reach the responses the middleware above writes itself. The
+    # stack ships no reverse proxy, so nothing else would add them.
+    app.add_middleware(SecurityHeaders, hsts=resolved.config.https_origin)
 
     app.add_exception_handler(HTTPException, _http_error)
     app.add_exception_handler(RequestValidationError, _validation_error)

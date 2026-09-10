@@ -14,7 +14,7 @@ never runs an agent.
 ```
       apps                        gateway (your VPS)                 developer machines
  ┌───────────┐             ┌───────────────────────────┐         ┌─────────────────────┐
- │  web app  │──┐          │  Caddy         :80 :443   │      ┌──│ rc-client daemon    │
+ │  web app  │──┐          │  your reverse proxy  :443 │      ┌──│ rc-client daemon    │
  └───────────┘  │          ├───────────────────────────┤      │  │   claude  (SDK)     │
                 │          │  rc_gateway         :8787 │      │  │   codex   (JSON-RPC)│
                 ├─────────►│  auth · devices · index   │◄─────┤  └─────────────────────┘
@@ -40,28 +40,30 @@ contract is `protocol/PROTOCOL.md`, and it is normative for all four components.
 | `client/` | `rc-client`, the device daemon and its installer. Python 3.12, `claude-agent-sdk`, Codex app-server |
 | `web/` | The browser app. React 19, Vite, TypeScript, hand-written CSS |
 | `ios/` | The iPhone app. SwiftUI, iOS 17+, xcodegen, no third-party dependencies |
-| `deploy/` | `Caddyfile` for TLS termination and security headers |
 | `docs/` | The documentation you are reading |
 | `web-moke/` | The three prototype screenshots the UI was built against |
 | `docker-compose.yml`, `.env.example` | The one-command stack and every setting it takes |
 
 ## Quick start on a VPS
 
-Prerequisites: Docker with the Compose plugin, a domain whose A/AAAA record points at the host, and
-ports 80 and 443 reachable.
+Prerequisites: Docker with the Compose plugin, and a reverse proxy you run yourself — Nginx Proxy
+Manager, Traefik, plain nginx — holding the public hostname and its certificate. The stack publishes the
+gateway on one host port and nothing else; see [docs/DEPLOY.md](docs/DEPLOY.md#reverse-proxy).
 
 ```sh
 git clone <this repository> remote-control && cd remote-control
 cp .env.example .env
 ```
 
-Edit `.env` and set three values:
+Edit `.env` and set two values:
 
 ```sh
 PUBLIC_ORIGIN=https://rc.example.com   # the exact origin apps will use, no trailing slash
-DOMAIN=rc.example.com                  # Caddy provisions a certificate for this name
 RC_PASSWORD=<a long random password>   # the login password for the single user "admin"
 ```
+
+`GATEWAY_PORT` (`8787`) and `GATEWAY_BIND` (`0.0.0.0`) decide where the stack publishes the gateway;
+point your proxy at that address and put its own source network in `TRUSTED_PROXIES`.
 
 Then bring the stack up and open the web UI:
 
@@ -201,7 +203,8 @@ not apply to them; project and local settings do. Change it with `[claude] setti
   interactive CLI that the harness could not hold open.
 - **Linux.** Only macOS was exercised. The systemd unit and `rc-client service install` have not
   been run anywhere.
-- **TLS.** Caddy was only exercised with an empty `DOMAIN`, serving plain HTTP on :80.
+- **TLS.** The stack was only exercised over plain HTTP on the published port. No reverse proxy,
+  certificate or HSTS response was in front of it during validation.
 - **iOS beyond four smoke tests.** Sign-in, a real session, Devices and Settings ran against a live
   gateway. New session, add device, the directory picker, voice and push were exercised only by the
   offline demo suite, and there was no physical device, no dark mode, no VoiceOver, no CI run and no
