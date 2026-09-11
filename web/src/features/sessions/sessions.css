@@ -48,9 +48,12 @@
 
 /* Rows are parted by their own fixed height, never by a rule between them. */
 .session-row {
+  position: relative;
   display: flex;
   align-items: center;
   height: var(--row-h);
+  /* The gutter the archive action sits in, reserved by every row. */
+  padding-right: 40px;
   transition: background var(--dur-fast) var(--ease);
 }
 
@@ -124,8 +127,15 @@
   color: var(--ink-tertiary);
 }
 
+/*
+ * The action sits in the gutter every row reserves, so a row that offers no
+ * archive still ends its meta column in the same place as the row above it.
+ */
 .session-archive {
-  margin-right: var(--sp-3);
+  position: absolute;
+  right: var(--sp-3);
+  top: 50%;
+  transform: translateY(-50%);
   opacity: 0;
 }
 

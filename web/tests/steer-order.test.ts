@@ -102,7 +102,7 @@ const turnCompleted = (seq: number): SessionEvent =>
   ({ seq, ts: 1_000 + seq, kind: 'turn_completed', turn_id: 't-1', stop_reason: 'completed' }) as SessionEvent;
 
 const chat = () => useChat.getState().sessions[KEY];
-const roots = () => selectView(chat()?.timeline ?? { order: [], items: {}, lastSeq: 0, oldestSeq: null, optimistic: [] }).roots;
+const roots = () => selectView(chat()?.timeline ?? { order: [], items: {}, lastSeq: 0, oldestSeq: null, optimistic: [] }, 'detailed').roots;
 const lastRow = () => roots().at(-1);
 
 /** Runs `open()` and hands back the subscribe handlers the store registered. */

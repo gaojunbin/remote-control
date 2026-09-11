@@ -2,6 +2,8 @@
  * Single English string catalog. Keep every user-visible string here so the app
  * can be localised later without touching components.
  */
+import type { TimelineDetail } from './stores/timeline';
+
 export const strings = {
   productName: 'Remote Control',
 
@@ -109,7 +111,6 @@ export const strings = {
     allAgents: 'All',
     agentFilter: 'Filter by agent',
     archive: 'Archive',
-    unarchive: 'Unarchive',
     archiveGroup: (n: number) => `Archive · ${n}`,
     archived: 'Archived',
     deviceOffline: 'Device offline',
@@ -157,7 +158,7 @@ export const strings = {
     stopping: 'Stopping…',
     takeOver: 'Take over',
     backToLatest: 'Back to latest',
-    newUpdates: (n: number) => `${n} ${n === 1 ? 'update' : 'updates'}`,
+    newUpdates: (n: number) => `${n} new`,
     loadingHistory: 'Loading earlier messages…',
     historyStart: 'Start of the conversation',
     thoughtFor: (s: string) => `Thought for ${s}`,
@@ -268,6 +269,10 @@ export const strings = {
     voice: 'Voice',
     voiceLanguage: 'Default language',
     voiceServerDisabled: 'Speech-to-text is not configured on this gateway.',
+    timeline: 'Timeline',
+    timelineDetail: 'Detail',
+    timelineDetailNote:
+      'Simple shows only what is written to you. Detailed adds thinking, tool calls and the task list.',
     about: 'About',
     gatewayVersion: 'Gateway version',
     protocolVersion: 'Protocol',
@@ -392,4 +397,14 @@ export const languageLabels: Record<string, string> = {
 
 export function languageLabel(code: string): string {
   return languageLabels[code] ?? code.toUpperCase();
+}
+
+/** The two timeline detail levels, in the order Settings offers them. */
+export const timelineDetailLabels: Record<TimelineDetail, string> = {
+  simple: 'Simple',
+  detailed: 'Detailed',
+};
+
+export function timelineDetailLabel(detail: TimelineDetail): string {
+  return timelineDetailLabels[detail];
 }

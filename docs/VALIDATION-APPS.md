@@ -273,6 +273,77 @@ cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
 Not verified in this pass: dictation against a real gateway STT backend and a real microphone, and
 a segment rollover in a browser (the mock's utterance is shorter than the 30 s cut).
 
+### Round 8 — the way back down, whenever the reader is away
+
+2026-09-12, in the installed Google Chrome driven by `playwright-core` against the bundled mock
+(`npm run dev:mock`), at 1280 px and 400 px. App-side only, no protocol change: the jump-to-latest
+control now appears as soon as the timeline stops following the tail instead of only when something
+arrived while the reader was away, so paging up through history has a way back down too. It is the
+phone's control — a 36 px round button in the bottom-right corner of the transcript above the
+composer, lifted by `--shadow-pop` and carrying no border, which widens into an 81 px capsule
+reading `1 new` or `2 new` once blocks land while the reader is away; "Back to latest" moved into
+the `aria-label` and the `title`, the count joining the name when there is one. Measured in the
+browser at both widths: 36 × 36 px round, 81 × 36 px with a count, 20 px in from the right edge.
+`tests/Timeline.test.tsx` is new and covers five states: absent while following, on screen with no
+count after the reader scrolls away, the count after a block lands, a click that returns to the tail
+and clears both, and an older history page that keeps the control on screen without counting itself.
+Screenshots under `…/scratchpad/web-jump/` as `before-*` and `after-*` (`away`, `counted`,
+`counted-many` and the zoom crops); run artefacts, not checked into the repository.
+
+```
+cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
+→ 24 files / 270 tests passed, tsc clean, eslint clean, built in 2.37 s
+```
+
+Motion was read off the rendered element: the 150 ms opacity-and-scale entrance computes to
+`back-to-latest-in` normally and to `none` under `prefers-reduced-motion: reduce`, the shadow and the
+borderless white surface unchanged. Not verified in this pass: a real gateway and device, since this
+ran against the mock.
+
+### Round 10 — two levels of detail, and one kind of row that can be archived
+
+2026-09-12, in the installed Google Chrome driven by `playwright-core` against the bundled mock
+(`npm run dev:mock`) at 1280 px and 400 px. App-side only, nothing on the wire. The timeline has a
+detail level, the rule in `docs/DESIGN.md` § "The timeline": `timelineDetail` sits beside the other
+preferences in `stores/settings.ts` (persisted in `rc.settings`, default `simple`, no migration
+needed), Settings gained a **Timeline** group with a **Detail** control and the explanation as a
+footnote, and `selectView(state, detail)` is the one place the filter lives. Simple drops thinking
+and every tool call along with what is nested under them, except an approval or a question, which
+comes up to the top level because a card waiting on an answer is never hidden; `ChatHeader` hides
+the Todos chip; `Timeline` passes the drawn rows to `useScrollFollow`, so the jump-to-latest count
+counts only what the level draws, and a level change is a redraw that counts nothing and moves no
+anchor. Counted on the rendered page at 1280 px, same transcript, same approval: Simple drew 0 tool
+rows, 0 thinking rows and no Todos chip; Detailed drew 5, 1 and the chip. The end-of-turn rule
+needed no change — the reducer already drops `turn_started` and a `turn_completed` that simply
+finished, at both levels.
+
+The same round moved the archive action to one kind of row (`docs/DESIGN.md` § "Session lists"):
+`SessionRow` offers it only when `control === "remote"` and the row is not archived, and the
+unarchive branch and its string are gone. Measured on the page, the rows offering it were exactly
+the remote, unarchived ones; every row's meta column still ends in the same place, 60 px from the
+row's right edge at 1280 px and 56 px at 400 px, because the row now reserves the gutter the action
+sits in, and the row heights are unchanged at 64 px and 96 px.
+
+New tests: `tests/SettingsPage.test.tsx` (the default is Simple before anything renders, the group
+and its explanation, the level the reader picks reaches the store); five cases in `tests/timeline.test.ts`
+for the selector at both levels, the promoted approval, the sub-agent text that goes with its tool
+row, an unconfirmed send at both levels, and the end-of-turn rule; three in `tests/Timeline.test.tsx`
+for a tool-call burst counting nothing at Simple, one per block at Detailed, and the count starting
+again on a level change; two in `tests/useScrollFollow.test.tsx` for the redraw; four in
+`tests/SessionsPage.test.tsx` for the three archive cases and the request the button sends.
+Screenshots under `…/scratchpad/web-jump/`: `round10-chat-simple-1280.png`,
+`round10-chat-detailed-1280.png`, `round10-settings-1280.png`, `round10-sessions-1280.png`,
+`round10-sessions-400.png`. Run artefacts, not checked into the repository.
+
+```
+cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
+→ 25 files / 287 tests passed, tsc clean, eslint clean, built in 1.32 s
+```
+
+Not verified in this pass: a real gateway and device; and the level was switched from the Settings
+page rather than under an open chat in the browser, because the web app puts Settings on its own
+route — the live re-render of an open timeline rests on `tests/Timeline.test.tsx`.
+
 ## 2. iOS, in the simulator, against the same gateway
 
 `ios/UITests/RealGatewaySmokeTests.swift` is new. It skips unless the runner is given a gateway, so

@@ -13,6 +13,7 @@ import {
   replaceBlock,
   selectView,
   type OptimisticBlock,
+  type TimelineState,
 } from '../src/stores/timeline';
 import type { SessionEvent } from '../src/protocol/types';
 import { fixturesAvailable, readFixture } from './fixtures';
@@ -157,7 +158,7 @@ describe('timeline reducer', () => {
       text: 'sub-agent said this',
       done: true,
     } as SessionEvent);
-    const view = selectView(state);
+    const view = selectView(state, 'detailed');
     expect(view.roots.map((i) => i.key)).toEqual(['parent']);
     expect(view.children.parent?.map((i) => i.key)).toEqual(['child']);
   });
@@ -321,7 +322,7 @@ describe.runIf(fixturesAvailable())('protocol timeline fixtures', () => {
       }
 
       // Sub-agent children hang off their parent tool row.
-      const view = selectView(state);
+      const view = selectView(state, 'detailed');
       const parents = view.roots.filter(
         (i) => i.event.kind === 'tool_call' && i.event.tool_kind === 'subagent',
       );
@@ -383,7 +384,7 @@ describe('optimistic sends (A12)', () => {
     state = applyEvent(state, text(1, 'earlier', true));
     state = addOptimistic(state, pending('req-1', 'run the tests'));
 
-    const roots = selectView(state).roots;
+    const roots = selectView(state, 'detailed').roots;
     expect(roots.map((item) => item.key)).toEqual(['b1', 'req-1']);
     const row = roots[1];
     expect(row?.pending?.id).toBe('req-1');
@@ -405,7 +406,7 @@ describe('optimistic sends (A12)', () => {
     state = applyEvent(state, userMessage(4, 'req-1', 'run the tests'));
 
     expect(state.optimistic).toEqual([]);
-    const roots = selectView(state).roots;
+    const roots = selectView(state, 'detailed').roots;
     expect(roots).toHaveLength(1);
     expect(roots[0]?.key).toBe('req-1');
     expect(roots[0]?.pending).toBeUndefined();
@@ -416,7 +417,7 @@ describe('optimistic sends (A12)', () => {
     state = applyEvent(state, userMessage(4, 'dev-99', 'run the tests'));
 
     expect(state.optimistic).toEqual([]);
-    const roots = selectView(state).roots;
+    const roots = selectView(state, 'detailed').roots;
     expect(roots.map((item) => item.key)).toEqual(['dev-99']);
   });
 
@@ -433,14 +434,14 @@ describe('optimistic sends (A12)', () => {
     state = applyEvent(state, userMessage(4, 'dev-99', 'run the tests', 'terminal'));
 
     expect(state.optimistic.map((b) => b.id)).toEqual(['req-1']);
-    expect(selectView(state).roots.map((item) => item.key)).toEqual(['dev-99', 'req-1']);
+    expect(selectView(state, 'detailed').roots.map((item) => item.key)).toEqual(['dev-99', 'req-1']);
   });
 
   it('drops a pending row the gateway refused', () => {
     let state = addOptimistic(emptyTimeline(), pending('req-1', 'nope'));
     state = removeOptimistic(state, 'req-1');
     expect(state.optimistic).toEqual([]);
-    expect(selectView(state).roots).toEqual([]);
+    expect(selectView(state, 'detailed').roots).toEqual([]);
     expect(removeOptimistic(state, 'req-1')).toBe(state);
   });
 
@@ -478,13 +479,104 @@ describe('optimistic sends (A12)', () => {
     state = mergeHistory(state, [userMessage(4, 'req-1', 'run the tests')]);
 
     expect(state.optimistic).toEqual([]);
-    expect(selectView(state).roots.map((item) => item.key)).toEqual(['req-1']);
+    expect(selectView(state, 'detailed').roots.map((item) => item.key)).toEqual(['req-1']);
   });
 
   it('hides a pending row whose block the device already sent', () => {
     let state = applyEvent(emptyTimeline(), userMessage(4, 'req-1', 'run the tests'));
     // addOptimistic refuses, and selectView would skip it either way.
     state = addOptimistic(state, pending('req-1', 'run the tests'));
-    expect(selectView(state).roots).toHaveLength(1);
+    expect(selectView(state, 'detailed').roots).toHaveLength(1);
+  });
+});
+
+/**
+ * The two detail levels, `docs/DESIGN.md` § "The timeline". Simple draws only
+ * what is written to the person; Detailed is the transcript entire.
+ */
+describe('detail levels', () => {
+  const event = (partial: Record<string, unknown>): SessionEvent => partial as unknown as SessionEvent;
+
+  const conversation = (): TimelineState =>
+    applyEvents(emptyTimeline(), [
+      event({ seq: 1, ts: 1, kind: 'user_message', block_id: 'u1', source: 'remote', text: 'fix it' }),
+      event({ seq: 2, ts: 2, kind: 'thinking', block_id: 'th1', text: 'weighing it up', done: true }),
+      event({
+        seq: 3,
+        ts: 3,
+        kind: 'tool_call',
+        block_id: 'task1',
+        tool: 'Task',
+        tool_kind: 'subagent',
+        title: 'Audit clocks',
+        status: 'running',
+        started_at: 3,
+      }),
+      event({
+        seq: 4,
+        ts: 4,
+        kind: 'assistant_text',
+        block_id: 'sub1',
+        parent_block_id: 'task1',
+        text: 'the sub-agent reported back',
+        done: true,
+      }),
+      event({
+        seq: 5,
+        ts: 5,
+        kind: 'approval',
+        block_id: 'ap1',
+        parent_block_id: 'task1',
+        request_id: 'req-a',
+        tool: 'Bash',
+        tool_kind: 'shell',
+        title: 'git commit',
+        status: 'pending',
+        options: [{ id: 'allow', label: 'Allow once', style: 'primary' }],
+      }),
+      event({ seq: 6, ts: 6, kind: 'assistant_text', block_id: 'a1', text: 'done', done: true }),
+      event({ seq: 7, ts: 7, kind: 'notice', level: 'info', text: 'the device reconnected' }),
+    ]);
+
+  it('draws the whole transcript at Detailed', () => {
+    const view = selectView(conversation(), 'detailed');
+    expect(view.roots.map((item) => item.key)).toEqual(['u1', 'th1', 'task1', 'a1', 'notice#7']);
+    expect(view.children.task1?.map((item) => item.key)).toEqual(['sub1', 'ap1']);
+  });
+
+  it('drops the workings at Simple, in place, not collapsed', () => {
+    const view = selectView(conversation(), 'simple');
+    expect(view.roots.map((item) => item.key)).toEqual(['u1', 'ap1', 'a1', 'notice#7']);
+    expect(view.children).toEqual({});
+  });
+
+  it('promotes a card waiting on an answer out of a hidden tool call', () => {
+    const roots = selectView(conversation(), 'simple').roots;
+    // The approval keeps its place in the transcript; the sub-agent's own text
+    // goes with the tool row that held it.
+    expect(roots.map((item) => item.key)).toContain('ap1');
+    expect(roots.map((item) => item.key)).not.toContain('sub1');
+  });
+
+  it('keeps an unconfirmed send at both levels', () => {
+    const state = addOptimistic(conversation(), {
+      id: 'req-1',
+      text: 'and again',
+      attachments: [],
+      at: 9_000,
+    });
+    for (const detail of ['simple', 'detailed'] as const) {
+      expect(selectView(state, detail).roots.at(-1)?.key).toBe('req-1');
+    }
+  });
+
+  it('draws an interrupted turn at both levels and a clean one at neither', () => {
+    const ended = (stop: string, seq: number): SessionEvent =>
+      event({ seq, ts: seq, kind: 'turn_completed', turn_id: `t${seq}`, stop_reason: stop });
+    const state = applyEvents(conversation(), [ended('completed', 8), ended('interrupted', 9)]);
+    for (const detail of ['simple', 'detailed'] as const) {
+      const kinds = selectView(state, detail).roots.map((item) => item.event.kind);
+      expect(kinds.filter((kind) => kind === 'turn_completed')).toHaveLength(1);
+    }
   });
 });

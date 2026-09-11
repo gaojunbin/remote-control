@@ -4,7 +4,7 @@
  * agent filter shared with the chat sidebar.
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { SessionsPage } from '../src/features/sessions/SessionsPage';
@@ -251,5 +251,60 @@ describe('SessionsPage grouping', () => {
     expect(archiveTitles()).not.toContain('Sketch the pairing QR flow');
     // Only this device's Archive is open, and it is one row shorter.
     expect(archiveTitles()).toHaveLength(2);
+  });
+});
+
+/**
+ * `docs/DESIGN.md` § "Session lists": the archive action is offered on exactly
+ * one kind of row, and there is no unarchive anywhere.
+ */
+describe('the archive action', () => {
+  const rowFor = (title: string): HTMLElement => {
+    const row = screen.getByText(title).closest('.session-row');
+    if (!row) throw new Error(`no row for ${title}`);
+    return row as HTMLElement;
+  };
+
+  const archiveIn = (title: string) =>
+    within(rowFor(title)).queryByRole('button', { name: strings.sessions.archive });
+
+  it('offers it on a session the device drives', () => {
+    renderPage();
+    expect(archiveIn('iOS push tokens')).toBeInTheDocument();
+  });
+
+  it('offers nothing on a row a terminal holds', () => {
+    renderPage();
+    // `terminal` and `shared`: the terminal owns the row until it exits.
+    expect(archiveIn('Refactor relay routing')).toBeNull();
+    expect(archiveIn('Wire the channel shim')).toBeNull();
+  });
+
+  it('offers nothing on a row already in the Archive', async () => {
+    renderPage();
+    await userEvent.click(screen.getByRole('button', { name: strings.sessions.archiveGroup(3) }));
+
+    // Hand-archived, and an exited session the CLI let go of.
+    expect(archiveIn('Sketch the pairing QR flow')).toBeNull();
+    expect(archiveIn('Rewrite the pairing docs')).toBeNull();
+    expect(screen.queryByRole('button', { name: /unarchive/i })).not.toBeInTheDocument();
+  });
+
+  it('archives without asking what to toggle', async () => {
+    const calls: [string, boolean][] = [];
+    const request = useSessions.getState().setArchived;
+    useSessions.setState({
+      setArchived: async (session, archived) => void calls.push([session.session_id, archived]),
+    });
+    try {
+      renderPage();
+      const button = archiveIn('iOS push tokens');
+      if (!button) throw new Error('the action should be offered');
+      await userEvent.click(button);
+    } finally {
+      useSessions.setState({ setArchived: request });
+    }
+
+    expect(calls).toEqual([['ses-push', true]]);
   });
 });

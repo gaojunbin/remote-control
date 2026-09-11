@@ -27,7 +27,7 @@ const withPending = (): TimelineState =>
 
 /** Render the last row of a timeline the way the Timeline component does. */
 function renderLastRow(state: TimelineState) {
-  const item = selectView(state).roots.at(-1);
+  const item = selectView(state, 'detailed').roots.at(-1);
   if (!item) throw new Error('no row to render');
   render(<UserMessageRow event={item.event as UserMessageEvent} pending={item.pending} />);
   return {

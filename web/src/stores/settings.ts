@@ -1,14 +1,18 @@
 /** Local, per-browser preferences. Persisted in localStorage when available. */
 import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
+import type { TimelineDetail } from './timeline';
 
 interface SettingsState {
   sttLanguage: string;
+  /** How much of a transcript is drawn. Simple by default, and never sent. */
+  timelineDetail: TimelineDetail;
   /** Device groups the user folded shut in a session list. Expanded by default. */
   collapsedDevices: string[];
   /** Devices whose Archive sub-group is open. Collapsed by default. */
   archiveExpanded: string[];
   setSttLanguage: (language: string) => void;
+  setTimelineDetail: (detail: TimelineDetail) => void;
   toggleDeviceCollapsed: (deviceId: string) => void;
   toggleArchiveExpanded: (deviceId: string) => void;
 }
@@ -49,9 +53,11 @@ export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
       sttLanguage: 'auto',
+      timelineDetail: 'simple',
       collapsedDevices: [],
       archiveExpanded: [],
       setSttLanguage: (sttLanguage) => set({ sttLanguage }),
+      setTimelineDetail: (timelineDetail) => set({ timelineDetail }),
       toggleDeviceCollapsed: (deviceId) =>
         set((s) => ({ collapsedDevices: toggle(s.collapsedDevices, deviceId) })),
       toggleArchiveExpanded: (deviceId) =>

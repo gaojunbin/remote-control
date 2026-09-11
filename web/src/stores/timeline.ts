@@ -319,20 +319,40 @@ export interface TimelineView {
 }
 
 /**
+ * How much of the timeline is drawn (`docs/DESIGN.md` § "The timeline"). Simple
+ * shows only what is written to the person; Detailed adds everything the agent
+ * did on the way. The level is local to the app and never reaches the wire.
+ */
+export type TimelineDetail = 'simple' | 'detailed';
+
+/** Kinds Simple never draws: not collapsed, not summarised, not counted. */
+const WORKINGS = new Set(['thinking', 'tool_call']);
+
+/** Kinds no level hides, wherever they sit: they are waiting for an answer. */
+const ALWAYS_DRAWN = new Set(['approval', 'question']);
+
+const drawnAt = (item: TimelineItem, detail: TimelineDetail): boolean =>
+  detail === 'detailed' || !WORKINGS.has(item.event.kind);
+
+/**
  * Split items into top-level rows and sub-agent children keyed by parent block,
  * then append the sends the device has not confirmed yet. A pending row carries
  * the `user_message` it will become, so the timeline renders it like any other.
+ *
+ * Simple drops the agent's workings along with everything nested under them,
+ * except a card that needs an answer: it comes up to the top level rather than
+ * going with the tool row that held it.
  */
-export function selectView(state: TimelineState): TimelineView {
+export function selectView(state: TimelineState, detail: TimelineDetail): TimelineView {
   const roots: TimelineItem[] = [];
   const children: Record<string, TimelineItem[]> = {};
   for (const key of state.order) {
     const item = state.items[key];
-    if (!item) continue;
-    const parent = item.parentBlockId;
-    if (parent && state.items[parent]) {
-      (children[parent] ??= []).push(item);
-    } else {
+    if (!item || !drawnAt(item, detail)) continue;
+    const parent = item.parentBlockId ? state.items[item.parentBlockId] : undefined;
+    if (parent && drawnAt(parent, detail)) {
+      (children[parent.key] ??= []).push(item);
+    } else if (!parent || ALWAYS_DRAWN.has(item.event.kind)) {
       roots.push(item);
     }
   }

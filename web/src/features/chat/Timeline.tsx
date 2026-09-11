@@ -1,6 +1,7 @@
 import { memo, useCallback, useMemo, type ReactNode } from 'react';
 import { ArrowDown } from 'lucide-react';
 import { strings } from '../../strings';
+import { useSettings } from '../../stores/settings';
 import { selectView, type TimelineItem, type TimelineState } from '../../stores/timeline';
 import type {
   ApprovalEvent,
@@ -47,7 +48,8 @@ export function Timeline({
   onAnswer,
   onLoadOlder,
 }: Props) {
-  const view = useMemo(() => selectView(timeline), [timeline]);
+  const detail = useSettings((s) => s.timelineDetail);
+  const view = useMemo(() => selectView(timeline, detail), [timeline, detail]);
 
   const onReachTop = useCallback(() => {
     if (historyHasMore && !historyLoading) onLoadOlder();
@@ -56,8 +58,11 @@ export function Timeline({
   const { ref, following, missed, scrollToBottom, onScroll } = useScrollFollow({
     // A pending send carries no `seq`, so count it into the revision as well.
     revision: `${timeline.lastSeq}.${timeline.optimistic.length}`,
-    firstKey: timeline.order[0] ?? null,
-    lastKey: timeline.order.at(-1) ?? null,
+    redraw: detail,
+    // The rows this level draws, so a burst of tool calls the reader has chosen
+    // not to see is nothing to come back to.
+    firstKey: view.roots[0]?.key ?? null,
+    lastKey: view.roots.at(-1)?.key ?? null,
     onReachTop,
   });
 
@@ -93,13 +98,30 @@ export function Timeline({
         </div>
       </div>
 
-      {!following && missed > 0 ? (
-        <button type="button" className="back-to-latest" onClick={() => scrollToBottom('smooth')}>
-          <ArrowDown size={13} aria-hidden />
-          {strings.chat.backToLatest} · {strings.chat.newUpdates(missed)}
-        </button>
-      ) : null}
+      {following ? null : <BackToLatest missed={missed} onClick={() => scrollToBottom('smooth')} />}
     </div>
+  );
+}
+
+/**
+ * The way back down, in the corner of the timeline above the composer. It is on
+ * screen whenever the reader is away from the tail — paging up through history
+ * needs a way back too — and widens into a capsule carrying what arrived while
+ * they were away. The words live in the accessible name, as on the phone.
+ */
+function BackToLatest({ missed, onClick }: { missed: number; onClick: () => void }) {
+  const count = missed > 0 ? strings.chat.newUpdates(missed) : null;
+  return (
+    <button
+      type="button"
+      className={count ? 'back-to-latest counted' : 'back-to-latest'}
+      title={strings.chat.backToLatest}
+      aria-label={count ? `${strings.chat.backToLatest}, ${count}` : strings.chat.backToLatest}
+      onClick={onClick}
+    >
+      <ArrowDown size={16} aria-hidden />
+      {count ? <span>{count}</span> : null}
+    </button>
   );
 }
 

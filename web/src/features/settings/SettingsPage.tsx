@@ -2,12 +2,16 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button } from '../../components/Button';
 import { Menu } from '../../components/Popover';
-import { languageLabel, strings } from '../../strings';
+import { languageLabel, strings, timelineDetailLabel } from '../../strings';
 import { useAuth } from '../../stores/auth';
 import { useConnection } from '../../stores/connection';
 import { useSettings } from '../../stores/settings';
+import type { TimelineDetail } from '../../stores/timeline';
 import { currentPushState, disablePush, enablePush, type PushState } from '../../push/webpush';
 import './settings.css';
+
+/** In the order Settings offers them; Simple is the default. */
+const DETAIL_LEVELS: TimelineDetail[] = ['simple', 'detailed'];
 
 export function SettingsPage() {
   const username = useAuth((s) => s.username);
@@ -21,6 +25,8 @@ export function SettingsPage() {
 
   const language = useSettings((s) => s.sttLanguage);
   const setLanguage = useSettings((s) => s.setSttLanguage);
+  const detail = useSettings((s) => s.timelineDetail);
+  const setDetail = useSettings((s) => s.setTimelineDetail);
 
   const [push, setPush] = useState<PushState>('unsupported');
   const [pushBusy, setPushBusy] = useState(false);
@@ -126,6 +132,27 @@ export function SettingsPage() {
           ) : (
             <p className="settings-note">{strings.settings.voiceServerDisabled}</p>
           )}
+        </section>
+
+        <section className="settings-section">
+          <h2 className="group-title">{strings.settings.timeline}</h2>
+          <div className="settings-group surface">
+            <div className="settings-row">
+              <span>{strings.settings.timelineDetail}</span>
+              <Menu
+                align="end"
+                ariaLabel={strings.settings.timelineDetail}
+                value={detail}
+                onSelect={(id) => setDetail(id as TimelineDetail)}
+                options={DETAIL_LEVELS.map((level) => ({
+                  id: level,
+                  label: timelineDetailLabel(level),
+                }))}
+                label={timelineDetailLabel(detail)}
+              />
+            </div>
+          </div>
+          <p className="settings-note">{strings.settings.timelineDetailNote}</p>
         </section>
 
         <section className="settings-section">

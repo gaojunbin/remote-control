@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { Popover } from '../../components/Popover';
 import { compactNumber, duration, tildePath } from '../../lib/format';
 import { strings } from '../../strings';
+import { useSettings } from '../../stores/settings';
 import { useNow } from '../../lib/useNow';
 import { canInterruptShared } from './attach';
 import type { AgentInfo, Session, TodoItem } from '../../protocol/types';
@@ -23,6 +24,8 @@ export function ChatHeader({ session, agent, deviceName, todos, stopping, onStop
   const stoppable =
     session.control === 'shared' ? canInterruptShared(agent) : session.control !== 'terminal';
   const running = (session.state === 'running' || session.state === 'starting') && stoppable;
+  // A checklist is part of the agent's workings: Simple does not draw it.
+  const showsTodos = useSettings((s) => s.timelineDetail) === 'detailed';
   const now = useNow(session.turn ? 1000 : 0);
   const doneCount = todos.filter((t) => t.status === 'completed').length;
   const total = session.todos?.total ?? todos.length;
@@ -44,7 +47,7 @@ export function ChatHeader({ session, agent, deviceName, todos, stopping, onStop
       </div>
 
       <div className="chat-header-actions">
-        {total > 0 ? (
+        {showsTodos && total > 0 ? (
           <Popover
             align="end"
             ariaLabel={strings.chat.todosTitle}

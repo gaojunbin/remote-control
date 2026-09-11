@@ -47,12 +47,15 @@ interface Props {
   revision: number;
   firstKey: string | null;
   lastKey: string | null;
+  /** The detail level: the same blocks drawn differently. */
+  redraw?: string;
   onReachTop?: () => void;
 }
 
 function Harness(props: Props) {
   const { ref, following, missed, onScroll } = useScrollFollow({
     revision: props.revision,
+    redraw: props.redraw ?? 'detailed',
     firstKey: props.firstKey,
     lastKey: props.lastKey,
     onReachTop: props.onReachTop ?? (() => {}),
@@ -160,6 +163,31 @@ describe('useScrollFollow', () => {
     h.scrollTo(1000);
     expect(h.missed()).toBe(0);
     expect(h.following()).toBe('true');
+  });
+
+  it('counts nothing when the detail level redraws the same blocks', () => {
+    const h = setup({ revision: 1, firstKey: 'a', lastKey: 'c', redraw: 'simple' });
+    h.scrollTo(200);
+    h.update({ revision: 2, firstKey: 'a', lastKey: 'd', redraw: 'simple' });
+    expect(h.missed()).toBe(1);
+
+    // Switching the level draws other rows: a different first and last key, and
+    // a taller page, but nothing the reader has not already been told about.
+    h.update({ revision: 2, firstKey: 'thinking-1', lastKey: 'tool-9', redraw: 'detailed' }, 2200);
+    expect(h.missed()).toBe(0);
+
+    // The next genuine block counts again.
+    h.update({ revision: 3, firstKey: 'thinking-1', lastKey: 'e', redraw: 'detailed' }, 2400);
+    expect(h.missed()).toBe(1);
+  });
+
+  it('does not move the anchor when the redraw changes the first row', () => {
+    const h = setup({ revision: 5, firstKey: 'c', lastKey: 'e', redraw: 'simple' });
+    h.scrollTo(100);
+
+    h.update({ revision: 5, firstKey: 'a', lastKey: 'e', redraw: 'detailed' }, 1600);
+
+    expect(h.el.scrollTop).toBe(100);
   });
 
   it('asks for older history once the reader reaches the top', () => {

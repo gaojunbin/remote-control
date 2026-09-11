@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore } from 'lucide-react';
+import { Archive } from 'lucide-react';
 import { StatusDot } from '../../components/StatusDot';
 import { cx } from '../../lib/cx';
 import { relativeTime, tildePath } from '../../lib/format';
@@ -14,6 +14,9 @@ interface Props {
 
 export function SessionRow({ session, online, onOpen }: Props) {
   const setArchived = useSessions((s) => s.setArchived);
+  // Only a session the device drives can be archived. A terminal holds its own
+  // row until it exits, and a row in the Archive comes back by being written to.
+  const offersArchive = session.control === 'remote' && !session.archived;
   const attention = session.state === 'needs_approval' || session.state === 'needs_input';
   const state = session.archived
     ? strings.sessions.archived
@@ -37,15 +40,17 @@ export function SessionRow({ session, online, onOpen }: Props) {
           <span className="session-time"> · {relativeTime(session.updated_at)}</span>
         </span>
       </button>
-      <button
-        type="button"
-        className="icon-btn session-archive"
-        title={session.archived ? strings.sessions.unarchive : strings.sessions.archive}
-        aria-label={session.archived ? strings.sessions.unarchive : strings.sessions.archive}
-        onClick={() => void setArchived(session, !session.archived).catch(() => undefined)}
-      >
-        {session.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}
-      </button>
+      {offersArchive ? (
+        <button
+          type="button"
+          className="icon-btn session-archive"
+          title={strings.sessions.archive}
+          aria-label={strings.sessions.archive}
+          onClick={() => void setArchived(session, true).catch(() => undefined)}
+        >
+          <Archive size={15} />
+        </button>
+      ) : null}
     </li>
   );
 }
