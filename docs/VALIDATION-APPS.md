@@ -91,6 +91,43 @@ cd web && npm run typecheck && npm run lint && npm test -- --run && npm run buil
 → tsc clean, eslint clean, 12 files / 123 tests passed, built in 1.19 s
 ```
 
+### Second UI pass — the session list, the icon and the drawer
+
+2026-09-11, against the bundled mock gateway (`npm run dev:mock`) in the installed Google Chrome
+driven by `playwright-core`. Nothing here touches the protocol; it is app-side only, and every rule
+it implements reads fields the session object already carries. `docs/DESIGN.md` states the rule both
+apps follow and `SCRATCH/plan/SESSION-LIST-2.md` was the frozen brief.
+
+| Check | Result |
+| --- | --- |
+| Per-device grouping | Two device groups, `mac-studio-office` and `ci-runner-01`, each printed exactly as reported, active rows first |
+| Collapse | Clicking a device header folds that device only; the other stays open, and the ids persist in `rc.settings` |
+| Per-device Archive | `Archive · 3` under the Mac and `Archive · 2` under the CI box, both shut by default, opening independently |
+| Archive contents | Both halves visible: exited sessions read `stopped`, hand-archived rows read `Archived` |
+| Search into an Archive | Typing "pairing docs" opened the matching Archive without writing the stored ids |
+| Agent filter | `All · Claude Code · Codex`, one line at 1280 px and at 400 px, narrowing both the page and the chat sidebar |
+| Agent chips | Every row carries a tinted `Claude Code` or `Codex` chip on its meta line, no border |
+| No "Show archived" | The toggle and its preference are gone |
+| Device dropdown in the drawer | Opens **above** the drawer and selects; before the fix the portalled panel sat at `z-index: 40` under the overlay's `60`, so it opened behind the drawer and the drawer looked unresponsive |
+| Drawer survives the menu | Clicking inside the portalled panel does not close the drawer |
+| Form labels | Device, Agent, Working directory and Git are sentence case; Settings captions too |
+| First message | The field is gone from the drawer, and the app never sends `first_message` |
+| Icon | Topbar, login card and sidebar carry the three-dot mark; `icon.svg`, the two PNGs and the maskable PNG match the iOS `AppIcon` |
+
+Screenshots, 1280 px and 400 px, under
+`…/scratchpad/ui-pass2/web/`: `sessions-*.png`, `sessions-archive-*.png`, `sessions-collapsed-*.png`,
+`new-session-*.png`, `new-session-menu-*.png`, `chat-*.png`, `login-*.png`, `settings-*.png`,
+`devices-*.png`. They are run artefacts and are not checked into the repository.
+
+```
+cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
+→ 18 files / 214 tests passed, tsc clean, eslint clean, built in 1.58 s
+```
+
+Not verified in this pass: a device list long enough to scroll, an Archive with dozens of rows, and
+the collapse state surviving a real browser restart (it was read back from the store, not from a
+relaunched browser).
+
 ## 2. iOS, in the simulator, against the same gateway
 
 `ios/UITests/RealGatewaySmokeTests.swift` is new. It skips unless the runner is given a gateway, so
@@ -138,6 +175,47 @@ Other iOS checks, all green after the change in section 5:
 | `swift test` | 49 tests in 7 suites passed |
 | `xcodebuild … -destination 'generic/platform=iOS Simulator' build` | BUILD SUCCEEDED |
 | `xcodebuild test … -only-testing:RemoteControlUITests` with no gateway env | 3 demo tests passed, 4 real-gateway tests skipped |
+
+### Second UI pass — the session list and the new session sheet
+
+2026-09-11, against the offline demo in the iPhone 17 simulator (iOS 26), following the same frozen
+brief as the web pass (`SCRATCH/plan/SESSION-LIST-2.md`, including its clarification that a search
+also unfolds a collapsed device group). `docs/IOS.md` documents the list structure and the persisted
+keys.
+
+| Check | Result |
+| --- | --- |
+| Per-device grouping | One group per device, names exactly as reported, expanded by default; groups ordered live machine first, then by last activity |
+| Collapse | Tapping a device header folds that device only; ids persist in `UserDefaults` `sessions.collapsedDevices` |
+| Per-device Archive | `Archive · N` under each device, shut by default, expansion persisted in `sessions.archiveExpanded` as `[String]` |
+| Archive contents | Exited sessions plus hand-archived rows, the latter marked `Archived` |
+| Search | Opens the matching Archive and unfolds a folded device without writing either array; clearing restores the stored state |
+| Agent filter | `All · Claude Code · Codex` in the toolbar Menu, only agents present, in memory, applied before grouping |
+| Agent chips | Tinted `Claude Code` / `Codex` chip on every row, no border |
+| No "Show archived" | The toggle, its state and its strings are gone |
+| New session sheet | No first-message field, sentence-case form labels, the app never sends `first_message` |
+| Top banner | The connection summary in the top safe-area inset now has the bar material behind it; before the fix (pre-existing, `RootView.swift`) scrolled rows showed through it |
+
+```
+cd ios && export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+swift run RCVerify      → PASS: 841 checks
+swift run RCUIVerify    → PASS: 75 UI checks
+swift test              → 106 tests in 10 suites passed
+xcodebuild … -only-testing:RemoteControlUITests … test
+                        → 9 passed, 4 skipped (the real-gateway smoke), 0 failures
+```
+
+`Tests/RCCoreTests/SessionGroupingTests.swift` holds 18 cases for `SessionListLayout.build`;
+`Verification/StoreChecks.swift`, `VerificationUI/main.swift` and the UI tests
+(`testDeviceArchiveOpensOnTapAndOnSearch`, `testDeviceGroupCollapses`,
+`testAgentFilterNarrowsTheListToOneAgent`, the New session sheet without a first-message field)
+cover the same rules end to end. Screenshots from the UI test run are under
+`…/scratchpad/ui-pass2/ios/` (`sessions-groups.png`, `sessions-archive-open.png`,
+`sessions-archive-search.png`, `sessions-device-collapsed.png`, `sessions-agent-filter.png`,
+`new-session-sheet.png`); they are run artefacts, not checked in.
+
+Not verified in this pass: a physical device, a real gateway, dark mode and VoiceOver on the new
+headers and chips.
 
 ## 3. Attached terminal sessions (A10) in the apps
 

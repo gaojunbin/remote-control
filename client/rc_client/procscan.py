@@ -30,6 +30,10 @@ class Proc:
     ppid: int
     start: str
     command: str
+    # Whether the process is attached to a terminal. Defaults to true because
+    # every ownership decision here fails closed: an unknown answer must not
+    # read as "nobody is sitting in front of this".
+    has_tty: bool = True
 
     @property
     def identity(self) -> tuple[int, str]:
@@ -77,10 +81,19 @@ def _linux_scan() -> Scan:
             continue
         tail = stat.rsplit(")", 1)[-1].split()
         start = tail[19] if len(tail) > 19 else "0"
+        # Field 7 of `/proc/<pid>/stat`, counted from the closing parenthesis:
+        # the controlling terminal, zero when the process has none.
+        tty = tail[4] if len(tail) > 4 else "0"
         if not cmdline:
             continue
         procs.append(
-            Proc(pid=pid, ppid=int(tail[1]) if len(tail) > 1 else 0, start=start, command=cmdline)
+            Proc(
+                pid=pid,
+                ppid=int(tail[1]) if len(tail) > 1 else 0,
+                start=start,
+                command=cmdline,
+                has_tty=tty.isdigit() and int(tty) != 0,
+            )
         )
     return Scan(procs=procs, complete=True)
 
@@ -89,20 +102,22 @@ async def scan_processes() -> Scan:
     """Every visible process with its pid, ppid, start marker and command line."""
     if IS_LINUX:
         return await asyncio.to_thread(_linux_scan)
-    code, out = await _run("ps", "-axww", "-o", "pid=,ppid=,lstart=,command=")
+    code, out = await _run("ps", "-axww", "-o", "pid=,ppid=,lstart=,tty=,command=")
     if code != 0:
         return Scan(procs=[], complete=False)
     procs: list[Proc] = []
     for line in out.splitlines():
-        parts = line.split(maxsplit=7)
-        if len(parts) < 8 or not parts[0].isdigit():
+        # pid, ppid, the five words of `lstart`, the terminal, then the command.
+        parts = line.split(maxsplit=8)
+        if len(parts) < 9 or not parts[0].isdigit():
             continue
         procs.append(
             Proc(
                 pid=int(parts[0]),
                 ppid=int(parts[1]) if parts[1].isdigit() else 0,
                 start=" ".join(parts[2:7]),
-                command=parts[7],
+                command=parts[8],
+                has_tty=parts[7] != "??",
             )
         )
     return Scan(procs=procs, complete=True)

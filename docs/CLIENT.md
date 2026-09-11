@@ -377,9 +377,19 @@ client to connect names the daemon for every thread, so the name is deliberate).
 - A loaded thread is subscribed with `thread/resume {excludeTurns: true}` and backfilled from
   `thread/items/list`, so the block timeline comes from the daemon rather than from a rollout file.
   Rollout mirroring stays only for the threads the daemon does not know about.
-- `origin` and `control` follow the table in PROTOCOL.md 4.4. `shared` is sticky while the thread
-  stays loaded, because the daemon says nothing at all when a TUI exits; an unloaded thread is
-  `none` and the next `session.send` resumes it.
+- `origin` and `control` follow the table in PROTOCOL.md 4.4. An unloaded thread is `none` and the
+  next `session.send` resumes it.
+- The daemon says nothing at all when a TUI exits, and a thread it once loaded stays loaded for as
+  long as the daemon lives, so the TUI process is the only signal there is. On the same ten-second
+  scan, every thread that claims a terminal is checked against the live bare `codex` processes: a
+  thread stays `shared` while one of them is running in that thread's `cwd`, and otherwise becomes
+  `remote` while a turn this device started is running and `none` when it is idle. `origin` never
+  changes, the subscription is kept, and the next message typed in that terminal makes the thread
+  `shared` again. A message typed since the last scan outranks the scan, so a TUI resumed from a
+  different directory is not written off while it is being used. A scan that cannot be completed
+  changes nothing, as everywhere else in this client. The process test is the same one the
+  installer documents: a `codex` on a terminal, with no subcommand and no `-c`, `--enable` or
+  `--disable`, because those run an embedded server that never joins the daemon.
 - A thread has no rollout until its first turn, so a thread the terminal just created cannot be
   resumed yet. It is still `shared` and `turn/start` still works on it; the subscription is taken the
   moment the first turn creates the rollout. The same applies in reverse: a thread created from an
@@ -553,8 +563,18 @@ and Codex out of step.
   unit-tested, but has never been enabled on a real Linux machine.
 - A Codex thread created from an app cannot be reopened with `codex resume` until its first turn
   exists, because the rollout the CLI resumes from is written when a turn starts.
-- Nothing tells the device that a Codex TUI has exited, so a thread stays `shared` until the daemon
-  unloads it. Nothing observed unloads a thread short of restarting the daemon.
+- Nothing tells the device that a Codex TUI has exited: verified on 2026-09-11 against Codex 0.154.0
+  by watching a second subscribed client through a `/quit` and through a killed pane, neither of
+  which emitted anything, and the thread stayed in `thread/loaded/list` for the whole observation
+  and was still loaded twenty-five minutes later. The device therefore matches TUI processes to
+  threads by working directory, which mis-answers in two ways. A TUI resumed with `codex resume`
+  from a directory other than the thread's own is invisible to the scan, so the thread reads as
+  `none` once it has been silent for one scan; sending from an app still reaches it. Two TUIs in one
+  directory are indistinguishable, so a thread keeps `shared` while either of them is alive, as does
+  a thread whose directory happens to hold an unrelated TUI running an embedded server.
+- Whether the daemon would unload a thread once its last subscriber leaves is unverified: this
+  device subscribes to every loaded thread, so there is no moment without one, and answering it
+  would mean stopping the user's own client.
 - The Codex daemon's originator and user agent are set globally by whichever client connects first
   and are then stamped on every thread. Where the device connects first, threads a person starts in
   a terminal are labelled `remote-control` inside Codex's own records.

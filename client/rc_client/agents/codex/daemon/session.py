@@ -57,7 +57,7 @@ class CodexDaemonSession:
         thread_config: dict[str, Any] | None = None,
         created_here: bool | None = None,
         on_turn_end: TurnEndCallback | None = None,
-        on_terminal_seen: ControlCallback | None = None,
+        on_control_change: ControlCallback | None = None,
         on_thread_id: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         self.channel = channel
@@ -70,7 +70,7 @@ class CodexDaemonSession:
         self._thread_id = thread_id
         self._thread_config = thread_config
         self._on_turn_end = on_turn_end
-        self._on_terminal_seen = on_terminal_seen
+        self._on_control_change = on_control_change
         self._on_thread_id = on_thread_id
         self._translator = CodexTranslator(cwd=cwd, mirror_user_messages=True)
         self._turn_id: str | None = None
@@ -90,6 +90,9 @@ class CodexDaemonSession:
         self._last_item_id: str | None = None
         self._subscribed = False
         self._terminal_seen = False
+        self._terminal_live = True
+        self._terminal_spoke = False
+        self._local_turn = False
         self._created_here = thread_id is None if created_here is None else created_here
 
     # ------------------------------------------------------------- accessors
@@ -103,6 +106,16 @@ class CodexDaemonSession:
         return self._terminal_seen
 
     @property
+    def terminal_live(self) -> bool:
+        """Whether a terminal still has this thread, as far as anyone can tell."""
+        return self._terminal_live
+
+    @property
+    def local_turn(self) -> bool:
+        """Whether the turn running right now is one this device started."""
+        return self._turn_id is not None and self._local_turn
+
+    @property
     def created_here(self) -> bool:
         return self._created_here
 
@@ -113,6 +126,23 @@ class CodexDaemonSession:
     @property
     def supports_steer(self) -> bool:
         return True
+
+    def terminal_present(self, present: bool) -> None:
+        """Fold one process scan into what we believe about the terminal.
+
+        A message typed in a terminal since the last scan outranks the scan:
+        the TUI that sent it may have been resumed from another directory,
+        where no process the scan can see is standing next to this thread.
+        """
+        if self._terminal_spoke:
+            self._terminal_spoke = False
+            self._terminal_live = True
+            return
+        self._terminal_live = present
+
+    async def _control_changed(self) -> None:
+        if self._on_control_change is not None:
+            await self._on_control_change()
 
     # ------------------------------------------------------------- lifecycle
 
@@ -287,6 +317,7 @@ class CodexDaemonSession:
         stop_reason = "interrupted" if self._interrupting else reported
         self._interrupting = False
         self._turn_id = None
+        self._local_turn = False
         self._turn_epoch += 1
         self._turn_done.set()
         self._last_output_flush.clear()
@@ -294,6 +325,7 @@ class CodexDaemonSession:
         await self.channel.end_turn(stop_reason, duration, usage or None)
         if self._on_turn_end is not None:
             await self._on_turn_end()
+        await self._control_changed()
 
     async def _settings_updated(self, params: dict[str, Any]) -> None:
         settings = params.get("threadSettings")
@@ -314,6 +346,7 @@ class CodexDaemonSession:
         active = isinstance(status, dict) and status.get("type") == "active"
         if active and self._turn_id is None:
             self._turn_id = f"unknown:{uuid.uuid4()}"
+            self._local_turn = False
             self._turn_started_at = now_ms()
             self._turn_done.clear()
             await self.channel.begin_turn("terminal")
@@ -349,10 +382,13 @@ class CodexDaemonSession:
         client_id = str(item.get("clientId") or "")
         if self._echoes.claim(item_id, _text_of(item.get("content")), client_id):
             return False
-        if client_id and not self._echoes.owns(client_id) and not self._terminal_seen:
+        if client_id and not self._echoes.owns(client_id):
+            changed = not self._terminal_seen or not self._terminal_live
             self._terminal_seen = True
-            if self._on_terminal_seen is not None:
-                await self._on_terminal_seen()
+            self._terminal_live = True
+            self._terminal_spoke = True
+            if changed:
+                await self._control_changed()
         return True
 
     async def _apply(self, emit: Any) -> None:
@@ -412,6 +448,7 @@ class CodexDaemonSession:
             fields["delivery"] = "delivered"
         await self.channel.emit("user_message", **fields)
         self._echoes.remember(str(inputs[0]["text"]))
+        self._local_turn = True
         self._turn_started_at = now_ms()
         params: dict[str, Any] = {
             "threadId": thread_id,
@@ -425,19 +462,23 @@ class CodexDaemonSession:
             params["effort"] = effort
         epoch = self._turn_epoch
         self._turn_done.clear()
-        result = await self._client.request("turn/start", params)
+        try:
+            result = await self._client.request("turn/start", params)
+        except RcError:
+            self._local_turn = False
+            raise
         if not self._subscribed:
             # The rollout exists once a turn has started, so this is the first
             # moment a thread created in the terminal can be subscribed to.
             await self.resubscribe()
         turn = result.get("turn") or {}
-        if epoch != self._turn_epoch:
-            return
-        turn_id = str(turn.get("id") or "")
-        if turn_id and self._turn_id == turn_id:
-            return
-        self._turn_id = turn_id or str(uuid.uuid4())
-        await self.channel.begin_turn(source)
+        if epoch == self._turn_epoch:
+            turn_id = str(turn.get("id") or "")
+            if not turn_id or self._turn_id != turn_id:
+                self._turn_id = turn_id or str(uuid.uuid4())
+                await self.channel.begin_turn(source)
+        # A thread with no terminal is `remote` while this turn runs.
+        await self._control_changed()
 
     async def steer(self, text: str) -> bool:
         thread_id = self._thread_id

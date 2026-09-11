@@ -130,6 +130,11 @@ public struct ConnectionSummary: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, Theme.Space.page)
             .padding(.vertical, Theme.Space.tight)
+            // The banner sits in the top safe-area inset, so it needs a bar of
+            // its own: scrolled rows pass underneath it, not through it. The
+            // fill is inside the branch, so a screen with nothing to say paints
+            // no strip at all.
+            .barBackground()
             .accessibilityIdentifier("connection.status")
         }
     }

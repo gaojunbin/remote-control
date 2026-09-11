@@ -1,15 +1,15 @@
 import SwiftUI
 import RCCore
 
-/// Every session on every device: Active grouped by machine, then one collapsed
-/// Archive for the ones nothing owns any more.
+/// Every session, grouped by the machine it runs on: what that machine still
+/// holds, then its own collapsed Archive underneath.
 struct SessionsView: View {
     @Environment(AppModel.self) private var model
     @State private var isCreating = false
 
     var body: some View {
         @Bindable var sessions = model.sessions
-        let list = model.sessions.list(model.connection.sessions, devices: model.connection.devices)
+        let groups = model.sessions.groups(model.connection.sessions, devices: model.connection.devices)
         List {
             Section {
                 Button {
@@ -27,45 +27,29 @@ struct SessionsView: View {
                 .accessibilityIdentifier("sessions.new")
             }
 
-            ForEach(list.active) { group in
+            ForEach(groups) { group in
                 Section {
-                    if group.sessions.isEmpty {
-                        // A caption on the canvas, not a surface with nothing
-                        // in it: an empty box is louder than the sentence.
-                        Text("No open sessions")
-                            .font(Theme.Text.meta)
-                            .foregroundStyle(Theme.inkSecondary)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 0, leading: Theme.Space.medium,
-                                                      bottom: Theme.Space.small,
-                                                      trailing: Theme.Space.medium))
-                            .accessibilityIdentifier("sessions.empty.\(group.id)")
-                    }
-                    ForEach(group.sessions) { session in
-                        row(session)
-                    }
-                } header: {
-                    ListGroupHeader(group.deviceName, dot: group.online ? Theme.running : Theme.resting)
-                }
-            }
-
-            if !list.archive.isEmpty {
-                Section {
-                    if model.sessions.showsArchiveContents(of: list) {
-                        ForEach(list.archive) { archived in
-                            row(archived.session, device: archived.deviceName)
+                    if !group.collapsed {
+                        ForEach(group.active) { session in
+                            row(session)
+                        }
+                        if !group.archive.isEmpty {
+                            archiveHeader(group)
+                            if group.archiveExpanded {
+                                ForEach(group.archive) { session in
+                                    row(session)
+                                }
+                            }
                         }
                     }
                 } header: {
-                    archiveHeader(list)
+                    deviceHeader(group)
                 }
             }
 
-            if list.isEmpty {
+            if groups.isEmpty {
                 EmptyStateView(symbol: "bubble.left.and.text.bubble.right",
-                               title: emptyTitle(searching: list.isSearching),
-                               message: emptyMessage(searching: list.isSearching))
+                               title: emptyTitle, message: emptyMessage)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
@@ -90,31 +74,58 @@ struct SessionsView: View {
                 .accessibilityIdentifier("sessions.summary")
         }
         .toolbar {
-            ToolbarItem(placement: .trailingBar) {
-                Button {
-                    sessions.showsArchived.toggle()
-                } label: {
-                    Image(systemName: sessions.showsArchived ? "archivebox.fill" : "archivebox")
-                        .font(.body)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(sessions.showsArchived ? Theme.ink : Theme.inkSecondary)
-                .frame(minWidth: Theme.Touch.minimum, minHeight: Theme.Touch.minimum)
-                .accessibilityLabel("Show archived sessions")
-                .accessibilityAddTraits(sessions.showsArchived ? [.isSelected] : [])
-                .accessibilityIdentifier("sessions.showArchived")
-            }
+            ToolbarItem(placement: .trailingBar) { agentFilter }
         }
         .sheet(isPresented: $isCreating) {
             NewSessionSheet().environment(model)
         }
     }
 
-    private func row(_ session: Session, device: String? = nil) -> some View {
+    /// All, then the agents the list actually contains. The choice is a view of
+    /// this list rather than a setting, so it is not remembered.
+    @ViewBuilder
+    private var agentFilter: some View {
+        let options = model.sessions.agentOptions(model.connection.sessions)
+        if !options.isEmpty {
+            Menu {
+                filterChoice(nil, label: "All")
+                ForEach(options, id: \.self) { agent in
+                    filterChoice(agent, label: AgentLabel.name(agent))
+                }
+            } label: {
+                HStack(spacing: Theme.Space.hair + 2) {
+                    Image(systemName: "line.3.horizontal.decrease")
+                    if let agent = model.sessions.agentFilter {
+                        Text(AgentLabel.name(agent)).font(Theme.Text.meta)
+                    }
+                }
+                .foregroundStyle(model.sessions.agentFilter == nil ? Theme.inkSecondary : Theme.ink)
+                .frame(minHeight: Theme.Touch.minimum)
+            }
+            .accessibilityLabel("Filter by agent")
+            .accessibilityValue(model.sessions.agentFilter.map(AgentLabel.name) ?? "All")
+            .accessibilityIdentifier("sessions.agentFilter")
+        }
+    }
+
+    private func filterChoice(_ agent: String?, label: String) -> some View {
+        Button {
+            model.sessions.agentFilter = agent
+        } label: {
+            if model.sessions.agentFilter == agent {
+                Label(label, systemImage: "checkmark")
+            } else {
+                Text(label)
+            }
+        }
+        .accessibilityIdentifier("sessions.agentFilter.\(agent ?? "all")")
+    }
+
+    private func row(_ session: Session) -> some View {
         Button {
             Task { await model.open(session) }
         } label: {
-            SessionRow(session: session, device: device)
+            SessionRow(session: session)
         }
         .buttonStyle(.plain)
         .sessionRowLayout()
@@ -130,47 +141,89 @@ struct SessionsView: View {
         }
     }
 
-    /// One tap opens or closes the Archive, and the choice is remembered. A
-    /// search that found something inside opens it and says so by disabling the
-    /// tap rather than fighting the reader for it.
-    private func archiveHeader(_ list: SessionList) -> some View {
-        let open = model.sessions.showsArchiveContents(of: list)
-        return Button {
-            model.sessions.isArchiveExpanded.toggle()
+    /// The machine's name exactly as it reported it, its online dot, and a
+    /// chevron. One tap folds the whole group away, and that choice is
+    /// remembered per machine.
+    private func deviceHeader(_ group: DeviceGroup) -> some View {
+        Button {
+            model.sessions.toggleCollapsed(group.id)
         } label: {
-            ListGroupHeader("Archive · \(list.archiveCount)") {
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Theme.inkSecondary)
-                    .rotationEffect(.degrees(open ? 0 : -90))
+            HStack(spacing: Theme.Space.tight) {
+                Circle()
+                    .fill(group.online ? Theme.running : Theme.resting)
+                    .frame(width: 6, height: 6)
+                    .accessibilityHidden(true)
+                Text(group.name)
+                    .font(Theme.Text.title)
+                    .foregroundStyle(Theme.ink)
+                    .lineLimit(1)
+                Spacer(minLength: Theme.Space.tight)
+                chevron(open: !group.collapsed)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(list.forcesArchiveOpen)
-        .accessibilityIdentifier("sessions.archive")
-        .accessibilityLabel("Archive, \(list.archiveCount) sessions")
-        .accessibilityHint(open ? "Collapses the archive" : "Expands the archive")
+        .textCase(nil)
+        .accessibilityIdentifier("sessions.device.\(group.id)")
+        .accessibilityLabel("\(group.name), \(group.online ? "online" : "offline")")
+        .accessibilityHint(group.collapsed ? "Expands this device" : "Collapses this device")
     }
 
-    private func emptyTitle(searching: Bool) -> String {
-        searching ? "Nothing matches" : "No sessions yet"
+    /// The device's own Archive: what nothing owns any more, plus what was
+    /// archived by hand. Collapsed until it is asked for, or until a search
+    /// finds something inside it.
+    private func archiveHeader(_ group: DeviceGroup) -> some View {
+        Button {
+            model.sessions.toggleArchive(group.id)
+        } label: {
+            HStack(spacing: Theme.Space.tight) {
+                Text("Archive · \(group.archive.count)")
+                    .font(Theme.Text.meta)
+                    .foregroundStyle(Theme.inkSecondary)
+                Spacer(minLength: Theme.Space.tight)
+                chevron(open: group.archiveExpanded)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Theme.surface)
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 9, leading: Theme.Space.medium,
+                                  bottom: 9, trailing: Theme.Space.medium))
+        .accessibilityIdentifier("sessions.archive.\(group.id)")
+        .accessibilityLabel("Archive, \(group.archive.count) sessions on \(group.name)")
+        .accessibilityHint(group.archiveExpanded ? "Collapses the archive" : "Expands the archive")
     }
 
-    private func emptyMessage(searching: Bool) -> String {
-        if searching { return "No session title, folder or agent matches that." }
+    private func chevron(open: Bool) -> some View {
+        Image(systemName: "chevron.down")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(Theme.inkSecondary)
+            .rotationEffect(.degrees(open ? 0 : -90))
+    }
+
+    private var emptyTitle: String {
+        model.sessions.searchText.trimmed.isEmpty ? "No sessions yet" : "Nothing matches"
+    }
+
+    private var emptyMessage: String {
+        if !model.sessions.searchText.trimmed.isEmpty {
+            return "No session title, folder or agent matches that."
+        }
+        if let agent = model.sessions.agentFilter {
+            return "No session on any device is running \(AgentLabel.name(agent))."
+        }
         return model.connection.devices.isEmpty
             ? "Add a device first, then start a session on it."
             : "Start a session to drive an agent from here."
     }
 }
 
-/// Title and time on one line, then a dot, a word and the folder on the next.
-/// Nothing is right-aligned into a column, because a column of statuses reads
-/// as a table.
+/// Title and time on one line, then the agent, a dot, a word and the folder on
+/// the next. Nothing is right-aligned into a column, because a column of
+/// statuses reads as a table.
 struct SessionRow: View {
     let session: Session
-    var device: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -185,16 +238,19 @@ struct SessionRow: View {
                     .foregroundStyle(Theme.inkSecondary)
             }
             HStack(spacing: Theme.Space.tight) {
+                // The agent and the status word never shorten; the path is what
+                // gives way, and it truncates from the head so the folder stays.
+                AgentChip(agent: session.agent)
                 StatusLabel(state: session.state, text: session.statusLabel)
-                if let device {
+                if session.archived {
                     separator
-                    Text(device)
+                    Text("Archived")
                         .font(Theme.Text.caption)
                         .foregroundStyle(Theme.inkSecondary)
-                        .lineLimit(1)
                 }
                 separator
                 CodeText(session.cwd, font: Theme.Text.metaMono)
+                    .layoutPriority(-1)
                 Spacer(minLength: 0)
             }
         }
@@ -209,8 +265,10 @@ struct SessionRow: View {
 
     private var label: String {
         let title = session.title.isEmpty ? "Untitled session" : session.title
-        guard let device else { return "\(title), \(session.statusLabel), \(session.cwd)" }
-        return "\(title), \(session.statusLabel), \(device), \(session.cwd)"
+        var parts = [title, session.agentLabel, session.statusLabel]
+        if session.archived { parts.append("archived") }
+        parts.append(session.cwd)
+        return parts.joined(separator: ", ")
     }
 }
 

@@ -277,8 +277,8 @@ export const sessions: Session[] = [
     updated_at: minutes(8),
   }),
   session({
-    // The CLI exited, so nothing owns this session any more: it belongs to the
-    // Archive group rather than to a device's Active list.
+    // The CLI exited, so nothing owns this session any more: it belongs to its
+    // device's Archive rather than to its active rows.
     session_id: 'ses-exited',
     device_id: 'dev-mac',
     title: 'Rewrite the pairing docs',
@@ -288,7 +288,8 @@ export const sessions: Session[] = [
     updated_at: minutes(50),
   }),
   session({
-    // Archived by hand: listed only while "Show archived" is on.
+    // Archived by hand, so it sits in its device's Archive with an "Archived"
+    // mark rather than in the active rows.
     session_id: 'ses-archived',
     device_id: 'dev-ci',
     title: 'Drop the legacy ingest path',
@@ -313,6 +314,40 @@ export const sessions: Session[] = [
     state: 'idle',
     updated_at: minutes(60),
     git: { branch: 'main', dirty: false, ahead: 0, behind: 1, worktree: false },
+  }),
+  session({
+    // A second exited Codex session, so a device's Archive holds more than one
+    // row and both halves of it are visible in the mock.
+    session_id: 'ses-exited-codex',
+    device_id: 'dev-mac',
+    title: 'Port the popover placement',
+    cwd: '/Users/me/dev/remote-control/web',
+    agent: 'codex',
+    model: 'gpt-5.4-codex',
+    permission_mode: 'on-request',
+    effort: 'medium',
+    state: 'stopped',
+    control: 'none',
+    updated_at: minutes(200),
+  }),
+  session({
+    session_id: 'ses-exited-ci',
+    device_id: 'dev-ci',
+    title: 'Cache the wheel build',
+    cwd: '/home/ci/work/infra',
+    state: 'stopped',
+    control: 'none',
+    updated_at: minutes(320),
+  }),
+  session({
+    // Archived by hand on the other device, so both devices show the mark.
+    session_id: 'ses-archived-mac',
+    device_id: 'dev-mac',
+    title: 'Sketch the pairing QR flow',
+    cwd: '/Users/me/dev/remote-control/docs',
+    state: 'idle',
+    archived: true,
+    updated_at: minutes(60 * 40),
   }),
 ];
 

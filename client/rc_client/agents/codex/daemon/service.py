@@ -20,7 +20,7 @@ from ....logging_setup import logger
 from ....models import Session
 from ....sessions import titles
 from ..models import ModelCatalog, catalog_cache
-from . import approvals, threads
+from . import approvals, terminals, threads
 from .rpc import DaemonClient
 from .session import CodexDaemonSession
 from .transport import socket_exists
@@ -31,6 +31,7 @@ if TYPE_CHECKING:  # pragma: no cover - imported for types only
 log = logger("rc_client.codex.daemon.service")
 
 ModeCallback = Callable[[], Awaitable[None]]
+TerminalScanner = Callable[[], Awaitable[terminals.TerminalScan]]
 
 HISTORY_LIMIT = 100
 THREAD_CONFIG_ENV = "RC_CODEX_THREAD_CONFIG"
@@ -58,11 +59,16 @@ class CodexDaemonService:
     """Owns the daemon connection and maps its threads onto hub sessions."""
 
     def __init__(
-        self, hub: SessionHub, version: str, on_mode_change: ModeCallback | None = None
+        self,
+        hub: SessionHub,
+        version: str,
+        on_mode_change: ModeCallback | None = None,
+        scan_terminals: TerminalScanner | None = None,
     ) -> None:
         self.hub = hub
         self._version = version
         self._on_mode_change = on_mode_change
+        self._scan_terminals = scan_terminals or terminals.scan_terminals
         self._client: DaemonClient | None = None
         self._known: set[str] = set()
         # Threads the daemon says are loaded. A brand-new one is loaded before
@@ -157,6 +163,33 @@ class CodexDaemonService:
             for thread_id in live - self._known:
                 await self._adopt_by_id(thread_id)
             await self._forget_deleted(page, live)
+            await self.refresh_terminals()
+
+    async def refresh_terminals(self) -> None:
+        """Find the threads whose terminal has gone, on the scan interval.
+
+        The daemon emits nothing when a TUI exits, so the TUI process is the
+        signal: a thread keeps `shared` while a live `codex` TUI is running in
+        its directory. Only threads that claim a terminal are worth a scan, and
+        an incomplete scan changes nothing.
+        """
+        watched = [
+            entry
+            for entry in list(self.hub.entries.values())
+            if isinstance(entry.runner, CodexDaemonSession)
+            and (entry.session.control == "shared" or not entry.runner.terminal_live)
+        ]
+        if not watched:
+            return
+        scan = await self._scan_terminals()
+        if not scan.complete:
+            return
+        for entry in watched:
+            runner = entry.runner
+            if not isinstance(runner, CodexDaemonSession):  # pragma: no cover - narrowing
+                continue
+            runner.terminal_present(scan.holds(entry.session.cwd))
+            await self.publish_control(entry)
 
     async def _forget_deleted(self, page: list[threads.ThreadSummary], live: set[str]) -> None:
         """Drop sessions for threads deleted in Codex, as the mirror does for transcripts.
@@ -261,7 +294,7 @@ class CodexDaemonService:
         async def on_turn_end() -> None:
             await self.hub.drain_queue(entry)
 
-        async def on_terminal_seen() -> None:
+        async def on_control_change() -> None:
             await self.publish_control(entry)
 
         async def on_thread_id(thread_id: str) -> None:
@@ -281,7 +314,7 @@ class CodexDaemonService:
             thread_config=self._config,
             created_here=session.origin == "remote",
             on_turn_end=on_turn_end,
-            on_terminal_seen=on_terminal_seen,
+            on_control_change=on_control_change,
             on_thread_id=on_thread_id,
         )
 
@@ -295,6 +328,8 @@ class CodexDaemonService:
             created_here,
             loaded=entry.session.session_id in self._loaded,
             terminal_seen=runner is not None and runner.terminal_seen,
+            terminal_live=runner is None or runner.terminal_live,
+            local_turn=runner is not None and runner.local_turn,
         )
         changed = entry.session.origin != origin or entry.session.control != control
         entry.session.origin = origin  # type: ignore[assignment]

@@ -45,13 +45,7 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
     public var id: String { agent }
 
     /// Unknown agent ids render generically with the id as the label.
-    public var displayName: String {
-        switch agent {
-        case "claude": "Claude Code"
-        case "codex": "Codex"
-        default: agent
-        }
-    }
+    public var displayName: String { AgentLabel.name(agent) }
 
     public func supports(_ capability: AgentCapability) -> Bool { capabilities.contains(capability) }
 

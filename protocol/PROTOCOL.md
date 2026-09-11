@@ -606,9 +606,15 @@ this.
 | The thread is known from the daemon's history but is not loaded | unchanged | `none`, and the next `session.send` resumes it |
 | The rollout is held by a Codex process that is not the daemon, which is what a TUI started with configuration overrides does | `terminal` | `terminal`, because there is nothing to attach to |
 
-`shared` is sticky for Codex: the daemon reports nothing when a TUI exits, so the device keeps a
-thread `shared` until it is unloaded, and then reports `none`. Apps need no Codex-specific logic
-here; they read `control` and the agent's attachment fields (4.2) and nothing else.
+The daemon reports nothing at all when a TUI exits and offers no way to ask who is attached, so the
+device takes the TUI process itself as the signal: a Codex thread stays `shared` while a live bare
+`codex` process is running in that thread's `cwd`, which the device checks on its ten second scan,
+and a message typed in a terminal since the last scan always counts as a terminal being there. Once
+the terminal is gone the thread keeps its `origin` and becomes `remote` while a turn the device
+started is still running, `none` otherwise; `none` is resumable, so the next `session.send` drives
+the same loaded thread. A later message typed in a terminal makes it `shared` again, and a process
+scan that cannot be completed changes nothing. Apps need no Codex-specific logic here; they read
+`control` and the agent's attachment fields (4.2) and nothing else.
 
 `fixtures/app/session.updated.json`
 
@@ -2830,6 +2836,8 @@ turn starts, so the device cannot subscribe to a freshly created thread and subs
 turn creates the rollout, while a thread created from an app is reopenable with `codex resume <id>`
 only after its first turn. A10's "exactly allow and deny" applies to
 Claude channels only, and `session.approve` rejects any `option_id` the block did not offer. `origin`
-and `control` for a Codex thread follow the table in 4.4, where `shared` is sticky because the daemon
-says nothing when a TUI exits. Apps stay agent-agnostic: they read the five attachment fields.
+and `control` for a Codex thread follow the table in 4.4, where `shared` lasts only while a terminal
+still has the thread: the daemon says nothing when a TUI exits, so the device watches for the TUI
+process in the thread's `cwd` and reports `remote` or `none` once it is gone. Apps stay
+agent-agnostic: they read the five attachment fields.
 See 4.2, 4.4, 5.7, 6.3, 8.10, 8.13 and 9.

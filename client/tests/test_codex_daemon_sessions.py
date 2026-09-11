@@ -3,19 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from rc_client.agents.codex.daemon import approvals, threads
+from rc_client.agents.codex.daemon import approvals, terminals, threads
 from rc_client.agents.codex.daemon.service import CodexDaemonService, thread_config
 from rc_client.agents.codex.daemon.session import CodexDaemonSession
 from rc_client.errors import RcError
 from rc_client.models import AgentInfo, Choice
+from rc_client.procscan import Proc
 from rc_client.registry import Registry
 from rc_client.sessions.hub import SessionHub
-from tests.fake_codex_daemon import FakeDaemon
+from tests.fake_codex_daemon import FakeDaemon, FakeTerminals
 
 THREAD = "01a08bde-23d6-7262-a563-68dcfb2c4b59"
 
@@ -69,7 +71,9 @@ class Harness:
             self.frames.append(frame)
 
         self.hub = SessionHub(self.registry, publish, "dev-1", agents)
-        self.service = CodexDaemonService(self.hub, "0.1.0")
+        # A terminal is sitting in the threads' directory until a test says otherwise.
+        self.terminals = FakeTerminals({"/repo"})
+        self.service = CodexDaemonService(self.hub, "0.1.0", scan_terminals=self.terminals)
         self.hub.codex_daemon = self.service
         self.daemon = daemon
 
@@ -152,6 +156,38 @@ def test_the_amendment_table_maps_every_situation() -> None:
     )
 
 
+def test_a_thread_whose_terminal_left_stays_ours_to_drive() -> None:
+    gone = {"created_here": False, "loaded": True, "terminal_seen": True, "terminal_live": False}
+    assert threads.resolve(**gone) == ("terminal", "none")
+    assert threads.resolve(**gone, local_turn=True) == ("terminal", "remote")
+    # A thread this device started never depended on a terminal being there.
+    assert threads.resolve(
+        created_here=True, loaded=True, terminal_seen=True, terminal_live=False
+    ) == ("remote", "remote")
+
+
+def test_only_a_bare_codex_on_a_terminal_counts_as_a_tui() -> None:
+    def proc(command: str, has_tty: bool = True) -> Proc:
+        return Proc(pid=7, ppid=1, start="s", command=command, has_tty=has_tty)
+
+    assert terminals.looks_like_a_tui(proc("/Users/me/.local/bin/codex")) is True
+    assert terminals.looks_like_a_tui(proc("codex resume 01a08bde")) is True
+    # No terminal, a helper subcommand, or an embedded server of its own.
+    assert terminals.looks_like_a_tui(proc("codex", has_tty=False)) is False
+    assert terminals.looks_like_a_tui(proc("codex app-server --listen unix://")) is False
+    assert terminals.looks_like_a_tui(proc("/App/codex -c features.host=true app-server")) is False
+    assert terminals.looks_like_a_tui(proc("codex --enable hooks")) is False
+    assert terminals.looks_like_a_tui(proc("codex exec review the diff")) is False
+    assert terminals.looks_like_a_tui(proc("/usr/bin/python -m http.server")) is False
+
+
+def test_a_scan_places_a_terminal_by_the_directory_it_runs_in(tmp_path: Path) -> None:
+    scan = terminals.TerminalScan(cwds={os.path.realpath(str(tmp_path))}, complete=True)
+    assert scan.holds(str(tmp_path)) is True
+    assert scan.holds(str(tmp_path / "sub")) is False
+    assert scan.holds("") is False
+
+
 def test_a_title_generation_thread_is_never_a_session() -> None:
     rows = [thread_row(), thread_row("ephemeral-1", ephemeral=True)]
     assert [item.thread_id for item in threads.summaries(rows)] == [THREAD]
@@ -225,6 +261,88 @@ async def test_a_message_typed_in_the_terminal_makes_a_remote_thread_shared(
     )
     await settle(lambda: harness.hub.entry(THREAD).session.control == "shared")
     assert [event["source"] for event in harness.events("user_message")] == ["terminal"]
+
+
+# ------------------------------------------------------------ terminal exits
+
+
+async def test_a_tui_that_exits_hands_an_idle_thread_back(harness: Harness) -> None:
+    """The daemon says nothing when a TUI leaves; the missing process is the news."""
+    await started(harness, loaded=[THREAD])
+    assert harness.hub.entry(THREAD).session.control == "shared"
+
+    harness.terminals.cwds = set()
+    await harness.service.refresh()
+
+    entry = harness.hub.entry(THREAD)
+    assert entry.session.control == "none"
+    assert entry.session.origin == "terminal"
+    # The subscription stays: the thread is still loaded and still ours to read.
+    assert isinstance(entry.runner, CodexDaemonSession)
+    assert harness.events("meta")[-1]["control"] == "none"
+
+
+async def test_a_tui_that_exits_mid_turn_leaves_our_own_turn_running(harness: Harness) -> None:
+    await started(harness, loaded=[THREAD])
+    await harness.hub.send({"id": "req-1", "session_id": THREAD, "text": "go"})
+
+    harness.terminals.cwds = set()
+    await harness.service.refresh_terminals()
+    assert harness.hub.entry(THREAD).session.control == "remote"
+
+    await harness.daemon.notify(
+        "turn/completed", {"threadId": THREAD, "turn": {"id": "turn-1", "status": "completed"}}
+    )
+    await settle(lambda: harness.hub.entry(THREAD).session.control == "none")
+
+
+async def test_a_terminal_that_types_again_takes_the_thread_back(harness: Harness) -> None:
+    await started(harness, loaded=[THREAD])
+    harness.terminals.cwds = set()
+    await harness.service.refresh_terminals()
+    assert harness.hub.entry(THREAD).session.control == "none"
+
+    await harness.daemon.echo_prompt(THREAD, "back at my desk", item_id="u9", client_id="tui-7")
+    await settle(lambda: harness.hub.entry(THREAD).session.control == "shared")
+
+
+async def test_a_terminal_that_just_typed_outranks_the_next_scan(harness: Harness) -> None:
+    """A TUI resumed from another directory is invisible to the scan, not gone."""
+    await started(harness, loaded=[THREAD])
+    harness.terminals.cwds = set()
+    await harness.daemon.echo_prompt(THREAD, "still here", item_id="u9", client_id="tui-7")
+    await settle(lambda: len(harness.bubbles()) == 1)
+
+    await harness.service.refresh_terminals()
+    assert harness.hub.entry(THREAD).session.control == "shared"
+    await harness.service.refresh_terminals()
+    assert harness.hub.entry(THREAD).session.control == "none"
+
+
+async def test_an_incomplete_scan_never_hands_a_session_over(harness: Harness) -> None:
+    await started(harness, loaded=[THREAD])
+    harness.terminals.cwds = set()
+    harness.terminals.complete = False
+    await harness.service.refresh_terminals()
+    assert harness.hub.entry(THREAD).session.control == "shared"
+
+
+async def test_a_terminal_that_comes_back_makes_the_thread_shared_again(harness: Harness) -> None:
+    await started(harness, loaded=[THREAD])
+    harness.terminals.cwds = set()
+    await harness.service.refresh_terminals()
+    assert harness.hub.entry(THREAD).session.control == "none"
+
+    harness.terminals.cwds = {"/repo"}
+    await harness.service.refresh_terminals()
+    assert harness.hub.entry(THREAD).session.control == "shared"
+
+
+async def test_nothing_is_scanned_while_no_thread_claims_a_terminal(harness: Harness) -> None:
+    await started(harness, loaded=[])
+    scans = harness.terminals.scans
+    await harness.service.refresh()
+    assert harness.terminals.scans == scans
 
 
 # -------------------------------------------------------------------- input

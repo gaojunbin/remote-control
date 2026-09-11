@@ -10,7 +10,7 @@ hand-written CSS with no framework. It talks only to the gateway and follows
 | --- | --- |
 | `/login` | Password sign-in against the gateway |
 | `/devices` | Device list with online state, agents and session counts; rename and revoke; **Add device** with the copyable one-liner, the pairing code, its expiry, and live handshake steps |
-| `/sessions` | Every session across every device: Active grouped by device, one collapsed **Archive** at the foot, and **New session** in a right-hand drawer |
+| `/sessions` | Every session across every device: one collapsible group per device, its active rows and then its own collapsed **Archive**, a search, an agent filter and a device filter, and **New session** in a right-hand drawer |
 | `/sessions/:deviceId/:sessionId` | The chat: sidebar, timeline, composer, status line |
 | `/settings` | Grouped settings — account and sign out, browser notifications, voice language and push-to-talk, and an About group with the gateway origin, both versions and the connection state |
 
@@ -36,12 +36,12 @@ cd web && npm ci
 
 `mock/server.ts` implements the app-facing half of the protocol — the HTTP API, `WS /ws/app` and
 `WS /ws/stt` — so the whole UI can be developed with no gateway and no device. It ships two devices
-and eleven sessions covering running, needs-approval, idle, terminal-controlled, shared through the
+and fourteen sessions covering running, needs-approval, idle, terminal-controlled, shared through the
 Claude channel, shared through the Codex daemon, Codex, terminal sessions on a device that has
-neither the shim nor the Codex daemon, a session whose CLI exited (`control: "none"`) and one
-archived by hand, so both halves of the Archive group are on screen. Opening the
-running session plays a scripted turn: streamed thinking, streamed Markdown, tool rows with a live
-output box, a failing shell run, two diffs, an approval and a question. Answering both drives the
+neither the shim nor the Codex daemon, three sessions whose CLI exited (`control: "none"`) and two
+archived by hand, spread over both devices so every device group has both halves of an Archive under
+it. Opening the running session plays a scripted turn: streamed thinking, streamed Markdown, tool
+rows with a live output box, a failing shell run, two diffs, an approval and a question. Both drive the
 turn to completion. The shared session plays the A10 path end to end: a send while the terminal is
 idle is injected at once and answers with a relayed Allow/Deny approval, a send during that turn is
 held and shows the "waiting for the terminal" chip until the turn ends, and `session.set`,
@@ -71,6 +71,15 @@ tests/         vitest suites
 
 Every user-visible string lives in `src/strings.ts` so the app can be localised later.
 
+## The icon
+
+`public/icon.svg` is the source: a near-black rounded square with three white dots at the corners of
+a downward-pointing triangle, joined by grey bars that stop short of the dots. It matches the iOS
+`AppIcon` and `src/layout/Mark.tsx`, the same drawing inlined for the topbar, the login card and the
+chat sidebar. `icon-192.png`, `icon-512.png` and `icon-maskable-512.png` are rendered from it in a
+headless Chrome; the maskable one is full bleed with the artwork inside the central 80 %. Change the
+SVG and re-render all three together.
+
 ## Voice
 
 Holding <kbd>⌥</kbd>+<kbd>Space</kbd>, or tapping the mic, opens `WS /ws/stt`, captures the
@@ -89,17 +98,33 @@ focuses an open tab or opens `/sessions/<device_id>/<session_id>`.
 
 ## Behaviour worth knowing
 
-- **The session list** is one selector, `selectSessionSections` in `src/stores/sessions.ts`. It
-  partitions into Active and Archive, groups Active by device, orders each group, filters on the
-  search text and keeps a device with nothing open in the list. Both the Sessions page and the chat
-  sidebar render its result, so the two lists cannot drift; `tests/sessionSections.test.ts` owns the
-  rule. `docs/DESIGN.md` states it in full.
+- **The session list** is one selector, `selectSessionLayout` in `src/stores/sessions.ts`. It
+  filters on the device, the agent and the search text, then returns one `DeviceGroup` per device
+  that still has something to show: the device, whether the user folded it shut, its active rows,
+  its own Archive and whether that Archive is open. Both the Sessions page and the chat sidebar
+  render its result, so the two lists cannot drift; `tests/sessionLayout.test.ts` owns the rule.
+  `docs/DESIGN.md` states it in full.
+- **Collapse state** is two arrays of device ids in the settings store, `collapsedDevices` and
+  `archiveExpanded`, persisted with the rest of the preferences under `rc.settings`. Device groups
+  are open by default, Archives shut. A non-empty search overrides both — it opens every device
+  group and every Archive holding a match, without writing either array, and clearing the query
+  hands the list back to what was stored. There is no global "show archived" toggle: it only ever
+  toggled the hand-archived sessions, which the collapsed Archive already hid, so pressing it
+  changed nothing on screen. Archiving a row still works and still calls `session.archive`.
+- **The agent filter** is `agentFilter` in the sessions store rather than in a page, so the Sessions
+  page and the chat sidebar always show the same slice. It is not persisted, and its options come
+  from `selectAgents`, the agents the loaded sessions actually run.
 - **Popovers and menus** render in a portal on `document.body` and are placed against the viewport,
   flipping to the other side when the one asked for cannot hold the panel and clamping to the
   window's edges. Anchoring them to the trigger instead let a rounded list surface or a scrolling
   pane clip them. The geometry is pure and tested in `src/components/popoverPlacement.ts`; the
   layout effect that applies it, follows an ancestor's scroll and closes on an outside click lives
-  in `src/components/Popover.tsx`.
+  in `src/components/Popover.tsx`. Being a portal also makes the panel a sibling of any open modal
+  or drawer overlay rather than a descendant, so it takes the top of the layering scale in
+  `tokens.css` — `--z-sticky` 20, `--z-overlay` 60, `--z-popover` 100. With the panel below the
+  overlay the device picker inside the New session drawer opened behind the drawer and looked dead.
+  The drawer's own outside-click check compares the event target with the overlay element, so a
+  click inside the portalled panel never closes it.
 - **Reconnect** backs off exponentially to 5 s, replies to `ping`, and treats 60 s of silence as a
   half-open socket. Subscriptions are re-issued with the latest `since_seq`.
 - **Close codes** 4401 and 4403 end the session and return to login; every other code reconnects.
@@ -185,11 +210,13 @@ bar and in the status line alike.
 ## Layout and styling
 
 `src/styles/tokens.css` holds every colour, size, radius and shadow, and `src/components/ui.css`
-the primitives built on them — `.surface` for a grouped list, `.group-title` for the caption above
-one, `.pill`, `.badge`, `.btn` and the status dots. A visual change belongs in those two files
-before it belongs in a component. The rules they encode are in `docs/DESIGN.md`: one canvas, soft
-surfaces instead of bordered boxes, list rows instead of tables, one hairline between rows, one
-filled primary button per surface, and tinted rather than outlined chips.
+the primitives built on them — `.surface` for a grouped list, `.group-title` for a plain caption
+above one, `.group-head` for a caption that doubles as its disclosure control, `.label` for a form
+field's label, `.pill`, `.badge`, `.agent-chip`, `.btn` and the status dots. A visual change belongs
+in those two files before it belongs in a component. The rules they encode are in `docs/DESIGN.md`:
+one canvas, soft surfaces instead of bordered boxes, list rows instead of tables, one hairline
+between rows, one filled primary button per surface, tinted rather than outlined chips, and sentence
+case everywhere — no `text-transform` in any stylesheet.
 
 At 1024 px and above the chat is two panes with the session sidebar. Below that the sidebar
 collapses into the Sessions page, the chat runs full width with a back button, and the composer

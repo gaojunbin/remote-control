@@ -76,33 +76,48 @@ which swaps in a scripted speech platform so a UI test never opens the microphon
 
 ## The session list
 
-Two groups, and the rule that splits them lives in `RCCore` as
-`SessionListLayout.build(sessions:devices:query:showsArchived:)`, a pure function of its arguments.
-`SessionsView` only renders what comes back. `docs/DESIGN.md` states the rule; the web app
-implements the same one.
+One group per device, and the rule that builds them lives in `RCCore` as
+`SessionListLayout.build(sessions:devices:deviceFilter:agentFilter:query:collapsedDevices:archiveExpanded:)`,
+a pure function of its arguments that returns `[DeviceGroup]`. `SessionsView` only renders what
+comes back. `docs/DESIGN.md` states the rule; the web app implements the same one.
 
-**Active** is what a CLI or the device still holds: `archived` is false and `control` is `remote`,
-`terminal` or `shared`. **Archive** is everything else. `control: "none"` means the CLI exited and
-nothing owns the session, so it lands there whatever its state, and a hand-archived session joins it
-only while the archive toggle in the navigation bar is on. Nothing is removed from the protocol:
+A device is listed when at least one of its sessions passes the filters, and is not rendered at
+all otherwise. Inside the group come the sessions something still holds, then that device's own
+**Archive**: `control: "none"` means the CLI exited and nothing owns the session, so it lands
+there whatever its state, and a hand-archived session joins it whatever still owns it, with a
+small "Archived" mark so the two are told apart. Nothing is removed from the protocol:
 `session.archive` and the swipe action stay where they were.
 
 | Rule | Where |
 | --- | --- |
-| Active keeps its device grouping, in the order the gateway lists devices | `SessionListLayout.build` |
+| A machine with a live session leads; the rest follow, each by its most recent activity | `SessionListLayout.build` |
 | Inside a device: `needs_approval` and `needs_input`, then `running` and `starting`, then the rest, each by `updated_at` descending | `SessionListLayout.urgency` |
-| Archive is flat, `updated_at` descending, the device carried on the row | `ArchivedSession` |
-| A device with nothing open keeps its caption and a muted "No open sessions" line | `DeviceSessionGroup` with no sessions |
-| Open or collapsed persists in `UserDefaults` under `sessions.archiveExpanded` | `SessionStore.isArchiveExpanded` |
-| A search whose match is inside the Archive opens it without touching that preference | `SessionList.forcesArchiveOpen` |
-| Search reads the title, the working directory and the agent, and drops a device with no match | `SessionListLayout.matches` |
+| The Archive is flat, `updated_at` descending, and its header is not rendered when it is empty | `DeviceGroup.archive` |
+| A whole group folds away on a tap, and stays folded: `UserDefaults` `sessions.collapsedDevices`, `[String]` of device ids | `SessionStore.toggleCollapsed` |
+| Each Archive opens on a tap, and stays open: `sessions.archiveExpanded`, `[String]` of device ids | `SessionStore.toggleArchive` |
+| A search unfolds every group it matched, and opens an Archive whose row matched, without touching either preference | `SessionListLayout.build` |
+| Search reads the title, the working directory and the agent, by id and by label, and drops a machine with no match | `SessionListLayout.matches` |
+| An agent filter applies before the grouping, so a machine whose sessions all drop out disappears | `SessionStore.agentFilter` |
 
-A row is two lines: the title and the relative time on the first, then a dot, the status word, and
-the working directory on the second. An archived row adds the device between the two. Nothing is
+The agent filter sits in the navigation bar as `All · Claude Code · Codex`, offering only the
+agents the list actually contains. It is a view of the list rather than a setting: it starts at
+All on every launch and is never written to defaults. The device filter is a parameter of the
+same function, for the callers that narrow to one machine.
+
+A row is two lines: the title and the relative time on the first, then the agent chip, a dot, the
+status word and the working directory on the second. The path is the only part that gives way
+when the line is tight, and it truncates from the head so the folder survives. Nothing is
 right-aligned into a second column, because a column of statuses reads as a table.
 
 `Tests/RCCoreTests/SessionGroupingTests.swift` covers the rule on hand-built sessions;
 `Verification/StoreChecks.swift` covers it against the demo fixtures.
+
+## New session
+
+Device, agent, working directory and git, and nothing else: the sheet does not ask for a first
+message, so `session.create` goes out without `first_message`. The protocol keeps the field.
+Field labels there are sentence case through `FormLabel`, because a form label is read as a word;
+`FieldLabel` stays the uppercase eyebrow above a settings group.
 
 ## Surfaces and type
 

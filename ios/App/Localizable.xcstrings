@@ -915,17 +915,6 @@
         }
       }
     },
-    "Show archived sessions": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show archived sessions"
-          }
-        }
-      }
-    },
     "Sign out": {
       "extractionState": "manual",
       "localizations": {
@@ -1197,17 +1186,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Version"
-          }
-        }
-      }
-    },
-    "What should the agent do first?": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "What should the agent do first?"
           }
         }
       }

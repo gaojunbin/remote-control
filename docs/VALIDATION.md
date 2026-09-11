@@ -336,6 +336,52 @@ The duplicated bubble reported against A11 is explained by the second row of tha
 recognised on `item/started`, which consumed it, and the identical `item/completed` was then
 published as a `terminal` message. The device now remembers the item id of an echo it has matched.
 
+### What the daemon emits when a TUI exits (2026-09-11)
+
+A session attached to a terminal kept reading "attached to the terminal" long after the terminal had
+been closed. A11 had assumed TUI exit is invisible; this run settled what the daemon actually does.
+
+An observer script connected to the **real** daemon on this machine (Codex CLI 0.154.0) as a second
+client named `rc-probe`, using the device's own `transport.py` and `rpc.py`, and logged every
+notification method with the text fields stripped. A real TUI was driven in tmux 3.7b rather than on
+a pseudo-terminal, which is what made earlier attempts fail to create a thread at all:
+
+```sh
+tmux new-session -d -s rcprobe -x 120 -y 40 -c <scratch>/probe \
+  ~/.codex/packages/standalone/current/bin/codex     # bare, no flags
+tmux send-keys -t rcprobe 'reply with the single word ok'   # then Enter, separately:
+tmux send-keys -t rcprobe Enter                             # one call sends it as a paste
+# the observer polls thread/loaded/list for the new thread, then
+# thread/resume {threadId, excludeTurns: true} once the first turn has written the rollout
+tmux send-keys -t rcprobe '/quit' ; tmux send-keys -t rcprobe Enter   # run 1
+tmux kill-session -t rcprobe                                          # run 2
+```
+
+| Question | Answer |
+| --- | --- |
+| `/quit`, with our client subscribed | **Nothing.** No `thread/closed`, no `thread/status/changed`, no notification of any kind in the 30 s after the TUI process was gone |
+| Killing the pane, with our client subscribed | **Nothing**, identically |
+| Does the thread leave `thread/loaded/list`? | No. Present in every poll for 30 s after each exit, and the `/quit` thread was still loaded 25 minutes later |
+| Is `thread/closed` ever emitted? | Yes, but only for the empty thread a TUI opens at startup and abandons when its first message starts a new one. Never for the thread whose TUI exited |
+| Does any thread field change? | No. `status` stayed `{"type":"idle"}` and `canAcceptDirectInput` stayed `true` after the TUI was gone |
+| Can the daemon be asked who is attached? | No. Its `ClientRequest` union has no client or subscriber method; `thread/unsubscribe` answers only `notLoaded \| notSubscribed \| unsubscribed` |
+| Is the `originator` field a hint? | No. It is stamped from whichever client connected to the daemon first, so threads a person starts in a terminal read `remote-control` |
+
+Both probe threads were removed afterwards with `thread/delete`, and `thread/loaded/list` was checked
+back to the user's own single thread. Nothing was started, stopped or reconfigured on the daemon.
+
+The heuristic that replaces the signal was then checked against this machine as it stood: one live
+TUI (`~/.local/bin/codex`, a symlink to the standalone binary, with a tty) in `~/github/onelyi`, and
+one loaded daemon thread whose `cwd` is `~`. The scan found exactly that one TUI out of 934
+processes, excluded the daemon's own `codex app-server` processes and the ChatGPT app's helpers, and
+reported no terminal for the loaded thread — which is precisely the stuck session that was reported.
+
+Not verified: whether the daemon would unload a thread once its last subscriber leaves. The device
+subscribes to every loaded thread, so there is never a moment without a subscriber, and creating one
+would mean stopping the user's own client. Also unverified: whether `codex resume <id>` run from a
+directory other than the thread's own updates the thread's `cwd`. If it does not, that thread reads
+as `none` one scan after its last terminal message; sending from an app still reaches it.
+
 ## 8. Restart resilience
 
 | Step | Result |

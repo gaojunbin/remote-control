@@ -20,10 +20,11 @@ drive the same four progress steps.
 
 **New session.** A right-hand drawer on the web, a sheet on iOS. Fields in the order you decide
 them: device (with its latency), agent as a segmented control showing the detected version and
-default model, working directory with recent paths and a browser, git status with an "Isolate in
-worktree" toggle, and an optional first message. One primary button, "Start session".
+default model, working directory with recent paths and a browser, and git status with an "Isolate in
+worktree" toggle. One primary button, "Start session". The first prompt is typed in the chat, not
+here.
 
-**Chat.** A sidebar of sessions grouped by device with the Archive collapsed at its foot, a header
+**Chat.** A sidebar of sessions grouped by device, each device's Archive collapsed under it, a header
 with the title, `device:path · branch`, a Todos chip, usage and elapsed time, and a Stop button. The timeline runs down the middle on the
 page's own canvas. The composer sits at the bottom with model, permission mode and voice language
 pickers on a row beneath it.
@@ -31,31 +32,43 @@ pickers on a row beneath it.
 Below 1024 px the web sidebar collapses into the Sessions page and the chat runs full width, which
 is the layout iOS uses natively.
 
-## Session lists: Active and Archive
+## Session lists: by device, then by activity
 
 Every session list follows one rule — the web Sessions page, the web chat sidebar and the iOS
 `SessionsView`. The UI may differ; the logic may not. It reads only fields the session already
-carries: `control`, `state`, `archived`, `updated_at` and `title`.
+carries: `agent`, `control`, `state`, `archived`, `updated_at` and `title`.
+
+**Devices are the outer grouping.** A device gets a group when at least one of its sessions passes
+the current filters; a device with nothing to show is not drawn at all. Devices holding something
+active come first, and each half of the list is ordered by its most recent activity. The header
+carries the device name exactly as the device reported it, its online dot and a disclosure chevron.
+Groups are expanded by default, collapse on a click or a tap, and the choice is kept per device id —
+`localStorage` on the web, `UserDefaults` on iOS.
 
 **Active** is what a CLI or the device still holds: `archived` is false and `control` is `remote`,
-`terminal` or `shared`. Those sessions are running, waiting for an answer, or idle with the terminal
-still open.
+`terminal` or `shared`. Those rows come first inside the group, ordered `needs_approval` and
+`needs_input`, then `running` and `starting`, then the rest, each by `updated_at` descending.
 
-**Archive** is everything else. `control: "none"` means the CLI exited and nothing owns the session
-any more, so it lands there whatever its state. A session the user archived by hand joins it, but
-only while the "show archived" preference is on; with the preference off it is not listed at all.
-Archiving stays a row action and `session.archive` stays in the protocol.
+**Archive** is that device's own, captioned "Archive · N" and collapsed by default. It holds the
+device's sessions whose `control` is `none` — the CLI exited and nothing owns them any more —
+together with the ones the user archived by hand, flat and newest first. A hand-archived row is
+marked "Archived", so the two halves stay apart. A device with nothing archived gets no sub-header.
+The open or closed choice is kept per device id as well.
 
-- Active keeps its grouping by device, one caption per device, in the order the device list uses.
-  Inside a device: `needs_approval` and `needs_input` first, then `running` and `starting`, then the
-  rest, each by `updated_at` descending.
-- A device with nothing open still shows its caption, with a one-line muted "No open sessions"
-  under it rather than an empty box.
-- Archive is one collapsed group at the bottom, captioned "Archive · N", opened by a click or a tap.
-  Inside it, order by `updated_at` descending and carry the device in the row meta rather than as a
-  group, because a mixed list has no group to sit under.
-- The open or closed choice persists per client — `localStorage` on the web, `UserDefaults` on iOS.
-  A search opens the group on its own whenever a match is inside it, and the choice is untouched.
+A non-empty search overrides both stored choices without writing either: it opens every device group
+that still holds a match and every Archive a match landed in. Clearing the query hands the list back
+to what was stored.
+
+Archiving stays a row action and `session.archive` stays in the protocol. There is no global "show
+archived" switch: it only ever toggled the hand-archived rows, which were already folded inside the
+collapsed Archive, so it read as a control that did nothing.
+
+**Agents are visible and filterable.** Every row carries a tinted agent chip on its meta line,
+"Claude Code" or "Codex", falling back to the raw agent id. The Sessions page adds an agent filter —
+`All · Claude Code · Codex`, offering only the agents actually present, defaulting to All and not
+persisted. It applies before the grouping, so a device whose sessions it removes disappears with
+them. The filter lives in the store both lists read, so the page and the chat sidebar never
+disagree.
 
 ## Surfaces, rows and controls
 
@@ -73,8 +86,11 @@ The app is one canvas, not a stack of boxes. These rules hold on every screen in
 - **Chips and badges** are text-only or tinted pills. Nothing is outlined. Status is an 8 px dot plus
   a word, coloured from the state palette below.
 - **Type carries the hierarchy.** Row and section titles are 15–17 px semibold, meta is 12–13 px in
-  the secondary ink, and 11–12 px uppercase-tracked captions are used for group headers only. Line
-  height stays at or above 1.4.
+  the secondary ink, and a group caption or a form label is 12–13 px in the tertiary or secondary
+  ink. Line height stays at or above 1.4.
+- **Nothing is re-cased.** Group captions, section headings and form labels are sentence case, and a
+  name the device reported — a device name above all — is printed exactly as it arrived. No
+  `text-transform` anywhere in either app.
 - **Buttons.** One filled primary per surface; everything else is quiet, either text or tinted. Icon
   buttons carry no border.
 - **Tokens first.** A visual change starts in `web/src/styles/tokens.css` and the iOS equivalent, not

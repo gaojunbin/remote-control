@@ -116,6 +116,24 @@ public struct StatusLabel: View {
     }
 }
 
+/// The agent a session runs, as a tinted pill. Tinted and never outlined, so a
+/// row keeps its one edge budget for the surface it sits on.
+public struct AgentChip: View {
+    let agent: String
+
+    public init(agent: String) { self.agent = agent }
+
+    public var body: some View {
+        Text(AgentLabel.name(agent))
+            .font(Theme.Text.caption)
+            .foregroundStyle(Theme.inkSecondary)
+            .lineLimit(1)
+            .padding(.horizontal, Theme.Space.tight)
+            .padding(.vertical, 2)
+            .background(Theme.quietFill, in: Capsule())
+    }
+}
+
 /// The caption above a group of rows: uppercase, tracked, secondary, with an
 /// optional trailing count or control on the same line.
 public struct ListGroupHeader<Trailing: View>: View {
@@ -169,6 +187,34 @@ public struct FieldLabel: View {
             Spacer(minLength: Theme.Space.small)
             trailing
         }
+    }
+}
+
+/// The name of a field the reader fills in. Sentence case, because a form label
+/// is read as a word rather than as the eyebrow above a section.
+public struct FormLabel: View {
+    let text: String
+    var trailing: AnyView?
+
+    public init(_ text: String) {
+        self.text = text
+        trailing = nil
+    }
+
+    public init<Trailing: View>(_ text: String, @ViewBuilder trailing: () -> Trailing) {
+        self.text = text
+        self.trailing = AnyView(trailing())
+    }
+
+    public var body: some View {
+        HStack {
+            Text(text)
+                .font(Theme.Text.meta)
+                .foregroundStyle(Theme.inkSecondary)
+            Spacer(minLength: Theme.Space.small)
+            trailing
+        }
+        .textCase(nil)
     }
 }
 

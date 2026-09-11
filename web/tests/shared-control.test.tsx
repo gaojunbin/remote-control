@@ -71,7 +71,7 @@ const terminalSession = (overrides: Partial<Session> = {}): Session => ({
 });
 
 beforeEach(() => {
-  useSettings.setState({ sttLanguage: 'auto', pushToTalk: false, showArchived: false });
+  useSettings.setState({ sttLanguage: 'auto', pushToTalk: false });
 });
 
 describe.runIf(fixturesAvailable())('A10 fixtures', () => {

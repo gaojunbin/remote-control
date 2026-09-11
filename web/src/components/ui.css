@@ -110,12 +110,10 @@
   overflow: hidden;
 }
 
-/* Group caption above a surface: the only place small caps are used. */
+/* Caption above a surface. Sentence case: nothing in the app is re-cased. */
 .group-title {
-  font-size: var(--fs-11);
+  font-size: var(--fs-12);
   line-height: 1.4;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
   color: var(--ink-tertiary);
   font-weight: 600;
   margin: 0 0 var(--sp-2);
@@ -156,19 +154,11 @@
   appearance: none;
 }
 
-/* A device group with nothing open in it. */
-.group-empty {
-  padding: 0 var(--sp-4) var(--sp-1);
-  font-size: var(--fs-13);
-  line-height: 1.5;
-  color: var(--ink-tertiary);
-}
-
 /*
- * The Archive caption doubles as the disclosure control. The chevron sits in
- * the gutter so the label lines up with the device captions above it.
+ * A group caption that doubles as its disclosure control. The chevron takes the
+ * gutter, so the label keeps the indent a plain caption has.
  */
-.archive-head {
+.group-head {
   display: flex;
   align-items: center;
   gap: var(--sp-1);
@@ -178,16 +168,35 @@
   transition: color var(--dur-fast) var(--ease);
 }
 
-.archive-head:hover {
+.group-head:hover {
   color: var(--ink-secondary);
 }
 
-.archive-chevron {
+.group-chevron {
   transition: transform var(--dur-fast) var(--ease);
 }
 
-.archive-chevron.open {
+.group-chevron.open {
   transform: rotate(90deg);
+}
+
+/* The device header carries the name and its online dot, one size up. */
+.device-head {
+  gap: var(--sp-2);
+  color: var(--ink);
+  font-size: var(--fs-14);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.device-head-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archive-head {
+  padding-left: var(--sp-3);
 }
 
 .field {
@@ -211,11 +220,11 @@
   font-size: var(--fs-13);
 }
 
+/* A form field's label. Sentence case, like every other caption in the app. */
 .label {
   display: block;
-  font-size: var(--fs-11);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: var(--fs-13);
+  line-height: 1.4;
   color: var(--ink-secondary);
   font-weight: 500;
   margin-bottom: var(--sp-2);
@@ -323,6 +332,31 @@
 .badge.error {
   background: var(--danger-soft);
   color: #9c2c21;
+}
+
+/* Which agent a session runs. Tinted, no border, one per row. */
+.agent-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  background: var(--surface-muted);
+  color: var(--ink-secondary);
+  font-size: var(--fs-11);
+  font-weight: 500;
+  white-space: nowrap;
+  flex: none;
+}
+
+.agent-chip.claude {
+  background: var(--agent-claude-soft);
+  color: var(--agent-claude-ink);
+}
+
+.agent-chip.codex {
+  background: var(--agent-codex-soft);
+  color: var(--agent-codex-ink);
 }
 
 .segmented {

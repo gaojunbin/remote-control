@@ -145,11 +145,23 @@ func run() async -> (passed: Int, failures: [String]) {
     // MARK: - Session list presentation
 
     let sessions = SessionStore(defaults: UserDefaults(suiteName: "rc-ui-verify-\(UUID().uuidString)")!)
-    let list = sessions.list(model.connection.sessions, devices: model.connection.devices)
-    equal(list.active.first?.sessions.first?.state, .needsApproval,
+    let groups = sessions.groups(model.connection.sessions, devices: model.connection.devices)
+    equal(groups.count, 3, "the list is grouped by device")
+    equal(groups.first?.active.first?.state, .needsApproval,
           "a session waiting on the user sorts first")
-    equal(list.active.count, 3, "Active groups by device")
-    equal(list.archive.count, 1, "and the session nothing owns sits in the Archive")
+    equal(groups.first?.name, "mac-studio-office", "the machine with live work leads the list")
+    equal(groups.last?.active.count, 0, "the machine whose CLI exited holds nothing live")
+    equal(groups.last?.archive.count, 1, "and keeps that session in its own Archive")
+    expect(groups.allSatisfy { !$0.collapsed && !$0.archiveExpanded },
+           "groups open and archives closed, until the reader says otherwise")
+    equal(groups.first?.active.first?.agentLabel, "Codex", "a row can name its agent")
+
+    sessions.agentFilter = "claude"
+    let claudeOnly = sessions.groups(model.connection.sessions, devices: model.connection.devices)
+    equal(claudeOnly.count, 2, "the agent filter drops a machine with nothing left")
+    expect(claudeOnly.allSatisfy { $0.active.allSatisfy { $0.agent == "claude" } },
+           "and every row that remains runs the chosen agent")
+    sessions.agentFilter = nil
 
     // MARK: - Push reconciliation
 

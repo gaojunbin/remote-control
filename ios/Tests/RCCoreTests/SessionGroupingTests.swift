@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import RCCore
 
-@Suite("Session list: Active and Archive")
+@Suite("Session list: one group per device")
 struct SessionGroupingTests {
     private let mac = "device-mac"
     private let linux = "device-linux"
@@ -24,24 +24,50 @@ struct SessionGroupingTests {
         [device(mac, name: "mac-studio"), device(linux, name: "ci-runner", online: false)]
     }
 
-    @Test("Anything a CLI or a device still holds is Active")
-    func activeMembership() {
-        for control in [SessionControl.remote, .terminal, .shared] {
-            #expect(SessionListLayout.bucket(session("s", control: control), showsArchived: false) == .active)
-        }
-        #expect(SessionListLayout.bucket(session("s", control: .none), showsArchived: false) == .archive)
+    @Test("A session splits into its own device's live rows or its own Archive")
+    func perDeviceSplit() {
+        let sessions = [
+            session("live", updatedAt: 100),
+            session("ended", control: .none, updatedAt: 90),
+            session("elsewhere", device: linux, updatedAt: 80)
+        ]
+        let groups = SessionListLayout.build(sessions: sessions, devices: devices)
+        #expect(groups.map(\.id) == [mac, linux])
+        #expect(groups.first?.active.map(\.sessionID) == ["live"])
+        #expect(groups.first?.archive.map(\.sessionID) == ["ended"])
+        #expect(groups.last?.active.map(\.sessionID) == ["elsewhere"])
+        #expect(groups.last?.archive.isEmpty == true)
+        #expect(groups.first?.name == "mac-studio")
+        #expect(groups.last?.online == false)
     }
 
-    @Test("A hand-archived session appears only while the toggle is on")
-    func archivedToggle() {
-        let byHand = session("s", control: .remote, archived: true)
-        #expect(SessionListLayout.bucket(byHand, showsArchived: false) == .hidden)
-        #expect(SessionListLayout.bucket(byHand, showsArchived: true) == .archive)
+    @Test("Anything a CLI or a device still holds stays out of the Archive")
+    func activeMembership() {
+        for control in [SessionControl.remote, .terminal, .shared] {
+            #expect(!SessionListLayout.isArchived(session("s", control: control)))
+        }
+        #expect(SessionListLayout.isArchived(session("s", control: .none)))
+    }
 
-        // The toggle never promotes it back to Active, whatever owns it.
-        let list = SessionListLayout.build(sessions: [byHand], devices: devices, showsArchived: true)
-        #expect(list.activeCount == 0)
-        #expect(list.archiveCount == 1)
+    @Test("A machine with live work leads, then the rest by their last activity")
+    func groupOrder() {
+        let sessions = [
+            session("quiet", control: .none, updatedAt: 900),
+            session("busy", device: linux, state: .running, updatedAt: 10)
+        ]
+        #expect(SessionListLayout.build(sessions: sessions, devices: devices).map(\.id) == [linux, mac])
+
+        let both = [
+            session("older", updatedAt: 10),
+            session("newer", device: linux, updatedAt: 500)
+        ]
+        #expect(SessionListLayout.build(sessions: both, devices: devices).map(\.id) == [linux, mac])
+    }
+
+    @Test("A machine with nothing to show is not rendered at all")
+    func emptyDeviceIsDropped() {
+        let groups = SessionListLayout.build(sessions: [session("s")], devices: devices)
+        #expect(groups.map(\.id) == [mac])
     }
 
     @Test("Inside a device, the user is asked first, then the work, then the rest")
@@ -53,37 +79,57 @@ struct SessionGroupingTests {
             session("input", state: .needsInput, updatedAt: 80),
             session("starting", state: .starting, updatedAt: 200)
         ]
-        let held = SessionListLayout.build(sessions: sessions, devices: devices).active.first?.sessions
+        let held = SessionListLayout.build(sessions: sessions, devices: devices).first?.active
         #expect(held?.map(\.sessionID) == ["input", "approval", "starting", "running", "idle"])
     }
 
-    @Test("The Archive is one flat list, newest first, device carried on the row")
-    func archiveOrder() {
+    @Test("A hand-archived session joins its device's Archive, whatever still owns it")
+    func manuallyArchived() {
         let sessions = [
-            session("old", device: linux, control: .none, updatedAt: 10),
-            session("new", control: .none, updatedAt: 99)
+            session("byHand", state: .running, updatedAt: 50, archived: true),
+            session("ended", control: .none, updatedAt: 99),
+            session("live", updatedAt: 10)
         ]
-        let list = SessionListLayout.build(sessions: sessions, devices: devices)
-        #expect(list.archive.map(\.session.sessionID) == ["new", "old"])
-        #expect(list.archive.map(\.deviceName) == ["mac-studio", "ci-runner"])
+        let group = SessionListLayout.build(sessions: sessions, devices: devices).first
+        #expect(group?.active.map(\.sessionID) == ["live"])
+        #expect(group?.archive.map(\.sessionID) == ["ended", "byHand"])
+        // The row itself says which of the two it is, so the list can mark it.
+        #expect(group?.archive.last?.archived == true)
+        #expect(group?.archive.first?.archived == false)
     }
 
-    @Test("A device with nothing open keeps its place and says so")
-    func emptyDeviceKeepsItsPlace() {
-        let list = SessionListLayout.build(sessions: [session("s")], devices: devices)
-        #expect(list.active.map(\.id) == [mac, linux])
-        #expect(list.active.last?.sessions.isEmpty == true)
-        #expect(list.active.last?.online == false)
+    @Test("A device with nothing archived reports an empty Archive, so the header is hidden")
+    func emptyArchiveIsHidden() {
+        let groups = SessionListLayout.build(sessions: [session("live")], devices: devices)
+        #expect(groups.first?.archive.isEmpty == true)
     }
 
-    @Test("Device order comes from the gateway, not from what is running")
-    func deviceOrderIsStable() {
-        let sessions = [
-            session("calm", updatedAt: 10),
-            session("urgent", device: linux, state: .needsApproval, updatedAt: 99)
-        ]
-        let list = SessionListLayout.build(sessions: sessions, devices: devices)
-        #expect(list.active.map(\.deviceName) == ["mac-studio", "ci-runner"])
+    @Test("A device with only archived sessions still gets its group")
+    func archiveOnlyDevice() {
+        let groups = SessionListLayout.build(sessions: [session("ended", control: .none)], devices: devices)
+        #expect(groups.map(\.id) == [mac])
+        #expect(groups.first?.active.isEmpty == true)
+        #expect(groups.first?.archive.count == 1)
+    }
+
+    @Test("An Archive is closed until it is asked for, and a match inside opens it")
+    func archiveExpansion() {
+        let sessions = [session("ended", title: "Add traces", control: .none)]
+        let closed = SessionListLayout.build(sessions: sessions, devices: devices)
+        #expect(closed.first?.archiveExpanded == false)
+
+        let asked = SessionListLayout.build(sessions: sessions, devices: devices,
+                                            archiveExpanded: [mac])
+        #expect(asked.first?.archiveExpanded == true)
+
+        let found = SessionListLayout.build(sessions: sessions, devices: devices, query: "traces")
+        #expect(found.first?.archiveExpanded == true)
+
+        // A search that matches only live rows leaves the Archive alone.
+        let live = sessions + [session("live", title: "Add traces to the gateway")]
+        let missed = SessionListLayout.build(sessions: live, devices: devices, query: "gateway")
+        #expect(missed.first?.archive.isEmpty == true)
+        #expect(missed.first?.archiveExpanded == false)
     }
 
     @Test("Search reads the title, the folder and the agent, and drops empty machines")
@@ -92,49 +138,109 @@ struct SessionGroupingTests {
             session("a", title: "Fix the parser", cwd: "/src/gateway", agent: "claude"),
             session("b", device: linux, title: "Traces", cwd: "/work/api", agent: "codex")
         ]
-        func count(_ query: String) -> Int {
-            SessionListLayout.build(sessions: sessions, devices: devices, query: query).activeCount
+        func rows(_ query: String) -> [String] {
+            SessionListLayout.build(sessions: sessions, devices: devices, query: query)
+                .flatMap { $0.active.map(\.sessionID) }
         }
-        #expect(count("parser") == 1)
-        #expect(count("/work") == 1)
-        #expect(count("codex") == 1)
-        #expect(count("  PARSER ") == 1)
-        #expect(count("nothing here") == 0)
-
-        let narrowed = SessionListLayout.build(sessions: sessions, devices: devices, query: "parser")
-        #expect(narrowed.active.count == 1)
-        #expect(narrowed.isSearching)
+        #expect(rows("parser") == ["a"])
+        #expect(rows("/work") == ["b"])
+        #expect(rows("codex") == ["b"])
+        #expect(rows("claude code") == ["a"])
+        #expect(rows("  PARSER ") == ["a"])
+        #expect(rows("nothing here").isEmpty)
+        #expect(SessionListLayout.build(sessions: sessions, devices: devices, query: "parser").count == 1)
     }
 
-    @Test("A match inside the Archive opens it")
-    func searchOpensArchive() {
-        let sessions = [session("a", title: "Add traces", control: .none, updatedAt: 5)]
-        let quiet = SessionListLayout.build(sessions: sessions, devices: devices)
-        #expect(!quiet.forcesArchiveOpen)
+    @Test("The agent filter applies before the grouping, so a machine can disappear")
+    func agentFilter() {
+        let sessions = [
+            session("claude-one", agent: "claude", updatedAt: 100),
+            session("codex-one", agent: "codex", updatedAt: 90),
+            session("claude-two", device: linux, agent: "claude", updatedAt: 50)
+        ]
+        #expect(SessionListLayout.agents(in: sessions) == ["claude", "codex"])
 
-        let found = SessionListLayout.build(sessions: sessions, devices: devices, query: "traces")
-        #expect(found.forcesArchiveOpen)
+        let codex = SessionListLayout.build(sessions: sessions, devices: devices, agentFilter: "codex")
+        #expect(codex.map(\.id) == [mac])
+        #expect(codex.first?.active.map(\.sessionID) == ["codex-one"])
 
-        let missed = SessionListLayout.build(sessions: sessions, devices: devices, query: "parser")
-        #expect(!missed.forcesArchiveOpen)
-        #expect(missed.isEmpty)
+        let claude = SessionListLayout.build(sessions: sessions, devices: devices, agentFilter: "claude")
+        #expect(claude.map(\.id) == [mac, linux])
+    }
+
+    @Test("The agent filter offers only the agents the list contains, in label order")
+    func agentOptions() {
+        #expect(SessionListLayout.agents(in: []).isEmpty)
+        #expect(SessionListLayout.agents(in: [session("a", agent: "codex")]) == ["codex"])
+        let mixed = [session("a", agent: "codex"), session("b", agent: "amp"), session("c", agent: "claude")]
+        #expect(SessionListLayout.agents(in: mixed) == ["amp", "claude", "codex"])
+    }
+
+    @Test("With one device picked, only that group is built")
+    func deviceFilter() {
+        let sessions = [session("a"), session("b", device: linux)]
+        let only = SessionListLayout.build(sessions: sessions, devices: devices, deviceFilter: linux)
+        #expect(only.map(\.id) == [linux])
+        #expect(only.first?.active.map(\.sessionID) == ["b"])
+    }
+
+    @Test("A folded machine keeps its rows, so a count still reads them")
+    func collapsedGroup() {
+        let groups = SessionListLayout.build(sessions: [session("s")], devices: devices,
+                                             collapsedDevices: [mac])
+        #expect(groups.first?.collapsed == true)
+        #expect(groups.first?.active.count == 1)
+    }
+
+    @Test("A search unfolds the machines it matched, and clearing it folds them back")
+    func searchUnfoldsCollapsedGroups() {
+        let sessions = [session("s", title: "Fix the parser")]
+        let found = SessionListLayout.build(sessions: sessions, devices: devices,
+                                            query: "parser", collapsedDevices: [mac])
+        #expect(found.first?.collapsed == false)
+
+        let cleared = SessionListLayout.build(sessions: sessions, devices: devices,
+                                              collapsedDevices: [mac])
+        #expect(cleared.first?.collapsed == true)
     }
 
     @Test("A session on a device the gateway never listed is still shown")
     func unknownDevice() {
-        let list = SessionListLayout.build(sessions: [session("s", device: "ghost")], devices: devices)
-        #expect(list.active.map(\.id) == [mac, linux, "ghost"])
-        #expect(list.active.last?.deviceName == "ghost")
-        #expect(list.active.last?.online == false)
+        let groups = SessionListLayout.build(sessions: [session("s", device: "ghost")], devices: devices)
+        #expect(groups.map(\.id) == ["ghost"])
+        #expect(groups.first?.name == "ghost")
+        #expect(groups.first?.online == false)
     }
 
     @MainActor
-    @Test("The open or closed choice outlives the launch")
-    func expansionIsRemembered() {
+    @Test("Folding a machine away and opening its Archive both outlive the launch")
+    func collapseRoundTrip() {
         let defaults = UserDefaults(suiteName: "rc-tests-\(UUID().uuidString)")!
         let store = SessionStore(defaults: defaults)
-        #expect(!store.isArchiveExpanded)
-        store.isArchiveExpanded = true
-        #expect(SessionStore(defaults: defaults).isArchiveExpanded)
+        #expect(store.collapsedDevices.isEmpty)
+        #expect(store.expandedArchives.isEmpty)
+
+        store.toggleCollapsed(mac)
+        store.toggleArchive(linux)
+        #expect(defaults.stringArray(forKey: "sessions.collapsedDevices") == [mac])
+        #expect(defaults.stringArray(forKey: "sessions.archiveExpanded") == [linux])
+
+        let reloaded = SessionStore(defaults: defaults)
+        #expect(reloaded.collapsedDevices == [mac])
+        #expect(reloaded.expandedArchives == [linux])
+        #expect(reloaded.isCollapsed(mac))
+
+        reloaded.toggleCollapsed(mac)
+        #expect(SessionStore(defaults: defaults).collapsedDevices.isEmpty)
+    }
+
+    @MainActor
+    @Test("The agent filter is a view of the list, not a setting")
+    func agentFilterIsNotPersisted() {
+        let defaults = UserDefaults(suiteName: "rc-tests-\(UUID().uuidString)")!
+        let store = SessionStore(defaults: defaults)
+        #expect(store.agentFilter == nil)
+        store.agentFilter = "codex"
+        #expect(SessionStore(defaults: defaults).agentFilter == nil)
     }
 }

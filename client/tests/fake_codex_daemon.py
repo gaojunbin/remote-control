@@ -10,13 +10,36 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from websockets.asyncio.server import ServerConnection, unix_serve
 
+from rc_client.agents.codex.daemon.terminals import TerminalScan
+
 Responder = Callable[[str, dict[str, Any]], Any]
+
+
+@dataclass
+class FakeTerminals:
+    """The TUI process scan, which is the only signal a TUI exit ever gives.
+
+    The daemon itself says nothing when a terminal leaves, so a test that wants
+    to stage one empties `cwds` and lets the next scan run.
+    """
+
+    cwds: set[str] = field(default_factory=set)
+    complete: bool = True
+    scans: int = 0
+
+    async def __call__(self) -> TerminalScan:
+        self.scans += 1
+        return TerminalScan(
+            cwds={os.path.realpath(cwd) for cwd in self.cwds}, complete=self.complete
+        )
 
 
 class FakeDaemon:

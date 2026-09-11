@@ -21,19 +21,31 @@ def is_active(status: Any) -> bool:
     return isinstance(status, dict) and status.get("type") == "active"
 
 
-def resolve(created_here: bool, loaded: bool, terminal_seen: bool) -> tuple[str, str]:
+def resolve(
+    created_here: bool,
+    loaded: bool,
+    terminal_seen: bool,
+    terminal_live: bool = True,
+    local_turn: bool = False,
+) -> tuple[str, str]:
     """`(origin, control)` for one Codex thread on the daemon.
 
-    `shared` is sticky while the thread stays loaded, because the daemon says
-    nothing at all when a TUI exits; an unloaded thread is `none` and the next
-    `session.send` resumes it.
+    An unloaded thread is `none` and the next `session.send` resumes it. A
+    loaded thread is `shared` while a terminal has it, which the daemon never
+    reports: `terminal_live` is the process scan's answer, and it defaults to
+    "still there" so an unknown answer never hands the session away. Once the
+    terminal is gone the thread stays ours to drive — `remote` while a turn
+    this device started is running, `none` when it is idle — and `origin` never
+    changes.
     """
     origin = "remote" if created_here else "terminal"
     if not loaded:
         return origin, "none"
-    if terminal_seen or not created_here:
+    if (terminal_seen or not created_here) and terminal_live:
         return origin, "shared"
-    return origin, "remote"
+    if created_here or local_turn:
+        return origin, "remote"
+    return origin, "none"
 
 
 @dataclass(slots=True)

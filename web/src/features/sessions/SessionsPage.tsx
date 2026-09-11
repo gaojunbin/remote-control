@@ -1,26 +1,32 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Plus, Search } from 'lucide-react';
-import { ArchiveHeader } from '../../components/ArchiveHeader';
+import { ArchiveGroupHeader, DeviceGroupHeader } from '../../components/GroupHeader';
 import { Button } from '../../components/Button';
 import { Menu } from '../../components/Popover';
-import { strings } from '../../strings';
+import { Segmented } from '../../components/Segmented';
+import { agentLabel, strings } from '../../strings';
 import { useDevices } from '../../stores/devices';
-import { selectSessionSections, useSessions } from '../../stores/sessions';
+import { selectAgents, selectSessionLayout, useSessions } from '../../stores/sessions';
 import { useSettings } from '../../stores/settings';
 import { NewSessionDrawer } from './NewSessionDrawer';
 import { SessionRow } from './SessionRow';
 import './sessions.css';
 
+/** The agent filter uses this id for "no filter", so it stays a plain string. */
+const ALL = '__all__';
+
 export function SessionsPage() {
   const sessionsRecord = useSessions((s) => s.sessions);
   const sessionsLoaded = useSessions((s) => s.loaded);
   const loadSessions = useSessions((s) => s.load);
+  const agentFilter = useSessions((s) => s.agentFilter);
+  const setAgentFilter = useSessions((s) => s.setAgentFilter);
   const devices = useDevices((s) => s.devices);
-  const showArchived = useSettings((s) => s.showArchived);
-  const setShowArchived = useSettings((s) => s.setShowArchived);
+  const collapsedDevices = useSettings((s) => s.collapsedDevices);
   const archiveExpanded = useSettings((s) => s.archiveExpanded);
-  const setArchiveExpanded = useSettings((s) => s.setArchiveExpanded);
+  const toggleDeviceCollapsed = useSettings((s) => s.toggleDeviceCollapsed);
+  const toggleArchiveExpanded = useSettings((s) => s.toggleArchiveExpanded);
   const [query, setQuery] = useState('');
   const [deviceFilter, setDeviceFilter] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -34,28 +40,23 @@ export function SessionsPage() {
     () => Object.fromEntries(devices.map((d) => [d.device_id, d.name])),
     [devices],
   );
-  const deviceIds = useMemo(() => devices.map((d) => d.device_id), [devices]);
+  const agents = useMemo(() => selectAgents(sessionsRecord), [sessionsRecord]);
 
   const needle = query.trim();
-  const { active, archive, count } = useMemo(
+  const groups = useMemo(
     () =>
-      selectSessionSections(sessionsRecord, {
-        includeArchived: showArchived,
-        deviceId: deviceFilter,
-        deviceIds,
-        deviceNames,
+      selectSessionLayout(sessionsRecord, devices, {
+        deviceFilter,
+        agentFilter,
         query: needle,
+        collapsedDevices,
+        archiveExpanded,
       }),
-    [sessionsRecord, showArchived, deviceFilter, deviceIds, deviceNames, needle],
+    [sessionsRecord, devices, deviceFilter, agentFilter, needle, collapsedDevices, archiveExpanded],
   );
-
-  // A search that matches something inside the Archive opens it on its own.
-  const openArchive = archiveExpanded || (needle.length > 0 && archive.length > 0);
 
   const openSession = (deviceId: string, sessionId: string) =>
     navigate(`/sessions/${deviceId}/${sessionId}`);
-  const isOnline = (deviceId: string) =>
-    devices.find((d) => d.device_id === deviceId)?.online ?? false;
 
   return (
     <>
@@ -78,79 +79,83 @@ export function SessionsPage() {
             aria-label={strings.sessions.searchPlaceholder}
           />
         </label>
+        {agents.length > 1 ? (
+          <Segmented<string>
+            ariaLabel={strings.sessions.agentFilter}
+            value={agentFilter ?? ALL}
+            onChange={(id) => setAgentFilter(id === ALL ? null : id)}
+            options={[
+              { value: ALL, label: strings.sessions.allAgents },
+              ...agents.map((agent) => ({ value: agent, label: agentLabel(agent) })),
+            ]}
+          />
+        ) : null}
         <Menu
           ariaLabel={strings.sessions.allDevices}
           align="end"
           label={deviceFilter ? (deviceNames[deviceFilter] ?? deviceFilter) : strings.sessions.allDevices}
           value={deviceFilter}
-          onSelect={(id) => setDeviceFilter(id === '__all__' ? null : id)}
+          onSelect={(id) => setDeviceFilter(id === ALL ? null : id)}
           options={[
-            { id: '__all__', label: strings.sessions.allDevices },
+            { id: ALL, label: strings.sessions.allDevices },
             ...devices.map((d) => ({ id: d.device_id, label: d.name })),
           ]}
         />
-        <button
-          type="button"
-          className="pill"
-          aria-pressed={showArchived}
-          onClick={() => setShowArchived(!showArchived)}
-        >
-          {showArchived ? strings.sessions.hideArchived : strings.sessions.showArchived}
-        </button>
       </div>
 
-      {count === 0 ? (
+      {groups.length === 0 ? (
         <div className="card empty">
           <strong>{needle ? strings.sessions.noMatches : strings.sessions.empty}</strong>
           {needle ? null : strings.sessions.emptyHint}
         </div>
       ) : (
-        <>
-          {active.map((group) => (
-            <section className="session-group" key={group.deviceId}>
-              <h2 className="group-title">{deviceNames[group.deviceId] ?? group.deviceId}</h2>
-              {group.sessions.length === 0 ? (
-                <p className="group-empty">{strings.sessions.noOpenSessions}</p>
-              ) : (
-                <ul className="session-list surface">
-                  {group.sessions.map((session) => (
-                    <SessionRow
-                      key={`${session.device_id}/${session.session_id}`}
-                      session={session}
-                      deviceName={deviceNames[session.device_id] ?? session.device_id}
-                      online={isOnline(session.device_id)}
-                      onOpen={() => openSession(session.device_id, session.session_id)}
+        groups.map((group) => (
+          <section className="session-group" key={group.device.device_id}>
+            <DeviceGroupHeader
+              name={group.device.name}
+              online={group.device.online}
+              expanded={!group.collapsed}
+              onToggle={() => toggleDeviceCollapsed(group.device.device_id)}
+            />
+            {group.collapsed ? null : (
+              <>
+                {group.active.length > 0 ? (
+                  <ul className="session-list surface">
+                    {group.active.map((session) => (
+                      <SessionRow
+                        key={`${session.device_id}/${session.session_id}`}
+                        session={session}
+                        online={group.device.online}
+                        onOpen={() => openSession(session.device_id, session.session_id)}
+                      />
+                    ))}
+                  </ul>
+                ) : null}
+                {group.archive.length > 0 ? (
+                  <div className="session-archive-group">
+                    <ArchiveGroupHeader
+                      count={group.archive.length}
+                      expanded={group.archiveExpanded}
+                      onToggle={() => toggleArchiveExpanded(group.device.device_id)}
                     />
-                  ))}
-                </ul>
-              )}
-            </section>
-          ))}
-
-          {archive.length > 0 ? (
-            <section className="session-group">
-              <ArchiveHeader
-                count={archive.length}
-                expanded={openArchive}
-                onToggle={() => setArchiveExpanded(!openArchive)}
-              />
-              {openArchive ? (
-                <ul className="session-list surface">
-                  {archive.map((session) => (
-                    <SessionRow
-                      key={`${session.device_id}/${session.session_id}`}
-                      session={session}
-                      deviceName={deviceNames[session.device_id] ?? session.device_id}
-                      online={isOnline(session.device_id)}
-                      showDevice
-                      onOpen={() => openSession(session.device_id, session.session_id)}
-                    />
-                  ))}
-                </ul>
-              ) : null}
-            </section>
-          ) : null}
-        </>
+                    {group.archiveExpanded ? (
+                      <ul className="session-list surface">
+                        {group.archive.map((session) => (
+                          <SessionRow
+                            key={`${session.device_id}/${session.session_id}`}
+                            session={session}
+                            online={group.device.online}
+                            onOpen={() => openSession(session.device_id, session.session_id)}
+                          />
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </section>
+        ))
       )}
 
       <NewSessionDrawer open={creating} onClose={() => setCreating(false)} />

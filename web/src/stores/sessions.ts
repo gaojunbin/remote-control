@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { api } from '../lib/api';
 import { rpc } from '../lib/gateway';
 import type { CreateSessionParams } from '../protocol/frames';
-import type { Session } from '../protocol/types';
+import type { Device, Session } from '../protocol/types';
 
 export type SessionKey = string;
 
@@ -16,6 +16,13 @@ export const keyOf = (session: Session): SessionKey =>
 interface SessionsState {
   sessions: Record<SessionKey, Session>;
   loaded: boolean;
+  /**
+   * The agent the lists are filtered to, `null` for all of them. In memory on
+   * purpose: it lives here rather than in a page so the Sessions page and the
+   * chat sidebar always show the same slice.
+   */
+  agentFilter: string | null;
+  setAgentFilter: (agent: string | null) => void;
   load: () => Promise<void>;
   replaceAll: (sessions: Session[]) => void;
   upsert: (session: Session) => void;
@@ -28,6 +35,9 @@ interface SessionsState {
 export const useSessions = create<SessionsState>((set, get) => ({
   sessions: {},
   loaded: false,
+  agentFilter: null,
+
+  setAgentFilter: (agentFilter) => set({ agentFilter }),
 
   load: async () => {
     const { sessions } = await api.sessions();
@@ -69,14 +79,10 @@ export const useSessions = create<SessionsState>((set, get) => ({
   },
 }));
 
-/** Sessions sorted newest-activity-first, archived hidden unless asked for. */
-export function selectSessionList(
-  sessions: Record<SessionKey, Session>,
-  options: { includeArchived?: boolean; deviceId?: string } = {},
-): Session[] {
+/** Every session the user has not archived, newest activity first. */
+export function selectSessionList(sessions: Record<SessionKey, Session>): Session[] {
   return Object.values(sessions)
-    .filter((s) => (options.includeArchived ? true : !s.archived))
-    .filter((s) => (options.deviceId ? s.device_id === options.deviceId : true))
+    .filter((s) => !s.archived)
     .sort((a, b) => b.updated_at - a.updated_at);
 }
 
@@ -104,76 +110,118 @@ function activityRank(session: Session): number {
   return 2;
 }
 
-/** One device's active sessions. `sessions` is empty for a quiet device. */
-export interface SessionGroup {
-  deviceId: string;
-  sessions: Session[];
-}
-
-/** What every session list renders: Active by device, then one Archive group. */
-export interface SessionSections {
-  active: SessionGroup[];
+/** One device and everything of its own the current filters let through. */
+export interface DeviceGroup {
+  device: Device;
+  /** Whether the user folded this device shut. Groups are open by default. */
+  collapsed: boolean;
+  active: Session[];
   archive: Session[];
-  /** Rows in both sections together, so a caller can spot an empty list. */
-  count: number;
+  archiveExpanded: boolean;
 }
 
-export interface SessionSectionsOptions {
-  /** Whether manually archived sessions are listed at all. */
-  includeArchived?: boolean;
+export interface SessionLayoutOptions {
   /** Restrict the whole list to one device. */
-  deviceId?: string | null;
-  /** Devices to show even when they hold no active session, in list order. */
-  deviceIds?: string[];
+  deviceFilter?: string | null;
+  /** Restrict the whole list to one agent. Applied before grouping. */
+  agentFilter?: string | null;
   /** Free-text filter over title, working directory and device name. */
   query?: string;
-  /** Device names, so the search can match one. */
-  deviceNames?: Record<string, string>;
+  /** Device ids the user folded shut. */
+  collapsedDevices?: string[];
+  /** Device ids whose Archive sub-group is open. */
+  archiveExpanded?: string[];
 }
 
 /**
- * The one grouping rule both session lists follow: Active grouped by device,
- * ordered by attention then activity, and a single Archive group at the bottom
- * ordered by last activity, with the device carried in the row instead.
+ * A session on a device the gateway no longer lists still needs a group, so it
+ * gets one named after its own id rather than disappearing from the list.
  */
-export function selectSessionSections(
-  sessions: Record<SessionKey, Session>,
-  options: SessionSectionsOptions = {},
-): SessionSections {
-  const { includeArchived = false, deviceId = null, deviceIds = [], deviceNames = {} } = options;
+function placeholderDevice(deviceId: string): Device {
+  return {
+    device_id: deviceId,
+    name: deviceId,
+    platform: 'linux',
+    hostname: deviceId,
+    arch: '',
+    client_version: '',
+    online: false,
+    last_seen: 0,
+    created_at: 0,
+    latency_ms: null,
+    agents: [],
+  };
+}
 
+/**
+ * The one grouping rule every session list follows: a group per device, its
+ * active sessions first, then that device's own Archive. A device with nothing
+ * left after the filters is not rendered at all.
+ */
+export function selectSessionLayout(
+  sessions: Record<SessionKey, Session>,
+  devices: Device[],
+  options: SessionLayoutOptions = {},
+): DeviceGroup[] {
+  const {
+    deviceFilter = null,
+    agentFilter = null,
+    collapsedDevices = [],
+    archiveExpanded = [],
+  } = options;
+
+  const known = new Map(devices.map((d) => [d.device_id, d]));
   const needle = (options.query ?? '').trim().toLowerCase();
   const matches = (session: Session): boolean => {
     if (!needle) return true;
-    const name = deviceNames[session.device_id] ?? '';
+    const name = known.get(session.device_id)?.name ?? '';
     return `${session.title} ${session.cwd} ${name}`.toLowerCase().includes(needle);
   };
 
-  const visible = selectSessionList(sessions, {
-    includeArchived,
-    ...(deviceId ? { deviceId } : {}),
-  }).filter(matches);
+  const visible = Object.values(sessions)
+    .filter((s) => (deviceFilter ? s.device_id === deviceFilter : true))
+    .filter((s) => (agentFilter ? s.agent === agentFilter : true))
+    .filter(matches);
 
-  const byDevice = new Map<string, Session[]>();
-  for (const id of deviceIds) {
-    if (!deviceId || deviceId === id) byDevice.set(id, []);
-  }
-
-  const archive: Session[] = [];
+  const buckets = new Map<string, { active: Session[]; archive: Session[] }>();
   for (const session of visible) {
-    if (!isActiveSession(session)) {
-      archive.push(session);
-      continue;
+    let bucket = buckets.get(session.device_id);
+    if (!bucket) {
+      bucket = { active: [], archive: [] };
+      buckets.set(session.device_id, bucket);
     }
-    const list = byDevice.get(session.device_id);
-    if (list) list.push(session);
-    else byDevice.set(session.device_id, [session]);
+    if (isActiveSession(session)) bucket.active.push(session);
+    else bucket.archive.push(session);
   }
 
-  const active = [...byDevice.entries()].map(([id, list]) => ({
-    deviceId: id,
-    sessions: list.sort((a, b) => activityRank(a) - activityRank(b) || b.updated_at - a.updated_at),
+  // A search reveals what it matched without persisting anything: a device only
+  // reaches this point when it still holds a matching row, so under a query its
+  // group is open whatever the user folded shut, and so is any Archive holding
+  // one. Clearing the query hands both back to the stored state.
+  const searching = needle.length > 0;
+
+  const groups = [...buckets.entries()].map(([deviceId, bucket]) => ({
+    device: known.get(deviceId) ?? placeholderDevice(deviceId),
+    collapsed: !searching && collapsedDevices.includes(deviceId),
+    active: bucket.active.sort(
+      (a, b) => activityRank(a) - activityRank(b) || b.updated_at - a.updated_at,
+    ),
+    archive: bucket.archive.sort((a, b) => b.updated_at - a.updated_at),
+    archiveExpanded:
+      archiveExpanded.includes(deviceId) || (searching && bucket.archive.length > 0),
   }));
 
-  return { active, archive, count: visible.length };
+  // Devices with something live first, each side by its most recent activity.
+  const lastActivity = (group: DeviceGroup): number =>
+    Math.max(...[...group.active, ...group.archive].map((s) => s.updated_at));
+  return groups.sort(
+    (a, b) =>
+      Number(b.active.length > 0) - Number(a.active.length > 0) ||
+      lastActivity(b) - lastActivity(a),
+  );
+}
+
+/** The agents present in the list, in a stable order, for the agent filter. */
+export function selectAgents(sessions: Record<SessionKey, Session>): string[] {
+  return [...new Set(Object.values(sessions).map((s) => s.agent))].sort();
 }

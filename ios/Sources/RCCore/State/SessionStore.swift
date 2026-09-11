@@ -1,43 +1,59 @@
 import Foundation
 import Observation
 
-/// Filtering, grouping and the one piece of list state that outlives a launch.
-/// It owns no network state; the list itself lives in `ConnectionStore` and is
-/// corrected by every `hello`. The rule that splits Active from Archive is
+/// Filtering, grouping and the list state that outlives a launch. It owns no
+/// network state; the sessions themselves live in `ConnectionStore` and are
+/// corrected by every `hello`. The rule that builds the groups is
 /// `SessionListLayout`, a pure function this class only feeds.
 @MainActor
 @Observable
 public final class SessionStore {
     private enum Key {
+        static let collapsedDevices = "sessions.collapsedDevices"
         static let archiveExpanded = "sessions.archiveExpanded"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
 
     public var searchText = ""
-    /// The existing toggle: hand-archived sessions join the Archive group only
-    /// while this is on.
-    public var showsArchived = false
-    /// Whether the Archive group is open. Persisted per client, so the choice
-    /// survives a relaunch.
-    public var isArchiveExpanded: Bool {
-        didSet { defaults.set(isArchiveExpanded, forKey: Key.archiveExpanded) }
-    }
+    /// An agent id, or nil for every agent. A view of the list rather than a
+    /// setting, so it starts at All on every launch and is never written down.
+    public var agentFilter: String?
+
+    /// The machines the reader folded away, by device id.
+    public private(set) var collapsedDevices: Set<String>
+    /// The machines whose Archive the reader opened, by device id.
+    public private(set) var expandedArchives: Set<String>
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        isArchiveExpanded = defaults.bool(forKey: Key.archiveExpanded)
+        collapsedDevices = Set(defaults.stringArray(forKey: Key.collapsedDevices) ?? [])
+        expandedArchives = Set(defaults.stringArray(forKey: Key.archiveExpanded) ?? [])
     }
 
-    public func list(_ sessions: [Session], devices: [Device]) -> SessionList {
+    public func groups(_ sessions: [Session], devices: [Device]) -> [DeviceGroup] {
         SessionListLayout.build(sessions: sessions, devices: devices,
-                                query: searchText, showsArchived: showsArchived)
+                                agentFilter: agentFilter, query: searchText,
+                                collapsedDevices: collapsedDevices,
+                                archiveExpanded: expandedArchives)
     }
 
-    /// What the Archive group renders as: open because the reader opened it, or
-    /// because a search found something inside.
-    public func showsArchiveContents(of list: SessionList) -> Bool {
-        isArchiveExpanded || list.forcesArchiveOpen
+    /// The agents the filter offers, read from the whole list rather than from
+    /// the filtered one, so choosing Codex never hides Claude Code.
+    public func agentOptions(_ sessions: [Session]) -> [String] {
+        SessionListLayout.agents(in: sessions)
+    }
+
+    public func isCollapsed(_ deviceID: String) -> Bool { collapsedDevices.contains(deviceID) }
+
+    public func toggleCollapsed(_ deviceID: String) {
+        collapsedDevices.formSymmetricDifference([deviceID])
+        defaults.set(collapsedDevices.sorted(), forKey: Key.collapsedDevices)
+    }
+
+    public func toggleArchive(_ deviceID: String) {
+        expandedArchives.formSymmetricDifference([deviceID])
+        defaults.set(expandedArchives.sorted(), forKey: Key.archiveExpanded)
     }
 }
 

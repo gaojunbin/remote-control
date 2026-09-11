@@ -1,7 +1,7 @@
 import SwiftUI
 import RCCore
 
-/// Device, agent, working directory, git, and an optional first message.
+/// Device, agent, working directory and git.
 struct NewSessionSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -9,7 +9,6 @@ struct NewSessionSheet: View {
     @State private var deviceID = ""
     @State private var agentID = ""
     @State private var cwd = ""
-    @State private var firstMessage = ""
     @State private var worktree = false
     @State private var recent: [RecentDirectory] = []
     @State private var git: GitStatus?
@@ -27,13 +26,6 @@ struct NewSessionSheet: View {
                 agentSection
                 directorySection
                 gitSection
-                Section {
-                    TextField("What should the agent do first?", text: $firstMessage, axis: .vertical)
-                        .lineLimit(3...6)
-                        .accessibilityIdentifier("newsession.prompt")
-                } header: {
-                    FieldLabel("First message") { Text("optional").font(.caption2) }
-                }
                 if let error {
                     Text(error).font(.footnote).foregroundStyle(Theme.danger)
                 }
@@ -88,6 +80,7 @@ struct NewSessionSheet: View {
                     .tag(device.deviceID)
                 }
             }
+            .labelsHidden()
             .accessibilityIdentifier("newsession.device")
             .onChange(of: deviceID) { _, _ in Task { await prepareForDevice() } }
             if model.connection.onlineDevices.isEmpty {
@@ -96,7 +89,7 @@ struct NewSessionSheet: View {
                     .foregroundStyle(Theme.inkSecondary)
             }
         } header: {
-            FieldLabel("Device")
+            FormLabel("Device")
         }
     }
 
@@ -115,7 +108,7 @@ struct NewSessionSheet: View {
                     .foregroundStyle(Theme.inkSecondary)
             }
         } header: {
-            FieldLabel("Agent")
+            FormLabel("Agent")
         }
     }
 
@@ -144,7 +137,7 @@ struct NewSessionSheet: View {
                 .buttonStyle(.plain)
             }
         } header: {
-            FieldLabel("Working directory") {
+            FormLabel("Working directory") {
                 Button("Browse") { isBrowsing = true }
                     .font(.caption.weight(.medium))
                     .buttonStyle(.plain)
@@ -168,7 +161,7 @@ struct NewSessionSheet: View {
                         .accessibilityIdentifier("newsession.worktree")
                 }
             } header: {
-                FieldLabel("Git")
+                FormLabel("Git")
             } footer: {
                 if agent?.supports(.worktree) == true {
                     Text("A worktree gives the agent its own checkout, so your working copy stays untouched.")
@@ -223,8 +216,7 @@ struct NewSessionSheet: View {
                 deviceID: deviceID, agent: agentID, cwd: cwd.trimmed,
                 model: agent.defaultModel, permissionMode: agent.defaultPermissionMode,
                 effort: agent.defaultEffort,
-                worktree: agent.supports(.worktree) ? worktree : nil,
-                firstMessage: firstMessage.trimmed.isEmpty ? nil : firstMessage.trimmed)
+                worktree: agent.supports(.worktree) ? worktree : nil)
             let result = try await channel.request(request, as: SessionResult.self)
             dismiss()
             await model.open(result.session)

@@ -165,22 +165,25 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "11-attach-hint")
     }
 
-    /// The session nothing owns any more sits in one collapsed group at the
-    /// bottom, and a search reaches inside it without opening it by hand.
-    func testArchiveGroupOpensOnTapAndOnSearch() {
+    /// A machine's finished sessions sit in its own collapsed Archive, and a
+    /// search reaches inside it without opening it by hand.
+    func testDeviceArchiveOpensOnTapAndOnSearch() {
         app.launch()
 
         let archived = app.buttons["session.demo-session-otlp"]
         XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
-        XCTAssertFalse(archived.exists, "a session whose CLI exited is not in Active")
+        XCTAssertFalse(archived.exists, "a session whose CLI exited is not among the live rows")
 
         // The list is lazy, so the group has to be scrolled into view first.
-        let archive = app.buttons["sessions.archive"]
-        XCTAssertTrue(scrollDown(to: archive), "the Archive group is at the foot")
+        let archive = app.buttons["sessions.archive.demo-ci-runner"]
+        XCTAssertTrue(scrollDown(to: archive), "the machine carries its own Archive")
         XCTAssertTrue(archive.label.contains("1"), "and its header counts what is inside")
 
         archive.tap()
         XCTAssertTrue(scrollDown(to: archived), "one tap opens it")
+        // The list ends here, so one more swipe settles it at the foot with the
+        // whole Archive in view.
+        app.swipeUp()
         attach(name: "15-archive-open")
 
         XCTAssertTrue(scrollDown(to: archive), "the header is still reachable")
@@ -199,6 +202,52 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "16-archive-search")
     }
 
+    /// A device header folds its whole group away and brings it back.
+    func testDeviceGroupCollapses() {
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
+
+        let header = app.buttons["sessions.device.demo-mac-studio"]
+        XCTAssertTrue(scrollDown(to: header), "the busiest machine heads the list")
+        let row = app.buttons["session.demo-session-auth"]
+        XCTAssertTrue(row.exists, "with its live sessions under it")
+
+        header.tap()
+        XCTAssertTrue(row.waitForNonExistence(timeout: 10), "one tap folds the machine away")
+        attach(name: "17-device-collapsed")
+
+        XCTAssertTrue(scrollDown(to: header), "the header stays put")
+        header.tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "and another brings the group back")
+    }
+
+    /// The agent filter narrows the list to one agent and drops any machine
+    /// left with nothing to show.
+    func testAgentFilterNarrowsTheListToOneAgent() {
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
+
+        let claudeRow = app.buttons["session.demo-session-auth"]
+        let codexRow = app.buttons["session.demo-session-vite"]
+        XCTAssertTrue(claudeRow.waitForExistence(timeout: 10), "both agents are listed to start with")
+        XCTAssertTrue(codexRow.exists)
+
+        app.buttons["sessions.agentFilter"].tap()
+        let codexChoice = app.buttons["sessions.agentFilter.codex"]
+        XCTAssertTrue(codexChoice.waitForExistence(timeout: 10), "the filter names the agents present")
+        codexChoice.tap()
+
+        XCTAssertTrue(claudeRow.waitForNonExistence(timeout: 10), "the other agent's rows go")
+        XCTAssertTrue(codexRow.exists, "the chosen agent's rows stay")
+        XCTAssertFalse(app.buttons["sessions.device.demo-macbook-air"].exists,
+                       "and a machine left with nothing disappears with them")
+        attach(name: "18-agent-filter")
+
+        app.buttons["sessions.agentFilter"].tap()
+        app.buttons["sessions.agentFilter.all"].tap()
+        XCTAssertTrue(claudeRow.waitForExistence(timeout: 10), "All brings the rest back")
+    }
+
     /// Scrolls the list until the element is on screen and can be tapped, so a
     /// lazy row at the foot of the page is never a matter of swipe distance.
     private func scrollDown(to element: XCUIElement, swipes: Int = 6) -> Bool {
@@ -207,18 +256,6 @@ final class RemoteControlUITests: XCTestCase {
             app.swipeUp()
         }
         return element.exists && element.isHittable
-    }
-
-    /// A device with nothing open keeps its caption and says so in one line.
-    func testDeviceWithNoOpenSessionsSaysSo() {
-        app.launch()
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
-        app.swipeUp()
-        app.swipeUp()
-        let empty = app.staticTexts["sessions.empty.demo-ci-runner"]
-        XCTAssertTrue(empty.waitForExistence(timeout: 15),
-                      "the machine is still listed, with a caption instead of rows")
-        XCTAssertEqual(empty.label, "No open sessions")
     }
 
     func testNewSessionSheetOffersDeviceAndAgent() {
@@ -231,6 +268,8 @@ final class RemoteControlUITests: XCTestCase {
                       "the sheet offers an explicit start action")
         XCTAssertTrue(app.otherElements["newsession.agent"].exists || app.segmentedControls.firstMatch.exists,
                       "an agent picker is present")
+        XCTAssertFalse(app.textViews["newsession.prompt"].exists,
+                       "and the sheet no longer asks for a first message")
         attach(name: "04-new-session")
     }
 

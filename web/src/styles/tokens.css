@@ -38,6 +38,12 @@
   --danger-soft: #fdeceb;
   --accent: #111111;
 
+  /* agent chips — tinted, never outlined; an unknown agent keeps the neutral */
+  --agent-claude-soft: #f7ece4;
+  --agent-claude-ink: #8a5a2f;
+  --agent-codex-soft: #ebeef2;
+  --agent-codex-ink: #55606e;
+
   /* diff */
   --diff-add: #1f7a4d;
   --diff-add-bg: #eefaf3;
@@ -84,6 +90,15 @@
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   --dur-fast: 120ms;
   --dur: 200ms;
+
+  /*
+   * Layering. A popover is always drawn by the thing that opened it, so it has
+   * to clear every overlay: its panel is a portal on `document.body`, a sibling
+   * of the modal and drawer overlays rather than a descendant.
+   */
+  --z-sticky: 20;
+  --z-overlay: 60;
+  --z-popover: 100;
 
   /* layout */
   --sidebar-w: 264px;

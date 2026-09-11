@@ -5,14 +5,18 @@ import { createJSONStorage, persist, type StateStorage } from 'zustand/middlewar
 interface SettingsState {
   sttLanguage: string;
   pushToTalk: boolean;
-  showArchived: boolean;
-  /** Whether the Archive group at the bottom of a session list is open. */
-  archiveExpanded: boolean;
+  /** Device groups the user folded shut in a session list. Expanded by default. */
+  collapsedDevices: string[];
+  /** Devices whose Archive sub-group is open. Collapsed by default. */
+  archiveExpanded: string[];
   setSttLanguage: (language: string) => void;
   setPushToTalk: (enabled: boolean) => void;
-  setShowArchived: (show: boolean) => void;
-  setArchiveExpanded: (expanded: boolean) => void;
+  toggleDeviceCollapsed: (deviceId: string) => void;
+  toggleArchiveExpanded: (deviceId: string) => void;
 }
+
+const toggle = (list: string[], id: string): string[] =>
+  list.includes(id) ? list.filter((entry) => entry !== id) : [...list, id];
 
 /**
  * `localStorage` is missing or throws in private windows, in embedded webviews
@@ -48,13 +52,15 @@ export const useSettings = create<SettingsState>()(
     (set) => ({
       sttLanguage: 'auto',
       pushToTalk: true,
-      showArchived: false,
-      archiveExpanded: false,
+      collapsedDevices: [],
+      archiveExpanded: [],
       setSttLanguage: (sttLanguage) => set({ sttLanguage }),
       setPushToTalk: (pushToTalk) => set({ pushToTalk }),
-      setShowArchived: (showArchived) => set({ showArchived }),
-      setArchiveExpanded: (archiveExpanded) => set({ archiveExpanded }),
+      toggleDeviceCollapsed: (deviceId) =>
+        set((s) => ({ collapsedDevices: toggle(s.collapsedDevices, deviceId) })),
+      toggleArchiveExpanded: (deviceId) =>
+        set((s) => ({ archiveExpanded: toggle(s.archiveExpanded, deviceId) })),
     }),
-    { name: 'rc.settings', storage: createJSONStorage(() => storage) },
+    { name: 'rc.settings', version: 1, storage: createJSONStorage(() => storage) },
   ),
 );

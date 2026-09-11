@@ -68,7 +68,6 @@ function NewSessionForm({ devices, presetDeviceId, onClose }: FormProps) {
   const [cwd, setCwd] = useState('');
   const [cwdTouched, setCwdTouched] = useState(false);
   const [worktree, setWorktree] = useState(false);
-  const [firstMessage, setFirstMessage] = useState('');
   const [recent, setRecent] = useState<{ path: string; last_used: number }[]>([]);
   const [browsing, setBrowsing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -112,7 +111,6 @@ function NewSessionForm({ devices, presetDeviceId, onClose }: FormProps) {
           : {}),
         ...(agent.default_effort ? { effort: agent.default_effort } : {}),
         ...(canWorktree && worktree ? { worktree: true } : {}),
-        ...(firstMessage.trim() ? { first_message: firstMessage.trim() } : {}),
       });
       onClose();
       navigate(`/sessions/${session.device_id}/${session.session_id}`);
@@ -121,7 +119,7 @@ function NewSessionForm({ devices, presetDeviceId, onClose }: FormProps) {
     } finally {
       setBusy(false);
     }
-  }, [canStart, device, agent, cwd, canWorktree, worktree, firstMessage, createSession, onClose, navigate]);
+  }, [canStart, device, agent, cwd, canWorktree, worktree, createSession, onClose, navigate]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -278,20 +276,6 @@ function NewSessionForm({ devices, presetDeviceId, onClose }: FormProps) {
             </div>
           ) : null}
         </div>
-      </section>
-
-      <section>
-        <span className="label">
-          {strings.newSession.firstMessage} <em>{strings.common.optional}</em>
-        </span>
-        <textarea
-          className="field first-message"
-          rows={4}
-          placeholder={strings.newSession.firstMessagePlaceholder}
-          value={firstMessage}
-          aria-label={strings.newSession.firstMessage}
-          onChange={(e) => setFirstMessage(e.target.value)}
-        />
       </section>
 
       <DirectoryPicker

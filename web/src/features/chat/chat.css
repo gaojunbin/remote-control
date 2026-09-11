@@ -46,19 +46,14 @@
   margin-top: var(--sp-5);
 }
 
-.sidebar-list .group-title {
-  padding-left: var(--sp-4);
+.sidebar-list .group-head {
   margin-bottom: var(--sp-1);
+  padding-left: var(--sp-2);
 }
 
-/* The chevron takes the gutter, so the label keeps the caption indent. */
 .sidebar-list .archive-head {
-  padding-left: 0;
-}
-
-.sidebar-list .group-empty {
-  padding: 0 var(--sp-2) var(--sp-1) var(--sp-4);
-  font-size: var(--fs-12);
+  margin-top: var(--sp-2);
+  padding-left: var(--sp-4);
 }
 
 .sidebar-list ul {
@@ -301,8 +296,6 @@
   display: block;
   font-size: var(--fs-11);
   color: var(--ink-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   margin-bottom: 2px;
 }
 
@@ -452,8 +445,6 @@
 .tool-section-label {
   display: block;
   font-size: var(--fs-11);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   color: var(--ink-tertiary);
   margin-bottom: 4px;
 }
