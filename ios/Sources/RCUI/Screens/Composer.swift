@@ -3,8 +3,12 @@ import PhotosUI
 import UniformTypeIdentifiers
 import RCCore
 
-/// The message bar: attachments, dictation, a text field where Return inserts a
-/// newline, and a send button that is always an explicit, separate tap.
+/// The message bar.
+///
+/// The field owns a full row of its own and grows with what is in it; the
+/// controls sit on a second row underneath, attachments and dictation on the
+/// left and Send on the right. Return inserts a newline, and sending is always
+/// an explicit, separate tap — dictation fills the draft and stops there.
 struct Composer: View {
     let chat: ChatStore
     @Binding var showsQueue: Bool
@@ -18,7 +22,6 @@ struct Composer: View {
     @State private var showsFileImporter = false
     @State private var showsCamera = false
     @State private var attachmentError: String?
-    @State private var sendAfterDictation = false
     /// Amendment A10: which terminal-owned control the user just reached for.
     /// The one-line status swaps to its explanation for a few seconds.
     @State private var blockedControl: TerminalControl?
@@ -36,22 +39,11 @@ struct Composer: View {
 
     var body: some View {
         @Bindable var chat = chat
-        VStack(spacing: Theme.Space.small) {
-            if let attachmentError {
-                Text(attachmentError).font(.caption).foregroundStyle(Theme.danger)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else if chat.isAttached {
-                terminalNote
-            }
+        return VStack(spacing: Theme.Space.small) {
+            noticeLine
             if !attachments.isEmpty { attachmentStrip }
-
-            if let voice, voice.voice.phase.isBusy {
-                VoiceCapturePanel(session: voice, usesGateway: usesGateway, draft: $chat.draft,
-                                  cancel: { cancelDictation() },
-                                  stopAndSend: { sendWhenDictationFinishes(voice) })
-            } else {
-                inputRow
-            }
+            promptField
+            controlsRow
             optionsRow
         }
         .padding(.horizontal, Theme.Space.page)
@@ -65,14 +57,6 @@ struct Composer: View {
         }
         .onChange(of: model.connection.phase) { _, _ in syncSendability() }
         .onChange(of: model.device(for: chat.session)?.online) { _, _ in syncSendability() }
-        .onChange(of: voice?.voice.phase) { _, phase in
-            guard sendAfterDictation, let phase, !phase.isBusy else { return }
-            sendAfterDictation = false
-            // A failed run keeps whatever was recognised in the draft, but the
-            // user decides whether to send it.
-            guard phase == .review, chat.canSend else { return }
-            send(mode: .auto)
-        }
         .onChange(of: model.settings.voiceBackend) { _, _ in prepareVoice() }
         .onChange(of: model.settings.voiceLanguage) { _, _ in prepareVoice() }
         .onChange(of: photoItems) { _, items in Task { await ingest(items) } }
@@ -88,46 +72,109 @@ struct Composer: View {
         #endif
     }
 
-    private var inputRow: some View {
-        @Bindable var chat = chat
-        return HStack(alignment: .bottom, spacing: Theme.Space.tight) {
-            attachControl
-
-            TextField(placeholder, text: $chat.draft, axis: .vertical)
-                .lineLimit(1...6)
-                .focused($isWriting)
-                .font(.body)
-                .padding(.horizontal, Theme.Space.small)
-                .padding(.vertical, Theme.Space.small)
-                .background(Theme.surface,
-                            in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                    .strokeBorder(Theme.border, lineWidth: 0.5))
-                .disabled(chat.isReadOnly)
-                .accessibilityIdentifier("composer.prompt")
-
-            if let voice {
-                VoiceButton(session: voice) { startDictation() }
-                    .disabled(chat.isReadOnly)
-            }
-
-            Button {
-                send(mode: .auto)
-            } label: {
-                Image(systemName: "arrow.up")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Theme.onAccent)
-                    .frame(width: Theme.Touch.primary, height: Theme.Touch.primary)
-                    .background(Theme.accent, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!chat.canSend)
-            .opacity(chat.canSend ? 1 : 0.4)
-            .contextMenu { sendMenu }
-            .accessibilityLabel("Send")
-            .accessibilityIdentifier("composer.send")
+    /// One line above the field, and never two: an attachment problem, what
+    /// dictation is doing, or what an attached terminal owns.
+    @ViewBuilder
+    private var noticeLine: some View {
+        if let attachmentError {
+            Text(attachmentError).font(.caption).foregroundStyle(Theme.danger)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if let voice, voice.voice.phase.isBusy || voice.voice.failure != nil {
+            VoiceStatusLine(session: voice, usesGateway: usesGateway)
+                .task(id: voice.voice.failure == nil) {
+                    guard voice.voice.failure != nil else { return }
+                    try? await Task.sleep(for: .seconds(6))
+                    guard !Task.isCancelled else { return }
+                    voice.voice.dismissFailure()
+                }
+        } else if chat.isAttached {
+            terminalNote
         }
     }
+
+    /// The field takes the row to itself and grows with the draft up to
+    /// `ComposerLayout.maximumLines`, then scrolls inside itself.
+    private var promptField: some View {
+        @Bindable var chat = chat
+        return TextField(placeholder, text: $chat.draft, axis: .vertical)
+            .lineLimit(ComposerLayout.growth)
+            // Without this the bar takes its height from what is left over and
+            // squeezes the field back to one scrolling line; the transcript is
+            // the view that should give way, not the thing being written.
+            .fixedSize(horizontal: false, vertical: true)
+            .focused($isWriting)
+            .font(.body)
+            .padding(.horizontal, Theme.Space.small)
+            .padding(.vertical, Theme.Space.small)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.surface,
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            .disabled(chat.isReadOnly)
+            .accessibilityIdentifier("composer.prompt")
+            .overlay { dictationTakeover }
+    }
+
+    /// While dictation runs the field shows the transcript arriving. Reaching
+    /// for it is a request to take over rather than a dead tap, so it ends the
+    /// dictation, keeps every word and puts the cursor in the field.
+    @ViewBuilder
+    private var dictationTakeover: some View {
+        if isDictating {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    finishDictation()
+                    isWriting = true
+                }
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// Attachments and dictation on the left, Send on the right — and while
+    /// dictation runs, exactly two controls: Cancel and Done.
+    @ViewBuilder
+    private var controlsRow: some View {
+        if let voice, voice.voice.phase.isBusy {
+            VoiceListeningControls(session: voice,
+                                   cancel: { cancelDictation() },
+                                   done: { finishDictation() })
+        } else {
+            HStack(spacing: Theme.Space.tight) {
+                // The two quiet icons read as one group, so they sit against
+                // each other rather than spread across the row.
+                HStack(spacing: 0) {
+                    attachControl
+                    if let voice {
+                        VoiceButton(session: voice) { startDictation() }
+                            .disabled(chat.isReadOnly)
+                    }
+                }
+                Spacer(minLength: Theme.Space.small)
+                sendButton
+            }
+            .frame(minHeight: Theme.Touch.primary)
+        }
+    }
+
+    private var sendButton: some View {
+        Button {
+            send(mode: .auto)
+        } label: {
+            Image(systemName: "arrow.up")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Theme.onAccent)
+                .frame(width: Theme.Touch.primary, height: Theme.Touch.primary)
+                .background(Theme.accent, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!chat.canSend)
+        .opacity(chat.canSend ? 1 : 0.4)
+        .contextMenu { sendMenu }
+        .accessibilityLabel("Send")
+        .accessibilityIdentifier("composer.send")
+    }
+
+    private var isDictating: Bool { voice?.voice.phase.isBusy == true }
 
     /// On an attached session whose attachment cannot carry bytes the picker is
     /// inert. Reaching for it says so rather than swallowing the tap. Amendment
@@ -346,12 +393,6 @@ struct Composer: View {
         voice = InlineVoiceDraftSession(platform: backend.platform, isPreview: backend.isScripted)
     }
 
-    /// Stop dictation and send once the backend has produced its final text.
-    private func sendWhenDictationFinishes(_ voice: InlineVoiceDraftSession) {
-        sendAfterDictation = true
-        voice.finish()
-    }
-
     /// The composer knows about the connection; the chat store does not.
     private func syncSendability() {
         chat.connectionReady = model.connection.phase == .connected || model.isDemo
@@ -365,6 +406,13 @@ struct Composer: View {
         voice.start(draft: chat.draft, target: target)
     }
 
+    /// Stop listening and keep every word in the field. Sending is still the
+    /// ordinary Send button afterwards.
+    private func finishDictation() {
+        voice?.finish()
+    }
+
+    /// Discard what this dictation added and put back the draft it started from.
     private func cancelDictation() {
         guard let voice else { return }
         if let restored = voice.cancel(currentDraft: chat.draft, currentTarget: target) {

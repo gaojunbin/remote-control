@@ -49,6 +49,109 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "03-sent")
     }
 
+    /// The field owns a row of its own and grows with the draft; the controls
+    /// sit on a second row underneath it.
+    func testComposerFieldOwnsItsRowAndGrows() {
+        app.launch()
+        openLiveSession()
+
+        let field = promptField()
+        XCTAssertTrue(field.waitForExistence(timeout: 15), "the message field is on screen")
+        let attachments = app.buttons["composer.attach"]
+        let voice = app.buttons["composer.voice"]
+        let send = app.buttons["composer.send"]
+        XCTAssertTrue(attachments.exists, "attachments are on the row below the field")
+        XCTAssertTrue(voice.exists, "and so is dictation")
+        XCTAssertTrue(send.exists, "with Send at the other end of that row")
+        XCTAssertGreaterThan(field.frame.width, attachments.frame.width * 4,
+                             "the field takes the whole width rather than sharing it")
+        XCTAssertGreaterThan(attachments.frame.minY, field.frame.maxY - 1,
+                             "the controls sit under the field, not beside it")
+        XCTAssertLessThan(attachments.frame.minX, send.frame.minX,
+                          "attachments and dictation are left, Send is right")
+
+        attach(name: "20-composer-one-line")
+
+        // SwiftUI swaps the field's element type once it can wrap, so both
+        // samples are taken with the keyboard up and the text view in place.
+        field.tap()
+        field.typeText("one")
+        let oneLine = promptField().frame.height
+        field.typeText("\ntwo\nthree\nfour\nfive")
+        let grown = promptField()
+        XCTAssertTrue(grown.waitForExistence(timeout: 10))
+        attach(name: "21-composer-five-lines")
+        XCTAssertEqual((grown.value as? String ?? "").filter(\.isNewline).count, 4,
+                       "Return inserts a newline rather than sending")
+        // `frame` is re-queried on every access, so each height is captured
+        // before the next keystroke changes it.
+        let fiveLines = grown.frame.height
+        XCTAssertGreaterThan(fiveLines, oneLine * 2, "five lines of draft make the field grow")
+
+        // Eight lines is where growing stops and the text scrolls inside.
+        grown.typeText("\nsix\nseven\neight")
+        let eightLines = promptField().frame.height
+        XCTAssertGreaterThan(eightLines, fiveLines, "it is still growing at eight")
+        promptField().typeText("\nnine\nten\neleven\ntwelve")
+        XCTAssertEqual(promptField().frame.height, eightLines, accuracy: 1,
+                       "past the cap the field stops growing and scrolls instead")
+        attach(name: "24-composer-capped")
+    }
+
+    /// Dictation offers exactly Cancel and Done, fills the message field, and
+    /// leaves sending to the ordinary Send button.
+    func testDictationOffersCancelAndDoneAndFillsTheField() {
+        app.launch()
+        openLiveSession()
+        XCTAssertTrue(promptField().waitForExistence(timeout: 15))
+
+        app.buttons["composer.voice"].tap()
+
+        let done = app.buttons["voice.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 15), "Done stops listening")
+        XCTAssertTrue(app.buttons["voice.cancel"].exists, "Cancel is the other way out")
+        XCTAssertFalse(app.buttons["voice.stop"].exists, "nothing stops and sends in one tap")
+        XCTAssertFalse(app.buttons["composer.send"].exists, "Send is not offered while listening")
+        XCTAssertFalse(app.buttons["composer.attach"].exists, "and neither is anything else")
+        XCTAssertFalse(app.buttons["composer.voice"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["voice.status"].exists,
+                      "one quiet line says what dictation is doing")
+        attach(name: "22-voice-listening")
+
+        done.tap()
+        let field = promptField()
+        XCTAssertTrue(field.waitForExistence(timeout: 15))
+        let dictated = field.value as? String ?? ""
+        XCTAssertTrue(dictated.contains("auth suite"),
+                      "the transcript lands in the message field, not in a panel")
+        XCTAssertTrue(app.buttons["composer.send"].isEnabled,
+                      "and sending it is the ordinary, separate tap")
+        attach(name: "23-voice-done")
+
+        // A second dictation, cancelled, leaves the first one exactly as it was.
+        app.buttons["composer.voice"].tap()
+        let cancel = app.buttons["voice.cancel"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 15))
+        cancel.tap()
+        let restored = promptField()
+        XCTAssertTrue(restored.waitForExistence(timeout: 15))
+        XCTAssertEqual(restored.value as? String, dictated,
+                       "Cancel discards what that dictation added and restores the draft")
+    }
+
+    private func openLiveSession() {
+        let row = app.buttons["session.demo-session-auth"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the live demo session is listed")
+        row.tap()
+    }
+
+    /// SwiftUI renders a growing field as a text view once it wraps, so the
+    /// identifier is looked up in both collections.
+    private func promptField() -> XCUIElement {
+        let view = app.textViews["composer.prompt"].firstMatch
+        return view.exists ? view : app.textFields["composer.prompt"].firstMatch
+    }
+
     /// Amendment A10: an attached terminal session takes a message from here,
     /// says it is waiting for the terminal, then says it went in, and its
     /// relayed permission request is answered from the app.

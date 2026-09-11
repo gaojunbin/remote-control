@@ -22,7 +22,7 @@ public enum SpeechBackend {
     }
 }
 
-/// The microphone button beside the composer.
+/// The microphone button in the composer's control row.
 struct VoiceButton: View {
     let session: InlineVoiceDraftSession
     let start: () -> Void
@@ -40,62 +40,64 @@ struct VoiceButton: View {
     }
 }
 
-/// Replaces the composer while dictation runs: a level meter, a timer, the live
-/// transcript, and two explicit ways out. Dictation never submits by itself.
-struct VoiceCapturePanel: View {
+/// What the control row holds while dictation runs: how loud it is, how long it
+/// has been listening, and the only two ways out.
+///
+/// There is no "stop and send". Done keeps the transcript in the message field
+/// and Send stays the separate, explicit tap it is for anything typed.
+struct VoiceListeningControls: View {
     let session: InlineVoiceDraftSession
-    let usesGateway: Bool
-    @Binding var draft: String
     let cancel: () -> Void
-    let stopAndSend: () -> Void
+    let done: () -> Void
     @State private var started = Date()
     @State private var elapsed = "0:00"
 
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.small) {
-            HStack(spacing: Theme.Space.small) {
-                VoiceLevelMeter(level: session.voice.inputLevel,
-                                listening: session.voice.phase == .listening)
-                    .frame(width: 44, height: 20)
-                Text(elapsed)
-                    .font(Theme.mono)
-                    .foregroundStyle(Theme.inkSecondary)
-                    .monospacedDigit()
-                TextField("", text: $draft, axis: .vertical)
-                    .lineLimit(1...3)
-                    .font(.body)
-                    .foregroundStyle(Theme.ink)
-                    .accessibilityIdentifier("voice.transcript")
-            }
-            HStack(spacing: Theme.Space.small) {
-                Text(statusText)
-                    .font(.caption)
-                    .foregroundStyle(Theme.inkSecondary)
-                    .accessibilityIdentifier("voice.status")
-                Spacer(minLength: Theme.Space.small)
-                Button("Cancel", action: cancel)
-                    .buttonStyle(ChipButtonStyle())
-                    .accessibilityIdentifier("voice.cancel")
-                Button {
-                    stopAndSend()
-                } label: {
-                    Label("Stop & send", systemImage: "stop.fill").font(.footnote)
-                }
+        HStack(spacing: Theme.Space.small) {
+            VoiceLevelMeter(level: session.voice.inputLevel,
+                            listening: session.voice.phase == .listening)
+                .frame(width: 44, height: 20)
+            Text(elapsed)
+                .font(Theme.mono)
+                .foregroundStyle(Theme.inkSecondary)
+                .monospacedDigit()
+                .accessibilityLabel("Listening for \(elapsed)")
+                .accessibilityIdentifier("voice.elapsed")
+            Spacer(minLength: Theme.Space.small)
+            Button("Cancel", action: cancel)
+                .buttonStyle(ChipButtonStyle())
+                .accessibilityIdentifier("voice.cancel")
+            Button("Done", action: done)
                 .buttonStyle(PrimaryButtonStyle(fullWidth: false))
-                .accessibilityIdentifier("voice.stop")
-            }
+                .accessibilityIdentifier("voice.done")
         }
-        .card()
+        .frame(minHeight: Theme.Touch.primary)
         .onReceive(tick) { now in
             let seconds = Int(now.timeIntervalSince(started))
             elapsed = String(format: "%d:%02d", seconds / 60, seconds % 60)
         }
         .onAppear { started = Date() }
     }
+}
 
-    private var statusText: String {
+/// The quiet line above the message field while dictation runs, and the place a
+/// failure says what went wrong.
+struct VoiceStatusLine: View {
+    let session: InlineVoiceDraftSession
+    let usesGateway: Bool
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(session.voice.failure == nil ? Theme.inkSecondary : Theme.danger)
+            .lineLimit(2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("voice.status")
+    }
+
+    private var text: String {
         if let failure = session.voice.failure { return message(failure) }
         switch session.voice.phase {
         case .requestingPermission: return "Getting the microphone ready"
@@ -107,6 +109,8 @@ struct VoiceCapturePanel: View {
         }
     }
 
+    /// A failure keeps whatever was recognised, so every message ends with what
+    /// to do next rather than with the loss.
     private func message(_ failure: SpeechInputFailure) -> String {
         switch failure {
         case .speechPermission: "Allow speech recognition in Settings, or keep typing."
@@ -140,8 +144,9 @@ struct VoiceLevelMeter: View {
 }
 
 extension View {
-    /// Keeps the draft in step with the live transcript, and resets dictation
-    /// whenever the composer it belongs to changes.
+    /// Keeps the draft in step with the live transcript, draws the listening
+    /// glow around the display, and resets dictation whenever the composer it
+    /// belongs to changes.
     func inlineVoiceInput(session: InlineVoiceDraftSession, draft: Binding<String>,
                           target: VoiceDraftTarget) -> some View {
         modifier(InlineVoiceInputModifier(session: session, draft: draft, target: target))
@@ -158,11 +163,9 @@ private struct InlineVoiceInputModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .overlay {
-                VoiceEdgeGlow(active: session.voice.phase == .listening,
-                              level: session.voice.inputLevel, reduceMotion: reduceMotion)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+                VoiceGlowPresenter(active: session.voice.phase == .listening,
+                                   level: session.voice.inputLevel,
+                                   reduceMotion: reduceMotion)
             }
             .onChange(of: session.voice.transcript) { _, _ in synchronize() }
             .onChange(of: session.voice.phase) { _, _ in synchronize() }

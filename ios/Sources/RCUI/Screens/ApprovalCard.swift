@@ -178,7 +178,7 @@ struct QuestionCard: View {
                                 .disabled(!isActive)
                         } else {
                             TextField("Your answer", text: binding(question.id), axis: .vertical)
-                                .lineLimit(1...4)
+                                .lineLimit(ComposerLayout.growth)
                                 .frame(minHeight: Theme.Touch.minimum)
                                 .disabled(!isActive)
                         }

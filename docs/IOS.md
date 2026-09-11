@@ -72,7 +72,8 @@ protocol from typed fixtures and scripts a live turn. It never constructs a tran
 cannot reach the network even by accident. Every SwiftUI preview and the XCUITest smoke run on it.
 
 Other launch arguments: `--ui-testing`, `--reset-state`, and in debug builds `--voice-preview`,
-which swaps in a scripted speech platform so a UI test never opens the microphone.
+which swaps in a scripted speech platform so a UI test never opens the microphone. The listening
+state, the full-screen glow included, is screenshotted through it.
 
 ## The session list
 
@@ -243,6 +244,24 @@ four-option request in the transcript. Changing the effort there goes through `s
 applied; the same request on the attached Claude session is still refused. `ci-runner-01` keeps a
 Codex with no daemon running, so the daemon hint has a home too.
 
+## The composer
+
+Two rows. The message field takes the first one to itself, and the controls sit on the second:
+the `+` attachment button and the microphone on the left, Send on the right. Stop is not among
+them — it stays in the navigation bar, so no one ends a turn while reaching for Send. The model,
+permission and dictation-language chips keep their own row underneath.
+
+The field grows with the draft from one line to eight, then stops growing and scrolls inside
+itself. `ComposerLayout` in `Sources/RCUI/Design/ComposerLayout.swift` holds that range, and the
+answer field on an agent's question uses the same one so the two never disagree.
+`.fixedSize(horizontal: false, vertical: true)` on the field is load-bearing: without it the bar
+takes its height from whatever is left over and squeezes the field back to one scrolling line. The
+transcript above is the view that should give way, not the thing being written.
+
+Every capability rule is unchanged: the attachment button only where the agent and the attachment
+carry bytes, the microphone only where a backend exists, the quiet line above the field naming what
+an attached terminal owns, the send-mode menu on a long press of Send, and the queue chip.
+
 ## Voice
 
 Two backends, chosen in Settings:
@@ -254,6 +273,56 @@ Two backends, chosen in Settings:
   `AVAudioConverter`. Audio goes to your own gateway. The settings screen states the difference.
 
 Either way dictation only fills the draft. Sending stays a separate, explicit tap.
+
+### What listening looks like
+
+The transcript arrives in the composer's own field, not in a panel of its own, and is fully
+editable once dictation ends. Reaching for the field while it runs is a request to take over: the
+tap ends the dictation, keeps every word and puts the cursor in the field.
+
+The control row holds the level meter and the elapsed time on the left, and exactly two controls on
+the right:
+
+| Control | What it does |
+| --- | --- |
+| Cancel | Discards what this dictation added and restores the draft it started from |
+| Done | Stops listening and keeps the transcript in the field |
+
+There is no "stop and send". Sending a dictated message is the ordinary Send button, afterwards.
+One quiet line above the field says what dictation is doing — "Transcribing live · edit before
+sending", or the gateway wording when the gateway is transcribing — and it is where a failure
+reports itself. A failed run keeps whatever was recognised; the message clears itself after six
+seconds.
+
+While listening, a soft multi-colour light runs around the edge of the display, following its
+rounded corners and breathing with the input level. It is drawn in its own `UIWindow` at
+`UIWindow.Level.normal + 1`, the way `PrivacyShield` and `AppLockWindow` are, so it sits above the
+app and anything the app presents, ignores the safe area and takes no touches. The display's own
+corner radius is private to UIKit, so `DisplayCorner` reads the window's bottom safe-area inset
+instead: a home indicator means a round display. Reduce Motion gets the same ring at a fixed width
+with a slow opacity pulse and nothing driven by the voice.
+
+### No maximum duration
+
+Listening ends when the user taps Cancel or Done, when the app is backgrounded, or when the
+recognizer fails. `VoiceInputController` arms no deadline at all; the only timer it owns is how long
+a backend may take to answer `finish()`, and `isAwaitingFinalTranscript` says when that one is up.
+
+Neither backend can hold one request open indefinitely, so both roll over underneath while the
+audio engine and its tap keep running. Each request owns one slot in `TranscriptSegments`
+(`Sources/RCCore/State/TranscriptSegments.swift`), and the text is joined by position rather than by
+arrival, because a new segment's first partial usually lands before the old segment's final does. A
+transcript counts as final only once every slot has settled.
+
+| Backend | How it rolls over | What it costs |
+| --- | --- | --- |
+| `SystemSpeechRecognizer` | A new `SFSpeechAudioBufferRecognitionRequest` every 50 s, inside Apple's own limit of about a minute. Recognition is running on the replacement before `RecognitionRoute` hands it the tap, and the outgoing request is flushed under the same lock, so no buffer is dropped or handed to a request that has already been closed | A word spoken exactly across the seam can be split between two segments, because neither request hears the whole of it |
+| `GatewaySpeechRecognizer` | A new `WS /ws/stt` socket every 30 s, well inside the gateway's 120 s and 4 MiB budget for one utterance. The cut waits for the first moment the input level drops below `silenceLevel`, and is taken anyway at 45 s. The replacement is connected and taking audio before the outgoing socket is told to stop | The gateway API is unchanged; it sees ordinary utterances. The first fraction of a second of the *first* segment is dropped while that socket connects, which is how it already behaved. Punctuation and casing restart at each segment, because the gateway transcribes each one on its own |
+
+A recognition request that ends mid-session is a restart, never a stop. An error is too, unless the
+request failed within five seconds of starting three times running, which is a broken recognizer
+rather than a stretch of silence. A segment that already handed the microphone on keeps whatever it
+transcribed even if it later fails; only the live segment can end the dictation.
 
 ## Connection lifecycle
 
@@ -307,7 +376,9 @@ gateway address surviving a background, terminate and relaunch. Details in
 ## Not verified
 
 Everything beyond those four tests ran only against the offline demo: new session, add device, the
-directory picker, voice and push. APNs delivery and gateway speech-to-text have never been
+directory picker, voice and push. Segment rollover is covered as a rule and against a fake backend,
+never against a real microphone: no dictation has run past one recognition request on a device, and
+neither Apple's own limit nor the gateway's has been reached in practice. APNs delivery and gateway speech-to-text have never been
 exercised, the app has never run on a physical device, and dark mode and VoiceOver have not been
 reviewed — the palette defines dark values, but v1 is designed light. CI, signing and TestFlight
 upload have never run.

@@ -174,12 +174,18 @@ Queued messages are listed and can be removed one at a time. A send whose outcom
 "Delivery unconfirmed" with a Retry that reuses the original request id, because a silent automatic
 resend is how an agent gets told twice.
 
-**Voice** replaces the composer rather than sitting beside it. Tapping the mic, or holding
-<kbd>⌥</kbd>+<kbd>Space</kbd> on a desktop, opens a panel with a waveform, an elapsed timer, the
-live transcript, and two buttons: Cancel and "Stop & send". The label underneath says "Transcribing
-live · edit before sending", and it means it — the transcript is a draft you can edit, and no
-utterance is ever sent by the act of stopping the recording alone. The mic disappears entirely when
-the gateway has no speech backend rather than failing when pressed.
+**Voice** dictates into the composer's own field rather than into a separate panel. Tapping the
+mic, or holding <kbd>⌥</kbd>+<kbd>Space</kbd> on a desktop, starts listening: a waveform and an
+elapsed timer take the control row, and there are exactly two buttons, Cancel (restores the draft
+as it was) and Done (keeps the transcript). There is no time limit; listening runs until one of
+them is tapped. On iOS a soft multi-colour glow runs around the edge of the whole display while
+listening, the way Siri does, never around the field alone. The label says "Transcribing live ·
+edit before sending", and it means it — the transcript is a draft you edit and send with the
+ordinary Send button; no utterance is ever sent by the act of stopping the recording. The mic
+disappears entirely when the gateway has no speech backend rather than failing when pressed.
+
+**Composer layout** on the phone: the text field has a row to itself and grows with its content
+up to eight lines, then scrolls inside; the `+`, mic and Send controls sit on the row below it.
 
 ## Approvals and questions
 

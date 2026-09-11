@@ -28,6 +28,12 @@ extension SpeechInputPlatform {
 }
 
 @MainActor @Observable public final class VoiceInputController {
+    /// Listening has no deadline. It ends when the user taps Cancel or Done,
+    /// when the scene leaves the foreground, or when the backend fails; a
+    /// backend whose own request expires rolls over to a new one underneath,
+    /// so a long dictation is never cut off from here.
+    public static let listeningDeadline: TimeInterval? = nil
+
     public private(set) var phase: VoiceInputPhase = .idle
     public var transcript = ""
     public private(set) var inputLevel = 0.0
@@ -36,16 +42,21 @@ extension SpeechInputPlatform {
     @ObservationIgnored private var runID = UUID()
     @ObservationIgnored private var sceneIsActive = true
     @ObservationIgnored private var authorizedRun: UUID?
-    @ObservationIgnored private var timeout: Task<Void, Never>?
+    /// The only timer this controller owns: how long a backend may take to
+    /// answer `finish()`. Nothing arms it while listening.
+    @ObservationIgnored private var finalTranscriptTimeout: Task<Void, Never>?
     @ObservationIgnored private var permissionTask: Task<Void, Never>?
 
     public init(platform: any SpeechInputPlatform) {
         self.platform = platform
     }
 
+    /// True only between Done and the backend's last word.
+    public var isAwaitingFinalTranscript: Bool { finalTranscriptTimeout != nil }
+
     public func start() {
         guard !phase.isBusy, sceneIsActive else { return }
-        platform.cancel(); timeout?.cancel(); permissionTask?.cancel()
+        platform.cancel(); clearTimeout(); permissionTask?.cancel()
         runID = UUID(); let run = runID
         authorizedRun = nil
         transcript = ""; failure = nil; inputLevel = 0; phase = .requestingPermission
@@ -63,13 +74,14 @@ extension SpeechInputPlatform {
         }
     }
 
+    /// Stop listening and keep the transcript. Sending stays a separate tap.
     public func finish() {
         guard phase == .listening else { return }
-        phase = .finishing; inputLevel = 0; timeout?.cancel()
+        phase = .finishing; inputLevel = 0; clearTimeout()
         platform.finish()
         let run = runID
         let grace = platform.finishGracePeriod
-        timeout = Task { [weak self] in
+        finalTranscriptTimeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(grace))
             guard !Task.isCancelled, let self, self.runID == run else { return }
             // The backend never answered. Keep what was recognised rather than
@@ -81,8 +93,15 @@ extension SpeechInputPlatform {
     public func cancel() {
         runID = UUID(); permissionTask?.cancel(); permissionTask = nil
         authorizedRun = nil
-        timeout?.cancel(); timeout = nil; platform.cancel()
+        clearTimeout(); platform.cancel()
         phase = .idle; transcript = ""; failure = nil; inputLevel = 0
+    }
+
+    /// Drop a failure message once it has been read. The transcript gathered
+    /// before the failure is already in the draft and is left alone.
+    public func dismissFailure() {
+        guard phase == .failed else { return }
+        failure = nil; phase = transcript.isEmpty ? .idle : .review
     }
 
     public func setSceneActive(_ active: Bool, cancelAuthorization: Bool = false) {
@@ -93,7 +112,7 @@ extension SpeechInputPlatform {
 
     public func suspend() {
         guard phase.isBusy else { return }
-        runID = UUID(); permissionTask?.cancel(); timeout?.cancel(); platform.cancel()
+        runID = UUID(); permissionTask?.cancel(); clearTimeout(); platform.cancel()
         authorizedRun = nil
         inputLevel = 0; phase = transcript.isEmpty ? .idle : .review
     }
@@ -106,11 +125,6 @@ extension SpeechInputPlatform {
                 Task { @MainActor [weak self] in self?.receive(event, run: run) }
             }
             phase = .listening
-            timeout = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(55))
-                guard !Task.isCancelled, let self, self.runID == run else { return }
-                self.finish()
-            }
         } catch {
             fail(error as? SpeechInputFailure ?? .recording)
         }
@@ -129,13 +143,20 @@ extension SpeechInputPlatform {
 
     private func complete() {
         authorizedRun = nil
-        runID = UUID(); timeout?.cancel(); platform.cancel(); inputLevel = 0
+        runID = UUID(); clearTimeout(); platform.cancel(); inputLevel = 0
         phase = .review
     }
 
+    /// A failed run keeps whatever was recognised before it broke: the words
+    /// are already in the draft, and losing them helps no one.
     private func fail(_ error: SpeechInputFailure) {
         authorizedRun = nil
-        runID = UUID(); timeout?.cancel(); platform.cancel(); inputLevel = 0
+        runID = UUID(); clearTimeout(); platform.cancel(); inputLevel = 0
         failure = error; phase = .failed
+    }
+
+    private func clearTimeout() {
+        finalTranscriptTimeout?.cancel()
+        finalTranscriptTimeout = nil
     }
 }

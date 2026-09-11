@@ -219,6 +219,94 @@ func run() async -> (passed: Int, failures: [String]) {
     voice.reset()
     equal(voice.voice.phase, .idle, "resetting dictation returns to idle")
 
+    // MARK: - Dictation has no maximum duration
+
+    expect(VoiceInputController.listeningDeadline == nil,
+           "listening has no deadline of its own")
+
+    let segmented = SegmentedSpeechInput()
+    let unlimited = VoiceInputController(platform: segmented)
+    unlimited.start()
+    await settle { unlimited.phase == .listening }
+    equal(unlimited.phase, .listening, "dictation starts listening")
+    expect(!unlimited.isAwaitingFinalTranscript, "listening arms no timer of its own")
+
+    segmented.hear("re-run the auth suite")
+    await settle { unlimited.transcript == "re-run the auth suite" }
+
+    // The recognition request underneath expires. A backend rolls over to a new
+    // one rather than ending the session, and the microphone never stops.
+    segmented.rollOver()
+    segmented.hear("on the CI runner too")
+    await settle { unlimited.transcript.contains("CI runner") }
+    equal(unlimited.phase, .listening,
+          "a recognition request ending mid-session is a restart, not a stop")
+    equal(segmented.requests, 2, "the backend opened a second request underneath")
+    equal(unlimited.transcript, "re-run the auth suite on the CI runner too",
+          "each segment is appended in the order it was spoken")
+
+    unlimited.finish()
+    await settle { unlimited.phase == .review }
+    equal(unlimited.phase, .review, "Done ends the session")
+    equal(unlimited.transcript, "re-run the auth suite on the CI runner too",
+          "and keeps every segment of the transcript")
+    expect(!unlimited.isAwaitingFinalTranscript, "with no timer left behind")
+    unlimited.cancel()
+
+    // MARK: - Done keeps the draft, Cancel puts back the one before it
+
+    let composerTarget = VoiceDraftTarget(account: "demo", deviceID: "d", sessionID: "s")
+
+    let keeping = SegmentedSpeechInput()
+    let keepSession = InlineVoiceDraftSession(platform: keeping, isPreview: true)
+    keepSession.start(draft: "", target: composerTarget)
+    await settle { keepSession.voice.phase == .listening }
+    keeping.hear("first half")
+    keeping.rollOver()
+    keeping.hear("second half")
+    await settle { keepSession.voice.transcript.contains("second half") }
+    keepSession.finish()
+    await settle { keepSession.voice.phase == .review }
+    equal(keepSession.updateDraft(currentDraft: "", currentTarget: composerTarget),
+          "first half second half",
+          "Done leaves the whole transcript in the message field")
+    keepSession.reset()
+
+    let cancelling = SegmentedSpeechInput()
+    let cancelSession = InlineVoiceDraftSession(platform: cancelling, isPreview: true)
+    cancelSession.start(draft: "the draft I already had", target: composerTarget)
+    await settle { cancelSession.voice.phase == .listening }
+    cancelling.hear("and some dictation")
+    await settle { cancelSession.voice.transcript == "and some dictation" }
+    let merged = cancelSession.updateDraft(currentDraft: "the draft I already had",
+                                           currentTarget: composerTarget)
+    equal(merged, "the draft I already had\nand some dictation",
+          "dictation is appended after whatever the user already had")
+    equal(cancelSession.cancel(currentDraft: merged ?? "", currentTarget: composerTarget),
+          "the draft I already had",
+          "Cancel discards what this dictation added and restores the previous draft")
+    equal(cancelSession.voice.phase, .idle, "and leaves dictation idle")
+
+    // MARK: - How far the message field grows
+
+    equal(ComposerLayout.growth.lowerBound, 1, "an empty composer is one line")
+    equal(ComposerLayout.growth.upperBound, 8, "and it stops growing at eight")
+    equal(ComposerLayout.lines(in: ""), 1, "an empty draft is a single row")
+    equal(ComposerLayout.lines(in: "one line of dictated text"), 1,
+          "a short draft stays compact")
+    equal(ComposerLayout.lines(in: "one\ntwo\nthree"), 3, "the field grows with the draft")
+    let paragraph = String(repeating: "line\n", count: 20)
+    equal(ComposerLayout.lines(in: paragraph), 8, "and stops at the cap")
+    expect(!ComposerLayout.scrolls("one\ntwo"), "a short draft does not scroll")
+    expect(ComposerLayout.scrolls(paragraph), "past the cap the text scrolls inside the field")
+
+    // MARK: - The listening glow follows the display
+
+    equal(DisplayCorner.radius(bottomSafeArea: 34), DisplayCorner.fallbackRadius,
+          "a display with a home indicator has round corners to follow")
+    equal(DisplayCorner.radius(bottomSafeArea: 0), DisplayCorner.squareRadius,
+          "an older display does not")
+
     // MARK: - Review finding 2: the finish grace belongs to the backend
 
     equal(SystemSpeechRecognizer(localeIdentifier: "en-US").finishGracePeriod, 2,
@@ -279,6 +367,53 @@ func run() async -> (passed: Int, failures: [String]) {
     expect(model.chat == nil, "signing out closes the open conversation")
 
     return (passed, failures)
+}
+
+/// A platform that models what both speech backends do for a dictation with no
+/// maximum duration: the microphone stays up while the recognition request
+/// underneath is rolled over, each request owns one slot in the transcript, and
+/// nothing is called final until the user is done.
+@MainActor
+final class SegmentedSpeechInput: SpeechInputPlatform {
+    private var onEvent: (@Sendable (SpeechInputEvent) -> Void)?
+    private var segments = TranscriptSegments()
+    private var slot = 0
+    private(set) var requests = 0
+
+    func requestPermission() async throws {}
+
+    func start(onEvent: @escaping @Sendable (SpeechInputEvent) -> Void) throws {
+        self.onEvent = onEvent
+        segments = TranscriptSegments()
+        slot = segments.begin()
+        requests = 1
+    }
+
+    /// One more partial result for the request that is running.
+    func hear(_ text: String) {
+        segments.update(slot, text: text)
+        publish()
+    }
+
+    /// The running request expired. A new one takes over without the session
+    /// ending and without anything final reaching the controller.
+    func rollOver() {
+        segments.end(slot)
+        slot = segments.begin()
+        requests += 1
+        publish()
+    }
+
+    func finish() {
+        segments.end(slot)
+        publish(isFinal: segments.isSettled)
+    }
+
+    func cancel() { onEvent = nil }
+
+    private func publish(isFinal: Bool = false) {
+        onEvent?(.transcript(segments.joined, isFinal: isFinal))
+    }
 }
 
 /// A platform that answers `finish()` only when told to, with a configurable
