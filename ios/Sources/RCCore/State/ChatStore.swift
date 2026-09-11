@@ -417,6 +417,11 @@ public final class ChatStore {
             // composer until the device dequeues it and emits the
             // `user_message` under this same id; two rows would be one too many.
             if result.accepted == .queued { timeline.removeOptimistic(id) }
+            // Amendment A14: a steered message is read by the agent at its next
+            // step, so the device's block for it can be a whole turn away. The
+            // row holds the foot of the transcript until then and never asks to
+            // be sent again: the device already has it.
+            if result.accepted == .steered { timeline.markSteered(id) }
             mark(id: id, status: .accepted(result.accepted))
         } catch let error as TransportError where error == .deliveryUncertain || error == .requestTimedOut {
             // The message may well have landed, so the row stays and Retry

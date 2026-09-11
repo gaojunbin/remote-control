@@ -30,6 +30,7 @@ import {
   dropQueued,
   emptyTimeline,
   keepOptimistic,
+  markAccepted,
   mergeHistory,
   removeOptimistic,
   replaceBlock,
@@ -392,7 +393,12 @@ function metadataOf(attachment: OutgoingAttachment): Attachment {
  * Apply the outcome of a `session.send` to its pending row. A definite refusal
  * takes the row away, and so does `queued`: the queue row above the composer
  * stands for the message until the device dequeues it and emits the
- * `user_message` under the same id. Anything else leaves the row waiting.
+ * `user_message` under the same id.
+ *
+ * `sent` and `steered` leave the row where it is and only note the answer. A
+ * steered message reaches the agent at its next step, so the device emits its
+ * block after whatever was already streaming (A14); the row waits there, for
+ * however long that takes, and no longer counts as an uncertain delivery.
  */
 async function settle(
   set: Setter,
@@ -409,6 +415,9 @@ async function settle(
   }
   if (result?.accepted === 'queued') {
     patch(set, key, (chat) => ({ ...chat, timeline: removeOptimistic(chat.timeline, id) }));
+  } else if (result?.accepted === 'sent' || result?.accepted === 'steered') {
+    const accepted = result.accepted;
+    patch(set, key, (chat) => ({ ...chat, timeline: markAccepted(chat.timeline, id, accepted) }));
   }
 }
 

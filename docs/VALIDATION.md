@@ -277,6 +277,33 @@ off. The device connects with `websockets.asyncio.client.unix_connect` to
 `RC_CODEX_DAEMON_SOCKET` — identifies itself as `remote-control`, asks for `experimentalApi`, and
 dispatches every server request to a detached task so a slow approval cannot block the read loop.
 
+### Where a steered message lands (A14)
+
+Run on 2026-09-12 against the same real daemon (Codex CLI 0.154.0): a bare `codex` TUI in a scratch
+directory was given a task that takes several steps, and an observer subscribed to the same thread
+over the control socket sent `turn/steer` while the first step was still running, logging every
+notification with a timestamp. The daemon emitted the steered prompt's `userMessage` item 1.29 s
+after the steer request returned, and only after the work Codex had already started:
+
+```
+ 63.457s  item/completed  agentMessage      msg_051da9b7…  the model's opening line
+ 63.457s  ==> turn/steer "also tell me what the current unix timestamp is"
+ 63.460s  ==> turn/steer accepted
+ 64.588s  item/started    commandExecution  exec-0df11336  /bin/zsh -lc 'cat a.txt'
+ 64.591s  item/completed  commandExecution  exec-0df11336
+ 64.747s  item/started    userMessage       01a09136-6298-7583-a5ea-f2cf3c028711
+ 64.748s  item/completed  userMessage       01a09136-6298-7583-a5ea-f2cf3c028711   (same id)
+```
+
+The TUI drew the steered prompt in exactly that position, below its opening message and below the
+`cat a.txt` call, which is what A14 makes remote control do too: the device now publishes the
+`user_message` when that echo arrives rather than at `turn/steer` time, and the item's second
+sighting stays silent. The fallback paths — a turn that ends without the echo, and the `warn` notice
+on an interrupted one — are covered by the client tests, not by this live run. After the change:
+`ruff check`, `ruff format --check`, `mypy rc_client tests` and `pytest -q` are clean, 480 tests
+passing and 3 skipped. Evidence: `…/scratchpad/steer-pass/observe.log` and `tui-pane.txt`, run
+artefacts that are not checked into the repository.
+
 ### Cleanup, and one side effect
 
 The scratch threads this pass created were removed with `codex delete --force`. Codex's own

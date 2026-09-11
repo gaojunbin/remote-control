@@ -195,6 +195,41 @@ Not verified in this pass: a real device and gateway — this ran against the mo
 is the mock's, not a measured round trip. The unconfirmed-after-60-s chip was verified in
 `tests/optimistic-send.test.tsx` with a fake clock rather than by waiting in the browser.
 
+### A steered message waits where the agent will read it (A14)
+
+2026-09-12, source and test pass only: no browser and no gateway ran for it, so nothing below is a
+live observation. Amendment A14 moves the device's `user_message` for a steered send to the moment
+the agent takes the message, so the optimistic row from A12 has to survive the whole running turn
+and the device's block has to sort by its own `first_seq`.
+
+| Check | Result |
+| --- | --- |
+| `steered` keeps the row | Already correct. `settle` in `src/stores/chat.ts` drops the optimistic row only on `accepted: "queued"` or a definite refusal; every other answer leaves it standing |
+| The row stays at the bottom | Already correct. `selectView` appends pending rows after `order`, and `pendingItem` gives them `Number.MAX_SAFE_INTEGER`, so assistant deltas, tool calls and replacements of the running turn all draw above it |
+| Nothing else drops it | Already correct. No timer removes a row; `turn_completed` folds into usage only; a resync goes through `keepOptimistic`; `dropQueued` fires only for ids a `queue` snapshot names |
+| The device's block lands in terminal order | Already correct. `reconcile` retires the row on the `block_id` match, and `insertOrdered` places the block by `first_seq`, after the output that preceded it |
+| Older devices | Unchanged: the `text` + `source: "remote"` fallback still retires one row per event |
+| The 60 s chip | **Changed.** A steered message that the agent has not reached yet was labelled "Delivery unconfirmed" once it was a minute old, which §8 rule 7 reserves for a send whose delivery is in doubt. The optimistic block now records what `session.send` answered, an accepted send never becomes "unconfirmed", and a steered one reads "the agent will read it at its next step" |
+
+Changed files: `src/stores/timeline.ts` (`OptimisticBlock.accepted`, `markAccepted`, `isUnconfirmed`),
+`src/stores/chat.ts` (`settle`), `src/features/chat/blocks/UserMessageRow.tsx`, `src/strings.ts`.
+
+`tests/steer-order.test.ts` is new and replays the session from the defect report: a steered send,
+then the assistant text the agent was already streaming (`first_seq` 46), a `pwd` tool call
+(`first_seq` 50), the answer to the previous question (`first_seq` 53), the device's `user_message`
+under the request id (`first_seq` 57) and the next assistant text (`first_seq` 59). It asserts the
+row is the last row at every step before the block arrives and that the final order is
+`assistant_text · tool_call · assistant_text · user_message · assistant_text`, plus a second case
+where a `turn_completed` and a resync leave the row alone.
+
+```
+cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
+→ 21 files / 249 tests passed, tsc clean, eslint clean, built in 1.38 s
+```
+
+Not verified in this pass: a real Codex daemon steering a live turn, and the chip text in a browser.
+Both were exercised in the store and component tests only.
+
 ## 2. iOS, in the simulator, against the same gateway
 
 `ios/UITests/RealGatewaySmokeTests.swift` is new. It skips unless the runner is given a gateway, so
@@ -312,6 +347,47 @@ Not verified in these passes: a physical device (no real microphone, APNs or gat
 jump-to-latest badge count in a live run (the demo cannot leave the reader away from the tail while
 blocks arrive; the screenshot forced the count), dark mode and VoiceOver on the new controls, and the
 20 s reconnect hold against a real gateway.
+
+### A steered message waits where the agent will read it (A14)
+
+2026-09-12, source and test pass only: no simulator and no gateway ran for it, so nothing below is a
+live observation. Amendment A14 moves the device's `user_message` for a steered send to the moment
+the agent takes the message, so the optimistic row from A12 has to survive the rest of the running
+turn and the device's block has to sort by its own `first_seq`.
+
+| Check | Result |
+| --- | --- |
+| `steered` keeps the row | Already correct. `deliver` in `ios/Sources/RCCore/State/ChatStore.swift` removes the row only on `accepted: "queued"` or a definite refusal; every other answer leaves it standing |
+| The row stays at the bottom | Already correct. `TimelineEntry(pending:)` takes `Int.max`, and `roots` appends the pending rows after the sorted entries, so assistant deltas, tool calls and replacements of the running turn all draw above it |
+| Nothing else drops it | Already correct. No timer removes a row; `turn_completed` only clears the turn marker and folds in usage; `reset()` on a resync keeps the optimistic rows; `dropQueuedOptimistic` fires only for ids a `queue` snapshot names |
+| The device's block lands in terminal order | Already correct. `reconcileOptimistic` retires the row on the `block_id` match, and the block sorts by `first_seq`, after the output that preceded it |
+| Older devices | Unchanged: the `text` + `source: "remote"` fallback still retires one row per live event |
+| A history page holding the same words | **Changed.** The text fallback also ran over `prependHistory`, so paging older events — or the reload a resync asks for — retired a steered row whenever the session already held a remote message with the same words ("continue", sent twice). History is older than the send by definition, so the fallback is now live-only; the `block_id` match still applies to history |
+| The 60 s label | **Changed.** A steered message the agent had not reached yet was labelled "Delivery unconfirmed" once it was a minute old, which §8 rule 7 reserves for a send whose delivery is in doubt. The row now records that the device answered `steered`, such a row never becomes "unconfirmed", and it reads "the agent will read it at its next step" (the wording web uses) |
+| The demo device | **Changed.** `DemoGateway` emitted the steered `user_message` at send time under an id of its own, which is the very order A14 forbids. It now answers `steered`, finishes the sentence the turn was on, and emits the block under the request id afterwards |
+
+Changed files: `ios/Sources/RCCore/State/Timeline.swift` (`OptimisticMessage.isSteering`,
+`markSteered`, history-only reconciliation), `ios/Sources/RCCore/State/ChatStore.swift`,
+`ios/Sources/RCUI/Screens/ChatRows.swift`, `ios/Sources/RCCore/Demo/DemoGateway.swift`.
+
+`ios/Tests/RCCoreTests/SteeredSendTests.swift` is new and replays the session from the defect
+report: the optimistic row under the request id, the assistant text the agent was already streaming
+(`first_seq` 46), a `pwd` tool call (`first_seq` 50), the answer to the previous question
+(`first_seq` 53), the device's `user_message` under the request id (`first_seq` 59) and the next
+assistant text (`first_seq` 60). It asserts the row is the last row at every step before the block
+arrives, and that the final order is `user_message · assistant_text · tool_call ·
+assistant_text · user_message · assistant_text`, with further cases for `turn_completed`, the
+60 s label and the history fallback. `RCVerify` gained the same sequence end to end against the
+demo device, and the A11 daemon test now asserts the row survives the `steered` acceptance.
+
+```
+cd ios && export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+swift run RCVerify && swift run RCUIVerify && swift test
+→ RCVerify 917 checks, RCUIVerify 111 checks, 150 tests in 15 suites passed
+```
+
+Not verified in this pass: a real Codex daemon steering a live turn, and the caption in the
+simulator. Both were exercised in the store checks and unit tests only.
 
 ## 3. Attached terminal sessions (A10) in the apps
 

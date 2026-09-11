@@ -37,9 +37,16 @@ export function UserMessageRow({
 /** The chip on a send the device has not confirmed, re-read on a slow clock. */
 function PendingChip({ block }: { block: OptimisticBlock }) {
   const now = useNow(5_000);
-  return (
-    <span className="delivery-chip">
-      {isUnconfirmed(block, now) ? strings.composer.deliveryUnconfirmed : strings.chat.sending}
-    </span>
-  );
+  return <span className="delivery-chip">{pendingLabel(block, now)}</span>;
+}
+
+/**
+ * A14: a steered message is accepted at once but only reaches the agent at its
+ * next step, so it says so instead of counting the seconds towards a delivery
+ * problem it does not have.
+ */
+function pendingLabel(block: OptimisticBlock, now: number): string {
+  if (block.accepted === 'steered') return strings.chat.steering;
+  if (isUnconfirmed(block, now)) return strings.composer.deliveryUnconfirmed;
+  return strings.chat.sending;
 }

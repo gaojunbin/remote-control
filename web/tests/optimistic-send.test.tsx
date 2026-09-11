@@ -58,6 +58,19 @@ describe('the pending send bubble (A12)', () => {
     expect(renderLastRow(withPending()).chip()).toBe('Delivery unconfirmed');
   });
 
+  it('says a steered message is waiting for the agent, however long it takes (A14)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(SENT_AT + UNCONFIRMED_AFTER_MS * 5);
+    const steered = addOptimistic(emptyTimeline(), {
+      id: 'req-2',
+      text: '有什么项目',
+      attachments: [],
+      at: SENT_AT,
+      accepted: 'steered',
+    });
+    expect(renderLastRow(steered).chip()).toBe('the agent will read it at its next step');
+  });
+
   it('drops the chip and the dimming when the device confirms the block', () => {
     const confirmed = applyEvent(withPending(), {
       seq: 12,

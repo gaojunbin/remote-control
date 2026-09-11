@@ -461,6 +461,28 @@ enum StoreChecks {
         chat.draft = "also check the drawer's tests"
         await chat.send(mode: .auto)
         checks.equal(chat.lastAcceptance, .steered, "auto steers a running shared thread")
+
+        // Amendment A14: the agent reads a steered message at its next step, so
+        // the row waits at the foot of the transcript while the turn carries on,
+        // and the device's block lands after the output that preceded it.
+        checks.equal(chat.timeline.roots.last?.pending?.text, "also check the drawer's tests",
+                     "a steered message waits at the foot rather than vanishing on acceptance")
+        checks.expect(chat.timeline.roots.last?.pending?.isSteering == true,
+                      "and never counts down towards an unconfirmed delivery")
+        // The row is the last of these; whatever the turn says before the agent
+        // takes the message pushes the block past where the row stands now.
+        let rowsWhileWaiting = chat.timeline.roots.count
+        await settle(timeout: 4) { chat.timeline.optimistic.isEmpty }
+        checks.expect(chat.timeline.optimistic.isEmpty, "the block arrives when the agent takes it")
+        let landed = chat.timeline.roots.firstIndex {
+            $0.userMessage?.text == "also check the drawer's tests"
+        }
+        checks.equal(chat.timeline.roots.filter {
+            $0.userMessage?.text == "also check the drawer's tests"
+        }.count, 1, "exactly one copy of the steered message")
+        checks.expect(landed.map { $0 >= rowsWhileWaiting } ?? false,
+                      "and it sorts after the output the turn produced while it waited")
+
         chat.draft = "and then run the linter"
         await chat.send(mode: .queue)
         checks.equal(chat.lastAcceptance, .queued, "queue holds the message instead")

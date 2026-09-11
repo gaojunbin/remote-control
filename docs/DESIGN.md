@@ -157,6 +157,13 @@ working · your message will steer the turn" and the button stays "Send". Claude
 shared sessions keep "will be queued" and a "Queue" button. The delivery chips below are therefore a
 Claude phenomenon in practice — a Codex message rarely waits.
 
+A steered message is drawn where the agent reads it, not where it was sent. Codex takes a steer at
+its next step, after the sentence it was already writing, and the terminal shows the prompt there;
+the app shows the same order. Until the device reports the message taken, the bubble stays at the
+bottom of the transcript as the optimistic row from sending, below whatever the turn is still
+producing. A bubble that jumped up into the middle of an answer would put the reply before the
+question.
+
 A message sent into an attached session cannot always be delivered at once, so the bubble says where
 it is. A quiet chip under the text reads "waiting for the terminal" while the device holds it until
 the running turn ends, and "will be re-sent" if the CLI read it as mid-turn data. The chip

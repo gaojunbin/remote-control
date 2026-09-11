@@ -129,6 +129,14 @@ struct CodexDaemonTests {
         await chat.send(mode: .auto)
         #expect(chat.lastAcceptance == .steered)
         #expect(chat.errorMessage == nil)
+
+        // Amendment A14: the acceptance says the device has the message, not
+        // that the agent has read it, so the row stays at the foot until the
+        // device's own block arrives.
+        #expect(chat.timeline.optimistic.count == 1)
+        #expect(chat.timeline.roots.last?.pending?.text == "also check the drawer's tests")
+        #expect(chat.timeline.roots.last?.pending?.isSteering == true)
+        #expect(chat.pendingSends.isEmpty, "and nothing asks to send it a second time")
     }
 
     @Test("queue on the same thread holds the message instead")

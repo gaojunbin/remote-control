@@ -161,6 +161,17 @@ keeps the id from its `queue` entry through to the `user_message` that goes out 
 drains, and so does a steer. Messages the device originates itself — typed in a terminal, or
 replayed from a queue entry that arrived without a request id — keep ids the device mints.
 
+A steered message is the one exception (amendment A14). Codex does not read a message steered into
+a running turn where it was sent but at its next step, after whatever it was already saying, and it
+echoes the prompt as a `userMessage` item when it gets there. The device therefore holds the
+`user_message` until that echo arrives and publishes it then, under the request id, so `first_seq`
+places the bubble after the output that preceded it — where a terminal on the same thread draws it.
+`accepted: "steered"` still comes back immediately, and the app keeps its optimistic row at the
+bottom until the block lands. A turn that ends without ever reading the message publishes it at the
+turn's end instead, with a `notice` of level `warn` when the turn was interrupted, so a steered
+message is shown exactly once either way. This holds on both Codex paths, the shared daemon and the
+private app-server.
+
 Sending is arranged so that nothing the user waits for sits behind a round trip. The message is
 published first and the agent is asked afterwards: a Codex send that has to resume its thread, and a
 Claude send that has to restart the CLI to apply a new effort level, both show the bubble before

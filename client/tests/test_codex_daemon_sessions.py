@@ -1055,19 +1055,6 @@ async def test_a_send_carries_the_request_id_as_its_block(harness: Harness) -> N
     assert [event["block_id"] for event in harness.events("user_message")] == [SEND_REQUEST]
 
 
-async def test_a_steer_carries_the_request_id_as_its_block(harness: Harness) -> None:
-    await started(harness, loaded=[THREAD])
-    await harness.hub.send({"id": SEND_REQUEST, "session_id": THREAD, "text": "first"})
-    await harness.daemon.notify(
-        "turn/started", {"threadId": THREAD, "turn": {"id": "turn-1", "status": "inProgress"}}
-    )
-    await settle(lambda: harness.hub.entry(THREAD).session.state == "running")
-    steered = "0d6b8e29-4a17-4c3f-9b52-8e1a6f70d3c4"
-    result = await harness.hub.send({"id": steered, "session_id": THREAD, "text": "also this"})
-    assert result == {"accepted": "steered"}
-    assert [event["block_id"] for event in harness.events("user_message")][-1] == steered
-
-
 async def test_a_send_publishes_the_message_before_it_asks_the_daemon_anything(
     harness: Harness,
 ) -> None:
@@ -1124,3 +1111,105 @@ async def test_a_turn_boundary_makes_a_refused_resume_worth_another_try(
         "turn/started", {"threadId": THREAD, "turn": {"id": "turn-9", "status": "inProgress"}}
     )
     await settle(lambda: len(harness.daemon.sent("thread/resume")) > attempts)
+
+
+# ------------------------------- A14: where a steered message lands in the log
+
+
+STEER_REQUEST = "0d6b8e29-4a17-4c3f-9b52-8e1a6f70d3c4"
+
+
+async def steering(harness: Harness) -> None:
+    """A running turn this device started, with a message steered into it."""
+    await started(harness, loaded=[THREAD])
+    await harness.hub.send({"id": SEND_REQUEST, "session_id": THREAD, "text": "first"})
+    await harness.daemon.notify(
+        "turn/started", {"threadId": THREAD, "turn": {"id": "turn-1", "status": "inProgress"}}
+    )
+    await settle(lambda: harness.hub.entry(THREAD).session.state == "running")
+    result = await harness.hub.send(
+        {"id": STEER_REQUEST, "session_id": THREAD, "text": "also this"}
+    )
+    assert result == {"accepted": "steered"}
+    assert harness.daemon.sent("turn/steer")[-1]["expectedTurnId"] == "turn-1"
+
+
+async def test_a_steered_message_is_published_when_the_agent_reads_it(harness: Harness) -> None:
+    """Observed on the shared daemon: the echo arrives after the step in flight."""
+    await steering(harness)
+    # `accepted: "steered"` is immediate; the bubble is not.
+    assert [event["block_id"] for event in harness.events("user_message")] == [SEND_REQUEST]
+
+    await harness.daemon.notify(
+        "item/completed",
+        {"threadId": THREAD, "item": {"id": "a1", "type": "agentMessage", "text": "still going"}},
+    )
+    await settle(lambda: bool(harness.events("assistant_text")))
+    assert [event["block_id"] for event in harness.events("user_message")] == [SEND_REQUEST]
+
+    await harness.daemon.echo_prompt(THREAD, "also this", item_id="u-steer")
+    await settle(lambda: len(harness.events("user_message")) == 2)
+    steered = harness.events("user_message")[-1]
+    assert steered["block_id"] == STEER_REQUEST
+    assert (steered["source"], steered["delivery"], steered["text"]) == (
+        "remote",
+        "delivered",
+        "also this",
+    )
+    # Which is the whole point: it sorts after what the agent was already saying.
+    assert steered["first_seq"] > harness.events("assistant_text")[-1]["first_seq"]
+
+
+async def test_a_steered_message_is_published_exactly_once(harness: Harness) -> None:
+    """The second event for the item, a backfill and a reconnect all stay silent."""
+    await steering(harness)
+    await harness.daemon.echo_prompt(THREAD, "also this", item_id="u-steer")
+    await settle(lambda: len(harness.events("user_message")) == 2)
+
+    harness.daemon.replies["thread/items/list"] = {
+        "data": [
+            {
+                "type": "userMessage",
+                "id": "u-steer",
+                "clientId": None,
+                "content": [{"type": "text", "text": "also this"}],
+            }
+        ]
+    }
+    runner = harness.hub.entry(THREAD).runner
+    assert isinstance(runner, CodexDaemonSession)
+    await runner.backfill()
+    await harness.daemon.echo_prompt(THREAD, "also this", item_id="u-steer")
+    await harness.daemon.notify(
+        "turn/completed", {"threadId": THREAD, "turn": {"id": "turn-1", "status": "completed"}}
+    )
+    await settle(lambda: bool(harness.events("turn_completed")))
+    assert [event["block_id"] for event in harness.events("user_message")] == [
+        SEND_REQUEST,
+        STEER_REQUEST,
+    ]
+
+
+async def test_a_steered_message_the_turn_never_read_lands_at_its_end(harness: Harness) -> None:
+    await steering(harness)
+    await harness.daemon.notify(
+        "turn/completed", {"threadId": THREAD, "turn": {"id": "turn-1", "status": "completed"}}
+    )
+    await settle(lambda: len(harness.events("user_message")) == 2)
+    assert harness.events("user_message")[-1]["block_id"] == STEER_REQUEST
+    # A turn that ran to the end read everything it was given, so no warning.
+    assert harness.events("notice") == []
+    # Inside the turn it was sent into, not after it.
+    assert harness.events("user_message")[-1]["seq"] < harness.events("turn_completed")[-1]["seq"]
+
+
+async def test_an_interrupted_turn_says_the_message_was_never_read(harness: Harness) -> None:
+    await steering(harness)
+    await harness.daemon.notify(
+        "turn/completed", {"threadId": THREAD, "turn": {"id": "turn-1", "status": "interrupted"}}
+    )
+    await settle(lambda: len(harness.events("user_message")) == 2)
+    assert harness.events("user_message")[-1]["block_id"] == STEER_REQUEST
+    assert harness.events("turn_completed")[-1]["stop_reason"] == "interrupted"
+    notice = harness.events("notice")[-1]
+    assert notice["level"] == "warn" and "read" in notice["text"]

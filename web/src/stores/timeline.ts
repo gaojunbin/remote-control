@@ -38,6 +38,12 @@ export interface OptimisticBlock {
   attachments: Attachment[];
   /** When the app sent it, for the unconfirmed timeout. */
   at: number;
+  /**
+   * What `session.send` answered, once it has. A `steered` message waits for the
+   * agent to reach its next step (A14), which takes as long as it takes, so the
+   * wait says nothing about delivery.
+   */
+  accepted?: 'sent' | 'steered';
 }
 
 export interface TimelineState {
@@ -142,8 +148,13 @@ function insertOrdered(
 /** How long an unconfirmed send waits before the row says so. */
 export const UNCONFIRMED_AFTER_MS = 60_000;
 
-/** Whether a pending row has waited too long. Pure; the row needs only a clock. */
+/**
+ * Whether a pending row has waited too long. Pure; the row needs only a clock.
+ * §8 rule 7 reserves this for a send whose delivery is genuinely uncertain, so
+ * a gateway answer settles it for good however long the agent then takes.
+ */
 export function isUnconfirmed(block: OptimisticBlock, now: number): boolean {
+  if (block.accepted !== undefined) return false;
   return now - block.at >= UNCONFIRMED_AFTER_MS;
 }
 
@@ -151,6 +162,23 @@ export function isUnconfirmed(block: OptimisticBlock, now: number): boolean {
 export function addOptimistic(state: TimelineState, block: OptimisticBlock): TimelineState {
   if (state.items[block.id] || state.optimistic.some((b) => b.id === block.id)) return state;
   return { ...state, optimistic: [...state.optimistic, block] };
+}
+
+/**
+ * Record what `session.send` answered for a pending row. The row itself stays:
+ * under A14 a `steered` message becomes a device block only when the agent
+ * takes it, and a `sent` one when the device echoes it.
+ */
+export function markAccepted(
+  state: TimelineState,
+  id: string,
+  accepted: 'sent' | 'steered',
+): TimelineState {
+  if (!state.optimistic.some((b) => b.id === id && b.accepted !== accepted)) return state;
+  return {
+    ...state,
+    optimistic: state.optimistic.map((b) => (b.id === id ? { ...b, accepted } : b)),
+  };
 }
 
 /** Drop a pending row: the send was refused, or its queue entry was removed. */

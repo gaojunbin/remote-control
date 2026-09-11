@@ -175,6 +175,7 @@ export const strings = {
     cancelled: 'cancelled',
     queuedLabel: 'Queued',
     sending: 'Sending…',
+    steering: 'the agent will read it at its next step',
     deliveryPending: 'waiting for the terminal',
     deliveryAbsorbed: 'will be re-sent',
     attachHintChannel: 'Start claude through the remote-control shim to control it from here',

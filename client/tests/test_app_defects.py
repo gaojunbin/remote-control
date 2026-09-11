@@ -456,3 +456,88 @@ async def test_a_codex_send_carries_the_request_id_as_its_block(tmp_path: Path) 
     order = kinds(frames)
     assert order.index("user_message") < order.index("turn_started")
     registry.close()
+
+
+STEERED = "0d6b8e29-4a17-4c3f-9b52-8e1a6f70d3c4"
+
+
+def build_codex_runner(tmp_path: Path, frames: list[dict[str, Any]]) -> Any:
+    """A `CodexRunner` whose app-server answers every request the same way."""
+    from rc_client.agents.codex.adapter import CodexRunner
+    from rc_client.agents.codex.models import parse_catalog
+
+    registry = Registry(tmp_path / "codex.sqlite3")
+    session = Session(session_id="s3", device_id="d", agent="codex", cwd=str(tmp_path))
+    registry.upsert_session(session)
+
+    async def publish(frame: dict[str, Any]) -> None:
+        frames.append(frame)
+
+    class StubServer:
+        async def request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+            return {"turn": {"id": "turn-1"}}
+
+    runner = CodexRunner(
+        SessionChannel(registry, session, publish),
+        binary="/bin/codex",
+        cwd=str(tmp_path),
+        catalog=parse_catalog([]),
+    )
+    runner._server = StubServer()  # type: ignore[assignment]
+    runner._thread_id = "t1"
+    runner._turn_id = "turn-1"
+    return runner
+
+
+def user_messages(frames: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        frame["event"]
+        for frame in frames
+        if frame.get("type") == "session.event" and frame["event"]["kind"] == "user_message"
+    ]
+
+
+async def echo(runner: Any, text: str, item_id: str) -> None:
+    """Replay a prompt the way Codex does: the same item, started and completed."""
+    item = {"id": item_id, "type": "userMessage", "content": [{"type": "text", "text": text}]}
+    for method in ("item/started", "item/completed"):
+        await runner._on_notification(method, {"item": dict(item)})
+
+
+async def test_a_codex_steer_waits_for_codex_to_read_the_prompt(tmp_path: Path) -> None:
+    """A14: a steered bubble belongs where the agent took the message."""
+    frames: list[dict[str, Any]] = []
+    runner = build_codex_runner(tmp_path, frames)
+    assert await runner.steer("also this", block_id=STEERED) is True
+    assert user_messages(frames) == []
+
+    await runner._on_notification(
+        "item/completed", {"item": {"id": "a1", "type": "agentMessage", "text": "still going"}}
+    )
+    assert user_messages(frames) == []
+
+    await echo(runner, "also this", "u1")
+    bubbles = user_messages(frames)
+    assert [bubble["block_id"] for bubble in bubbles] == [STEERED]
+    said = [
+        frame["event"]
+        for frame in frames
+        if frame.get("type") == "session.event" and frame["event"]["kind"] == "assistant_text"
+    ]
+    # Which is the whole point: it sorts after what Codex was already saying.
+    assert bubbles[0]["first_seq"] > said[-1]["first_seq"]
+    runner.channel.registry.close()
+
+
+async def test_a_codex_steer_the_turn_never_read_lands_at_its_end(tmp_path: Path) -> None:
+    frames: list[dict[str, Any]] = []
+    runner = build_codex_runner(tmp_path, frames)
+    assert await runner.steer("also this", block_id=STEERED) is True
+    runner._interrupting = True
+    await runner._on_notification(
+        "turn/completed", {"turn": {"id": "turn-1", "status": "interrupted"}}
+    )
+    assert [bubble["block_id"] for bubble in user_messages(frames)] == [STEERED]
+    order = kinds(frames)
+    assert order.index("user_message") < order.index("notice") < order.index("turn_completed")
+    runner.channel.registry.close()

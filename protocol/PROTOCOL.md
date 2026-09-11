@@ -787,6 +787,16 @@ in the timeline moves, and a retry with the same `id` (2.4) lands on the same bl
 device originates itself (typed in a terminal, replayed from a queue whose item came without an id)
 keep device-minted ids.
 
+A steered message is the exception to "at once" on the device side (amendment A14). When a
+`session.send` is answered with `accepted: "steered"`, the agent does not read the message where it
+was sent but at its next step, after whatever it was already saying; a terminal on the same session
+shows the prompt there. The device therefore emits the `user_message` only when the agent reports
+having taken the message (for Codex, the daemon's `userMessage` item for it), so `first_seq` places
+it after the output that preceded it. The app keeps its optimistic row at the bottom until then —
+that is where the message will land. If the turn ends without the agent ever taking the message,
+the device emits the block at the turn's end, with a `notice` of level `warning` when the turn was
+interrupted, so the message is shown exactly once either way.
+
 `delivery` reports what happened to a message injected into an attached CLI and is absent for an
 ordinary prompt. `pending` means the device accepted the message and is holding it until the
 terminal turn ends. `delivered` means it was injected into the CLI. `absorbed` means the CLI treated
@@ -2591,7 +2601,8 @@ by `block_id` like any other.
    `seq` otherwise, so a block that finishes late stays where it started.
 3. **Sending during a running turn.** With `mode: "auto"` the message is queued, or steered for
    agents with capability `steer`. The UI shows "working · your message will be queued" and offers
-   "Interrupt & send".
+   "Interrupt & send". A steered message stays an optimistic row until the device's
+   `user_message` arrives, which happens when the agent takes it, not when it was sent (A14).
 4. **Approval and question cards go inactive** as soon as `status` becomes `resolved` or `expired`.
    Only the server-supplied option ids are ever sent back.
 5. **Terminal control disables the composer**, which reads "Controlled by the terminal · Take
@@ -2876,3 +2887,11 @@ gateway holds `online: true` for a 20 s grace period after a transient close, an
 addressed to the device only once the period ends without a replacement connection (they wait for
 one in the meantime). `4401`, `4403` and an explicit removal still flip `online` immediately. See
 2.5 and 4.1.
+
+**2026-09-11 A14 — a steered `user_message` is emitted when the agent takes it.** A message sent
+into a running Codex turn was drawn where it was sent, while the terminal drew it where Codex read
+it: after the agent message that was already streaming. The two orders disagreed on every send made
+mid-turn. The device now emits the `user_message` for an `accepted: "steered"` send only when the
+agent reports having taken it (the daemon's `userMessage` item), so `first_seq` lands after the
+output that preceded it, and falls back to the end of the turn when the message was never taken.
+Apps keep the optimistic row from A12 at the bottom in the meantime. See 5.2 and 9.

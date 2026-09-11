@@ -65,7 +65,8 @@ def item_type(item: dict[str, Any]) -> str:
     return raw[:1].lower() + raw[1:] if raw else ""
 
 
-def _text_of(content: Any) -> str:
+def text_of(content: Any) -> str:
+    """The plain text of an item's `content`, whatever shape Codex sent it in."""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -266,7 +267,7 @@ class CodexTranslator:
         if kind == "userMessage":
             if not self._mirror_user_messages:
                 return []
-            text = _text_of(item.get("content"))
+            text = text_of(item.get("content"))
             if not text:
                 return []
             return [
@@ -278,7 +279,7 @@ class CodexTranslator:
         if kind == "agentMessage":
             if not completed:
                 return []
-            text = str(item.get("text") or "") or _text_of(item.get("content"))
+            text = str(item.get("text") or "") or text_of(item.get("content"))
             if not text:
                 return []
             return [Emit("assistant_text", {"block_id": item_id, "text": text, "done": True})]
@@ -286,7 +287,7 @@ class CodexTranslator:
             if not completed:
                 return []
             summary = item.get("summary") or item.get("summaryText") or []
-            text = _text_of(summary) or _text_of(item.get("content"))
+            text = text_of(summary) or text_of(item.get("content"))
             if not text:
                 return []
             return [Emit("thinking", {"block_id": item_id, "text": text, "done": True})]
@@ -358,7 +359,7 @@ class CodexTranslator:
             }
             result = item.get("result")
             if result is not None:
-                fields["output"] = _text_of(result) or str(result)[:MAX_OUTPUT_CHARS]
+                fields["output"] = text_of(result) or str(result)[:MAX_OUTPUT_CHARS]
         elif kind == "webSearch":
             fields["input"] = {"query": str(item.get("query") or "")}
         if completed:

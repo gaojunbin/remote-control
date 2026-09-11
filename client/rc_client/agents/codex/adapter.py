@@ -15,10 +15,11 @@ from ...logging_setup import logger
 from ...models import now_ms
 from ...sessions.channel import SessionChannel
 from ..base import Emit
+from .echoes import Echo, EchoLog
 from .models import ModelCatalog
 from .prompts import answers_payload, question_blocks
 from .rpc import CodexAppServer
-from .translate import CodexTranslator
+from .translate import CodexTranslator, item_type, text_of
 
 log = logger("rc_client.codex")
 
@@ -83,6 +84,7 @@ class CodexRunner:
         self._turn_done = asyncio.Event()
         self._turn_done.set()
         self._turn_epoch = 0
+        self._echoes = EchoLog()
 
     # ------------------------------------------------------------- lifecycle
 
@@ -132,6 +134,10 @@ class CodexRunner:
         if method == "turn/started":
             turn = params.get("turn") or {}
             self._turn_id = str(turn.get("id") or "") or self._turn_id
+        if method in {"item/started", "item/completed"}:
+            item = params.get("item")
+            if isinstance(item, dict) and item_type(item) == "userMessage":
+                await self._take_echo(item)
         completion: dict[str, Any] | None = None
         for emit in self._translator.notification(method, params):
             if emit.kind == "turn_completed":
@@ -140,6 +146,33 @@ class CodexRunner:
             await self._apply(emit)
         if completion is not None:
             await self._finish_turn(completion)
+
+    async def _take_echo(self, item: dict[str, Any]) -> None:
+        """Publish the `user_message` a steer held back, if this is its echo.
+
+        Codex echoes a steered prompt at the step that reads it, so this is
+        where the bubble belongs (amendment A14). The echo is consumed by the
+        first of the item's two events, which is what keeps the second silent.
+        """
+        claimed = self._echoes.claim("", text_of(item.get("content")), "")
+        if claimed is not None:
+            await self._publish_steer(claimed)
+
+    async def _publish_steer(self, echo: Echo) -> None:
+        if echo.block_id is None:
+            return
+        await self.channel.emit(
+            "user_message", block_id=echo.block_id, text=echo.text, source="remote"
+        )
+
+    async def _publish_unread(self, stop_reason: str) -> None:
+        """Show the steered messages this turn ended without ever reading."""
+        for echo in self._echoes.unclaimed():
+            await self._publish_steer(echo)
+            if stop_reason == "interrupted":
+                await self.channel.notice(
+                    "warn", "the agent was stopped before it read your message"
+                )
 
     async def _apply(self, emit: Emit) -> None:
         if emit.delta:
@@ -169,6 +202,7 @@ class CodexRunner:
         reported = str(completion.get("stop_reason") or "completed")
         stop_reason = "interrupted" if self._interrupting else reported
         self._interrupting = False
+        await self._publish_unread(stop_reason)
         self._turn_id = None
         self._turn_epoch += 1
         self._turn_done.set()
@@ -247,12 +281,11 @@ class CodexRunner:
             )
         except RcError:
             return False
-        await self.channel.emit(
-            "user_message",
-            block_id=block_id or f"user:{uuid.uuid4()}",
-            text=text,
-            source="remote",
-        )
+        # Amendment A14: the bubble waits for Codex's echo of this prompt, which
+        # arrives at the step that reads it, not where it was sent.
+        evicted = self._echoes.remember(text, block_id or f"user:{uuid.uuid4()}")
+        if evicted is not None:
+            await self._publish_steer(evicted)
         return True
 
     async def interrupt(self) -> bool:
@@ -283,6 +316,9 @@ class CodexRunner:
 
     async def _restart(self) -> None:
         """Rebuild the app-server connection, resuming the same thread."""
+        # The turn dies with the process, so no `turn/completed` is coming and
+        # this is the last chance to show a steered message that was never read.
+        await self._publish_unread("interrupted")
         thread_id = self._thread_id
         await self.close()
         self._thread_id = thread_id

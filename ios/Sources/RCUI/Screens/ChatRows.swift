@@ -69,10 +69,10 @@ private struct UserMessageRow: View {
                 DeliveryChip(label: Text("waiting for the terminal"))
             } else if payload.delivery == .absorbed {
                 DeliveryChip(label: Text("will be re-sent"))
-            } else if pending != nil {
+            } else if let pending {
                 // A word, not a spinner: the message is already on screen, and
                 // a turning wheel would say the app is busy when it is not.
-                Text(isUnconfirmed ? "Delivery unconfirmed" : "Sending…")
+                Text(Self.pendingLabel(pending, isUnconfirmed: isUnconfirmed))
                     .font(.caption)
                     .foregroundStyle(isUnconfirmed ? Theme.attention : Theme.inkSecondary)
             } else if payload.source == .terminal {
@@ -92,15 +92,25 @@ private struct UserMessageRow: View {
         .accessibilityLabel(spokenLabel)
         .accessibilityIdentifier(identifier)
         // One sleep per pending row, waking exactly when the wording changes,
-        // rather than a clock the whole transcript redraws from.
+        // rather than a clock the whole transcript redraws from. Amendment A14:
+        // a steered row has no such moment, because the device confirmed it and
+        // only the agent's next step can move it on.
         .task(id: pending?.id) {
-            guard let pending else { isUnconfirmed = false; return }
+            guard let pending, !pending.isSteering else { isUnconfirmed = false; return }
             isUnconfirmed = pending.isUnconfirmed()
             guard !isUnconfirmed else { return }
             try? await Task.sleep(for: .seconds(pending.remainingBeforeUnconfirmed()))
             guard !Task.isCancelled else { return }
             isUnconfirmed = true
         }
+    }
+
+    /// What the app's own copy of a message says about itself while it waits.
+    /// Amendment A14: a steered message is on the device already; what it is
+    /// waiting for is the agent, which reads it at its next step.
+    private static func pendingLabel(_ pending: OptimisticMessage, isUnconfirmed: Bool) -> String {
+        if pending.isSteering { return "the agent will read it at its next step" }
+        return isUnconfirmed ? "Delivery unconfirmed" : "Sending…"
     }
 
     /// The chip is inside a combined element, so its words have to reach
@@ -111,7 +121,8 @@ private struct UserMessageRow: View {
         case .some(.pending): return said + Text(", waiting for the terminal")
         case .some(.absorbed): return said + Text(", will be re-sent")
         default:
-            guard pending != nil else { return said }
+            guard let pending else { return said }
+            if pending.isSteering { return said + Text(", the agent will read it at its next step") }
             return said + Text(isUnconfirmed ? ", delivery unconfirmed" : ", sending")
         }
     }
@@ -120,7 +131,8 @@ private struct UserMessageRow: View {
     /// reach the chip even though the bubble is one combined element.
     private var identifier: String {
         if let delivery = payload.delivery { return "chat.message.\(delivery.rawValue)" }
-        guard pending != nil else { return "chat.message" }
+        guard let pending else { return "chat.message" }
+        if pending.isSteering { return "chat.message.steering" }
         return isUnconfirmed ? "chat.message.unconfirmed" : "chat.message.sending"
     }
 }

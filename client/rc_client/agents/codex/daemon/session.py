@@ -20,10 +20,10 @@ from ....errors import RcError
 from ....logging_setup import logger
 from ....models import now_ms
 from ....sessions.channel import SessionChannel
+from ..echoes import Echo, EchoLog
 from ..models import ModelCatalog
-from ..translate import CodexTranslator, item_type, normalise
+from ..translate import CodexTranslator, item_type, normalise, text_of
 from .dialogs import DialogDesk
-from .echoes import EchoLog
 from .rpc import DaemonClient
 
 log = logger("rc_client.codex.daemon.session")
@@ -363,6 +363,7 @@ class CodexDaemonSession:
         reported = str(completion.get("stop_reason") or "completed")
         stop_reason = "interrupted" if self._interrupting else reported
         self._interrupting = False
+        await self._publish_unread(stop_reason)
         self._turn_id = None
         self._local_turn = False
         self._turn_epoch += 1
@@ -427,7 +428,11 @@ class CodexDaemonSession:
         if self._echoes.recognised(item_id):
             return False
         client_id = str(item.get("clientId") or "")
-        if self._echoes.claim(item_id, _text_of(item.get("content")), client_id):
+        claimed = self._echoes.claim(item_id, text_of(item.get("content")), client_id)
+        if claimed is not None:
+            # A steered message is published here rather than where it was sent,
+            # so it lands after the output Codex produced before reading it.
+            await self._publish_steer(claimed)
             return False
         if client_id and not self._echoes.owns(client_id):
             changed = not self._terminal_holds
@@ -435,6 +440,33 @@ class CodexDaemonSession:
             if changed:
                 await self._control_changed()
         return True
+
+    async def _publish_steer(self, echo: Echo) -> None:
+        """Publish the `user_message` a steer has been holding back."""
+        if echo.block_id is None:
+            return
+        fields: dict[str, Any] = {
+            "block_id": echo.block_id,
+            "text": echo.text,
+            "source": "remote",
+        }
+        if self.channel.session.control == "shared":
+            fields["delivery"] = "delivered"
+        await self.channel.emit("user_message", **fields)
+
+    async def _publish_unread(self, stop_reason: str) -> None:
+        """Show the steered messages this turn ended without ever reading.
+
+        Amendment A14 puts a steered bubble where the agent took the message,
+        which is nowhere at all when the turn stops first, so the turn's end is
+        the last place it can be shown — and an interrupted turn says so.
+        """
+        for echo in self._echoes.unclaimed():
+            await self._publish_steer(echo)
+            if stop_reason == "interrupted":
+                await self.channel.notice(
+                    "warn", "the agent was stopped before it read your message"
+                )
 
     async def _apply(self, emit: Any) -> None:
         if emit.delta:
@@ -494,7 +526,9 @@ class CodexDaemonSession:
         # round trip to the daemon, and the apps have drawn this bubble already.
         await self.channel.emit("user_message", **fields)
         subscribed = await self.try_resume()
-        self._echoes.remember(str(inputs[0]["text"]))
+        evicted = self._echoes.remember(str(inputs[0]["text"]))
+        if evicted is not None:
+            await self._publish_steer(evicted)
         self._local_turn = True
         self._turn_started_at = now_ms()
         params: dict[str, Any] = {
@@ -545,15 +579,12 @@ class CodexDaemonSession:
             )
         except RcError:
             return False
-        self._echoes.remember(text)
-        fields: dict[str, Any] = {
-            "block_id": block_id or f"user:{uuid.uuid4()}",
-            "text": text,
-            "source": "remote",
-        }
-        if self.channel.session.control == "shared":
-            fields["delivery"] = "delivered"
-        await self.channel.emit("user_message", **fields)
+        # Amendment A14: the bubble waits for Codex's echo of this prompt, which
+        # arrives at the step that reads it. The apps hold their optimistic row
+        # under the same block id until then.
+        evicted = self._echoes.remember(text, block_id or f"user:{uuid.uuid4()}")
+        if evicted is not None:
+            await self._publish_steer(evicted)
         return True
 
     async def interrupt(self) -> bool:
@@ -608,16 +639,3 @@ class CodexDaemonSession:
 
     async def answer(self, request_id: str, answers: dict[str, Any]) -> bool:
         return await self._dialogs.answer(request_id, answers)
-
-
-def _text_of(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = [
-            entry if isinstance(entry, str) else str(entry.get("text") or "")
-            for entry in content
-            if isinstance(entry, str | dict)
-        ]
-        return "".join(part for part in parts if part)
-    return ""

@@ -11,12 +11,18 @@ public struct OptimisticMessage: Identifiable, Sendable, Equatable {
     public let attachments: [AttachmentInfo]
     /// When the send left the app, for the unconfirmed timeout.
     public let sentAt: Date
+    /// Amendment A14: the device answered `accepted: "steered"`, so it has the
+    /// message and the agent will read it at its next step. Such a row waits
+    /// for as long as the turn takes and is never in doubt.
+    public var isSteering: Bool
 
-    public init(id: String, text: String, attachments: [AttachmentInfo] = [], sentAt: Date = Date()) {
+    public init(id: String, text: String, attachments: [AttachmentInfo] = [],
+                sentAt: Date = Date(), isSteering: Bool = false) {
         self.id = id
         self.text = text
         self.attachments = attachments
         self.sentAt = sentAt
+        self.isSteering = isSteering
     }
 
     /// How long a send may wait before the row stops claiming it is on its way.
@@ -25,7 +31,8 @@ public struct OptimisticMessage: Identifiable, Sendable, Equatable {
     public static let unconfirmedAfter: TimeInterval = 60
 
     public func isUnconfirmed(at now: Date = Date()) -> Bool {
-        now.timeIntervalSince(sentAt) >= Self.unconfirmedAfter
+        guard !isSteering else { return false }
+        return now.timeIntervalSince(sentAt) >= Self.unconfirmedAfter
     }
 
     /// Seconds left before this row says so, or zero once it has.
@@ -259,7 +266,7 @@ public struct Timeline: Sendable, Equatable {
     /// an entry already held from the live stream wins over an older copy.
     public mutating func prependHistory(_ events: [SessionEvent], hasMore: Bool) {
         for event in events.sorted(by: { $0.seq < $1.seq }) {
-            reconcileOptimistic(with: event)
+            reconcileOptimistic(with: event, isHistory: true)
             let key = Self.key(for: event)
             if let position = index[key] {
                 guard event.seq > entries[position].latestSeq else { continue }
@@ -317,6 +324,15 @@ public struct Timeline: Sendable, Equatable {
         optimistic.removeAll { $0.id == id }
     }
 
+    /// Amendment A14: the device steered the message into the running turn. The
+    /// row stays where it is — the foot of the transcript, which is where the
+    /// device's block will land once the agent reads it — and stops counting
+    /// down towards "unconfirmed", because there is nothing left to confirm.
+    public mutating func markSteered(_ id: String) {
+        guard let position = optimistic.firstIndex(where: { $0.id == id }) else { return }
+        optimistic[position].isSteering = true
+    }
+
     /// The pending rows that have waited too long to still claim they are on
     /// their way. Pure; the caller supplies the clock.
     public func unconfirmedOptimistic(at now: Date = Date()) -> [OptimisticMessage] {
@@ -335,14 +351,20 @@ public struct Timeline: Sendable, Equatable {
     /// Retire the pending row an incoming event confirms. Matching on the block
     /// id is amendment A12; matching one row by text is the fallback for a
     /// device that still mints its own ids, and never retires more than one.
-    private mutating func reconcileOptimistic(with event: SessionEvent) {
+    ///
+    /// The fallback is for events that arrive after the send, which is every
+    /// live event and no page of history. Amendment A14 keeps a steered row on
+    /// screen for the rest of the turn, and an older message repeating the same
+    /// words — "continue", sent twice in one session — would otherwise take it
+    /// away the moment the reader scrolled up.
+    private mutating func reconcileOptimistic(with event: SessionEvent, isHistory: Bool = false) {
         guard !optimistic.isEmpty else { return }
         let key = Self.key(for: event)
         if optimistic.contains(where: { $0.id == key }) {
             optimistic.removeAll { $0.id == key }
             return
         }
-        guard case .userMessage(let payload) = event.body, payload.source == .remote,
+        guard !isHistory, case .userMessage(let payload) = event.body, payload.source == .remote,
               let position = optimistic.firstIndex(where: { $0.text == payload.text }) else { return }
         optimistic.remove(at: position)
     }

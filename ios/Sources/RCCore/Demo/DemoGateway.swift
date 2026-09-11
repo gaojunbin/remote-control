@@ -26,6 +26,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// Amendment A12: the delayed echo of a message the app sent, which is what
     /// gives the demo the same "sending" moment a real device does.
     private var echoing: Task<Void, Never>?
+    /// Amendment A14: the step at which the agent reads a message steered into
+    /// a running turn, which is when the block for it is emitted.
+    private var steering: Task<Void, Never>?
 
     /// The default is what a quick local device feels like. A UI test asks for
     /// a longer one so the state a real send passes through can be looked at
@@ -276,12 +279,34 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             return try JSONValue.encode(SendResult(accepted: .sent))
         case .auto where agent?.supports(.steer) == true:
             // The message joins the turn that is already running, so it needs
-            // neither a queue entry nor a delivery state.
-            emit(sessionID: id, body: .userMessage(UserMessagePayload(text: text, source: .remote)))
+            // neither a queue entry nor a delivery state. Amendment A14: the
+            // agent reads it at its next step, not where it was sent, so the
+            // block waits for the step and the app's own row holds its place.
+            steering?.cancel()
+            let delay = echoDelay
+            steering = Task { [weak self] in
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+                await self?.takeSteeredMessage(sessionID: id, blockID: requestID, text: text)
+            }
             return try JSONValue.encode(SendResult(accepted: .steered))
         default:
             return try inject(sessionID: id, requestID: requestID, text: text)
         }
+    }
+
+    /// Amendment A14: the turn finishes the sentence it was already saying, the
+    /// agent reads the steered message at its next step, and only then does the
+    /// block for it appear — under the request id, after the output above it.
+    /// That is the order a terminal on the same thread draws.
+    private func takeSteeredMessage(sessionID: String, blockID: String, text: String) {
+        emit(sessionID: sessionID, blockID: "a-\(UUID().uuidString.prefix(6))",
+             body: .assistantText(StreamTextPayload(
+                text: "The typecheck is clean now that the drawer passes `effort` through again.",
+                done: true)))
+        emit(sessionID: sessionID, blockID: blockID,
+             body: .userMessage(UserMessagePayload(text: text, source: .remote, delivery: .delivered)))
+        startReplyScript(sessionID: sessionID)
     }
 
     /// Amendment A10: a message a channel cannot deliver yet is held by the
