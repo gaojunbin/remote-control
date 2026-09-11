@@ -47,8 +47,15 @@ public final class ChatStore {
     public private(set) var errorMessage: String?
     public private(set) var pendingSends: [PendingSend] = []
     public private(set) var expandedBlockIDs: Set<String> = []
-    /// Rows that arrived while the user was reading further up.
+    /// Rows that arrived while the user was reading further up. Only rows the
+    /// current detail level draws are counted: a burst of tool calls is nothing
+    /// at all to someone who has chosen not to see them.
     public private(set) var updatesWhileAway = 0
+    /// Where the detail level comes from. The transcript does not own the
+    /// preference — the app does — so a change in Settings reaches an open
+    /// conversation and its unread count at once, with no copy to fall out of
+    /// step. The default matches the preference's own default.
+    @ObservationIgnored public var detailSource: @MainActor () -> TimelineDetail = { .simple }
     /// What the device did with the most recent accepted message.
     public private(set) var lastAcceptance: SendAcceptance?
     /// Whether the reader is at the foot of the transcript. The view layer
@@ -86,6 +93,18 @@ public final class ChatStore {
     }
 
     // MARK: - Derived state
+
+    /// How much of this transcript is drawn.
+    public var detail: TimelineDetail { detailSource() }
+
+    /// The rows the transcript draws, at the level the reader has chosen.
+    public var rows: [TimelineEntry] { timeline.roots(at: detail) }
+
+    /// The header's todo chip. A checklist is the agent's working note rather
+    /// than something written to the reader, so Simple leaves it out.
+    public var showsTodos: Bool {
+        detail == .detailed && (session.todos?.total ?? 0) > 0
+    }
 
     /// A turn is in progress, whoever started it. Amendment A7: a terminal
     /// session reports `running` while its turn runs and `readonly` only when
@@ -330,7 +349,9 @@ public final class ChatStore {
             session.queued = payload.pending.count
             onSessionChange(session)
         }
-        if timeline.entries.count > before, !isFollowingTail { updatesWhileAway += 1 }
+        guard timeline.entries.count > before, !isFollowingTail else { return }
+        guard timeline.entry(for: event)?.isDrawn(at: detail) == true else { return }
+        updatesWhileAway += 1
     }
 
     private func applyMeta(_ payload: MetaPayload) {

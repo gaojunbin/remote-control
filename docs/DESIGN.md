@@ -68,9 +68,15 @@ A non-empty search overrides both stored choices without writing either: it open
 that still holds a match and every Archive a match landed in. Clearing the query hands the list back
 to what was stored.
 
-Archiving stays a row action and `session.archive` stays in the protocol. There is no global "show
-archived" switch: it only ever toggled the hand-archived rows, which were already folded inside the
-collapsed Archive, so it read as a control that did nothing.
+Archiving stays a row action and `session.archive` stays in the protocol, but the action is offered
+on exactly one kind of row: a session the device is driving — `control: "remote"`, whoever created
+it — that is not archived. Archiving it stops it, and the row moves to the Archive by the rule
+above. A row a terminal holds (`terminal` or `shared`) offers no archive at all: the terminal owns
+it, and it leaves Active by itself the moment the terminal exits. A row already in the Archive
+offers nothing either, not even "unarchive" — writing to it, or a terminal coming back to it, is what
+brings it back (A15). There is no global "show archived" switch: it only ever toggled the
+hand-archived rows, which were already folded inside the collapsed Archive, so it read as a control
+that did nothing.
 
 **Agents are visible and filterable.** Every row carries a tinted agent chip on its meta line,
 "Claude Code" or "Codex", falling back to the raw agent id. The Sessions page adds an agent filter —
@@ -126,6 +132,22 @@ The rendering rules follow the block model in `docs/ARCHITECTURE.md`. What matte
 
 Nothing about this is agent-specific. A tool row for Codex and a tool row for Claude are the same
 row.
+
+**Two levels of detail, and Simple is the default.** Most of what an agent does is not addressed to
+the person reading, and a phone screen of `Read`, `Bash`, `Edit` rows buries the sentence that is.
+The timeline therefore has a detail level, set in Settings and kept per app, never on the wire:
+
+- **Simple** shows only what is written to the person: their own messages, the agent's prose, the
+  approval and question cards (they need an answer), notices and errors, and the end-of-turn line
+  when a turn stopped or failed. Thinking, every tool call, and the todos chip are not drawn at all —
+  not collapsed, not summarised, not counted. The status line and the status dot are what say the
+  agent is busy.
+- **Detailed** is the timeline described above, everything included.
+
+The switch takes effect on the open timeline at once, in both directions, without reloading
+history. The jump-to-latest count counts rows the current level draws, so a burst of tool calls
+does not read as "12 updates" to someone who has chosen not to see them. Approvals are never
+hidden by either level.
 
 ## The composer
 
@@ -229,10 +251,11 @@ up to eight lines, then scrolls inside; the `+`, mic and Send controls sit on th
 
 Nothing moves under your eyes. The timeline auto-follows the newest content only while you are at
 the bottom, and "at the bottom" is read from the real scroll position, never guessed from a
-gesture. As soon as you scroll away a jump-to-latest control appears (a round down-arrow button
-above the composer on the phone, the "Back to latest" pill on the web), and new content is counted
-on it — in blocks, not streaming deltas, so a long answer is one update rather than two hundred.
-Tapping it returns to the tail and resumes following. Loading an earlier page prepends above the
+gesture. As soon as you scroll away a jump-to-latest control appears — the same round down-arrow
+button in the corner above the composer on the phone and on the web, there whether or not anything
+new has arrived, because paging up through history needs a way back down too — and new content is
+counted on it, in blocks, not streaming deltas, so a long answer is one update rather than two
+hundred. Tapping it returns to the tail and resumes following. Loading an earlier page prepends above the
 current anchor. Content appended below never drags the viewport. On the phone, a tap anywhere
 outside a text field puts the keyboard away without stealing the tap from a control.
 

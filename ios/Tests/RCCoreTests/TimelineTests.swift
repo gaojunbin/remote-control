@@ -99,4 +99,77 @@ struct TimelineTests {
         #expect(timeline.roots.count == 1)
         #expect(timeline.children(of: "task").count == 1)
     }
+
+    // MARK: - Two levels of detail
+
+    /// A transcript with one of everything the two levels disagree about.
+    private func mixedTimeline() throws -> Timeline {
+        let options: JSONValue = [["id": "allow", "label": "Allow", "style": "primary"],
+                                  ["id": "deny", "label": "Deny", "style": "danger"]]
+        var timeline = Timeline()
+        timeline.apply(try event(1, "turn_started", ["turn_id": "t", "trigger": "remote"]))
+        timeline.apply(try event(2, "user_message", ["block_id": "u", "text": "fix the flake"]))
+        timeline.apply(try event(3, "thinking", ["block_id": "th", "text": "a shared clock", "done": true]))
+        timeline.apply(try event(4, "assistant_text", ["block_id": "a", "text": "Reproducing.", "done": true]))
+        timeline.apply(try event(5, "tool_call", ["block_id": "task", "tool": "Task", "tool_kind": "subagent",
+                                                  "title": "Audit", "status": "running"]))
+        timeline.apply(try event(6, "assistant_text", ["block_id": "sub", "parent_block_id": "task",
+                                                       "text": "found it", "done": true]))
+        timeline.apply(try event(7, "approval", ["block_id": "ap", "parent_block_id": "task",
+                                                 "request_id": "r", "tool": "Bash", "tool_kind": "shell",
+                                                 "title": "rm -rf build", "options": options,
+                                                 "status": "pending"]))
+        timeline.apply(try event(8, "todos", ["items": [["id": "1", "text": "a", "status": "pending"]]]))
+        timeline.apply(try event(9, "notice", ["level": "warn", "text": "the model was switched"]))
+        timeline.apply(try event(10, "error", ["message": "the device went away"]))
+        timeline.apply(try event(11, "turn_completed", ["turn_id": "t", "stop_reason": "completed",
+                                                        "duration_ms": 4_000]))
+        timeline.apply(try event(12, "turn_completed", ["turn_id": "t2", "stop_reason": "interrupted",
+                                                        "duration_ms": 900]))
+        return timeline
+    }
+
+    @Test("Detailed is the whole transcript")
+    func detailedDrawsEverything() throws {
+        let timeline = try mixedTimeline()
+        #expect(timeline.roots(at: .detailed).map(\.id) == timeline.roots.map(\.id))
+        #expect(timeline.roots(at: .detailed).map(\.id)
+                == ["seq:1", "u", "th", "a", "task", "seq:9", "seq:10", "seq:11", "seq:12"])
+        #expect(timeline.children(of: "task", at: .detailed).map(\.id) == ["sub", "ap"])
+    }
+
+    @Test("Simple draws only what is written to the reader")
+    func simpleDropsTheAgentsOwnWork() throws {
+        let timeline = try mixedTimeline()
+        let rows = timeline.roots(at: .simple).map(\.id)
+        // The message, the prose, the approval, the notice, the error and the
+        // turn that was stopped. Not thinking, not the tool call, not the
+        // sub-agent's prose under it, not a turn that simply finished.
+        #expect(rows == ["u", "a", "ap", "seq:9", "seq:10", "seq:12"])
+        #expect(timeline.children(of: "task", at: .simple).isEmpty)
+        // Nothing was dropped from the store, so the other level still has it.
+        #expect(timeline.entries.count == 11)
+        #expect(timeline.todos.count == 1)
+    }
+
+    @Test("A message this app has sent is drawn at either level")
+    func pendingRowsSurviveTheFilter() throws {
+        var timeline = try mixedTimeline()
+        timeline.addOptimistic(OptimisticMessage(id: "req-1", text: "and the CI runner"))
+        #expect(timeline.roots(at: .simple).last?.pending?.id == "req-1")
+        #expect(timeline.roots(at: .detailed).last?.pending?.id == "req-1")
+    }
+
+    @MainActor
+    @Test("The level is a preference of this device, and Simple is the default")
+    func detailPreference() {
+        let defaults = UserDefaults(suiteName: "rc-detail-\(UUID().uuidString)")!
+        let settings = SettingsStore(defaults: defaults)
+        #expect(settings.timelineDetail == .simple)
+        settings.timelineDetail = .detailed
+        #expect(SettingsStore(defaults: defaults).timelineDetail == .detailed)
+        #expect(TimelineDetail.allCases.map(\.title) == ["Simple", "Detailed"])
+        #expect(TimelineDetail.footnote == "Simple shows only what is written to you. "
+                + "Detailed adds thinking, tool calls and the task list.")
+    }
 }

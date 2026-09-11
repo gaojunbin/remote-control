@@ -157,6 +157,32 @@ public struct TimelineEntry: Identifiable, Sendable, Equatable {
     /// Rows a sub-agent produced hang under their parent tool call.
     public var isNested: Bool { parentID != nil }
 
+    /// A card that puts a decision to the reader. Neither level hides one, and
+    /// not even an answered one: a row must not disappear as it is answered.
+    public var needsReply: Bool { approval != nil || question != nil }
+
+    /// Whether a detail level draws this row at all.
+    ///
+    /// Simple shows what is written to the reader and nothing else: their own
+    /// messages, the agent's prose, the approval and question cards, notices,
+    /// errors, and the end of a turn that stopped or failed. A turn that simply
+    /// finished ends with the answer itself, so its footer says nothing the
+    /// transcript does not already show. A send this app has not had echoed
+    /// back is always drawn, whatever it is going to become.
+    public func isDrawn(at detail: TimelineDetail) -> Bool {
+        guard isRenderable else { return false }
+        guard detail == .simple else { return true }
+        guard pending == nil else { return true }
+        switch body {
+        case .userMessage, .assistantText, .approval, .question, .notice, .error:
+            return true
+        case .turnCompleted(let payload):
+            return payload.stopReason == .interrupted || payload.stopReason == .error
+        default:
+            return false
+        }
+    }
+
     /// Entries that carry no visible content of their own.
     public var isRenderable: Bool {
         switch body {
@@ -211,23 +237,46 @@ public struct Timeline: Sendable, Equatable {
     /// block's position, so paging cannot skip an event.
     public var oldestSeq: Int? { entries.map(\.eventSeq).min() }
 
-    public var renderable: [TimelineEntry] { entries.filter(\.isRenderable) }
-
     /// Top-level rows, then the sends the device has not confirmed yet. A
     /// pending row carries the `user_message` it is about to become, so the
     /// transcript renders it like any other (amendment A12).
-    public var roots: [TimelineEntry] {
-        var rows = entries.filter { $0.isRenderable && !$0.isNested }
+    public var roots: [TimelineEntry] { roots(at: .detailed) }
+
+    /// The top-level rows one detail level draws.
+    ///
+    /// A nested row belongs to the tool call above it. At Simple that tool call
+    /// is not drawn, so its sub-agent's work goes with it — except a card
+    /// waiting on an answer, which comes up to the top level rather than being
+    /// hidden along with the row that would have held it.
+    public func roots(at detail: TimelineDetail) -> [TimelineEntry] {
+        var rows = entries.filter { entry in
+            guard entry.isDrawn(at: detail) else { return false }
+            guard entry.isNested else { return true }
+            return detail == .simple && entry.needsReply
+        }
         rows.append(contentsOf: optimistic.filter { index[$0.id] == nil }.map(TimelineEntry.init(pending:)))
         return rows
     }
 
     public func children(of blockID: String) -> [TimelineEntry] {
-        (childIndex[blockID] ?? []).compactMap(entry(id:)).filter(\.isRenderable)
+        children(of: blockID, at: .detailed)
+    }
+
+    /// What hangs under one tool call. Simple draws no tool call, so nothing
+    /// hangs under anything there.
+    public func children(of blockID: String, at detail: TimelineDetail) -> [TimelineEntry] {
+        guard detail == .detailed else { return [] }
+        return (childIndex[blockID] ?? []).compactMap(entry(id:)).filter(\.isRenderable)
     }
 
     public func entry(id: String) -> TimelineEntry? {
         index[id].map { entries[$0] }
+    }
+
+    /// The row an event landed in, for a caller that holds the event rather
+    /// than the id it was keyed under.
+    public func entry(for event: SessionEvent) -> TimelineEntry? {
+        entry(id: Self.key(for: event))
     }
 
     /// The newest approval or question still waiting on the user.

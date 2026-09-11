@@ -69,6 +69,21 @@ struct SettingsView: View {
             }
 
             Section {
+                Picker("Detail", selection: $settings.timelineDetail) {
+                    ForEach(TimelineDetail.allCases, id: \.self) { level in
+                        Text(level.title).tag(level)
+                    }
+                }
+                .font(Theme.Text.label)
+                .settingsRowLayout()
+                .accessibilityIdentifier("settings.timelineDetail")
+            } header: {
+                FieldLabel("Timeline")
+            } footer: {
+                SettingsFooter(TimelineDetail.footnote)
+            }
+
+            Section {
                 Toggle("Require Face ID", isOn: $settings.appLockEnabled)
                     .font(Theme.Text.label)
                     .settingsRowLayout()

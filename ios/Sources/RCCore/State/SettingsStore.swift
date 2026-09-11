@@ -23,6 +23,36 @@ public enum VoiceBackend: String, Sendable, Codable, CaseIterable {
     }
 }
 
+/// How much of a transcript is drawn. The level is a reading preference: it is
+/// kept on this device, never sent to the gateway or the machine, and the store
+/// holds every block whichever level is chosen.
+public enum TimelineDetail: String, Sendable, Codable, CaseIterable {
+    /// Only what is written to the reader.
+    case simple
+    /// Everything the agent did, including thinking and every tool call.
+    case detailed
+
+    public var title: String {
+        switch self {
+        case .simple: "Simple"
+        case .detailed: "Detailed"
+        }
+    }
+
+    public var explanation: String {
+        switch self {
+        case .simple: "Simple shows only what is written to you."
+        case .detailed: "Detailed adds thinking, tool calls and the task list."
+        }
+    }
+
+    /// The sentence under the control. A choice between two options has to
+    /// describe both, so it is the explanations in the order they are offered.
+    public static var footnote: String {
+        allCases.map(\.explanation).joined(separator: " ")
+    }
+}
+
 /// Preferences that outlive one connection. Everything here is a plain value in
 /// `UserDefaults`; the bearer token lives in the keychain instead.
 @MainActor
@@ -35,6 +65,7 @@ public final class SettingsStore {
         static let appLock = "preference.appLock"
         static let voiceBackend = "preference.voiceBackend"
         static let voiceLanguage = "preference.voiceLanguage"
+        static let timelineDetail = "preference.timelineDetail"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -46,6 +77,11 @@ public final class SettingsStore {
     public var voiceBackend: VoiceBackend { didSet { defaults.set(voiceBackend.rawValue, forKey: Key.voiceBackend) } }
     /// A BCP-47 code, or "auto" to let the gateway decide.
     public var voiceLanguage: String { didSet { defaults.set(voiceLanguage, forKey: Key.voiceLanguage) } }
+    /// How much of a transcript is drawn. Simple is the default: most of what an
+    /// agent does is not addressed to the reader.
+    public var timelineDetail: TimelineDetail {
+        didSet { defaults.set(timelineDetail.rawValue, forKey: Key.timelineDetail) }
+    }
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -55,6 +91,7 @@ public final class SettingsStore {
         appLockEnabled = defaults.bool(forKey: Key.appLock)
         voiceBackend = VoiceBackend(rawValue: defaults.string(forKey: Key.voiceBackend) ?? "") ?? .onDevice
         voiceLanguage = defaults.string(forKey: Key.voiceLanguage) ?? "auto"
+        timelineDetail = TimelineDetail(rawValue: defaults.string(forKey: Key.timelineDetail) ?? "") ?? .simple
     }
 
     /// The locale handed to `SFSpeechRecognizer`, resolved from the preference.
@@ -98,6 +135,7 @@ public final class SettingsStore {
         Sessions known: \(sessionCount)
         Gateway transcription: \(sttEnabled ? "available" : "unavailable")
         Voice backend: \(voiceBackend.rawValue)
+        Timeline detail: \(timelineDetail.rawValue)
         Notifications: \(notificationsEnabled ? "on" : "off")
         App lock: \(appLockEnabled ? "on" : "off")
 

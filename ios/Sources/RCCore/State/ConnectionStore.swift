@@ -337,8 +337,10 @@ public final class ConnectionStore {
         }
     }
 
-    /// Archive or unarchive from the session list. The reply updates the list,
-    /// and a failure surfaces instead of disappearing into a `try?`.
+    /// Archive a session from the list, which stops it on the device. The reply
+    /// updates the list, and a failure surfaces instead of disappearing into a
+    /// `try?`. The flag is cleared by the device when the session comes back to
+    /// life (A15), never by a control in the app.
     public func setArchived(_ archived: Bool, session: Session) async {
         guard let channel else { return }
         do {

@@ -2179,7 +2179,8 @@ Normative for the device and invisible to apps.
 }
 ```
 
-`session.archive` records the user's choice. The device clears `archived` on its own the moment
+`session.archive` with `archived: true` records the user's choice and stops the session when the
+device is driving it, so the row goes to `control: "none"` in the same publish. The device clears `archived` on its own the moment
 the session comes back to life — a turn starts in it, from an app or from a terminal, or a terminal
 attaches to it again — and publishes the session with `archived: false` (amendment A15). An
 archived session therefore never runs, and apps need no rule of their own for it: the row moves

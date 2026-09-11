@@ -467,6 +467,42 @@ Not verified in this pass: the move on screen in the simulator, and the same mov
 device that resumes an archived session. The demo carries the script for the first; nothing here
 exercised a real client.
 
+### Two levels of detail, and one kind of row that can be archived (round 10)
+
+The timeline now has a detail level, the rule in `docs/DESIGN.md` § "The timeline". `TimelineDetail`
+lives beside the other preferences in `SettingsStore` (key `preference.timelineDetail`, default
+`.simple`), never on the wire, and Settings gained a **Timeline** group with a **Detail** picker
+(`settings.timelineDetail`). The filter is pure: `Timeline.roots(at:)` and `children(of:at:)` drop
+thinking, every tool call and everything nested under one, along with a turn that simply finished,
+while a card waiting on an answer comes up to the top level rather than going with the tool row that
+would have held it. `ChatStore` reads the level through `detailSource` rather than keeping a copy, so
+the open transcript and its jump-to-latest count follow the preference without a reload, and
+`showsTodos` hides the header chip at Simple. `RCVerify` covers the filter over a transcript with one
+of everything, a tool-call burst counting nothing at Simple and one per block at Detailed, and the
+persisted default; `RCUIVerify` drives the real demo conversation, switching the preference under an
+open chat and back; five tests in `TimelineTests` and `ScrollTailTests` pin the same rules.
+
+The same round moved the Archive action to one kind of row, the rule in `docs/DESIGN.md` § "Session
+lists". `SessionListLayout.offersArchive` is `control == .remote && !archived`, and the swipe action
+in `SessionsView` is built only under it: a row a terminal holds offers nothing, a row in the Archive
+offers nothing, and the Unarchive label is gone, so nothing in the app clears the flag that A15 has
+the device clear. `SessionGroupingTests` covers the three cases directly and `RCVerify` asserts them
+over the whole demo list. Changed files:
+`ios/Sources/RCCore/State/{SettingsStore,Timeline,ChatStore,SessionGrouping,ConnectionStore}.swift`,
+`ios/Sources/RCUI/Screens/{AppModel,ChatView,ChatRows,SettingsView,SessionsView}.swift`,
+`ios/Verification/StoreChecks.swift`, `ios/VerificationUI/main.swift`, and three test files.
+
+```
+cd ios && export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+swift run RCVerify && swift run RCUIVerify && swift test
+→ RCVerify 950 checks, RCUIVerify 125 checks, 158 tests in 15 suites passed
+```
+
+Not verified in this pass: nothing ran in a simulator or on a device, so the picker was not tapped,
+the redraw was not watched on screen, no row was swiped to see which action appears, and no VoiceOver
+pass was made over a Simple transcript. Every result above is the SwiftUI-free harness driving the
+same stores and pure rules the screens read.
+
 ## 3. Attached terminal sessions (A10) in the apps
 
 Amendment A10 landed after the run above. This section records what each app does with

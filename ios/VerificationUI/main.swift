@@ -45,6 +45,35 @@ func run() async -> (passed: Int, failures: [String]) {
         expect((model.chat?.timeline.roots.count ?? 0) > 3, "the transcript has renderable rows")
         expect(model.chat?.timeline.todos.count == 4, "the todos snapshot is present")
 
+        // MARK: - Two levels of detail, Simple by default
+        //
+        // The level is read from Settings on every draw, so the open transcript
+        // changes with it and nothing has to be reloaded.
+        if let chat = model.chat {
+            equal(model.settings.timelineDetail, .simple, "a transcript opens at Simple")
+            equal(chat.detail, .simple, "and the open conversation is drawn at that level")
+            expect(!chat.rows.isEmpty, "Simple still draws the conversation")
+            expect(chat.rows.allSatisfy { $0.toolCall == nil && $0.thinking == nil },
+                   "with no tool call and no thinking among its rows")
+            expect(chat.rows.contains { $0.userMessage != nil }, "the reader's own message is there")
+            expect(chat.rows.contains { $0.assistantText != nil }, "and so is the agent's prose")
+            expect(!chat.showsTodos, "and the header carries no todo chip")
+
+            // Nothing is fetched: the same transcript is filtered, both ways.
+            let held = chat.timeline.entries.count
+            model.settings.timelineDetail = .detailed
+            equal(chat.detail, .detailed, "changing the preference reaches the open conversation")
+            expect(chat.rows.contains { $0.toolCall != nil }, "Detailed draws the tool calls")
+            expect(chat.rows.contains { $0.thinking != nil }, "and the thinking")
+            expect(chat.showsTodos, "and the todo chip is back")
+            expect(chat.timeline.entries.count >= held,
+                   "with no reload: the store held every block all along")
+
+            model.settings.timelineDetail = .simple
+            expect(chat.rows.allSatisfy { $0.toolCall == nil && $0.thinking == nil },
+                   "and switching back hides them again, without touching the store")
+        }
+
         // A draft survives closing and reopening the same conversation.
         model.chat?.draft = "half a thought"
         await model.closeChat()

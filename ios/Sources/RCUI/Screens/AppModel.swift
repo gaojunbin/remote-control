@@ -104,6 +104,9 @@ public final class AppModel {
         guard let channel = connection.channel else { return }
         let store = ChatStore(session: session, channel: channel)
         store.agent = agent(for: session)
+        // The preference stays in one place. The transcript reads it, so
+        // changing it in Settings redraws an open conversation at once.
+        store.detailSource = { [settings] in settings.timelineDetail }
         store.draft = await drafts.draft(account: connection.account, key: session.id)
         chat = store
         connection.addFrameHandler("chat") { [weak store] frame in store?.receive(frame) }

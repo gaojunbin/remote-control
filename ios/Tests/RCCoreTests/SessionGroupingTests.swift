@@ -49,6 +49,18 @@ struct SessionGroupingTests {
         #expect(SessionListLayout.isArchived(session("s", control: .none)))
     }
 
+    @Test("Archiving is offered on a row the device drives, and on no other")
+    func archiveIsOfferedOnOneKindOfRow() {
+        #expect(SessionListLayout.offersArchive(session("driven", control: .remote)))
+        // The terminal owns these; the row leaves Active when the CLI exits.
+        for control in [SessionControl.terminal, .shared, .none] {
+            #expect(!SessionListLayout.offersArchive(session("held", control: control)))
+        }
+        // Nothing in the Archive offers anything: writing to it brings it back.
+        #expect(!SessionListLayout.offersArchive(session("filed", control: .remote, archived: true)))
+        #expect(!SessionListLayout.offersArchive(session("filed", control: .terminal, archived: true)))
+    }
+
     @Test("A machine with live work leads, then the rest by their last activity")
     func groupOrder() {
         let sessions = [

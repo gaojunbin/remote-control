@@ -53,7 +53,8 @@ struct ChatView: View {
     private func content(_ chat: ChatStore) -> some View {
         VStack(spacing: 0) {
             SubtitleBar(session: chat.session, device: model.device(for: chat.session),
-                        elapsed: elapsed, todos: chat.timeline.todos, showsTodos: $showsTodos)
+                        elapsed: elapsed, todos: chat.timeline.todos,
+                        drawsTodos: chat.showsTodos, showsTodos: $showsTodos)
             if let pending = chat.unconfirmedSend {
                 NoticeBanner(text: "Delivery unconfirmed. Nothing was resent automatically.",
                              tint: Theme.attention,
@@ -101,6 +102,8 @@ private struct SubtitleBar: View {
     let device: Device?
     let elapsed: String
     let todos: [TodoItem]
+    /// The Simple level leaves the checklist out altogether.
+    let drawsTodos: Bool
     @Binding var showsTodos: Bool
 
     var body: some View {
@@ -129,9 +132,9 @@ private struct SubtitleBar: View {
             }
             .accessibilityElement(children: .combine)
 
-            if session.todos != nil || session.usage != nil {
+            if (drawsTodos && session.todos != nil) || session.usage != nil {
                 HStack(spacing: Theme.Space.tight) {
-                    if let counts = session.todos, counts.total > 0 {
+                    if drawsTodos, let counts = session.todos, counts.total > 0 {
                         Button { showsTodos = true } label: {
                             Label("Todos \(counts.done)/\(counts.total)", systemImage: "checklist")
                                 .font(.caption)
@@ -184,7 +187,7 @@ private struct Transcript: View {
                 LazyVStack(alignment: .leading, spacing: Theme.Space.medium) {
                     if chat.timeline.hasMoreHistory {
                         Button {
-                            anchor = chat.timeline.renderable.first?.id
+                            anchor = chat.rows.first?.id
                             Task {
                                 await chat.loadHistory()
                                 if let anchor { proxy.scrollTo(anchor, anchor: .top) }
@@ -205,7 +208,7 @@ private struct Transcript: View {
                         .foregroundStyle(Theme.inkSecondary)
                         .accessibilityIdentifier("chat.loadOlder")
                     }
-                    ForEach(chat.timeline.roots) { entry in
+                    ForEach(chat.rows) { entry in
                         TimelineRow(entry: entry, chat: chat)
                             .id(entry.id)
                     }

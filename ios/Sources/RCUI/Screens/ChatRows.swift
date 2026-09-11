@@ -204,7 +204,7 @@ private struct ToolCallRow: View {
     var nested = false
 
     private var expanded: Bool { chat.isExpanded(entry.id) }
-    private var children: [TimelineEntry] { chat.timeline.children(of: entry.id) }
+    private var children: [TimelineEntry] { chat.timeline.children(of: entry.id, at: chat.detail) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.tight) {

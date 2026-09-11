@@ -130,14 +130,19 @@ struct SessionsView: View {
         .buttonStyle(.plain)
         .sessionRowLayout()
         .accessibilityIdentifier("session.\(session.sessionID)")
+        // Only a session this device is driving can be archived from here.
+        // A terminal's row leaves Active when the terminal exits, and an
+        // archived row comes back by being written to.
         .swipeActions(edge: .trailing) {
-            Button {
-                Task { await model.connection.setArchived(!session.archived, session: session) }
-            } label: {
-                Label(session.archived ? "Unarchive" : "Archive",
-                      systemImage: session.archived ? "tray.and.arrow.up" : "archivebox")
+            if SessionListLayout.offersArchive(session) {
+                Button {
+                    Task { await model.connection.setArchived(true, session: session) }
+                } label: {
+                    Label("Archive", systemImage: "archivebox")
+                }
+                .tint(Theme.inkSecondary)
+                .accessibilityIdentifier("session.archive.\(session.sessionID)")
             }
-            .tint(Theme.inkSecondary)
         }
     }
 

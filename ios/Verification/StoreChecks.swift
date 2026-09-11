@@ -21,7 +21,108 @@ enum StoreChecks {
         await sendability(checks)
         await optimisticSend(checks)
         await readingPosition(checks)
+        timelineDetail(checks)
         return checks.result()
+    }
+
+    /// The two levels of detail in `docs/DESIGN.md`. Simple draws only what is
+    /// written to the reader; nothing about the level reaches the wire, and the
+    /// store keeps every block either way, so the switch is a filter and not a
+    /// reload.
+    @MainActor
+    private static func timelineDetail(_ checks: CheckRunner) {
+        let base: Int64 = 1_788_944_400_000
+        var seq = 0
+        func next() -> Int { seq += 1; return seq }
+        func event(_ kind: String, _ blockID: String?, parent: String? = nil,
+                   _ body: SessionEventBody) -> SessionEvent {
+            let number = next()
+            return SessionEvent(seq: number, ts: base + Int64(number), kind: kind,
+                                blockID: blockID, parentBlockID: parent, body: body)
+        }
+        let options = [ApprovalOption(id: "allow", label: "Allow", style: .primary),
+                       ApprovalOption(id: "deny", label: "Deny", style: .danger)]
+
+        var timeline = Timeline()
+        timeline.apply(event(SessionEvent.turnStartedKind, nil,
+                             .turnStarted(TurnStartedPayload(turnID: "t1", trigger: .remote))))
+        timeline.apply(event(SessionEvent.userMessageKind, "u-1",
+                             .userMessage(UserMessagePayload(text: "fix the flake"))))
+        timeline.apply(event(SessionEvent.thinkingKind, "think-1",
+                             .thinking(StreamTextPayload(text: "a shared clock", done: true))))
+        timeline.apply(event(SessionEvent.assistantTextKind, "a-1",
+                             .assistantText(StreamTextPayload(text: "Reproducing first.", done: true))))
+        timeline.apply(event(SessionEvent.toolCallKind, "task-1",
+                             .toolCall(ToolCallPayload(tool: "Task", kind: .subagent,
+                                                       title: "Audit", status: .running))))
+        timeline.apply(event(SessionEvent.assistantTextKind, "sub-1", parent: "task-1",
+                             .assistantText(StreamTextPayload(text: "found it", done: true))))
+        timeline.apply(event(SessionEvent.approvalKind, "ap-1", parent: "task-1",
+                             .approval(ApprovalPayload(requestID: "r-1", tool: "Bash", kind: .shell,
+                                                       title: "rm -rf build", options: options))))
+        timeline.apply(event(SessionEvent.todosKind, nil,
+                             .todos(TodosPayload(items: [TodoItem(id: "1", text: "reproduce",
+                                                                  status: .completed)]))))
+        timeline.apply(event(SessionEvent.noticeKind, nil,
+                             .notice(NoticePayload(level: .warn, text: "the model was switched"))))
+        timeline.apply(event(SessionEvent.errorKind, nil,
+                             .error(ErrorPayload(message: "the device went away"))))
+        timeline.apply(event(SessionEvent.turnCompletedKind, nil,
+                             .turnCompleted(TurnCompletedPayload(turnID: "t1", stopReason: .completed,
+                                                                 durationMS: 4_000))))
+        timeline.apply(event(SessionEvent.turnCompletedKind, nil,
+                             .turnCompleted(TurnCompletedPayload(turnID: "t2", stopReason: .interrupted,
+                                                                 durationMS: 900))))
+
+        let detailed = timeline.roots(at: .detailed).map(\.id)
+        checks.equal(detailed, ["seq:1", "u-1", "think-1", "a-1", "task-1", "seq:9", "seq:10",
+                                "seq:11", "seq:12"],
+                     "Detailed is the timeline as it was, with the sub-agent's rows under their tool call")
+        checks.equal(timeline.children(of: "task-1", at: .detailed).map(\.id), ["sub-1", "ap-1"],
+                     "and the tool call keeps its children")
+
+        let simple = timeline.roots(at: .simple).map(\.id)
+        checks.equal(simple, ["u-1", "a-1", "ap-1", "seq:9", "seq:10", "seq:12"],
+                     "Simple keeps the message, the prose, the approval, the notice, the error and the interrupted turn")
+        checks.expect(!simple.contains("think-1"), "thinking is not drawn at Simple")
+        checks.expect(!simple.contains("task-1"), "nor is a tool call")
+        checks.expect(!simple.contains("sub-1"), "nor what a sub-agent wrote under it")
+        checks.expect(simple.contains("ap-1"),
+                      "but an approval comes up to the top level rather than going with the tool row")
+        checks.expect(!simple.contains("seq:11"), "a turn that simply finished says nothing more at Simple")
+        checks.equal(timeline.children(of: "task-1", at: .simple).count, 0,
+                     "nothing hangs under a tool call that is not drawn")
+        checks.equal(timeline.entries.count, 11,
+                     "and the store still holds every block, so switching back shows what was there")
+        checks.equal(timeline.todos.count, 1, "including the todo snapshot the header chip is hidden from")
+
+        // The jump-to-latest count is the rows the level draws. A burst of tool
+        // calls is nothing at all to a reader who has chosen not to see them.
+        let session = Session(sessionID: "detail", deviceID: "d", agent: "claude", title: "T",
+                              cwd: "/tmp", state: .running)
+        let preference = SettingsStore(defaults: UserDefaults(suiteName: "rc-verify-\(UUID().uuidString)")!)
+        let chat = ChatStore(session: session, channel: ScriptedChannel())
+        chat.detailSource = { preference.timelineDetail }
+        func burst(from first: Int) {
+            for offset in 0..<3 {
+                let number = first + offset
+                chat.receive(.sessionEvent(sessionID: "detail", deviceID: "d",
+                                           event: SessionEvent(seq: number, ts: base + Int64(number),
+                                                               kind: SessionEvent.toolCallKind,
+                                                               blockID: "tool-\(number)",
+                                                               body: .toolCall(ToolCallPayload(
+                                                                tool: "Read", kind: .read,
+                                                                title: "one file", status: .succeeded)))))
+            }
+        }
+        chat.isFollowingTail = false
+        burst(from: 1)
+        checks.equal(chat.updatesWhileAway, 0, "a burst of tool calls counts as nothing at Simple")
+        preference.timelineDetail = .detailed
+        burst(from: 10)
+        checks.equal(chat.updatesWhileAway, 3, "and as one per block at Detailed")
+        checks.equal(chat.detail, .detailed, "the transcript reads the level rather than holding a copy")
+        checks.expect(!chat.showsTodos, "the todo chip needs a count as well as the level")
     }
 
     /// The status dot, over the whole table in `docs/DESIGN.md`. The tone is a
@@ -524,6 +625,18 @@ enum StoreChecks {
         checks.equal(groups.first?.archive.map(\.sessionID), [DemoFixtures.revivedSessionID],
                      "and the one row it has archived is the session waiting to be resumed")
 
+        // Archiving is offered on one kind of row, over the whole demo list:
+        // a session the device drives that is not already archived.
+        let offered = sessions.filter(SessionListLayout.offersArchive)
+        checks.expect(offered.allSatisfy { $0.control == .remote && !$0.archived },
+                      "the archive action is offered only on a row the device is driving")
+        checks.expect(!offered.isEmpty, "and the demo list has such a row")
+        checks.expect(sessions.filter { $0.control != .remote }.allSatisfy {
+            !SessionListLayout.offersArchive($0)
+        }, "a row a terminal holds, or that nothing holds, offers none")
+        checks.expect(sessions.filter(\.archived).allSatisfy { !SessionListLayout.offersArchive($0) },
+                      "and a row already in the Archive offers nothing either, not even unarchive")
+
         guard let quiet = groups.last else { return checks.expect(false, "the third machine is listed") }
         checks.equal(quiet.active.count, 0, "the machine whose CLI exited holds nothing live")
         checks.equal(quiet.archive.first?.sessionID, DemoFixtures.doneSessionID,
@@ -657,8 +770,17 @@ enum StoreChecks {
         let store = SettingsStore(defaults: defaults)
         checks.equal(store.voiceBackend, .onDevice, "voice defaults to on-device recognition")
         store.remember(origin: "https://rc.example.com", username: "admin")
+        checks.equal(store.timelineDetail, .simple, "the timeline opens at Simple")
+        store.timelineDetail = .detailed
         let reloaded = SettingsStore(defaults: defaults)
         checks.equal(reloaded.lastOrigin, "https://rc.example.com", "the last origin is remembered")
+        checks.equal(reloaded.timelineDetail, .detailed, "and so is the detail level")
+        checks.equal(TimelineDetail.allCases.map(\.title), ["Simple", "Detailed"],
+                     "the control offers two levels, in that order")
+        checks.equal(TimelineDetail.footnote,
+                     "Simple shows only what is written to you. "
+                     + "Detailed adds thinking, tool calls and the task list.",
+                     "under a sentence that describes both")
 
         let report = store.diagnosticReport(appVersion: "0.1.0", platform: "iOS", osVersion: "18.0",
                                             phase: .connected, deviceCount: 2, sessionCount: 4,
