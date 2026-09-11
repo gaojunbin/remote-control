@@ -139,6 +139,98 @@ final class RemoteControlUITests: XCTestCase {
                        "Cancel discards what that dictation added and restores the draft")
     }
 
+    // MARK: - Reading position and the keyboard
+
+    /// A tap that lands anywhere but the message field puts the keyboard away,
+    /// and the draft it was holding survives.
+    func testTappingOutsideTheFieldPutsTheKeyboardAway() {
+        app.launch()
+        openLiveSession()
+
+        let field = promptField()
+        XCTAssertTrue(field.waitForExistence(timeout: 15))
+        field.tap()
+        field.typeText("half a thought")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard is up")
+        attach(name: "25-keyboard-up")
+
+        // A quarter of the way down the transcript is content, not a control.
+        transcript().coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).tap()
+        XCTAssertTrue(waitForNoKeyboard(), "a tap outside the field puts the keyboard away")
+        XCTAssertEqual(promptField().value as? String, "half a thought",
+                       "and the draft it was holding survives")
+        attach(name: "26-keyboard-dismissed")
+    }
+
+    /// A tap on a control still acts on the first tap, keyboard up or not: the
+    /// gesture that dismisses the keyboard cancels no touches.
+    func testToolCardOpensOnTheFirstTapWhileTheKeyboardIsUp() {
+        app.launch()
+        openLiveSession()
+        XCTAssertTrue(promptField().waitForExistence(timeout: 15))
+        XCTAssertTrue(waitForLiveTurn(), "the scripted turn finishes and the transcript settles")
+
+        promptField().tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard is up")
+
+        let card = app.buttons["chat.tool.tool-5"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10), "the last tool call is on screen")
+        card.tap()
+        XCTAssertTrue(text(containing: "100 passed in 52.4s").waitForExistence(timeout: 10),
+                      "one tap opened the card rather than only dismissing the keyboard")
+        attach(name: "29-tool-card-keyboard-up")
+    }
+
+    /// Scrolling away from the foot of the transcript offers the way back down,
+    /// and taking it returns to the newest message.
+    func testJumpToLatestAppearsWhenTheReaderLeavesTheBottom() {
+        app.launch()
+        openLiveSession()
+        XCTAssertTrue(promptField().waitForExistence(timeout: 15))
+        XCTAssertTrue(waitForLiveTurn(), "the scripted turn finishes and the transcript settles")
+
+        let jump = app.buttons["chat.jumpToLatest"]
+        XCTAssertFalse(jump.exists, "a conversation that opens at its newest message offers nothing")
+
+        let view = transcript()
+        view.swipeDown()
+        view.swipeDown()
+        XCTAssertTrue(jump.waitForExistence(timeout: 10), "leaving the bottom offers the way back")
+        XCTAssertEqual(jump.label, "Jump to latest")
+        attach(name: "27-jump-to-latest")
+
+        jump.tap()
+        XCTAssertTrue(jump.waitForNonExistence(timeout: 10),
+                      "tapping it returns to the bottom and takes the button with it")
+        XCTAssertTrue(text(containing: "source of the flake").firstMatch.isHittable,
+                      "and the newest message is what is on screen")
+        attach(name: "28-jump-tapped")
+    }
+
+    private func transcript() -> XCUIElement {
+        let view = app.scrollViews["chat.transcript"]
+        return view.exists ? view : app.scrollViews.firstMatch
+    }
+
+    /// The demo plays one scripted turn on opening the live session. Waiting
+    /// for its last words keeps a scroll assertion off a moving transcript.
+    private func waitForLiveTurn(timeout: TimeInterval = 30) -> Bool {
+        text(containing: "source of the flake").firstMatch.waitForExistence(timeout: timeout)
+    }
+
+    private func text(containing fragment: String) -> XCUIElement {
+        app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", fragment)).firstMatch
+    }
+
+    private func waitForNoKeyboard(timeout: TimeInterval = 10) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if app.keyboards.count == 0 { return true }
+            usleep(200_000)
+        }
+        return app.keyboards.count == 0
+    }
+
     private func openLiveSession() {
         let row = app.buttons["session.demo-session-auth"]
         XCTAssertTrue(row.waitForExistence(timeout: 20), "the live demo session is listed")
@@ -399,3 +491,5 @@ final class RemoteControlUITests: XCTestCase {
         add(screenshot)
     }
 }
+
+

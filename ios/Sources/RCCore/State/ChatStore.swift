@@ -51,6 +51,9 @@ public final class ChatStore {
     public private(set) var updatesWhileAway = 0
     /// What the device did with the most recent accepted message.
     public private(set) var lastAcceptance: SendAcceptance?
+    /// Whether the reader is at the foot of the transcript. The view layer
+    /// sets it from the scroll position and from nothing else, so "follows
+    /// the newest content" and "is at the bottom" are the same thing.
     public var isFollowingTail = true { didSet { if isFollowingTail { updatesWhileAway = 0 } } }
     public var draft = ""
     /// Set by the view layer, which is what knows about the socket and the
@@ -401,6 +404,9 @@ public final class ChatStore {
     }
 
     private func deliver(id: String, text: String, attachments: [OutboundAttachment], mode: SendMode) async {
+        // Sending is a request to watch what happens next, so the
+        // transcript returns to the tail before the message lands.
+        isFollowingTail = true
         let record = PendingSend(id: id, text: text, attachments: attachments,
                                  mode: mode, status: .sending)
         if let index = pendingSends.firstIndex(where: { $0.id == id }) { pendingSends[index] = record }
@@ -410,7 +416,6 @@ public final class ChatStore {
                                                   attachments: attachments, mode: mode)
             let result = try await channel.request(request, as: SendResult.self)
             mark(id: id, status: .accepted(result.accepted))
-            isFollowingTail = true
         } catch let error as TransportError where error == .deliveryUncertain || error == .requestTimedOut {
             mark(id: id, status: .uncertain)
         } catch {

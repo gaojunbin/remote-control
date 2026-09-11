@@ -211,10 +211,13 @@ up to eight lines, then scrolls inside; the `+`, mic and Send controls sit on th
 ## Reading position
 
 Nothing moves under your eyes. The timeline auto-follows the newest content only while you are at
-the bottom. As soon as you scroll away it stops, and new content is counted behind a "Back to
-latest" button — counted in blocks, not streaming deltas, so a long answer is one update rather than
-two hundred. Loading an earlier page prepends above the current anchor. Content appended below never
-drags the viewport.
+the bottom, and "at the bottom" is read from the real scroll position, never guessed from a
+gesture. As soon as you scroll away a jump-to-latest control appears (a round down-arrow button
+above the composer on the phone, the "Back to latest" pill on the web), and new content is counted
+on it — in blocks, not streaming deltas, so a long answer is one update rather than two hundred.
+Tapping it returns to the tail and resumes following. Loading an earlier page prepends above the
+current anchor. Content appended below never drags the viewport. On the phone, a tap anywhere
+outside a text field puts the keyboard away without stealing the tap from a control.
 
 ## Status vocabulary
 

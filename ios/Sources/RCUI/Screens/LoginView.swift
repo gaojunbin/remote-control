@@ -97,6 +97,8 @@ struct LoginView: View {
             .frame(maxWidth: .infinity)
         }
         .pageBackground()
+        .scrollDismissesKeyboard(.interactively)
+        .dismissesKeyboardOnBackgroundTap()
         .onAppear { origin = model.settings.lastOrigin }
     }
 

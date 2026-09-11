@@ -2,7 +2,7 @@ name: RemoteControl
 options:
   bundleIdPrefix: com.junbingao
   deploymentTarget:
-    iOS: '17.0'
+    iOS: '18.0'
   xcodeVersion: '16.0'
 packages:
   RemoteControlIOS:

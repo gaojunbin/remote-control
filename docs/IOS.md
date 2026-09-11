@@ -1,14 +1,14 @@
 # The iPhone app
 
 A native SwiftUI client with the same four screens and the same interaction model as the web app.
-iOS 17 and later, no third-party dependencies. It speaks `protocol/PROTOCOL.md` and talks only to
+iOS 18 and later, no third-party dependencies. It speaks `protocol/PROTOCOL.md` and talks only to
 the gateway.
 
 ## Structure
 
 | Path | What it holds |
 | --- | --- |
-| `Package.swift` | swift-tools-version 6.0, iOS 17+, macOS 14+ |
+| `Package.swift` | swift-tools-version 6.0, iOS 18+, macOS 15+ |
 | `Sources/RCCore/` | Foundation only: protocol types, transport, state, persistence, Markdown, demo data |
 | `Sources/RCUI/` | SwiftUI: design tokens, screens, Markdown rendering, voice, push, security, attachments |
 | `Sources/RCPreview/` | A macOS host that runs the demo, for iterating on a screen without a simulator |
@@ -138,7 +138,7 @@ Tokens first, screens second. Everything visual comes from `Sources/RCUI/Design/
 `softSurface()` is one rounded fill with no border and no shadow; `card()` keeps a hairline border
 for the surfaces that still need an edge, an approval card among them, and no longer carries a
 shadow as well. `ChipButtonStyle` is tinted rather than outlined, so the Todos chip, the composer's
-model and permission chips, "Take over" and "Back to latest" all lost their borders in one place.
+model and permission chips and "Take over" all lost their borders in one place.
 `sessionRowLayout()` and `settingsRowLayout()` hold the row insets, so Sessions and Devices share
 one rhythm and Settings shares another.
 
@@ -243,6 +243,47 @@ started and the daemon shares, running, with Stop in the navigation bar, all thr
 four-option request in the transcript. Changing the effort there goes through `session.set` and is
 applied; the same request on the attached Claude session is still refused. `ci-runner-01` keeps a
 Codex with no daemon running, so the daemon hint has a home too.
+
+## Reading position
+
+The transcript follows the newest content only while the reader is at the foot of it, and
+`ChatStore.isFollowingTail` means exactly that and nothing else. `onScrollGeometryChange` reports
+the scroll view's numbers, `ScrollTail.isAtBottom(contentHeight:containerHeight:offset:threshold:)`
+in `RCCore` turns them into the answer, and 40 pt of slack is what keeps a row settling a couple of
+points short from counting as leaving.
+
+| What happens | What the timeline does |
+| --- | --- |
+| A block arrives while at the bottom | Scrolls to the tail, animated |
+| A block arrives while away | Stays put and counts it in `updatesWhileAway` |
+| The scrollable range changes — rows arrive, the keyboard opens or closes | Never counts as the reader moving: someone at the bottom is pinned there, someone away is left where they are, and a range that shrank until nothing scrolls puts them back at the bottom |
+| A message is sent | `ChatStore.deliver` returns to the tail before the message lands |
+| Earlier messages are paged in | Prepended above the anchor the reader was looking at |
+
+Whenever the reader is not at the bottom, a round white button with a down arrow floats in the
+bottom-trailing corner of the timeline, above the message field: identifier `chat.jumpToLatest`,
+label "Jump to latest". It fades in and out over 0.18 s, carries the count from
+`ScrollTail.badge(updates:)` when something arrived while they were away ("3", and "99+" past a
+hundred), and tapping it scrolls to the tail and resumes following. It is the one control on this
+screen with a shadow rather than an edge, because it floats over the transcript.
+
+Geometry a scroll this view started is not the reader either: `scrollToTail` arms a 0.45 s window
+in which the animation's own numbers can only confirm that it arrived, so a tall row landing at the
+tail never flashes the button on its way down.
+
+## Dismissing the keyboard
+
+`dismissesKeyboardOnBackgroundTap()` in `Sources/RCUI/Design/KeyboardDismiss.swift` puts a
+`UITapGestureRecognizer` on the screen's own view controller, with `cancelsTouchesInView` off and
+`shouldRecognizeSimultaneouslyWith` on. A tap that does not land in a `UITextField` or `UITextView`
+calls `endEditing(true)`; everything else is untouched, so a button, a menu, a tool-card disclosure
+or an approval option still acts on the first tap and puts the keyboard away at the same time. A
+transparent overlay would have had to guess what to let through and would have cost a second tap on
+whatever it guessed wrong.
+
+The chat screen, the new-session sheet and the login screen carry it. The chat transcript and the
+login screen also keep `.scrollDismissesKeyboard(.interactively)`, so dragging the transcript still
+lowers the keyboard with the drag.
 
 ## The composer
 

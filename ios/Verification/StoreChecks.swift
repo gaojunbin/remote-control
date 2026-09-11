@@ -17,7 +17,54 @@ enum StoreChecks {
         await gapRepair(checks)
         await warmOpen(checks)
         await sendability(checks)
+        await readingPosition(checks)
         return checks.result()
+    }
+
+    /// The timeline follows the newest content only while the reader is at the
+    /// foot of it, and counts blocks rather than streaming deltas while they
+    /// are not. Both apps state the same rule in `docs/DESIGN.md`.
+    @MainActor
+    private static func readingPosition(_ checks: CheckRunner) async {
+        checks.expect(ScrollTail.isAtBottom(contentHeight: 2_000, containerHeight: 600, offset: 1_400),
+                      "the foot of the content is the bottom")
+        checks.expect(ScrollTail.isAtBottom(contentHeight: 2_000, containerHeight: 600, offset: 1_365),
+                      "a row that settles a few points short is still the bottom")
+        checks.expect(!ScrollTail.isAtBottom(contentHeight: 2_000, containerHeight: 600, offset: 1_200),
+                      "a screenful up is not the bottom")
+        checks.expect(ScrollTail.isAtBottom(contentHeight: 200, containerHeight: 600, offset: 0),
+                      "a transcript shorter than its container has no bottom to leave")
+        checks.equal(ScrollTail.badge(updates: 0), nil, "nothing missed carries no count")
+        checks.equal(ScrollTail.badge(updates: 3), "3", "three blocks read as three")
+        checks.equal(ScrollTail.badge(updates: 140), "99+", "the count stops at 99")
+
+        let session = Session(sessionID: "reading", deviceID: "d", agent: "claude", title: "T",
+                              cwd: "/tmp", state: .running)
+        let chat = ChatStore(session: session, channel: ScriptedChannel())
+        func arriving(_ seq: Int, blockID: String, delta: Bool = false) -> AppFrame {
+            let payload = delta
+                ? StreamTextPayload(delta: "more", done: false)
+                : StreamTextPayload(text: "a line", done: true)
+            return .sessionEvent(sessionID: "reading", deviceID: "d",
+                                 event: SessionEvent(seq: seq, ts: Int64(1_788_944_400_000 + seq),
+                                                     kind: SessionEvent.assistantTextKind,
+                                                     blockID: blockID, body: .assistantText(payload)))
+        }
+        chat.receive(arriving(1, blockID: "a-1"))
+        checks.equal(chat.updatesWhileAway, 0, "nothing is counted while the reader is at the bottom")
+        chat.isFollowingTail = false
+        chat.receive(arriving(2, blockID: "a-2"))
+        chat.receive(arriving(3, blockID: "a-3"))
+        chat.receive(arriving(4, blockID: "a-3", delta: true))
+        checks.equal(chat.updatesWhileAway, 2,
+                     "blocks are counted while the reader is away, streaming deltas are not")
+        chat.isFollowingTail = true
+        checks.equal(chat.updatesWhileAway, 0, "returning to the bottom clears the count")
+
+        chat.isFollowingTail = false
+        chat.draft = "back to the bottom"
+        await chat.send()
+        checks.expect(chat.isFollowingTail, "sending returns the transcript to the tail")
     }
 
     /// Review finding 1: a reconnect must re-issue `session.subscribe`, or the

@@ -65,6 +65,7 @@ struct NewSessionSheet: View {
             }
         }
         .sheetSize()
+        .dismissesKeyboardOnBackgroundTap()
     }
 
     private var deviceSection: some View {

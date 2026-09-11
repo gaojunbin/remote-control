@@ -32,6 +32,9 @@ struct ChatView: View {
         .inlineNavigationTitle()
         .toolbar { toolbar }
         .hideTabBar()
+        // Reading is the usual reason to touch this screen, so a tap
+        // anywhere off the message field puts the keyboard away.
+        .dismissesKeyboardOnBackgroundTap()
         .task {
             guard model.chat?.key != sessionKey, let session else { return }
             await model.open(session)
@@ -161,11 +164,18 @@ private struct SubtitleBar: View {
     }
 }
 
-/// The scrolling transcript, with tail-following and history paging that keeps
-/// the row the reader was looking at in place.
+/// The scrolling transcript. It follows the newest content only while the
+/// reader is at the foot of it, and offers a way back down whenever they are
+/// not. Paging history keeps the row the reader was looking at in place.
 private struct Transcript: View {
     let chat: ChatStore
     @State private var anchor: String?
+    /// Until when the geometry the scroll view reports belongs to an animation
+    /// this view started rather than to the reader. Without it a long row
+    /// arriving at the tail would flash the jump button on its way down. It is
+    /// a deadline rather than a flag so a scroll that lands a point short can
+    /// never pin the button away for good.
+    @State private var settlesAt = Date.distantPast
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -204,33 +214,112 @@ private struct Transcript: View {
                 .padding(.vertical, Theme.Space.medium)
             }
             .scrollDismissesKeyboard(.interactively)
+            .accessibilityIdentifier("chat.transcript")
+            // A conversation opens at its newest message, cached or streamed.
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .onScrollGeometryChange(for: TailGeometry.self) { geometry in
+                TailGeometry(geometry)
+            } action: { previous, current in
+                // Content that grew, or a container the keyboard shrank, is not
+                // the reader moving. Someone at the foot of the transcript
+                // stays there; someone reading history is left where they are.
+                guard current.maximumOffset == previous.maximumOffset else {
+                    // Someone at the foot of the transcript stays there, and a
+                    // range that shrank until there is nothing left to scroll
+                    // puts a reader who was away back at the bottom.
+                    if chat.isFollowingTail { scrollToTail(proxy) }
+                    else if current.isAtBottom { chat.isFollowingTail = true }
+                    return
+                }
+                // While a scroll this view started is still running, the only
+                // thing its geometry can say is that it arrived.
+                guard settlesAt < Date.now else {
+                    if current.isAtBottom { chat.isFollowingTail = true }
+                    return
+                }
+                chat.isFollowingTail = current.isAtBottom
+            }
             .onChange(of: chat.timeline.lastSeq) { _, _ in
                 guard chat.isFollowingTail else { return }
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(Self.tailID, anchor: .bottom) }
+                scrollToTail(proxy)
             }
-            .overlay(alignment: .bottom) {
-                if !chat.isFollowingTail, chat.updatesWhileAway > 0 {
-                    Button {
-                        chat.isFollowingTail = true
-                        withAnimation { proxy.scrollTo(Self.tailID, anchor: .bottom) }
-                    } label: {
-                        Label("Back to latest · \(chat.updatesWhileAway) update\(chat.updatesWhileAway == 1 ? "" : "s")",
-                              systemImage: "arrow.down")
-                            .font(.footnote)
+            .overlay(alignment: .bottomTrailing) {
+                Group {
+                    if !chat.isFollowingTail {
+                        JumpToLatestButton(chat: chat) { scrollToTail(proxy) }
+                            .transition(.opacity.combined(with: .scale(scale: 0.92)))
                     }
-                    .buttonStyle(ChipButtonStyle())
-                    .padding(.bottom, Theme.Space.small)
-                    .accessibilityIdentifier("chat.backToLatest")
                 }
+                .animation(.easeInOut(duration: 0.18), value: chat.isFollowingTail)
+                .padding(.trailing, Theme.Space.page)
+                .padding(.bottom, Theme.Space.small)
             }
-            .simultaneousGesture(DragGesture().onChanged { value in
-                // Dragging downward means the reader went looking at history.
-                if value.translation.height > 24, chat.isFollowingTail { chat.isFollowingTail = false }
-            })
         }
     }
 
+    private func scrollToTail(_ proxy: ScrollViewProxy) {
+        settlesAt = Date.now.addingTimeInterval(0.45)
+        chat.isFollowingTail = true
+        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(Self.tailID, anchor: .bottom) }
+    }
+
     private static let tailID = "chat.tail"
+}
+
+/// The three numbers the tail rule needs, pulled out of `ScrollGeometry` so the
+/// geometry callback compares values it can equate.
+private struct TailGeometry: Equatable {
+    var contentHeight: Double
+    var containerHeight: Double
+    var offset: Double
+
+    init(_ geometry: ScrollGeometry) {
+        contentHeight = geometry.contentSize.height
+            + geometry.contentInsets.top + geometry.contentInsets.bottom
+        containerHeight = geometry.containerSize.height
+        offset = geometry.contentOffset.y + geometry.contentInsets.top
+    }
+
+    /// How far the content can be scrolled. It changes when rows arrive and
+    /// when the keyboard resizes the container, and at no other time.
+    var maximumOffset: Double { max(0, contentHeight - containerHeight) }
+
+    var isAtBottom: Bool {
+        ScrollTail.isAtBottom(contentHeight: contentHeight,
+                              containerHeight: containerHeight, offset: offset)
+    }
+}
+
+/// The way back down, in the corner of the timeline above the message field.
+/// It is on screen whenever the reader is not at the bottom, and carries what
+/// arrived while they were away.
+private struct JumpToLatestButton: View {
+    let chat: ChatStore
+    let action: () -> Void
+
+    private var badge: String? { ScrollTail.badge(updates: chat.updatesWhileAway) }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Theme.Space.tight) {
+                Image(systemName: "arrow.down").font(.footnote.weight(.semibold))
+                if let badge {
+                    Text(badge).font(.footnote.weight(.medium)).monospacedDigit()
+                }
+            }
+            .foregroundStyle(Theme.ink)
+            .padding(.horizontal, badge == nil ? 0 : Theme.Space.small)
+            .frame(minWidth: Theme.Touch.minimum, minHeight: Theme.Touch.minimum)
+            .background(Theme.surface, in: Capsule())
+            // A floating control has to lift off the transcript, and the design
+            // spends that budget on a soft shadow rather than on an edge.
+            .shadow(color: Theme.ink.opacity(0.12), radius: 6, y: 2)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Jump to latest")
+        .accessibilityValue(ScrollTail.spokenBadge(updates: chat.updatesWhileAway) ?? "")
+        .accessibilityIdentifier("chat.jumpToLatest")
+    }
 }
 
 /// "Claude Code is working · your message will be queued" and its siblings.
