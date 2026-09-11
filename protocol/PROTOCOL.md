@@ -2169,6 +2169,12 @@ Normative for the device and invisible to apps.
 }
 ```
 
+`session.archive` records the user's choice. The device clears `archived` on its own the moment
+the session comes back to life — a turn starts in it, from an app or from a terminal, or a terminal
+attaches to it again — and publishes the session with `archived: false` (amendment A15). An
+archived session therefore never runs, and apps need no rule of their own for it: the row moves
+out of the Archive when the device's `session.updated` arrives.
+
 `fixtures/app/session.archive.json`
 
 ```json
@@ -2895,3 +2901,9 @@ mid-turn. The device now emits the `user_message` for an `accepted: "steered"` s
 agent reports having taken it (the daemon's `userMessage` item), so `first_seq` lands after the
 output that preceded it, and falls back to the end of the turn when the message was never taken.
 Apps keep the optimistic row from A12 at the bottom in the meantime. See 5.2 and 9.
+
+**2026-09-11 A15 — a session that comes back to life leaves the Archive.** An archived session that
+was resumed from a terminal, or written to from an app, ran on with `archived: true` and stayed
+folded in the Archive while it worked. The device now clears `archived` whenever a turn starts in
+the session or a terminal attaches to it, and publishes the change, so the row returns to the
+device's Active list by the ordinary layout rule. See 6.3.

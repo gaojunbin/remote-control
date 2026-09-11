@@ -14,6 +14,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// is a round trip away and the app is meant to look the same either way,
     /// so the demo keeps that moment rather than hiding it (amendment A12).
     private let echoDelay: Duration
+    /// Amendment A15: when the archived demo session is resumed, or nil to
+    /// leave it in the Archive for the whole run.
+    private let resumeDelay: Duration?
     private var devices = DemoFixtures.devices
     private var sessionList = DemoFixtures.sessions
     private var transcripts: [String: [SessionEvent]] = [:]
@@ -29,14 +32,23 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// Amendment A14: the step at which the agent reads a message steered into
     /// a running turn, which is when the block for it is emitted.
     private var steering: Task<Void, Never>?
+    /// Amendment A15: the moment the archived demo session is resumed from its
+    /// terminal, which is when the device clears `archived` and publishes it.
+    private var reviving: Task<Void, Never>?
 
     /// The default is what a quick local device feels like. A UI test asks for
     /// a longer one so the state a real send passes through can be looked at
     /// rather than raced.
     public static let defaultEchoDelay = Duration.milliseconds(400)
+    /// Amendment A15: how long the archived session sits in the Archive before
+    /// its terminal resumes it. A UI test asks for none, so the list it
+    /// measures holds still.
+    public static let defaultResumeDelay = Duration.seconds(5)
 
-    public init(echoDelay: Duration = DemoGateway.defaultEchoDelay) {
+    public init(echoDelay: Duration = DemoGateway.defaultEchoDelay,
+                resumeDelay: Duration? = DemoGateway.defaultResumeDelay) {
         self.echoDelay = echoDelay
+        self.resumeDelay = resumeDelay
         endpoint = (try? GatewayEndpoint("https://demo.remote-control.invalid"))
             ?? GatewayEndpoint.placeholder
         let stream = AsyncStream<GatewayEvent>.makeStream(bufferingPolicy: .bufferingOldest(512))
@@ -62,12 +74,15 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
                                serverTime: DemoFixtures.now)
         continuation.yield(.state(.connected))
         continuation.yield(.frame(.hello(hello)))
+        reviving?.cancel()
+        reviving = Task { [weak self] in await self?.resumeArchivedSession() }
     }
 
     public func disconnect() async {
         scripted?.cancel(); scripted = nil
         pairing?.cancel(); pairing = nil
         injecting?.cancel(); injecting = nil
+        reviving?.cancel(); reviving = nil
         continuation.yield(.state(.disconnected))
     }
 
@@ -458,6 +473,24 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     }
 
     // MARK: - Scripts
+
+    /// Amendment A15: a terminal attaches to the session the reader left in the
+    /// Archive. The device clears `archived`, reports the terminal as its owner
+    /// and publishes the session, all in one `session.updated`. The row leaves
+    /// the Archive for the live rows without a reload and without a turn: the
+    /// transcript it already carries is a finished one, and the demo shows the
+    /// attach rather than inventing output nobody asked for.
+    private func resumeArchivedSession() async {
+        guard let resumeDelay else { return }
+        try? await Task.sleep(for: resumeDelay)
+        guard !Task.isCancelled else { return }
+        update(sessionID: DemoFixtures.revivedSessionID) { session in
+            session.archived = false
+            session.origin = .terminal
+            session.control = .terminal
+            session.state = .idle
+        }
+    }
 
     /// The live session keeps producing output, so the demo shows a real turn.
     private func startLiveScript(sessionID: String) {

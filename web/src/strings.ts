@@ -3,7 +3,7 @@
  * can be localised later without touching components.
  */
 export const strings = {
-  productName: 'remote-control',
+  productName: 'Remote Control',
 
   nav: {
     devices: 'Devices',
@@ -38,7 +38,7 @@ export const strings = {
   },
 
   login: {
-    title: 'remote-control',
+    title: 'Remote Control',
     subtitle: 'Sign in to reach your devices.',
     password: 'Gateway password',
     passwordPlaceholder: 'Password',
@@ -178,7 +178,7 @@ export const strings = {
     steering: 'the agent will read it at its next step',
     deliveryPending: 'waiting for the terminal',
     deliveryAbsorbed: 'will be re-sent',
-    attachHintChannel: 'Start claude through the remote-control shim to control it from here',
+    attachHintChannel: 'Start claude through the Remote Control shim to control it from here',
     attachHintDaemon: 'Start the Codex app-server daemon on this device to control it from here',
     attachHintRestart:
       'This terminal session was started without the attachment; restart it to control it from here',
@@ -231,9 +231,7 @@ export const strings = {
     textTooLong: 'Message is too long (64 KiB limit).',
     deliveryUnconfirmed: 'Delivery unconfirmed',
     deliveryUnconfirmedBody: 'The gateway did not confirm your last message.',
-    talkHint: 'hold ⌥ space to talk',
     micStart: 'Start voice input',
-    micStop: 'Stop recording',
     model: 'Model',
     permissionMode: 'Permission mode',
     effort: 'Effort',
@@ -244,16 +242,12 @@ export const strings = {
   voice: {
     transcribing: 'Transcribing live · edit before sending',
     connecting: 'Connecting…',
-    stopAndSend: 'Stop & send',
     cancel: 'Cancel',
-    unavailable: 'Voice input is unavailable',
-    disabled: 'Speech-to-text is not configured on this gateway.',
+    done: 'Done',
+    listeningFor: (elapsed: string) => `Listening for ${elapsed}`,
     denied: 'Microphone permission was denied.',
     unsupported: 'This browser cannot capture audio.',
     failed: 'Transcription failed.',
-    tooLong: 'Reached the 120 second limit.',
-    languageAuto: 'Auto',
-    editHint: 'Edit before sending',
   },
 
   settings: {
@@ -273,7 +267,6 @@ export const strings = {
     pushDisableAction: 'Turn off',
     voice: 'Voice',
     voiceLanguage: 'Default language',
-    pushToTalk: 'Push to talk (hold ⌥ space)',
     voiceServerDisabled: 'Speech-to-text is not configured on this gateway.',
     about: 'About',
     gatewayVersion: 'Gateway version',

@@ -468,6 +468,53 @@ hold two TUIs on two threads — the count is right, but which thread each termi
 is a guess ordered by last use. Nothing in this pass was run against the gateway or the apps; the
 before-and-after evidence is the daemon state above, the device log, and the replays.
 
+### The same shape on the Claude side, 2026-09-12
+
+Starting a bare `claude` in a directory that holds older Claude sessions put those older sessions in
+the apps too. The evidence is the device's own state database
+(`~/.rc-client/state/rc-client.sqlite3`, opened read-only): at 2026-09-12 00:28 three Claude
+sessions with `cwd` `/Users/junbingao` carry `updated_at` values inside the same millisecond — the
+session the terminal had just started, and two finished ones, both archived. The two archived
+records end their stored streams at `seq` 4 and 27 while carrying `last_seq` 18 and 33; the gap is
+`status` and `meta` events, which are not stored, so the gap counts how often those sessions were
+told a terminal had taken them over and then given them back.
+
+The cause is the Claude twin of the Codex bug above. A holder scan asked, once per session, "is
+there a `claude` process for this session", and the only identifying fact it had was the command
+line: a session id after `--resume` or `--session-id`. The shim adds neither — it appends the
+channel flags and nothing else — so a shim-started CLI is anonymous, and the lookup fell through to
+its working directory. Every session that shared that directory matched the same process, flipped to
+`control: "terminal"` with `state: "readonly"`, and flipped back when the terminal exited, each
+transition publishing a `meta`, a `status` and a fresh session summary. A second, smaller churn sat
+underneath it: an archived session read back as `stopped` was moved to `idle` by the first scan that
+found no terminal for it, once per daemon restart.
+
+The fix assigns the whole round at once, so one process can be credited to one session only, and by
+identity rather than by directory: the session id in the command line, then the pid the channel
+bridge registered for an attached session. A shim-started CLI is excluded from the directory
+fallback outright, and the fallback itself now needs one unidentified process and one waiting
+session in that directory. A session whose bridge has just closed is looked up by that exact pid,
+not by its directory. Archived sessions are left at `stopped` while nothing drives them. Covered by
+`client/tests/test_mirroring.py`, including a replay of the three-session shape above driven through
+a real `SessionHub` and `MirrorService`.
+
+Not verified against a live gateway or the apps: the before-and-after evidence is the state database
+above and the replays. Not verified either: how the directory fallback behaves when a user really
+does run two un-shimmed `claude` processes in one directory — it now declines to choose, which
+leaves both sessions `control: "none"` and lets an app resume one of them alongside the terminal.
+
+### A session that comes back to life leaves the Archive (A15)
+
+Client side only in this pass. The device clears `archived` and republishes the session summary on
+five paths, each with a test in `client/tests/test_archive_revive.py` and
+`client/tests/test_codex_daemon_sessions.py`: a `session.send` that starts a turn, a `session.send`
+that only joins the queue, a turn started in a terminal on a shared session, a Claude channel
+attach, and a Codex thread opened by a TUI. `hub.load` still reads an archived session back as
+`stopped`; reviving it moves it to `idle` before whatever the reviving path sets next, so a resumed
+session never reports a dead state. Archiving a running session still closes its runner and drops
+`control` to `none`, and the resume that follows a later send puts it back to `remote`. Not verified
+in this pass: that the apps move the row out of the Archive on the `session.updated` alone.
+
 ## 8. Restart resilience
 
 | Step | Result |

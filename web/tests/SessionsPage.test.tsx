@@ -4,7 +4,7 @@
  * agent filter shared with the chat sidebar.
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { SessionsPage } from '../src/features/sessions/SessionsPage';
@@ -55,6 +55,13 @@ const rowTitles = (): string[] =>
   screen
     .getAllByRole('button', { name: strings.sessions.open })
     .map((row) => row.querySelector('.session-title')?.textContent ?? '');
+
+/** Row titles in a device's Active list, and in its own Archive. */
+const titlesIn = (selector: string): string[] =>
+  [...document.querySelectorAll(`${selector} .session-title`)].map((el) => el.textContent ?? '');
+
+const activeTitles = (): string[] => titlesIn('.session-group > .session-list');
+const archiveTitles = (): string[] => titlesIn('.session-archive-group .session-list');
 
 /** The tone class on one row's status dot, by the row's title. */
 const dotTone = (title: string): string => {
@@ -219,5 +226,30 @@ describe('SessionsPage grouping', () => {
     await userEvent.click(screen.getByRole('button', { name: strings.sessions.archiveGroup(3) }));
 
     expect(dotTone('Rewrite the pairing docs')).toBe('off');
+  });
+
+  /**
+   * A15: the device clears `archived` as a turn starts, and the row has to
+   * leave the Archive on that one `session.updated` alone — no reload, and no
+   * second frame. `upsert` is exactly what the socket handler calls.
+   */
+  it('moves a resumed session from the Archive to the Active rows (A15)', async () => {
+    renderPage();
+    await userEvent.click(screen.getByRole('button', { name: strings.sessions.archiveGroup(3) }));
+
+    expect(archiveTitles()).toContain('Sketch the pairing QR flow');
+    expect(activeTitles()).not.toContain('Sketch the pairing QR flow');
+
+    const revived = useSessions.getState().sessions['dev-mac/ses-archived-mac']!;
+    act(() =>
+      useSessions
+        .getState()
+        .upsert({ ...revived, archived: false, control: 'terminal', state: 'running' }),
+    );
+
+    expect(activeTitles()).toContain('Sketch the pairing QR flow');
+    expect(archiveTitles()).not.toContain('Sketch the pairing QR flow');
+    // Only this device's Archive is open, and it is one row shorter.
+    expect(archiveTitles()).toHaveLength(2);
   });
 });

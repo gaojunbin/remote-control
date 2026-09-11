@@ -19,8 +19,20 @@
   /* lines */
   --line: #e6e5e1;
   --line-strong: #d6d5d0;
-  /* The only divider inside a soft surface: one hairline between two rows. */
+  /* The only divider inside a soft surface: one hairline between a settings
+     group's two rows. List rows are parted by spacing alone. */
   --hairline: rgba(17, 17, 17, 0.08);
+
+  /* A list row under the pointer, and the stronger step the selected row holds. */
+  --hover: rgba(17, 17, 17, 0.04);
+  --hover-selected: rgba(17, 17, 17, 0.07);
+
+  /* Every device and session row is this tall, whichever list it sits in.
+     A narrow screen stacks the row's last line, and a phone stacks the device
+     meta as well, so each stacked form has a height of its own. */
+  --row-h: 64px;
+  --row-h-stacked: 96px;
+  --row-h-stacked-tall: 108px;
 
   /* ink */
   --ink: #111111;

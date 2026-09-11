@@ -7,7 +7,8 @@ import { agentLabel, languageLabel, strings } from '../../strings';
 import { useSettings } from '../../stores/settings';
 import type { SendMode } from '../../protocol/frames';
 import type { AgentInfo, QueuedMessage, Session } from '../../protocol/types';
-import { VoicePanel } from '../voice/VoicePanel';
+import { VoiceControls } from '../voice/VoiceControls';
+import { mergeDraft } from '../voice/draft';
 import { useVoice } from '../voice/useVoice';
 import { attachHint, canAttachShared, canInterruptShared, canSetShared } from './attach';
 import { readAttachments, textTooLong, type AttachmentDraft } from './attachments';
@@ -44,6 +45,19 @@ export function Composer({
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const textRef = useRef('');
+  /**
+   * The draft dictation started from, and the value it last wrote. A transcript
+   * arrives between renders, so the field is read from this ref rather than
+   * from state, and `applied` is how a keystroke that landed in between is told
+   * apart from our own write.
+   */
+  const dictation = useRef<{ base: string; applied: string } | null>(null);
+
+  /** Keeps `textRef` in step within the tick, which `useEffect` cannot. */
+  const setDraft = useCallback((value: string) => {
+    textRef.current = value;
+    setText(value);
+  }, []);
 
   useEffect(() => {
     textRef.current = text;
@@ -51,7 +65,6 @@ export function Composer({
 
   const language = useSettings((s) => s.sttLanguage);
   const setLanguage = useSettings((s) => s.setSttLanguage);
-  const pushToTalk = useSettings((s) => s.pushToTalk);
 
   const terminalControlled = session.control === 'terminal';
   // A10: a shared session is a live CLI the device is attached to. Everything
@@ -90,50 +103,59 @@ export function Composer({
         return;
       }
       const files = attachments;
-      setText('');
+      setDraft('');
       setAttachments([]);
       setErrors([]);
       onSend(value, files, mode).catch((err: unknown) => {
         setErrors([err instanceof Error ? err.message : strings.composer.sendFailed]);
-        setText((current) => (current.length === 0 ? value : current));
+        // A newer draft wins: a refusal only ever refills a field left empty.
+        if (textRef.current.length === 0) setDraft(value);
         setAttachments((current) => (current.length === 0 ? files : current));
       });
     },
-    [text, attachments, disabled, onSend],
+    [text, attachments, disabled, onSend, setDraft],
   );
 
+  /**
+   * Dictation writes into this field and nothing else: no utterance is sent by
+   * the act of stopping the recording, and a failure keeps the words it did
+   * recognise rather than dropping them.
+   */
   const voice = useVoice({
     enabled: sttEnabled && !disabled,
     language,
-    onFinal: (final) => {
-      if (final.trim().length === 0) return;
-      // Merge here and hand the result to submit: the callback stored by
-      // useVoice closes over an older `text`, so it must not read state.
-      const merged = textRef.current ? `${textRef.current} ${final}` : final;
-      setText(merged);
-      submit('auto', merged);
+    onTranscript: (transcript, isFinal) => {
+      const run = dictation.current;
+      if (!run || textRef.current !== run.applied) return;
+      const next = mergeDraft(run.base, transcript);
+      run.applied = next;
+      if (isFinal) dictation.current = null;
+      setDraft(next);
     },
   });
 
-  // Push to talk: hold Option+Space anywhere on the page.
-  useEffect(() => {
-    if (!pushToTalk || !sttEnabled || disabled) return;
-    const down = (e: KeyboardEvent) => {
-      if (e.code !== 'Space' || !e.altKey || e.repeat) return;
-      e.preventDefault();
-      if (voice.state === 'idle') voice.start();
-    };
-    const up = (e: KeyboardEvent) => {
-      if (e.code !== 'Space' && e.key !== 'Alt') return;
-      if (voice.state === 'recording') voice.stopAndSend();
-    };
-    window.addEventListener('keydown', down);
-    window.addEventListener('keyup', up);
-    return () => {
-      window.removeEventListener('keydown', down);
-      window.removeEventListener('keyup', up);
-    };
-  }, [pushToTalk, sttEnabled, disabled, voice]);
+  const voiceBusy =
+    voice.state === 'starting' || voice.state === 'listening' || voice.state === 'finishing';
+
+  const startVoice = () => {
+    dictation.current = { base: textRef.current, applied: textRef.current };
+    voice.start();
+  };
+
+  /** Cancel hands the draft back exactly as it was before the mic was pressed. */
+  const cancelVoice = () => {
+    const run = dictation.current;
+    dictation.current = null;
+    voice.cancel();
+    if (run) setDraft(run.base);
+  };
+
+  /** A keystroke takes the field back: the words so far stay, dictation stops. */
+  const stopDictationForTyping = () => {
+    if (!voiceBusy) return;
+    dictation.current = null;
+    voice.cancel();
+  };
 
   useEffect(() => {
     const el = textarea.current;
@@ -163,24 +185,6 @@ export function Composer({
           ? strings.composer.placeholderSteer
           : strings.composer.placeholderQueued
         : strings.composer.placeholder;
-
-  if (voice.state === 'recording' || voice.state === 'starting' || voice.state === 'finishing') {
-    return (
-      <div className="composer-wrap">
-        <VoicePanel voice={voice} />
-        <ComposerBottomRow
-          agent={agent}
-          session={session}
-          showOptions={showOptions}
-          language={language}
-          sttEnabled={sttEnabled}
-          sttLanguages={sttLanguages}
-          onSetOption={onSetOption}
-          onSetLanguage={setLanguage}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="composer-wrap">
@@ -234,7 +238,7 @@ export function Composer({
       {voice.state === 'error' && voice.error ? (
         <div className="composer-errors voice-error" role="alert">
           <p>{voice.error}</p>
-          <button type="button" className="link-btn" onClick={voice.cancel}>
+          <button type="button" className="link-btn" onClick={voice.dismissError}>
             {strings.common.dismiss}
           </button>
         </div>
@@ -254,7 +258,13 @@ export function Composer({
         </div>
       ) : null}
 
-      <div className={cx('composer', disabled && 'disabled')}>
+      {voiceBusy ? (
+        <p className="voice-status hint">
+          {voice.state === 'starting' ? strings.voice.connecting : strings.voice.transcribing}
+        </p>
+      ) : null}
+
+      <div className={cx('composer', disabled && 'disabled', voiceBusy && 'listening')}>
         <textarea
           ref={textarea}
           className="composer-input"
@@ -265,7 +275,10 @@ export function Composer({
           aria-label={strings.composer.placeholder}
           onCompositionStart={() => (composing.current = true)}
           onCompositionEnd={() => (composing.current = false)}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            stopDictationForTyping();
+            setDraft(e.target.value);
+          }}
           onPaste={(e) => {
             const files = showAttach ? [...e.clipboardData.files] : [];
             if (files.length > 0) {
@@ -279,7 +292,10 @@ export function Composer({
             submit(primaryMode);
           }}
         />
-        <div className="composer-buttons">
+        {voiceBusy ? (
+          <VoiceControls voice={voice} onCancel={cancelVoice} onDone={voice.done} />
+        ) : (
+          <div className="composer-buttons">
           {showAttach ? (
             <>
               <input
@@ -310,7 +326,7 @@ export function Composer({
               className="icon-btn"
               aria-label={strings.composer.micStart}
               disabled={disabled}
-              onClick={voice.start}
+              onClick={startVoice}
             >
               <Mic size={16} />
             </button>
@@ -348,10 +364,11 @@ export function Composer({
             disabled={disabled || (text.trim().length === 0 && attachments.length === 0)}
             onClick={() => submit(primaryMode)}
           >
-            {running ? primaryLabel : <ArrowUp size={15} aria-hidden />}
-            {running ? null : <span className="sr-only">{strings.composer.send}</span>}
-          </button>
-        </div>
+              {running ? primaryLabel : <ArrowUp size={15} aria-hidden />}
+              {running ? null : <span className="sr-only">{strings.composer.send}</span>}
+            </button>
+          </div>
+        )}
       </div>
 
       <ComposerBottomRow
@@ -446,7 +463,6 @@ function ComposerBottomRow({
           label={languageLabel(language)}
         />
       ) : null}
-      <span className="talk-hint mono">{strings.composer.talkHint}</span>
     </div>
   );
 }

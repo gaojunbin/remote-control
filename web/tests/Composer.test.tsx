@@ -68,7 +68,7 @@ const typeAndSend = async (text: string, buttonName: RegExp | string) => {
 };
 
 beforeEach(() => {
-  useSettings.setState({ sttLanguage: 'auto', pushToTalk: false });
+  useSettings.setState({ sttLanguage: 'auto' });
 });
 
 describe('Composer send mode', () => {

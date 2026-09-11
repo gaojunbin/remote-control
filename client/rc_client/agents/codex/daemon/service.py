@@ -311,6 +311,9 @@ class CodexDaemonService:
                 )
             )
             entry.channel.start()
+        if terminal:
+            # Amendment A15: a TUI is sitting in this thread, so it is live again.
+            await entry.channel.revive()
         if summary.name:
             await titles.from_agent(entry.channel, summary.name)
         else:

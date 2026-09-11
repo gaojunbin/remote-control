@@ -13,7 +13,7 @@ from rc_client.agents.codex.daemon import approvals, terminals, threads
 from rc_client.agents.codex.daemon.service import CodexDaemonService, thread_config
 from rc_client.agents.codex.daemon.session import CodexDaemonSession
 from rc_client.errors import RcError
-from rc_client.models import AgentInfo, Choice
+from rc_client.models import AgentInfo, Choice, Session
 from rc_client.procscan import Proc
 from rc_client.registry import Registry
 from rc_client.sessions.hub import SessionHub
@@ -243,6 +243,31 @@ async def test_a_thread_started_elsewhere_becomes_a_shared_session(harness: Harn
     await settle(lambda: "t-new" in harness.hub.entries)
     assert harness.hub.entry("t-new").session.control == "shared"
     assert harness.hub.entry("t-new").session.origin == "terminal"
+
+
+async def test_a_terminal_opening_an_archived_thread_takes_it_out_of_the_archive(
+    harness: Harness,
+) -> None:
+    """Amendment A15: a TUI sitting in a thread is the session coming back to life."""
+    harness.registry.upsert_session(
+        Session(
+            session_id="t-new",
+            device_id="dev-1",
+            agent="codex",
+            cwd="/repo",
+            state="idle",
+            origin="terminal",
+            control="none",
+            archived=True,
+        )
+    )
+    harness.hub.load()
+    assert harness.hub.entry("t-new").session.state == "stopped"
+
+    await started(harness, loaded=[])
+    await harness.daemon.notify("thread/started", {"thread": thread_row("t-new")})
+    await settle(lambda: harness.hub.entry("t-new").session.archived is False)
+    assert harness.hub.entry("t-new").session.state != "stopped"
 
 
 async def test_one_terminal_claims_one_thread_in_its_directory(harness: Harness) -> None:

@@ -93,7 +93,7 @@ self.addEventListener('push', (event) => {
   const device = rc.device_name || 'A device';
   const body = TITLES[rc.kind] || 'needs your attention';
   event.waitUntil(
-    self.registration.showNotification('remote-control', {
+    self.registration.showNotification('Remote Control', {
       body: `${device}: ${body}`,
       icon: '/icon-192.png',
       badge: '/icon-192.png',

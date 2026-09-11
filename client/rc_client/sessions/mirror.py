@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..agents.claude import transcripts
-from ..agents.claude.holders import scan_holders
+from ..agents.claude.holders import SessionRef, scan_holders
 from ..agents.codex import rollouts
 from ..agents.codex.daemon.service import CodexDaemonService
 from ..agents.codex.runtime import resolve_binary as resolve_codex
@@ -276,10 +276,28 @@ class MirrorService:
         return tracked
 
     async def _refresh_claude_control(self) -> None:
+        """Pair every tracked session with the terminal process running it, if any.
+
+        The whole round is assigned at once so one process cannot be handed to
+        several sessions: an attached session claims its own CLI by the pid the
+        bridge registered, which is what keeps the other sessions in the same
+        directory out of it.
+        """
         tracked = self._claude_tracked()
         if not tracked:
             return
         scan = await scan_holders()
+        assigned = scan.assign(
+            [
+                SessionRef(
+                    session_id,
+                    cwd=entry.session.cwd,
+                    pid=entry.holder_pid,
+                    identity=entry.holder_identity,
+                )
+                for session_id, entry, _ in tracked
+            ]
+        )
         for session_id, entry, mirror in tracked:
             running = mirror.tailer.awaiting_reply if mirror is not None else False
             if entry.shared is not None:
@@ -287,7 +305,7 @@ class MirrorService:
                 continue
             if not scan.complete:
                 continue
-            holder = scan.for_session(session_id, entry.session.cwd)
+            holder = assigned.get(session_id)
             if holder is not None:
                 entry.holder_pid = holder.pid
                 entry.holder_identity = holder.identity
@@ -322,7 +340,10 @@ class MirrorService:
         if control == "terminal":
             await entry.channel.set_state("running" if running else "readonly")
         else:
-            await entry.channel.set_state("idle")
+            # An archived session nothing has revived reads back as `stopped`
+            # (`hub.load`), and a scan that finds no terminal has learnt nothing
+            # that would change that.
+            await entry.channel.set_state("stopped" if entry.session.archived else "idle")
         if changed:
             await entry.channel.publish_summary()
 

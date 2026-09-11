@@ -70,7 +70,7 @@ const terminalSession = (overrides: Partial<Session> = {}): Session => ({
 });
 
 beforeEach(() => {
-  useSettings.setState({ sttLanguage: 'auto', pushToTalk: false });
+  useSettings.setState({ sttLanguage: 'auto' });
 });
 
 describe.runIf(fixturesAvailable())('A10 fixtures', () => {
@@ -198,7 +198,7 @@ describe.runIf(fixturesAvailable())('A10 takeover bar on a terminal session', ()
   it('asks for the shim when the device is not ready to attach', () => {
     render(<Composer {...composerProps(terminalSession(), claudeNoShim)} />);
     expect(
-      screen.getByText('Start claude through the remote-control shim to control it from here'),
+      screen.getByText('Start claude through the Remote Control shim to control it from here'),
     ).toBeInTheDocument();
   });
 
@@ -214,7 +214,7 @@ describe.runIf(fixturesAvailable())('A10 takeover bar on a terminal session', ()
   it('picks the hint from the attachment kind and readiness', () => {
     expect(attachHint(null)).toBeNull();
     expect(attachHint(claudeAgent)).toContain('restart it');
-    expect(attachHint(claudeNoShim)).toContain('remote-control shim');
+    expect(attachHint(claudeNoShim)).toContain('Remote Control shim');
     expect(attachHint(codexNoDaemon)).toContain('Codex app-server daemon');
     // No `attach` and no readiness flag mean there is nothing to hint at.
     expect(attachHint({ ...codexAgent, attach: null })).toBeNull();

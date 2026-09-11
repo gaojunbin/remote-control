@@ -181,6 +181,16 @@ is remembered and not repeated until a turn boundary on that thread says somethi
 `session.history` pages backwards with `before_seq` and forwards with `after_seq`; the second form
 is how the gateway backfills events produced while its link to the device was down.
 
+An archived session is one the user folded away, not a different kind of session. The daemon reads
+one back after a restart as `stopped` and leaves it there, but it clears `archived` and republishes
+the summary the moment the session comes back to life (amendment A15): a turn starts in it, from an
+app or from a terminal; a `session.send` arrives, including one that only joins the queue; or a
+terminal attaches to it, through the Claude channel or by opening its Codex thread. The control a
+revived session reports is the one the path that revived it gives it — `remote` when an app resumed
+it, `shared` when a terminal attached — so it never comes back still claiming that nothing holds it.
+Archiving closes a running agent, so archiving and then sending again is a restart of the CLI, not a
+handover to a process that was still there.
+
 ### Titles
 
 A session has three possible names, in order of precedence:
@@ -226,6 +236,16 @@ input, using `lsof` on macOS to find the process holding the transcript:
 | `shared` | A live CLI process owns it **and the device is attached** | Composer and approvals as for `remote`; see "Attached terminal sessions" |
 | `none` | No process holds it; the session is resumable | Sending resumes it and control moves to `remote` |
 | `remote` | This daemon is driving it | Normal |
+
+Ownership is worked out for the whole scan round at once, and a process is credited to one session
+only. A CLI started with `--resume` or `--session-id` names its session in its own command line, and
+one started through the shim names it over the channel the moment its bridge registers; those are
+the only two facts that say which conversation a process is in. The working directory is a last
+resort, used only where one directory holds exactly one unidentified CLI and exactly one session
+still without one. A home directory routinely holds a dozen finished sessions, and crediting the
+same process to all of them made every one of them look like the live one. A shim-started CLI is
+never matched by directory at all: it will name its session a moment later, and guessing in the
+meantime is always wrong.
 
 A `session.send` to a terminal-controlled session is refused with `conflict`. `session.takeover`
 works only for Claude, and only while the terminal session is idle: the daemon sends SIGTERM to the

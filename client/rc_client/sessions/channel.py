@@ -131,6 +131,9 @@ class SessionChannel:
         await self._publish({"type": "session.updated", "session": self.session.to_dict()})
 
     async def set_state(self, state: SessionState, detail: str | None = None) -> None:
+        if state == "running":
+            # Amendment A15: a turn is under way, wherever it was started from.
+            await self.revive()
         if self.session.state == state and self.session.state_detail == detail:
             return
         self.session.state = state
@@ -139,6 +142,22 @@ class SessionChannel:
         if detail:
             fields["detail"] = detail
         await self.emit("status", **fields)
+        await self.publish_summary()
+
+    async def revive(self, state: SessionState = "idle") -> None:
+        """Amendment A15: a session that is working again is not archived.
+
+        `hub.load` reads an archived session back as `stopped`, which is true
+        right up to the moment something drives it; leaving that behind would
+        show a live session as a dead one. Publishing the summary is what moves
+        the row out of the Archive in the apps, so it is not optional.
+        """
+        if not self.session.archived:
+            return
+        self.session.archived = False
+        if self.session.state == "stopped":
+            self.session.state = state
+            self.session.state_detail = None
         await self.publish_summary()
 
     async def set_meta(self, **fields: Any) -> None:
@@ -178,6 +197,7 @@ class SessionChannel:
     # ----------------------------------------------------------------- turns
 
     async def begin_turn(self, trigger: str) -> str:
+        await self.revive()
         turn_id = str(uuid.uuid4())
         self.session.turn = {"turn_id": turn_id, "started_at": now_ms()}
         await self.emit("turn_started", turn_id=turn_id, trigger=trigger)

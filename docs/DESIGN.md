@@ -53,7 +53,9 @@ Groups are expanded by default, collapse on a click or a tap, and the choice is 
 device's sessions whose `control` is `none` — the CLI exited and nothing owns them any more —
 together with the ones the user archived by hand, flat and newest first. A hand-archived row is
 marked "Archived", so the two halves stay apart. A device with nothing archived gets no sub-header.
-The open or closed choice is kept per device id as well.
+The open or closed choice is kept per device id as well. A session that comes back to life — resumed
+from a terminal, or written to from an app — leaves the Archive by itself: the device clears the
+flag as the turn starts (A15), and the row is back among Active rows before its first output lands.
 
 A non-empty search overrides both stored choices without writing either: it opens every device group
 that still holds a match and every Archive a match landed in. Clearing the query hands the list back
@@ -78,8 +80,10 @@ The app is one canvas, not a stack of boxes. These rules hold on every screen in
   grouping is needed it is one soft surface: a background one step off the canvas, a 14–16 px radius,
   no border, and at most a very soft shadow. Never a border *and* a shadow *and* a divider on the
   same element.
-- **Lists, not tables.** Device and session rows are list rows: no column rules, no header row. At
-  most one hairline between two rows inside a surface, at 8–10 % alpha, and none after the last one.
+- **Lists, not tables.** Device and session rows are list rows: no column rules, no header row, and
+  no hairlines between rows. Every row has the same fixed height, so spacing alone separates them,
+  and the pointer resting on a row tints it one step off the surface (`--hover`, below); the selected
+  row holds a slightly stronger tint. Hairlines are for settings groups only.
 - **Settings** read like macOS System Settings: a caption above each group, one soft surface with
   label-left / control-right rows inside, generous inset padding, and an explanation as a small
   footnote under the group rather than inside it. No fieldsets, no card inside a card.
@@ -181,7 +185,7 @@ Queued messages are listed and can be removed one at a time. A send whose outcom
 resend is how an agent gets told twice.
 
 **Voice** dictates into the composer's own field rather than into a separate panel. Tapping the
-mic, or holding <kbd>⌥</kbd>+<kbd>Space</kbd> on a desktop, starts listening: a waveform and an
+mic starts listening on the web as on the phone — there is no hold-to-talk chord to learn: a waveform and an
 elapsed timer take the control row, and there are exactly two buttons, Cancel (restores the draft
 as it was) and Done (keeps the transcript). There is no time limit; listening runs until one of
 them is tapped. On iOS a soft multi-colour glow runs around the edge of the whole display while
@@ -280,7 +284,8 @@ but the design was not reviewed in dark mode.
 | Canvas | `#F5F5F4` | The page |
 | Surface | `#FFFFFF` | Cards, sheets, rows |
 | Line | `#E6E5E1` | Field and modal edges |
-| Hairline | `rgba(17,17,17,.08)` | The one divider between two rows on a surface |
+| Hairline | `rgba(17,17,17,.08)` | The one divider between two rows inside a settings group |
+| Hover | `rgba(17,17,17,.04)` | A list row under the pointer; the selected row uses `.07` |
 | Ink | `#111111` | Primary text, and the primary button fill |
 | Ink secondary | `#6B6B6B` | Metadata |
 | Running | `#22A06B` | Green status |

@@ -10,6 +10,7 @@ enum StoreChecks {
         await connection(checks)
         await chat(checks)
         sessionsList(checks)
+        await revivedSession(checks)
         dotTones(checks)
         settings(checks)
         await pairing(checks)
@@ -280,7 +281,7 @@ enum StoreChecks {
         checks.expect(store.hasSnapshot, "the demo hello arrives")
         checks.equal(store.phase, .connected, "the store reports a connected phase")
         checks.equal(store.devices.count, 3, "hello populates the device list")
-        checks.equal(store.sessions.count, 8, "hello populates the session list")
+        checks.equal(store.sessions.count, 9, "hello populates the session list")
         checks.equal(store.inventorySummary, "3 devices · 1 waiting", "the inventory summary counts waiting sessions")
         checks.equal(store.onlineDevices.count, 2, "only the online devices are offered for a new session")
         checks.expect(store.device(DemoFixtures.macDeviceID)?.agent("claude")?.supports(.takeover) == true,
@@ -520,7 +521,8 @@ enum StoreChecks {
         checks.equal(groups.first?.active.first?.state, .needsApproval,
                      "a session waiting on the user sorts first inside its device")
         checks.expect(groups.allSatisfy { !$0.collapsed }, "every group starts expanded")
-        checks.expect(groups.first?.archive.isEmpty == true, "and the busy machine has nothing archived")
+        checks.equal(groups.first?.archive.map(\.sessionID), [DemoFixtures.revivedSessionID],
+                     "and the one row it has archived is the session waiting to be resumed")
 
         guard let quiet = groups.last else { return checks.expect(false, "the third machine is listed") }
         checks.equal(quiet.active.count, 0, "the machine whose CLI exited holds nothing live")
@@ -570,7 +572,7 @@ enum StoreChecks {
         checks.expect(SessionListLayout.isArchived(archivedByHand),
                       "a hand-archived session belongs to its device's Archive")
         let withArchived = store.groups(sessions + [archivedByHand], devices: devices)
-        checks.equal(withArchived.first?.archive.map(\.sessionID), ["s"],
+        checks.equal(withArchived.first?.archive.map(\.sessionID), ["s", DemoFixtures.revivedSessionID],
                      "it joins that machine's Archive rather than a global one")
         checks.equal(withArchived.first?.active.count, 6,
                      "and never counts as live, whatever still owns it")
@@ -584,6 +586,69 @@ enum StoreChecks {
         checks.equal(RelativeTime.duration(milliseconds: 6_400), "6.4s", "sub-minute durations")
         checks.equal(RelativeTime.duration(milliseconds: 72_000), "1m 12s", "minute durations")
         checks.equal(RelativeTime.compactCount(48_200), "48.2k", "compact token counts")
+    }
+
+    /// Amendment A15: a session the device brings back to life leaves the
+    /// Archive on the `session.updated` alone. Nothing is reloaded, and no
+    /// stored preference pins the row to the half of the list it was in.
+    @MainActor
+    private static func revivedSession(_ checks: CheckRunner) async {
+        let channel = ScriptedChannel()
+        let connection = ConnectionStore()
+        await connection.enterDemo(api: DemoGateway(), channel: channel)
+        await settle { connection.hasSnapshot }
+        let store = SessionStore(defaults: UserDefaults(suiteName: "rc-verify-\(UUID().uuidString)")!)
+
+        guard let dormant = connection.sessions.first(where: {
+            $0.sessionID == DemoFixtures.revivedSessionID
+        }) else {
+            return checks.expect(false, "the hello carries a session folded in an Archive")
+        }
+        guard let folded = store.groups(connection.sessions, devices: connection.devices)
+            .first(where: { $0.id == dormant.deviceID }) else {
+            return checks.expect(false, "its machine is listed")
+        }
+        checks.expect(folded.archive.contains { $0.sessionID == dormant.sessionID },
+                      "the archived session starts in its own device's Archive")
+        checks.expect(!folded.archiveExpanded, "folded away, as an Archive starts")
+        let archivedBefore = folded.archive.count
+        let activeBefore = folded.active.count
+
+        let requestsBefore = channel.requests.count
+
+        var awake = dormant
+        awake.archived = false
+        awake.control = .terminal
+        awake.state = .running
+        awake.updatedAt = DemoFixtures.now
+        channel.emit(.sessionUpdated(awake))
+        await settle { connection.sessions.contains { $0.id == awake.id && !$0.archived } }
+
+        guard let live = store.groups(connection.sessions, devices: connection.devices)
+            .first(where: { $0.id == dormant.deviceID }) else {
+            return checks.expect(false, "the machine is still listed")
+        }
+        checks.expect(live.active.contains { $0.sessionID == dormant.sessionID },
+                      "one session.updated is enough to move the row into the live rows")
+        checks.expect(!live.archive.contains { $0.sessionID == dormant.sessionID },
+                      "and to take it out of the Archive")
+        checks.equal(live.archive.count, archivedBefore - 1, "so the Archive count drops by one")
+        checks.equal(live.active.count, activeBefore + 1, "and the live rows gain exactly that row")
+        checks.equal(channel.requests.count, requestsBefore,
+                     "and the move asks the gateway for nothing: no reload, no re-listing")
+
+        // The reverse: the reader archives it again and the row folds back where
+        // it was, which is the same rule read the other way.
+        channel.emit(.sessionUpdated(dormant))
+        await settle { connection.sessions.contains { $0.id == dormant.id && $0.archived } }
+        guard let refolded = store.groups(connection.sessions, devices: connection.devices)
+            .first(where: { $0.id == dormant.deviceID }) else {
+            return checks.expect(false, "the machine is listed once more")
+        }
+        checks.expect(refolded.archive.contains { $0.sessionID == dormant.sessionID },
+                      "archiving it again folds the row straight back")
+        checks.equal(refolded.archive.count, archivedBefore, "the Archive count is what it was")
+        checks.equal(refolded.active.count, activeBefore, "and so is the live count")
     }
 
     @MainActor

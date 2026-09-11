@@ -295,6 +295,9 @@ class SessionHub:
                 await self._resume(entry)
             runner = entry.runner
             assert runner is not None
+            # Amendment A15: the send is going through, so the session is not
+            # archived any more even when the message only joins the queue.
+            await entry.channel.revive()
 
             if mode == "queue":
                 # An explicit queue request always queues, even when idle: the
@@ -638,12 +641,20 @@ class SessionHub:
             await self.shared.closed(entry, attachment, control)
 
     async def _holder_control(self, entry: SessionEntry) -> str:
-        from ..agents.claude.holders import scan_holders
+        """Whether the CLI whose bridge just closed is still sitting in the terminal.
+
+        The bridge registered the CLI's own pid, so this asks after that exact
+        process. The working directory is deliberately not offered: it cannot
+        tell this session's CLI from another one started beside it.
+        """
+        from ..agents.claude.holders import SessionRef, scan_holders
 
         scan = await scan_holders()
         if not scan.complete:
             return "terminal"
-        holder = scan.for_session(entry.session.session_id, entry.session.cwd)
+        session_id = entry.session.session_id
+        ref = SessionRef(session_id, pid=entry.holder_pid, identity=entry.holder_identity)
+        holder = scan.assign([ref]).get(session_id)
         entry.holder_pid = holder.pid if holder else None
         entry.holder_identity = holder.identity if holder else None
         return "terminal" if holder is not None else "none"

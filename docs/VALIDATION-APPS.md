@@ -230,6 +230,49 @@ cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
 Not verified in this pass: a real Codex daemon steering a live turn, and the chip text in a browser.
 Both were exercised in the store and component tests only.
 
+### Round 6 — voice from the mic button, the product name, and the lists
+
+2026-09-12. The state machine and the composer wiring were driven by tests; the lists and the
+listening composer were driven in a real Chrome against the bundled mock at 1280 px and 400 px.
+Screenshots are run artefacts under `…/scratchpad/ui-pass3/web/`, `before-*` and `after-*`.
+
+| Check | Result |
+| --- | --- |
+| Voice starts on the mic button | **Changed.** Clicking the mic starts listening. The hold-⌥-space chord, its hint on the composer's bottom row, its "Push to talk" setting and the `pushToTalk` state are gone, not disabled |
+| The listening control row | **Changed.** The composer's control row becomes a waveform, an elapsed timer and exactly two buttons, Cancel and Done. "Stop & send" is gone; the quiet line above the field reads "Transcribing live · edit before sending" |
+| Cancel and Done | **Changed.** Cancel restores the draft the mic was pressed on; Done leaves the transcript in the field and sends nothing. Sending stays the ordinary Send button |
+| No time limit | **Changed.** Nothing stops the recording on a timer. The gateway caps one utterance at 120 s / 4 MiB (`gateway/rc_gateway/stt.py`), so a long dictation now chains `WS /ws/stt` sockets the way iOS `GatewaySpeechRecognizer` does: the replacement is taking audio before the outgoing one is told to transcribe, the cut waits for the first pause after 30 s and is forced at 45 s, and the segments are joined by position |
+| A failure keeps its words | Already correct by construction: a failed dictation publishes what it recognised before it moves to the error banner |
+| Live, in Chrome | With a fake microphone, the mock's transcript appended to the typed draft (`after lunch` → `after lunch also add a retry`) and the control row rendered at both widths |
+| Product name | **Changed.** `strings.productName`, the login title, the `claude` shim hint, `index.html`, `public/manifest.webmanifest` and the service-worker notification title read "Remote Control". Paths, the shim binary name and code comments are untouched |
+| Device and session lists | **Changed.** No hairline between rows anywhere in the device list, the Sessions page or the chat sidebar; every row a fixed height; hover is the new `--hover` token and the selected sidebar row `--hover-selected` (.07) instead of a white card with a shadow |
+| Row heights | Measured, not guessed: content is 42 px (session) and 39 px (device) at 1280, 73 px once the status stacks below 640 px, and 87 px once the device meta stacks below 480 px. The tokens are 64 / 96 / 108 px |
+| A15 in the app | Already correct. `session.updated` goes through `useSessions.upsert`, and `selectSessionLayout` re-buckets from the record, so a row whose `archived` turns false moves into that device's Active rows with no reload |
+
+Changed files: `src/features/voice/useVoice.ts`, `src/features/voice/segments.ts` and
+`src/features/voice/sttSocket.ts` (both new), `src/features/voice/VoiceControls.tsx` (new, replacing
+`VoicePanel.tsx`), `src/features/voice/draft.ts` (new), `src/features/chat/Composer.tsx`,
+`src/features/settings/SettingsPage.tsx`, `src/stores/settings.ts`, `src/strings.ts`,
+`src/styles/tokens.css`, `src/features/chat/chat.css`, `src/features/sessions/sessions.css`,
+`src/features/devices/devices.css`, `index.html`, `public/manifest.webmanifest`, `public/sw.js`.
+
+`tests/voice.test.ts` is new and drives the controller against a fake socket and a fake recorder:
+listening starts on `start`, Done keeps the transcript and publishes it as final, Cancel publishes
+nothing and drops the utterance, five minutes of speech is still listening, two segments join in
+spoken order across a rollover, a cut waits for the pause, and a mid-utterance failure keeps what it
+recognised. `tests/voice-composer.test.tsx` is new and covers the wiring with the controller mocked:
+Alt+Space does nothing, the control row holds exactly Cancel and Done, the transcript appends to the
+draft, Cancel restores it, Done leaves it for the ordinary Send, and a keystroke takes the field
+back. `tests/SessionsPage.test.tsx` gained the A15 move.
+
+```
+cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
+→ 23 files / 265 tests passed, tsc clean, eslint clean, built in 1.31 s
+```
+
+Not verified in this pass: dictation against a real gateway STT backend and a real microphone, and
+a segment rollover in a browser (the mock's utterance is shorter than the 30 s cut).
+
 ## 2. iOS, in the simulator, against the same gateway
 
 `ios/UITests/RealGatewaySmokeTests.swift` is new. It skips unless the runner is given a gateway, so
@@ -388,6 +431,41 @@ swift run RCVerify && swift run RCUIVerify && swift test
 
 Not verified in this pass: a real Codex daemon steering a live turn, and the caption in the
 simulator. Both were exercised in the store checks and unit tests only.
+
+### A session that comes back to life leaves the Archive (A15)
+
+2026-09-12, source, store-check and unit-test pass only: no simulator and no gateway ran for it, so
+nothing below is a live observation. Amendment A15 has the device clear `archived` when a turn
+starts in the session or a terminal attaches to it, so the app's only job is to redraw the list from
+the `session.updated` it gets.
+
+| Check | Result |
+| --- | --- |
+| Nothing caches which half a row is in | Already correct. `SessionListLayout.isArchived` reads `archived` and `control` off the session it is handed, and `SessionListLayout.build` is a pure function of its arguments. The only state `SessionStore` writes down is per device id — `sessions.collapsedDevices` and `sessions.archiveExpanded` — never per session |
+| The frame replaces the session outright | Already correct. `ConnectionStore.apply` assigns the decoded session over the one it matched by id rather than merging fields, so a stale `archived: true` cannot survive the update |
+| The list redraws without being asked to | Already correct. `SessionsView` builds its groups inside `body`, off the observed `connection.sessions`, so the move is one rebuild after the frame. No reload, no `session.list` round trip |
+| The row moves, and the counts follow | New check. `StoreChecks.revivedSession` takes the archived demo session out of the hello, emits one `session.updated` with `archived: false` and a terminal owner, and asserts the row is among that device's Active rows, gone from its Archive, the Archive count down one, the live count up one, and the recorded request count unchanged |
+| The reverse folds it back | New check. The same session emitted again with `archived: true` returns to the Archive, and both counts return to what they were |
+| The flag alone decides the half | New test. `archivedFlagAloneDecidesTheHalf` holds `control` at `remote` and changes only `archived`, so the move is not an artefact of the owner changing. It also pins that the last row leaving an Archive takes the `Archive · N` sub-header with it |
+| The reader's own choices survive the move | New test. `revivedSessionLeavesTheArchive` opens a device's Archive, moves the row out and back, and asserts the stored expansion set still holds that device id |
+| The demo device shows it | **Changed.** `DemoGateway` gained a small script: five seconds after the demo connects, a terminal attaches to `demo-session-changelog`, so the device clears `archived`, reports `control: "terminal"` and publishes the session. The row leaves `mac-studio-office`'s Archive while the reader is looking at the list. The session is `idle` rather than `running` afterwards, because the transcript it carries ends in a completed turn and the demo models A15's attach trigger rather than inventing output |
+| The UI-testing launch holds still | **Changed.** `AppModel.enterDemo` passes `resumeDelay: nil` under `--ui-testing`, and `VerificationUI` reads the hello's session list into a snapshot before the grouping checks, so neither measures a list that is moving underneath it |
+
+Changed files: `ios/Sources/RCCore/Demo/DemoFixtures.swift` (the archived session and its transcript),
+`ios/Sources/RCCore/Demo/DemoGateway.swift`, `ios/Sources/RCUI/Screens/AppModel.swift`,
+`ios/Tests/RCCoreTests/SessionGroupingTests.swift`, `ios/Verification/StoreChecks.swift`,
+`ios/VerificationUI/main.swift`. No file under `ios/Sources/RCCore/State/` changed: the grouping and
+the store were already right.
+
+```
+cd ios && export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+swift run RCVerify && swift run RCUIVerify && swift test
+→ RCVerify 927 checks, RCUIVerify 112 checks, 152 tests in 15 suites passed
+```
+
+Not verified in this pass: the move on screen in the simulator, and the same move against a real
+device that resumes an archived session. The demo carries the script for the first; nothing here
+exercised a real client.
 
 ## 3. Attached terminal sessions (A10) in the apps
 

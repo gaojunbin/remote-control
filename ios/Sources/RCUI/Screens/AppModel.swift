@@ -50,7 +50,8 @@ public final class AppModel {
     public func enterDemo() async {
         // A UI test looks at the moment between a tap and the device's echo, so
         // the scripted device takes its time over it rather than being raced.
-        let gateway = DemoGateway(echoDelay: isUITesting ? .seconds(3) : DemoGateway.defaultEchoDelay)
+        let gateway = DemoGateway(echoDelay: isUITesting ? .seconds(3) : DemoGateway.defaultEchoDelay,
+                                  resumeDelay: isUITesting ? nil : DemoGateway.defaultResumeDelay)
         await connection.enterDemo(api: gateway, channel: gateway)
         attachPush()
     }

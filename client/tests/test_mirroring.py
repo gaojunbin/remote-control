@@ -6,15 +6,28 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+from rc_client.agents.claude import holders as claude_holders
+from rc_client.agents.claude import transcripts as claude_transcripts
 from rc_client.agents.claude.holders import (
     Holder,
     HolderScan,
+    SessionRef,
+    _is_attachable,
     _looks_like_claude,
     _session_from_argv,
 )
-from rc_client.agents.claude.transcripts import TranscriptTailer
+from rc_client.agents.claude.transcripts import TranscriptInfo, TranscriptTailer
+from rc_client.agents.codex import rollouts as codex_rollouts
 from rc_client.agents.codex.rollouts import RolloutTailer
+from rc_client.models import AgentInfo, Session
 from rc_client.procscan import Proc
+from rc_client.registry import Registry
+from rc_client.sessions import mirror as mirror_module
+from rc_client.sessions.attach import Attachment
+from rc_client.sessions.hub import SessionHub
+from rc_client.sessions.mirror import MirrorService
 
 
 def write_rows(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -165,15 +178,211 @@ def test_claude_process_detection_and_session_extraction() -> None:
     assert _session_from_argv(["claude", "--resume"]) is None
 
 
-def test_holder_scan_matches_by_session_id_then_by_unique_cwd(tmp_path: Path) -> None:
+def test_a_shim_started_claude_is_recognised_as_one_that_names_itself() -> None:
+    plain = ["claude"]
+    shimmed = ["claude", "--dangerously-load-development-channels", "server:rc"]
+    joined = ["claude", "--dangerously-load-development-channels=server:rc"]
+    assert not _is_attachable(plain)
+    assert _is_attachable(shimmed)
+    assert _is_attachable(joined)
+
+
+def test_holder_assignment_prefers_the_session_a_process_names(tmp_path: Path) -> None:
     named = Holder(pid=1, identity=(1, "a"), session_id="sess", cwd=None)
     anonymous = Holder(pid=2, identity=(2, "b"), session_id=None, cwd=str(tmp_path))
     scan = HolderScan(holders=[named, anonymous], complete=True)
-    assert scan.for_session("sess", None) is named
-    assert scan.for_session("other", str(tmp_path)) is anonymous
+    assigned = scan.assign(
+        [SessionRef("sess", cwd=str(tmp_path)), SessionRef("other", cwd=str(tmp_path))]
+    )
+    assert assigned == {"sess": named, "other": anonymous}
 
-    ambiguous = HolderScan(
-        holders=[anonymous, Holder(pid=3, identity=(3, "c"), session_id=None, cwd=str(tmp_path))],
+
+def test_holder_assignment_takes_the_process_a_bridge_already_registered() -> None:
+    live = Holder(pid=7, identity=(7, "start"), session_id=None, cwd="/repo", attachable=True)
+    scan = HolderScan(holders=[live], complete=True)
+    assigned = scan.assign([SessionRef("sess", cwd="/repo", pid=7, identity=(7, "start"))])
+    assert assigned == {"sess": live}
+    # A pid the operating system handed to something else is not that process.
+    recycled = scan.assign([SessionRef("sess", cwd="/repo", pid=7, identity=(7, "later"))])
+    assert recycled == {}
+
+
+def test_one_terminal_never_claims_every_session_in_its_directory(tmp_path: Path) -> None:
+    """The reported defect: `claude` in a directory that holds older sessions.
+
+    A session started from the shim carries no session id in its argv, so the
+    working directory was the only thing left to match on and every session
+    that shared it was told a terminal had taken it over.
+    """
+    cwd = str(tmp_path)
+    shimmed = Holder(pid=100, identity=(100, "a"), session_id=None, cwd=cwd, attachable=True)
+    scan = HolderScan(holders=[shimmed], complete=True)
+    older = [SessionRef("old-1", cwd=cwd), SessionRef("old-2", cwd=cwd)]
+
+    # Before its bridge registers, the new session is not a session yet.
+    assert scan.assign(older) == {}
+    # Once it has registered, its own pid claims it and the others stay free.
+    assigned = scan.assign([SessionRef("live", cwd=cwd, pid=100), *older])
+    assert assigned == {"live": shimmed}
+
+
+def test_a_directory_with_several_candidates_is_left_alone(tmp_path: Path) -> None:
+    cwd = str(tmp_path)
+    anonymous = Holder(pid=2, identity=(2, "b"), session_id=None, cwd=cwd)
+    one_process = HolderScan(holders=[anonymous], complete=True)
+    assert one_process.assign([SessionRef("only", cwd=cwd)]) == {"only": anonymous}
+    assert one_process.assign([SessionRef("a", cwd=cwd), SessionRef("b", cwd=cwd)]) == {}
+
+    two_processes = HolderScan(
+        holders=[anonymous, Holder(pid=3, identity=(3, "c"), session_id=None, cwd=cwd)],
         complete=True,
     )
-    assert ambiguous.for_session("other", str(tmp_path)) is None
+    assert two_processes.assign([SessionRef("only", cwd=cwd)]) == {}
+
+
+def claude_agent() -> AgentInfo:
+    return AgentInfo(
+        agent="claude",
+        available=True,
+        path="/bin/claude",
+        capabilities=["takeover", "interrupt", "queue", "history"],
+        attach="channel",
+        attach_ready=True,
+    )
+
+
+def seed_session(registry: Registry, session_id: str, cwd: str, *, archived: bool) -> None:
+    registry.upsert_session(
+        Session(
+            session_id=session_id,
+            device_id="dev-1",
+            agent="claude",
+            cwd=cwd,
+            state="idle",
+            origin="terminal",
+            control="none",
+            archived=archived,
+        )
+    )
+
+
+def seed_transcript(root: Path, session_id: str, cwd: str) -> TranscriptInfo:
+    path = root / f"{session_id}.jsonl"
+    write_rows(path, [user_row("hello", uuid=session_id)])
+    stat = path.stat()
+    return TranscriptInfo(
+        session_id=session_id, path=str(path), cwd=cwd, size=stat.st_size, mtime=stat.st_mtime
+    )
+
+
+async def test_a_terminal_session_leaves_the_older_ones_in_its_directory_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reported defect, in the shape the user's own state database has it.
+
+    Three Claude sessions share one working directory, two of them finished
+    long ago and one of those archived. Starting `claude` there must publish
+    the new session and nothing else.
+    """
+    cwd = str(tmp_path)
+    root = tmp_path / "projects"
+    root.mkdir()
+    registry = Registry(tmp_path / "state.sqlite3")
+    frames: list[dict[str, Any]] = []
+
+    async def publish(frame: dict[str, Any]) -> None:
+        frames.append(frame)
+
+    hub = SessionHub(registry, publish, "dev-1", lambda: [claude_agent()])
+    seed_session(registry, "old-1", cwd, archived=True)
+    seed_session(registry, "old-2", cwd, archived=False)
+    hub.load()
+
+    # The terminal starts a session and its bridge registers, exactly as the
+    # shim arranges; the CLI's own pid comes in with the registration.
+    await hub.attach_registered(
+        Attachment(session_id="live", cwd=cwd, pid=100, claude_version="2.1.267")
+    )
+
+    mirror = MirrorService(hub)
+    found = [seed_transcript(root, name, cwd) for name in ("old-1", "old-2", "live")]
+    for info in found:
+        # These transcripts were mirrored before; only what is appended is new.
+        registry.set_kv(mirror._offset_key(info.session_id), str(info.size))
+    monkeypatch.setattr(claude_transcripts, "discover", lambda *args: found)
+    monkeypatch.setattr(codex_rollouts, "discover", lambda *args: [])
+
+    async def fake_scan() -> HolderScan:
+        return HolderScan(
+            holders=[
+                Holder(pid=100, identity=(100, "a"), session_id=None, cwd=cwd, attachable=True)
+            ],
+            complete=True,
+        )
+
+    monkeypatch.setattr(mirror_module, "scan_holders", fake_scan)
+
+    def touched() -> set[str]:
+        return {
+            frame.get("session_id") or frame.get("session", {}).get("session_id")
+            for frame in frames
+        }
+
+    before = {name: hub.entry(name).session.updated_at for name in ("old-1", "old-2")}
+    frames.clear()
+    await mirror.scan_once()
+    await mirror.tail_once()
+    assert touched() == set()
+
+    # The terminal types into the session it is actually running.
+    write_rows(root / "live.jsonl", [user_row("what now", uuid="u2")])
+    await mirror.tail_once()
+    assert touched() == {"live"}
+
+    for name in ("old-1", "old-2"):
+        session = hub.entry(name).session
+        assert session.updated_at == before[name]
+        assert session.control == "none"
+    assert hub.entry("old-1").session.state == "stopped"
+    assert hub.entry("old-1").session.archived is True
+    assert hub.entry("live").session.control == "shared"
+
+    await hub.close()
+    registry.close()
+
+
+async def test_a_closed_bridge_asks_after_its_own_process_not_the_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second `claude` started beside this one is not this session's CLI."""
+    cwd = str(tmp_path)
+    registry = Registry(tmp_path / "state.sqlite3")
+
+    async def publish(frame: dict[str, Any]) -> None:
+        return None
+
+    hub = SessionHub(registry, publish, "dev-1", lambda: [claude_agent()])
+    await hub.attach_registered(
+        Attachment(session_id="live", cwd=cwd, pid=100, claude_version="2.1.267")
+    )
+    entry = hub.entry("live")
+
+    def seen(found: list[Holder]) -> None:
+        async def fake_scan() -> HolderScan:
+            return HolderScan(holders=found, complete=True)
+
+        monkeypatch.setattr(claude_holders, "scan_holders", fake_scan)
+
+    mine = Holder(pid=100, identity=(100, "a"), session_id=None, cwd=cwd, attachable=True)
+    neighbour = Holder(pid=200, identity=(200, "b"), session_id=None, cwd=cwd, attachable=True)
+
+    seen([mine, neighbour])
+    assert await hub._holder_control(entry) == "terminal"
+    assert (entry.holder_pid, entry.holder_identity) == (100, (100, "a"))
+
+    seen([neighbour])
+    assert await hub._holder_control(entry) == "none"
+    assert entry.holder_pid is None
+
+    await hub.close()
+    registry.close()

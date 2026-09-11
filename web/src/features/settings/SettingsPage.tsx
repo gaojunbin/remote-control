@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button } from '../../components/Button';
 import { Menu } from '../../components/Popover';
-import { Switch } from '../../components/Switch';
 import { languageLabel, strings } from '../../strings';
 import { useAuth } from '../../stores/auth';
 import { useConnection } from '../../stores/connection';
@@ -22,8 +21,6 @@ export function SettingsPage() {
 
   const language = useSettings((s) => s.sttLanguage);
   const setLanguage = useSettings((s) => s.setSttLanguage);
-  const pushToTalk = useSettings((s) => s.pushToTalk);
-  const setPushToTalk = useSettings((s) => s.setPushToTalk);
 
   const [push, setPush] = useState<PushState>('unsupported');
   const [pushBusy, setPushBusy] = useState(false);
@@ -123,14 +120,6 @@ export function SettingsPage() {
                   onSelect={setLanguage}
                   options={stt.languages.map((code) => ({ id: code, label: languageLabel(code) }))}
                   label={languageLabel(language)}
-                />
-              </div>
-              <div className="settings-row">
-                <span>{strings.settings.pushToTalk}</span>
-                <Switch
-                  checked={pushToTalk}
-                  onChange={setPushToTalk}
-                  label={strings.settings.pushToTalk}
                 />
               </div>
             </div>

@@ -1,6 +1,6 @@
 {
-  "name": "remote-control",
-  "short_name": "remote-control",
+  "name": "Remote Control",
+  "short_name": "Remote Control",
   "description": "Remote control for Claude Code and Codex sessions on your machines.",
   "start_url": "/sessions",
   "scope": "/",

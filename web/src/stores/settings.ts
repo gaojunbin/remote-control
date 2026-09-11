@@ -4,13 +4,11 @@ import { createJSONStorage, persist, type StateStorage } from 'zustand/middlewar
 
 interface SettingsState {
   sttLanguage: string;
-  pushToTalk: boolean;
   /** Device groups the user folded shut in a session list. Expanded by default. */
   collapsedDevices: string[];
   /** Devices whose Archive sub-group is open. Collapsed by default. */
   archiveExpanded: string[];
   setSttLanguage: (language: string) => void;
-  setPushToTalk: (enabled: boolean) => void;
   toggleDeviceCollapsed: (deviceId: string) => void;
   toggleArchiveExpanded: (deviceId: string) => void;
 }
@@ -51,11 +49,9 @@ export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
       sttLanguage: 'auto',
-      pushToTalk: true,
       collapsedDevices: [],
       archiveExpanded: [],
       setSttLanguage: (sttLanguage) => set({ sttLanguage }),
-      setPushToTalk: (pushToTalk) => set({ pushToTalk }),
       toggleDeviceCollapsed: (deviceId) =>
         set((s) => ({ collapsedDevices: toggle(s.collapsedDevices, deviceId) })),
       toggleArchiveExpanded: (deviceId) =>

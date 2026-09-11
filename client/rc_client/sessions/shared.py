@@ -140,6 +140,8 @@ class SharedControl:
         previous = entry.shared
         if previous is not None and previous.attachment is not attachment:
             previous.attachment.detach()
+        # Amendment A15: a terminal attached to it, so it is a live session again.
+        await entry.channel.revive()
         entry.shared = SharedState(attachment=attachment)
         entry.holder_pid = attachment.pid or None
         entry.holder_identity = None
@@ -262,6 +264,8 @@ class SharedControl:
             raise RcError("conflict", "the session is no longer attached")
         if attachments:
             raise RcError("unsupported", "attachments cannot be delivered to a terminal session")
+        # Amendment A15: held or injected, the message brings the session back.
+        await entry.channel.revive()
         await titles.from_prompt(entry.channel, text)
         item = pending_item(text, request_id)
         if not state.running and not state.waiting and await self._inject(entry, item):

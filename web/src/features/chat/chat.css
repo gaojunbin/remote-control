@@ -62,12 +62,14 @@
   padding: 0;
 }
 
+/* Rows are parted by their own fixed height, never by a rule between them. */
 .sidebar-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--sp-2);
   width: 100%;
-  padding: 8px var(--sp-2);
+  height: 48px;
+  padding: 0 var(--sp-2);
   border: none;
   border-radius: 10px;
   background: transparent;
@@ -76,16 +78,12 @@
 }
 
 .sidebar-item:hover {
-  background: rgba(17, 17, 17, 0.04);
+  background: var(--hover);
 }
 
+/* The selected row is one step further into the ink, not a card of its own. */
 .sidebar-item.active {
-  background: var(--surface);
-  box-shadow: var(--shadow-soft);
-}
-
-.sidebar-item .dot {
-  margin-top: 7px;
+  background: var(--hover-selected);
 }
 
 .sidebar-item-text {
@@ -1051,25 +1049,30 @@
   height: 26px;
 }
 
-.talk-hint {
-  margin-left: auto;
-  font-size: var(--fs-12);
-  color: var(--ink-tertiary);
-}
-
 /* voice */
 
-.voice-panel {
-  border: 1.5px solid var(--ink);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-  padding: var(--sp-3) var(--sp-4) var(--sp-3);
+/* The one quiet line above the field while dictation runs. */
+.voice-status {
+  margin: 0 0 var(--sp-2);
+  padding-left: var(--sp-1);
+  font-size: var(--fs-13);
 }
 
-.voice-row {
+/*
+ * Listening replaces the composer's control row: the waveform, the elapsed
+ * timer and the only two ways out. It takes the full width of the box so it
+ * stays legible beside the field on a phone, and the field keeps its own row.
+ */
+.composer.listening {
+  flex-wrap: wrap;
+}
+
+.voice-controls {
+  flex: 1 1 100%;
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0 2px;
 }
 
 .waveform {
@@ -1091,27 +1094,8 @@
   font-size: var(--fs-13);
   color: var(--ink-secondary);
   flex: none;
-}
-
-.voice-text {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: var(--fs-14);
-}
-
-.voice-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  margin-top: var(--sp-3);
-}
-
-.voice-actions .hint {
-  flex: 1;
-  font-size: var(--fs-13);
+  /* Everything after the timer is pushed to the trailing edge. */
+  margin-right: auto;
 }
 
 /* --- responsive ------------------------------------------------------- */
@@ -1142,9 +1126,5 @@
 
   .user-bubble {
     max-width: 88%;
-  }
-
-  .talk-hint {
-    display: none;
   }
 }

@@ -46,30 +46,30 @@
   padding: 0;
 }
 
+/* Rows are parted by their own fixed height, never by a rule between them. */
 .session-row {
   display: flex;
   align-items: center;
+  height: var(--row-h);
+  transition: background var(--dur-fast) var(--ease);
 }
 
-.session-row + .session-row {
-  border-top: 1px solid var(--hairline);
+/* The whole row tints, including under the archive button at its end. */
+.session-row:hover {
+  background: var(--hover);
 }
 
 .session-open {
   flex: 1;
+  align-self: stretch;
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  padding: var(--sp-4) var(--sp-5);
+  padding: 0 var(--sp-5);
   border: none;
   background: transparent;
   text-align: left;
   min-width: 0;
-  transition: background var(--dur-fast) var(--ease);
-}
-
-.session-open:hover {
-  background: var(--surface-hover);
 }
 
 .session-text {
@@ -386,9 +386,15 @@
     flex-basis: 100%;
   }
 
+  /* The status takes a line of its own here, so the fixed height grows. */
+  .session-row {
+    height: var(--row-h-stacked);
+  }
+
   .session-open {
     flex-wrap: wrap;
-    padding: var(--sp-3) var(--sp-4);
+    align-content: center;
+    padding: 0 var(--sp-4);
   }
 
   .session-state {
@@ -396,12 +402,7 @@
     padding-left: 15px;
   }
 
-  .session-row {
-    align-items: flex-start;
-  }
-
   .session-archive {
     opacity: 1;
-    margin-top: 9px;
   }
 }

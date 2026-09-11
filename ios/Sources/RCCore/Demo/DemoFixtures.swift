@@ -21,6 +21,9 @@ public enum DemoFixtures {
     /// A turn that ended badly on a machine that is still reachable, so the
     /// list carries the red dot as well as the other four.
     public static let erroredSessionID = "demo-session-toolchain"
+    /// Amendment A15: a session the user archived by hand, which the demo
+    /// device brings back to life shortly after the list opens.
+    public static let revivedSessionID = "demo-session-changelog"
 
     public static var now: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
@@ -171,6 +174,15 @@ public enum DemoFixtures {
                     origin: .remote, control: .remote,
                     model: "claude-sonnet-4-5", permissionMode: "default",
                     createdAt: now - 1_200_000, updatedAt: now - 30_000, lastSeq: 0),
+            // Amendment A15: archived by hand and no longer owned, until a
+            // terminal attaches to it again and the device clears the flag.
+            Session(sessionID: revivedSessionID, deviceID: macDeviceID, agent: "claude",
+                    title: "Draft the changelog", cwd: "/Users/me/dev/remote-control",
+                    git: GitInfo(branch: "main"),
+                    state: .stopped, origin: .terminal, control: .none,
+                    model: "claude-sonnet-4-5", permissionMode: "default",
+                    createdAt: now - 9_000_000, updatedAt: now - 5_400_000, lastSeq: 0,
+                    archived: true),
             Session(sessionID: doneSessionID, deviceID: ciDeviceID, agent: "codex",
                     title: "Add OTLP traces", cwd: "/work/api",
                     git: nil, state: .idle, origin: .remote, control: .none,
@@ -377,6 +389,21 @@ public enum DemoFixtures {
         ]
     }
 
+    /// The short transcript the archived session carries before it is resumed.
+    public static func revivedHistory(base: Int64 = now - 5_400_000) -> [SessionEvent] {
+        [
+            SessionEvent(seq: 1, ts: base, kind: SessionEvent.userMessageKind, blockID: "u-1",
+                         body: .userMessage(UserMessagePayload(text: "Draft the 0.1.0 changelog."))),
+            SessionEvent(seq: 2, ts: base + 2_000, kind: SessionEvent.assistantTextKind, blockID: "a-1",
+                         body: .assistantText(StreamTextPayload(
+                            text: "Drafted it from the commit log. The wording still needs a pass.",
+                            done: true))),
+            SessionEvent(seq: 3, ts: base + 3_000, kind: SessionEvent.turnCompletedKind,
+                         body: .turnCompleted(TurnCompletedPayload(turnID: "demo-turn-changelog",
+                                                                   stopReason: .completed, durationMS: 18_000)))
+        ]
+    }
+
     public static func history(for sessionID: String) -> [SessionEvent] {
         switch sessionID {
         case liveSessionID: liveHistory()
@@ -385,6 +412,7 @@ public enum DemoFixtures {
         case codexSharedSessionID: codexSharedHistory()
         case attachHintSessionID: attachHintHistory()
         case erroredSessionID: erroredHistory()
+        case revivedSessionID: revivedHistory()
         default: [
             SessionEvent(seq: 1, ts: now - 3_600_000, kind: SessionEvent.userMessageKind, blockID: "u-1",
                          body: .userMessage(UserMessagePayload(text: "Add OTLP traces to the API."))),

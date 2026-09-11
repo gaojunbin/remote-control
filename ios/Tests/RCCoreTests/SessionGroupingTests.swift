@@ -132,6 +132,65 @@ struct SessionGroupingTests {
         #expect(missed.first?.archiveExpanded == false)
     }
 
+    /// Amendment A15: the device clears `archived` when the session comes back
+    /// to life and publishes it. Nothing about the row's place is remembered, so
+    /// the next build of the list already has it among the live rows, and the
+    /// one after that folds it back if the reader archives it again.
+    @MainActor
+    @Test("A session that comes back to life leaves the Archive at once, and folds back")
+    func revivedSessionLeavesTheArchive() {
+        let defaults = UserDefaults(suiteName: "rc-tests-\(UUID().uuidString)")!
+        let store = SessionStore(defaults: defaults)
+        store.toggleArchive(mac)
+        let dormant = session("resumed", state: .stopped, control: .none,
+                              updatedAt: 40, archived: true)
+        var sessions = [session("live", state: .running, updatedAt: 60),
+                        session("ended", control: .none, updatedAt: 50),
+                        dormant]
+
+        let folded = store.groups(sessions, devices: devices)
+        #expect(folded.first?.active.map(\.sessionID) == ["live"])
+        #expect(folded.first?.archive.map(\.sessionID) == ["ended", "resumed"])
+
+        // The session.updated a resumed session publishes: the flag is gone and
+        // a terminal owns it again.
+        sessions[2] = session("resumed", state: .running, control: .terminal, updatedAt: 120)
+        let revived = store.groups(sessions, devices: devices)
+        #expect(revived.first?.active.map(\.sessionID) == ["resumed", "live"])
+        #expect(revived.first?.archive.map(\.sessionID) == ["ended"])
+        // The Archive is open because the reader opened it, not because the row
+        // left: the stored choice is per device and survives the move.
+        #expect(revived.first?.archiveExpanded == true)
+        #expect(store.expandedArchives == [mac])
+
+        sessions[2] = dormant
+        let refolded = store.groups(sessions, devices: devices)
+        #expect(refolded.first?.active.map(\.sessionID) == ["live"])
+        #expect(refolded.first?.archive.map(\.sessionID) == ["ended", "resumed"])
+    }
+
+    /// The flag on its own decides the half, with nothing else changing. A
+    /// session its device still owns sits in the Archive only while `archived`
+    /// is set, so clearing it is enough to move the row.
+    @Test("Clearing archived alone moves the row, and the last one out takes the header")
+    func archivedFlagAloneDecidesTheHalf() {
+        let held = session("resumed", control: .remote, updatedAt: 40)
+        var archivedByHand = held
+        archivedByHand.archived = true
+
+        #expect(SessionListLayout.isArchived(archivedByHand))
+        #expect(!SessionListLayout.isArchived(held))
+
+        let before = SessionListLayout.build(sessions: [archivedByHand], devices: devices)
+        #expect(before.first?.archive.map(\.sessionID) == ["resumed"])
+        #expect(before.first?.active.isEmpty == true)
+
+        // The whole Archive was that one row, so the sub-header goes with it.
+        let after = SessionListLayout.build(sessions: [held], devices: devices)
+        #expect(after.first?.archive.isEmpty == true)
+        #expect(after.first?.active.map(\.sessionID) == ["resumed"])
+    }
+
     @Test("Search reads the title, the folder and the agent, and drops empty machines")
     func search() {
         let sessions = [
