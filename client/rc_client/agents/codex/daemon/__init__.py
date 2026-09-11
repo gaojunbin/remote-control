@@ -1,6 +1,6 @@
 """Amendment A11: Codex through the shared `codex app-server` daemon.
 
-Codex 0.153 and later run every bare `codex` TUI inside one local app-server
+Codex 0.153 and later run every terminal `codex` TUI inside one local app-server
 daemon whose control socket speaks JSON-RPC over WebSocket-over-AF_UNIX. A
 second client that resumes a thread there sees the same stream as the TUI, can
 start, steer and interrupt turns, change settings and answer approvals. This

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import stat
 import subprocess
 import sys
 from collections.abc import Callable
@@ -49,6 +50,14 @@ class Proc:
 class Scan:
     procs: list[Proc]
     complete: bool
+
+
+@dataclass(frozen=True, slots=True)
+class OpenPaths:
+    """What one process has open: its working directory and its regular files."""
+
+    cwd: str
+    files: tuple[str, ...]
 
 
 async def _run(*args: str, timeout: float = SCAN_TIMEOUT) -> tuple[int, str]:
@@ -176,6 +185,80 @@ async def process_cwds(pids: list[int]) -> tuple[dict[int, str], bool]:
         elif line.startswith("n") and current is not None:
             cwds[current] = line[1:]
     return cwds, True
+
+
+def _linux_fd_paths(pid: int) -> tuple[str, ...]:
+    """Every regular file this process has open, read from `/proc/<pid>/fd`."""
+    fd_dir = f"/proc/{pid}/fd"
+    try:
+        fds = os.listdir(fd_dir)
+    except OSError:
+        return ()
+    paths: list[str] = []
+    for fd in fds:
+        try:
+            if not stat.S_ISREG(os.stat(f"{fd_dir}/{fd}").st_mode):
+                continue
+            paths.append(os.readlink(f"{fd_dir}/{fd}"))
+        except OSError:
+            continue
+    return tuple(paths)
+
+
+def _parse_open_paths(out: str) -> dict[int, OpenPaths]:
+    """Read one `lsof -F pftn` report: `p<pid>`, then `f`, `t`, `n` per file.
+
+    The working directory arrives as the file whose descriptor is `cwd`;
+    everything else is kept only when `lsof` calls it a regular file, which
+    leaves out the terminal, the sockets and the pipes.
+    """
+    cwds: dict[int, str] = {}
+    files: dict[int, list[str]] = {}
+    pid: int | None = None
+    fd = ""
+    kind = ""
+    for line in out.splitlines():
+        tag, value = line[:1], line[1:]
+        if tag == "p" and value.isdigit():
+            pid, fd, kind = int(value), "", ""
+        elif tag == "f":
+            fd, kind = value, ""
+        elif tag == "t":
+            kind = value
+        elif tag == "n" and pid is not None:
+            if fd == "cwd":
+                cwds[pid] = value
+            elif kind == "REG":
+                files.setdefault(pid, []).append(value)
+    return {
+        found: OpenPaths(cwd=cwds.get(found, ""), files=tuple(files.get(found, ())))
+        for found in sorted(set(cwds) | set(files))
+    }
+
+
+async def process_open_paths(pids: list[int]) -> tuple[dict[int, OpenPaths], bool]:
+    """Working directory and open regular files per pid, in one pass.
+
+    The bool is False when the scan is incomplete, exactly as `process_cwds`:
+    not knowing what a process holds must never read as "it holds nothing".
+    """
+    if not pids:
+        return {}, True
+    if IS_LINUX:
+        found: dict[int, OpenPaths] = {}
+        for pid in pids:
+            try:
+                cwd = os.readlink(f"/proc/{pid}/cwd")
+            except OSError:
+                cwd = ""
+            found[pid] = OpenPaths(cwd=cwd, files=_linux_fd_paths(pid))
+        return found, True
+    code, out = await _run(
+        LSOF, "-n", "-P", "-w", "-p", ",".join(str(pid) for pid in pids), "-F", "pftn"
+    )
+    if code not in (0, 1):
+        return {}, False
+    return _parse_open_paths(out), True
 
 
 async def file_writers(path: str) -> tuple[list[int], bool]:

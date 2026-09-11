@@ -320,11 +320,15 @@ from their rollout files and left at `control: "terminal"`. The agent keeps repo
 socket is re-probed on the ordinary ten-second scan, so bootstrapping the daemon later switches the
 mode without restarting the device daemon.
 
-The rule that has to reach users is short: **start Codex as a bare `codex`**. Any `-c`, `--enable`,
-`--disable` or `--dangerously-bypass-approvals-and-sandbox` on the command line makes the CLI spawn
-its own embedded app-server, invisible to the shared daemon and unattachable. Such a session still
-appears, mirrored from its rollout with `control: "terminal"`. Everything one would have set with
-`-c` is set from the apps instead, through the pickers `shared_settings` unlocks.
+There is no rule about how to start Codex. Some flags make the CLI spawn its own embedded
+app-server, invisible to the shared daemon and unattachable — `-c` does on 0.154, verified on
+2026-09-12 — and some do not: `--dangerously-bypass-approvals-and-sandbox` runs on the shared daemon
+like a bare `codex`, verified the same day. The device does not keep a list of which is which. It
+looks at what the process holds: a TUI writing its own rollout is the one holding a file under
+`$CODEX_HOME/sessions` open, and only that kind is left out of the count of terminals attributed to
+daemon threads. Such a session still appears, mirrored from its rollout with `control: "terminal"`.
+Everything one would have set with `-c` can be set from the apps instead, through the pickers
+`shared_settings` unlocks.
 
 Codex's own `daemon bootstrap` reports `backend: "pid"`: it starts the app-server and a detached
 updater loop, and installs no launchd job and no unit, so nothing brings it back after a reboot. The

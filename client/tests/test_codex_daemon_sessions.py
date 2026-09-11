@@ -14,7 +14,7 @@ from rc_client.agents.codex.daemon.service import CodexDaemonService, thread_con
 from rc_client.agents.codex.daemon.session import CodexDaemonSession
 from rc_client.errors import RcError
 from rc_client.models import AgentInfo, Choice, Session
-from rc_client.procscan import Proc
+from rc_client.procscan import OpenPaths, Proc, Scan
 from rc_client.registry import Registry
 from rc_client.sessions.hub import SessionHub
 from tests.fake_codex_daemon import FakeDaemon, FakeTerminals
@@ -184,21 +184,76 @@ def test_a_thread_with_nothing_in_it_is_not_a_session_yet() -> None:
     assert named is not None and threads.is_empty(named) is False
 
 
-def test_only_a_bare_codex_on_a_terminal_counts_as_a_tui() -> None:
+def test_a_codex_on_a_terminal_is_a_tui_whatever_flags_it_carries() -> None:
     def proc(command: str, has_tty: bool = True) -> Proc:
         return Proc(pid=7, ppid=1, start="s", command=command, has_tty=has_tty)
 
     assert terminals.looks_like_a_tui(proc("/Users/me/.local/bin/codex")) is True
     assert terminals.looks_like_a_tui(proc("codex resume 01a08bde")) is True
-    # No terminal, a helper subcommand, or an embedded server of its own.
+    # Flags decide nothing: on Codex 0.154 all of these join the shared daemon.
+    bypass = "codex --dangerously-bypass-approvals-and-sandbox"
+    assert terminals.looks_like_a_tui(proc(bypass)) is True
+    assert terminals.looks_like_a_tui(proc("codex -c model_reasoning_effort=low")) is True
+    assert terminals.looks_like_a_tui(proc("codex --enable hooks")) is True
+    # No terminal, or a helper subcommand rather than a TUI at all.
     assert terminals.looks_like_a_tui(proc("codex", has_tty=False)) is False
     assert terminals.looks_like_a_tui(proc("codex app-server --listen unix://")) is False
     assert terminals.looks_like_a_tui(proc("/App/codex -c features.host=true app-server")) is False
-    assert terminals.looks_like_a_tui(proc("codex --enable hooks")) is False
     assert terminals.looks_like_a_tui(proc("codex exec review the diff")) is False
-    bypass = "codex --dangerously-bypass-approvals-and-sandbox"
-    assert terminals.looks_like_a_tui(proc(bypass)) is False
     assert terminals.looks_like_a_tui(proc("/usr/bin/python -m http.server")) is False
+
+
+async def scan_with(
+    monkeypatch: pytest.MonkeyPatch,
+    procs: list[Proc],
+    opened: tuple[dict[int, OpenPaths], bool],
+) -> terminals.TerminalScan:
+    """Run `scan_terminals` over a fixed process list and a fixed `lsof` answer."""
+
+    async def fake_processes() -> Scan:
+        return Scan(procs=procs, complete=True)
+
+    async def fake_open(pids: list[int]) -> tuple[dict[int, OpenPaths], bool]:
+        return opened
+
+    monkeypatch.setattr(terminals, "scan_processes", fake_processes)
+    monkeypatch.setattr(terminals, "process_open_paths", fake_open)
+    return await terminals.scan_terminals()
+
+
+async def test_a_tui_holding_its_own_rollout_is_not_the_daemons(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The only way to tell an embedded app-server from a shared one.
+
+    Observed on 2026-09-12: a TUI started with
+    `--dangerously-bypass-approvals-and-sandbox` held no rollout, the shared
+    daemon held it, and the daemon relayed the turns typed into that TUI.
+    """
+    sessions = tmp_path / "sessions"
+    monkeypatch.setattr(terminals, "SESSIONS_DIR", sessions)
+    repo = os.path.realpath(str(tmp_path / "repo"))
+    procs = [
+        Proc(pid=11, ppid=1, start="s", command="codex --dangerously-bypass-approvals-and-sandbox"),
+        Proc(pid=12, ppid=1, start="s", command="codex"),
+    ]
+    held = {
+        11: OpenPaths(cwd=repo, files=(str(tmp_path / "notes.md"),)),
+        12: OpenPaths(cwd=repo, files=(str(sessions / "2026/09/12/rollout-t.jsonl"),)),
+    }
+
+    scan = await scan_with(monkeypatch, procs, (held, True))
+    assert scan.complete is True
+    assert scan.count(repo) == 1
+
+
+async def test_a_scan_that_cannot_read_what_a_tui_holds_decides_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    procs = [Proc(pid=11, ppid=1, start="s", command="codex")]
+    scan = await scan_with(monkeypatch, procs, ({}, False))
+    assert scan.complete is False
+    assert scan.count(os.path.realpath(str(tmp_path))) == 0
 
 
 def test_a_scan_counts_the_terminals_in_each_directory(tmp_path: Path) -> None:

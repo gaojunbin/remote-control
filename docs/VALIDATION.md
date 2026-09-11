@@ -308,9 +308,9 @@ codex
 ```
 
 The one thing a repeat of this pass must get right is the TUI: launch it as a bare `codex`, with no
-`-c`, `--enable`, `--disable` or `--dangerously-bypass-approvals-and-sandbox`, or it runs its own
-embedded app-server and never joins the daemon. Answer the project-trust prompt, then subscribe as
-an app on `WS /ws/app` to the session that appears.
+`-c`, or it runs its own embedded app-server and never joins the daemon — see "A TUI with flags is
+still the daemon's" below for which flags really do that and which do not. Answer the project-trust
+prompt, then subscribe as an app on `WS /ws/app` to the session that appears.
 
 ### Results
 
@@ -396,11 +396,10 @@ Codex, not by the device, and was left in place.
 - **`approvalsReviewer: "auto_review"`**, which could remove the approval burden entirely, was not
   exercised.
 
-Two behaviours are by design rather than gaps. A TUI started with `-c`, `--enable`, `--disable` or
-`--dangerously-bypass-approvals-and-sandbox` runs its own private app-server and is mirrored
-read-only as `control: "terminal"`. And a Codex thread has no rollout until its first turn, so the
-device subscribes at that first turn, and a thread created from an app can be `codex resume`d only
-after it.
+Two behaviours are by design rather than gaps. A TUI that runs its own private app-server — a
+`codex -c …`, as measured below — is mirrored read-only as `control: "terminal"`. And a Codex thread
+has no rollout until its first turn, so the device subscribes at that first turn, and a thread
+created from an app can be `codex resume`d only after it.
 
 ### The prompt echo and the thread name, 2026-09-11
 
@@ -504,8 +503,8 @@ all of them at once. Starting one `codex` in that home directory therefore turne
 they also jumped to the top of the list. Two smaller faults fed the same symptom: an empty startup
 thread was published as an untitled session that `_forget_deleted` then refused to drop because a
 runner was attached to it, and a TUI started with `--dangerously-bypass-approvals-and-sandbox` was
-counted as a daemon terminal even though `lsof` shows it holding its own thread-writer lock on a
-thread the daemon has never loaded (two such TUIs were running on this machine).
+believed to run an embedded app-server of its own and was struck out of the terminal count. That
+second belief was wrong, and the section below records how it was measured and corrected.
 
 The fix, covered by replays of exactly this sequence in `client/tests/test_codex_daemon_sessions.py`:
 
@@ -517,7 +516,6 @@ The fix, covered by replays of exactly this sequence in `client/tests/test_codex
 - An empty thread is remembered, not published. Its first word publishes it and credits it to the
   terminal that opened it.
 - A thread deleted in Codex is forgotten even while a daemon runner is attached to it.
-- `--dangerously-bypass-approvals-and-sandbox` joins the flags that mark an embedded app-server.
 - A helper process that exits under `ps` or `lsof` no longer raises `ProcessLookupError` out of the
   scan. The device log shows it aborting whole scan rounds, which left every claim un-revoked; it is
   now an unfinished scan, which changes nothing.
@@ -574,6 +572,47 @@ attach, and a Codex thread opened by a TUI. `hub.load` still reads an archived s
 session never reports a dead state. Archiving a running session still closes its runner and drops
 `control` to `none`, and the resume that follows a later send puts it back to `remote`. Not verified
 in this pass: that the apps move the row out of the Archive on the `session.updated` alone.
+
+### A TUI with flags is still the daemon's (2026-09-12)
+
+The owner ran `codex --dangerously-bypass-approvals-and-sandbox` in
+`/Users/junbingao/github/remote-control` (pid 97125) and typed two messages. Both turns reached the
+apps through the shared daemon, stored with `trigger: "terminal"` and `source: "terminal"`, so the
+TUI was the daemon's. One scan interval after each turn ended the session went `control: "none"`,
+`state: "idle"`, and the web folded it into the Archive while the TUI sat open.
+
+The terminal scan had struck that TUI out of the count because its argv carried
+`--dangerously-bypass-approvals-and-sandbox`, one of five flags the scan believed produced an
+embedded app-server. Measured on the live processes, that belief was false for this flag:
+
+| Question | Answer |
+| --- | --- |
+| Who holds the thread's rollout, `…/sessions/2026/09/12/rollout-2026-09-12T03-27-20-01a091f0….jsonl`? | `codex app-server --listen unix://`, the shared daemon, pid 92162, `74u REG`. `lsof -p 97125` shows the TUI holding no rollout at all, only unix sockets |
+| Does the daemon have the thread? | Yes. `thread/loaded/list` lists `01a091f0-4eb8-7940-8120-5ecd4f27bf74`, `thread/read` answers with that `cwd` and the name "Respond to greeting", and `thread/list` has it first |
+| What did the device conclude? | `resolve(created_here=False, loaded=True, terminal_holds=False)` → `("terminal", "none")`, because the directory had been handed zero claims |
+
+So the scan now classifies a TUI by what it holds, not by the flags it was started with. A `codex`
+on a terminal with no helper subcommand is a candidate; one `lsof` over the candidates then drops
+any that is itself holding a file under `$CODEX_HOME/sessions`, which is what a TUI running its own
+embedded app-server does and a TUI on the shared daemon never does. An `lsof` that does not complete
+leaves the scan `complete: False`, which changes nothing, as before.
+
+Verified live against the same processes, with the device's own `scan_terminals()` called from a
+scratch script:
+
+| Check | Result |
+| --- | --- |
+| The owner's bypass-flag TUI, still running | `complete: True`, `count("/Users/junbingao/github/remote-control") == 1`. The old code gave that directory no candidates at all |
+| Does `-c` still embed on Codex 0.154? | Yes. A `codex -c model_reasoning_effort=low` driven under `pexpect` in a scratch git repository answered one prompt, and while it was alive it held its own rollout (`codex 52962 … 57u REG …/rollout-2026-09-12T03-45-16-01a09200….jsonl`), the shared daemon had no thread in that directory, and `scan_terminals()` counted 0 for it — the exclusion working on a real embedded TUI |
+
+The scratch session was removed afterwards with
+`codex delete --force 01a09200-b9b5-7cc2-8214-e23be1f368c4`, and its rollout file is gone. Codex's
+project-trust prompt appended a `[projects."…"]` block for the scratch directory to
+`~/.codex/config.toml`; as in the pass above, that was written by Codex and was left in place.
+
+Not verified: whether `--enable` and `--disable` embed on 0.154 — only `-c` and the bypass flag were
+measured, and the scan no longer depends on the answer. Nothing in this pass was run against the
+gateway or the apps.
 
 ## 8. Restart resilience
 

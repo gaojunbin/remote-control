@@ -387,15 +387,24 @@ A shared Codex session can do everything a remote one can, which is more than a 
 | Attachments | Yes. Images become image inputs; other files are written to disk and named in the prompt |
 | Take over | No, `conflict`: the session is already attached |
 
-### The one rule for users
+### Which TUIs the daemon owns
 
-**Start Codex as a bare `codex`.** Any `-c`, `--enable`, `--disable` or
-`--dangerously-bypass-approvals-and-sandbox` on the command line makes the CLI spawn its own
-embedded app-server, which the daemon cannot see and the device cannot attach to. Such a session
-still appears in the apps, mirrored from its rollout file with `control: "terminal"`, because the
-rollout holder scan finds the process holding it. It is also excluded from the count of terminals
-the device attributes to daemon threads, so it never speaks for a thread it cannot be in. Anything you would have set with `-c` is set from
-the apps instead, through the model, permission-mode and effort pickers.
+There is no rule about how to start Codex. A TUI started with
+`--dangerously-bypass-approvals-and-sandbox` runs on the shared daemon exactly as a bare `codex`
+does: verified on this Mac on 2026-09-12, where the daemon held that TUI's thread, held its rollout
+open for writing, and relayed both of the turns typed into it. `-c` is different — a TUI started
+with `-c model_reasoning_effort=low` was writing its own rollout on the same day, and the daemon had
+no thread in its directory at all — but the device does not need to know which flags do that, and
+does not look.
+
+What it looks at is what the process holds. A TUI running its own embedded app-server writes the
+thread's rollout itself, so `lsof` finds it holding a file under `$CODEX_HOME/sessions`; a TUI on
+the shared daemon holds no rollout at all, because the daemon holds it. Only the first kind is left
+out of the count of terminals the device attributes to daemon threads, so it never speaks for a
+thread it cannot be in. It still appears in the apps, mirrored from its rollout file with
+`control: "terminal"`, because the rollout holder scan finds the process holding it. Anything you
+would have set with `-c` can be set from the apps instead, through the model, permission-mode and
+effort pickers.
 
 ### Setup
 
@@ -480,10 +489,10 @@ client to connect names the daemon for every thread, so the name is deliberate).
   it is idle; `origin` never changes, the subscription is kept, and the next message typed in that
   terminal makes it `shared` again. Evidence gathered since the last scan outranks the scan, so a
   TUI resumed from a different directory is not written off while it is being used, and a scan that
-  cannot be completed changes nothing. The process test is the same one the installer documents: a
-  `codex` on a terminal, with no subcommand and no `-c`, `--enable`, `--disable` or
-  `--dangerously-bypass-approvals-and-sandbox`, because those run an embedded server that never
-  joins the daemon.
+  cannot be completed changes nothing. The process test is by what the process holds, never by its
+  flags: a `codex` on a terminal with no helper subcommand (`app-server`, `exec`, `mcp`,
+  `mcp-server`, `proto`, `daemon`), minus any that is holding a rollout under `$CODEX_HOME/sessions`
+  open, which is how a TUI running its own embedded app-server gives itself away.
 - **A thread with nothing in it is not a session yet.** A TUI opens a thread the moment it starts,
   before anything is typed into it, and that thread has no name, no preview and no rollout to
   resume. Publishing it would put an untitled row in every app the moment a terminal window opens,
