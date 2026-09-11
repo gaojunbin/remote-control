@@ -56,6 +56,14 @@ const rowTitles = (): string[] =>
     .getAllByRole('button', { name: strings.sessions.open })
     .map((row) => row.querySelector('.session-title')?.textContent ?? '');
 
+/** The tone class on one row's status dot, by the row's title. */
+const dotTone = (title: string): string => {
+  const row = screen
+    .getAllByRole('button', { name: strings.sessions.open })
+    .find((r) => r.querySelector('.session-title')?.textContent === title);
+  return (row?.querySelector('.dot')?.className ?? '').replace('dot ', '');
+};
+
 describe('SessionsPage grouping', () => {
   it('prints each device name exactly as the device reports it', () => {
     renderPage();
@@ -195,5 +203,21 @@ describe('SessionsPage grouping', () => {
     renderPage();
 
     expect(rowTitles()[0]).toBe('Migrate web to Vite 6');
+  });
+
+  it('tones every dot from the state and the control together', async () => {
+    renderPage();
+
+    expect(dotTone('Fix flaky auth test')).toBe('working');
+    expect(dotTone('Migrate web to Vite 6')).toBe('waiting');
+    expect(dotTone('Split the ingest migration')).toBe('waiting');
+    // Idle, but a terminal still holds it: alive rather than exited.
+    expect(dotTone('Wire the channel shim')).toBe('live');
+    expect(dotTone('iOS push tokens')).toBe('live');
+    expect(dotTone('Regenerate the API client')).toBe('failed');
+
+    await userEvent.click(screen.getByRole('button', { name: strings.sessions.archiveGroup(3) }));
+
+    expect(dotTone('Rewrite the pairing docs')).toBe('off');
   });
 });

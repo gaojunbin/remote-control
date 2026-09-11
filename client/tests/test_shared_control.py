@@ -462,3 +462,31 @@ async def test_a_transition_that_moves_the_state_emits_both(harness: Harness) ->
     assert harness.events("meta")[-1]["control"] == "terminal"
     assert harness.events("status")[-1]["state"] == "readonly"
     assert harness.sessions()[-1]["state"] == "readonly"
+
+
+# -------------------------------------------- A12: the app's id is the bubble
+
+SEND_REQUEST = "c41b90d7-52a8-4e3f-9d16-70ab2ce8f145"
+
+
+async def test_a_message_injected_into_a_terminal_keeps_the_request_id(
+    harness: Harness,
+) -> None:
+    await harness.attach()
+    await harness.hub.send({"id": SEND_REQUEST, "session_id": "sess-1", "text": "go"})
+    assert [event["block_id"] for event in harness.events("user_message")] == [SEND_REQUEST]
+
+
+async def test_a_held_message_is_queued_and_delivered_under_the_request_id(
+    harness: Harness,
+) -> None:
+    entry = await harness.attach()
+    await harness.hub.shared.tick(entry, running=True)
+    result = await harness.hub.send({"id": SEND_REQUEST, "session_id": "sess-1", "text": "later"})
+
+    assert result == {"accepted": "queued", "queued_id": SEND_REQUEST}
+    assert harness.events("queue")[-1]["pending"][0]["id"] == SEND_REQUEST
+    await harness.hub.shared.tick(entry, running=False)
+    bubbles = harness.events("user_message")
+    assert [bubble["block_id"] for bubble in bubbles] == [SEND_REQUEST, SEND_REQUEST]
+    assert [bubble["delivery"] for bubble in bubbles] == ["pending", "delivered"]

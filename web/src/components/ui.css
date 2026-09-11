@@ -265,6 +265,32 @@
   animation: rc-pulse 1.8s var(--ease) infinite;
 }
 
+/*
+ * A session's dot, one tone per line of the table in docs/DESIGN.md. The tone
+ * is picked by `dotTone` in dotTone.ts, never by the markup. Only `working`
+ * moves: a blocked session has to stay distinct from a running one at a glance.
+ */
+.dot.working {
+  background: var(--running);
+  animation: rc-pulse 1.8s var(--ease) infinite;
+}
+
+.dot.waiting {
+  background: var(--attention);
+}
+
+.dot.live {
+  background: var(--running);
+}
+
+.dot.off {
+  background: var(--idle);
+}
+
+.dot.failed {
+  background: var(--danger);
+}
+
 @keyframes rc-pulse {
   0%,
   100% {
@@ -272,6 +298,13 @@
   }
   50% {
     opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot.pulse,
+  .dot.working {
+    animation: none;
   }
 }
 
@@ -326,7 +359,7 @@
 
 .badge.warn {
   background: var(--attention-soft);
-  color: #8a5312;
+  color: #775707;
 }
 
 .badge.error {

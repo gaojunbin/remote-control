@@ -58,6 +58,7 @@ class SessionRunner(Protocol):
 
         ``block_id`` reuses an existing bubble instead of opening a new one, so a
         message already shown as pending is replaced in place when it goes out.
+        Amendment A12: for a message an app sent, it is that request's id.
         """
         ...
 
@@ -79,4 +80,4 @@ class SessionRunner(Protocol):
     @property
     def supports_steer(self) -> bool: ...
 
-    async def steer(self, text: str) -> bool: ...
+    async def steer(self, text: str, block_id: str | None = None) -> bool: ...

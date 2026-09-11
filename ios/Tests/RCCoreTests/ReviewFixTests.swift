@@ -79,10 +79,10 @@ struct ReviewFixTests {
         #expect(chat.sendBlockReason == nil)
         #expect(chat.canSend)
 
-        chat.connectionReady = false
+        chat.canReachGateway = false
         #expect(chat.sendBlockReason == "Offline · your draft is saved")
         #expect(!chat.canSend)
-        chat.connectionReady = true
+        chat.canReachGateway = true
 
         chat.deviceOnline = false
         #expect(chat.sendBlockReason == "That device is offline")

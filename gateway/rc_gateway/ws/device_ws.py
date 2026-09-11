@@ -27,7 +27,8 @@ from ..frames import (
     frame_type,
 )
 from ..logging import logger
-from ..security import accept_for_close, state_of
+from ..security import accept_for_close, client_ip, state_of
+from ..state import GatewayState
 
 log = logger("rc_gateway.ws.device")
 router = APIRouter()
@@ -42,6 +43,10 @@ async def device_socket(ws: WebSocket) -> None:
     token = bearer_token(ws.headers.get("authorization"))
     record = await state.devices.device_for_token(token) if token else None
     if record is None:
+        # Nothing above this line does work a caller can aim at: the token lookup is the
+        # credential check itself, and everything else about the refusal is in memory.
+        if _report_rejected(ws, state, "invalid token" if token else "no credential"):
+            return
         # Accept first so the close code reaches the client: a refused handshake is an HTTP 403
         # and a device could not tell a revoked token from an unreachable gateway.
         if await accept_for_close(ws):
@@ -90,6 +95,33 @@ async def device_socket(ws: WebSocket) -> None:
         if attached:
             await state.hub.detach_device(connection)
         await connection.stop()
+
+
+def _report_rejected(ws: WebSocket, state: GatewayState, reason: str) -> bool:
+    """Warn about a refused upgrade. Returns True when the handshake should not be completed.
+
+    A daemon whose machine was wiped retries forever and used to be refused silently, so nothing
+    said where the attempts came from. One line per address per minute carries the count instead,
+    and an address far past any sane retry backoff is refused before the handshake rather than
+    accepted only to be closed. The credential is never part of the line.
+    """
+    address = client_ip(ws, state)
+    outcome = state.device_rejects.record(address)
+    if outcome.report is not None:
+        log.warning(
+            "device upgrade rejected",
+            reason=reason,
+            address=address,
+            device_id=_claimed_device_id(ws) or "unknown",
+            attempts=outcome.report,
+        )
+    return outcome.flooding
+
+
+def _claimed_device_id(ws: WebSocket) -> str:
+    """What the caller said it was. Unverified and only a hint for whoever reads the line."""
+    claimed = ws.headers.get("x-device-id") or ws.query_params.get("device_id") or ""
+    return "".join(char for char in claimed if char.isalnum() or char in "-_")[:64]
 
 
 async def _receive(ws: WebSocket) -> dict[str, Any] | None:

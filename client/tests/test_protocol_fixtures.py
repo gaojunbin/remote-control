@@ -281,7 +281,7 @@ def test_the_shared_codex_session_fixture_is_a_terminal_thread_we_are_attached_t
     assert session.agent == "codex"
     assert (session.origin, session.control) == ("terminal", "shared")
     assert session.state == "running"
-    assert resolve(created_here=False, loaded=True, terminal_seen=True) == (
+    assert resolve(created_here=False, loaded=True, terminal_holds=True) == (
         session.origin,
         session.control,
     )

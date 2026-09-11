@@ -382,6 +382,65 @@ would mean stopping the user's own client. Also unverified: whether `codex resum
 directory other than the thread's own updates the thread's `cwd`. If it does not, that thread reads
 as `none` one scan after its last terminal message; sending from an app still reaches it.
 
+### Why one terminal showed several sessions, 2026-09-11
+
+Starting a bare `codex` put **several rows in the apps' Active list at once**, all of them looking
+like older sessions of the same conversation. The cause is the daemon's own bookkeeping meeting a
+heuristic that cannot ask it a question.
+
+An observer connected to the **real** daemon on this machine (Codex CLI 0.154.0) as a second client
+named `rc-probe`, using the device's own `transport.py` and `rpc.py`, logged every notification with
+the text stripped, and polled `thread/loaded/list`. Two real TUIs were driven in tmux 3.7b in a
+scratch directory, one used and one abandoned:
+
+```sh
+tmux new-session -d -s rcprobe -x 120 -y 40 -c <scratch>/probe \
+  ~/.codex/packages/standalone/current/bin/codex     # bare, no flags
+tmux send-keys -t rcprobe Enter                      # answer the project-trust prompt
+tmux send-keys -t rcprobe 'reply with the single word ok' ; tmux send-keys -t rcprobe Enter
+tmux send-keys -t rcprobe '/quit'                    # run 1: used, then quit
+tmux new-session -d -s rcprobe2 … ; tmux send-keys -t rcprobe2 '/quit'   # run 2: never typed in
+```
+
+| Question | Answer |
+| --- | --- |
+| What does a TUI do when it starts? | It creates a thread, announced by `thread/started`, `ephemeral: false`, `name: null`, no preview, no rollout — 53 s after launch here, because the trust prompt held it |
+| Is that thread a placeholder that is thrown away? | No. The first message ran on that same thread: `thread/status/changed` to `active`, then `thread/name/updated`. The discarded thread recorded earlier is the *title* thread, `ephemeral: true`, which the daemon closes about a minute after it goes idle — the only `thread/closed` seen in either run |
+| What happens to a thread whose TUI never typed? | It stays. `in_history: false`, no rollout file, `name: null`, and still in `thread/loaded/list` after `/quit` |
+| What did the machine hold at that moment? | 6 loaded threads, **4 of them in `/Users/junbingao`, all four named "Respond to greeting"**, the oldest loaded for 16 hours |
+
+That is the whole bug. The daemon never unloads a thread, so a directory accumulates one loaded
+thread per `codex` ever run there; `resolve()` made every loaded thread the device had not created
+`shared`; and the TUI scan could only answer "is a TUI running in this directory", which is true for
+all of them at once. Starting one `codex` in that home directory therefore turned four threads
+`shared` — four Active rows with the same title — and each control change published a summary, so
+they also jumped to the top of the list. Two smaller faults fed the same symptom: an empty startup
+thread was published as an untitled session that `_forget_deleted` then refused to drop because a
+runner was attached to it, and a TUI started with `--dangerously-bypass-approvals-and-sandbox` was
+counted as a daemon terminal even though `lsof` shows it holding its own thread-writer lock on a
+thread the daemon has never loaded (two such TUIs were running on this machine).
+
+The fix, covered by replays of exactly this sequence in `client/tests/test_codex_daemon_sessions.py`:
+
+- `shared` now requires a terminal known to be in *that* thread. `thread/started` from another
+  client and a `userMessage` with a foreign `clientId` are the direct evidence; failing both, the
+  scan counts the TUIs per directory and hands out that many claims, sticky first and then by what
+  the daemon last saw used. A thread this device started gets no scan claim until somebody is seen
+  typing in it.
+- An empty thread is remembered, not published. Its first word publishes it and credits it to the
+  terminal that opened it.
+- A thread deleted in Codex is forgotten even while a daemon runner is attached to it.
+- `--dangerously-bypass-approvals-and-sandbox` joins the flags that mark an embedded app-server.
+- A helper process that exits under `ps` or `lsof` no longer raises `ProcessLookupError` out of the
+  scan. The device log shows it aborting whole scan rounds, which left every claim un-revoked; it is
+  now an unfinished scan, which changes nothing.
+
+Both probe threads were removed with `thread/delete` afterwards and the loaded list checked back to
+the user's own threads. Not verified: how the claim is shared out when one directory really does
+hold two TUIs on two threads — the count is right, but which thread each terminal is credited with
+is a guess ordered by last use. Nothing in this pass was run against the gateway or the apps; the
+before-and-after evidence is the daemon state above, the device log, and the replays.
+
 ## 8. Restart resilience
 
 | Step | Result |
@@ -638,6 +697,61 @@ Two further hardening changes:
 - Both components were edited by their owners between the first pass and this one. Everything in
   this document was re-run against the final tree; earlier results were discarded rather than
   carried forward.
+
+## 14. Gateway latency
+
+2026-09-11, macOS, `gateway/` on a local SSD. Two waits were found on the path a device frame takes
+to the apps, measured before removing them and asserted against afterwards by
+`gateway/tests/test_hot_path.py`.
+
+| What | Before | After |
+| --- | --- | --- |
+| Recording an event's `seq`, per event, ahead of the fan-out | 0.293 ms | 0.00006 ms |
+| 20 events fanned out, with each index write held at 50 ms | 2.233 s | under 0.05 s |
+| Two device frames, with each notification held at 300 ms | 0.642 s | under 0.3 s |
+
+- **The index write was on the fan-out path.** `SessionIndex.record_seq` opened a connection and
+  wrote SQLite on a worker thread, and the event was not forwarded until it returned. It now
+  records in memory and writes from a batching background task, with reads overlaying whatever is
+  unwritten. The brief's figure of 0.8 ms per `sqlite3.connect` did not reproduce here: connecting
+  costs 0.032 ms and the write itself is the rest, and it was never on the event loop.
+- **A notification blocked the device's next frame.** The transition hook was awaited inside the
+  frame handler, and it makes an outbound Web Push or APNs call, so every later frame from that
+  device waited for a third party. It now runs as a tracked task that shutdown drains.
+- **The forward path was not pure.** `Hub._forward` read the whole session summary back from SQLite
+  to learn which device owns it, on every message an app sends. It now reads the in-memory owner
+  map and falls back to the index only for a session first seen by an earlier process. One
+  behaviour change: a session claimed from an event but not yet carrying a summary now forwards
+  instead of answering `not_found`.
+
+Not measured: wall-clock latency through two live WebSockets against a running gateway process. The
+harness for it was not completed, and on loopback the socket overhead would dominate the figures
+above.
+
+## 15. Device flapping (A13)
+
+2026-09-11. Three findings from the VPS investigation, all confirmed in the code and covered by
+`gateway/tests/test_liveness.py`.
+
+- **Two keepalive clocks, and the shorter one won.** Nothing set `ws_ping_interval`, so uvicorn ran
+  its default 20 s ping with a 20 s answer deadline while the contract allows 90 s of silence
+  (`gateway/rc_gateway/frames.py`). A device whose event loop stalled was closed `1011`. Both
+  uvicorn WebSocket implementations honour `None`, including the `websockets-sansio` one that
+  replaces the deprecated default, and the entry point now logs the effective values at startup.
+- **Offline was reported the instant the socket closed.** Now a transient close starts a 20 s grace
+  in which the device is still `online: true`, a replacement ends it silently, and a request
+  addressed to the device waits for that replacement instead of being refused. `4401`, `4403` and
+  an explicit removal still flip it immediately, and replacement by a newer connection still closes
+  the old one `4001`.
+- **Refused upgrades were silent.** 685 of 690 `/ws/device` upgrades in three hours were closed
+  `4401` before hello, from one address, with nothing in the log. They are now reported once per
+  address per minute with the count. An address past 20 attempts in a window is refused before the
+  handshake rather than accepted only to be closed; the observed offender retried about four times
+  a minute, so it would still receive its close code.
+
+Not verified: none of this was exercised against the VPS, which was not touched. The 20 s period
+and the 25 s / 90 s pings are driven in tests at compressed values (0.2 s), so the constants
+themselves are asserted but not observed at full length.
 
 ## Smoke procedure
 

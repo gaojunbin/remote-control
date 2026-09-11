@@ -100,3 +100,83 @@ def test_rekey_moves_sessions_events_and_requests(tmp_path: Path) -> None:
     assert registry.recall_request("real-1", "r1") == {"accepted": "sent"}
     assert registry.history("pending-1") == ([], False)
     registry.close()
+
+
+# ------------------------------------- writes leave the event loop alone
+
+
+async def test_writes_are_deferred_and_applied_in_one_batch(tmp_path: Path) -> None:
+    """A commit is a disk flush; the loop must not wait for one per event."""
+    import asyncio
+    import sqlite3
+
+    path = tmp_path / "state.sqlite3"
+    registry = Registry(path)
+    reader = sqlite3.connect(str(path))
+    try:
+        registry.upsert_session(make_session())
+        for index in range(20):
+            store(registry, "s1", kind="assistant_text", block_id=f"b{index}")
+        stored = reader.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        assert stored == 0, "nothing was written while the loop was running"
+
+        async def landed() -> None:
+            while reader.execute("SELECT COUNT(*) FROM events").fetchone()[0] < 20:
+                await asyncio.sleep(0.01)
+
+        await asyncio.wait_for(landed(), timeout=5)
+    finally:
+        reader.close()
+        registry.close()
+
+
+async def test_a_read_sees_a_write_that_has_not_landed_yet(tmp_path: Path) -> None:
+    registry = Registry(tmp_path / "state.sqlite3")
+    try:
+        registry.upsert_session(make_session())
+        store(registry, "s1", kind="assistant_text", block_id="b1")
+        events, _ = registry.history("s1")
+        assert [event["block_id"] for event in events] == ["b1"]
+        assert [session.session_id for session in registry.load_sessions()] == ["s1"]
+        registry.set_kv("offset", "42")
+        assert registry.get_kv("offset") == "42"
+    finally:
+        registry.close()
+
+
+def test_closing_applies_everything_still_queued(tmp_path: Path) -> None:
+    path = tmp_path / "state.sqlite3"
+    registry = Registry(path)
+    registry.upsert_session(make_session())
+    store(registry, "s1", kind="assistant_text", block_id="b1")
+    registry.close()
+
+    reopened = Registry(path)
+    try:
+        events, _ = reopened.history("s1")
+        assert [event["block_id"] for event in events] == ["b1"]
+        assert reopened.next_seq("s1") == 2
+    finally:
+        reopened.close()
+
+
+def test_pruning_keeps_the_newest_events_without_counting_the_rest(tmp_path: Path) -> None:
+    import rc_client.registry as registry_module
+
+    registry = Registry(tmp_path / "state.sqlite3")
+    try:
+        registry.upsert_session(make_session())
+        for index in range(30):
+            store(registry, "s1", kind="assistant_text", block_id=f"b{index}")
+        registry.flush()
+        registry._prune_to("s1", 10)
+        registry.flush()
+        events, _ = registry.history("s1", limit=1000)
+        assert [event["block_id"] for event in events] == [f"b{index}" for index in range(20, 30)]
+        # And a session with less history than the bound loses nothing.
+        registry._prune_to("s1", 10_000)
+        events, _ = registry.history("s1", limit=1000)
+        assert len(events) == 10
+        assert registry_module.MAX_EVENTS_PER_SESSION > 0
+    finally:
+        registry.close()

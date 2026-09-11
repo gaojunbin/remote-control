@@ -36,12 +36,13 @@ cd web && npm ci
 
 `mock/server.ts` implements the app-facing half of the protocol — the HTTP API, `WS /ws/app` and
 `WS /ws/stt` — so the whole UI can be developed with no gateway and no device. It ships two devices
-and fourteen sessions covering running, needs-approval, idle, terminal-controlled, shared through the
-Claude channel, shared through the Codex daemon, Codex, terminal sessions on a device that has
-neither the shim nor the Codex daemon, three sessions whose CLI exited (`control: "none"`) and two
-archived by hand, spread over both devices so every device group has both halves of an Archive under
-it. Opening the running session plays a scripted turn: streamed thinking, streamed Markdown, tool
-rows with a live output box, a failing shell run, two diffs, an approval and a question. Both drive the
+and sixteen sessions covering running, needs-approval, needs-input, errored, idle,
+terminal-controlled, shared through the Claude channel, shared through the Codex daemon, Codex,
+terminal sessions on a device that has neither the shim nor the Codex daemon, three sessions whose
+CLI exited (`control: "none"`) and two archived by hand, spread over both devices so every device
+group has both halves of an Archive under it. Between them they show all five status-dot tones.
+Opening the running session plays a scripted turn: streamed thinking, streamed Markdown, tool rows
+with a live output box, a failing shell run, two diffs, an approval and a question. Both drive the
 turn to completion. The shared session plays the A10 path end to end: a send while the terminal is
 idle is injected at once and answers with a relayed Allow/Deny approval, a send during that turn is
 held and shows the "waiting for the terminal" chip until the turn ends, and `session.set`,
@@ -49,7 +50,11 @@ held and shows the "waiting for the terminal" chip until the turn ends, and `ses
 Codex session plays the A11 path: it opens on a turn the terminal started, a send steers that turn
 (`accepted: "steered"`), `session.set` applies, Stop interrupts, and a command approval offers all
 four daemon decisions. Its history carries a request the TUI answered first, so the card reads
-"Answered in the terminal". Pairing walks
+"Answered in the terminal". A send is answered at once and the `user_message` echoed 400 ms later under the
+request id, the way a device behaves (A12), so the pending bubble is visible in development; a
+message queued during a turn is dequeued when that turn ends and keeps its id, while a turn the mock
+starts itself, such as a `first_message`, mints its own block id and exercises the app's fallback.
+Pairing walks
 `waiting → enrolled → online → agents` over about six seconds, and the speech socket returns
 scripted partials and a final transcript. The mock and the tests share
 `mock/fixtures.ts`, so a fixture change shows up in both.
@@ -130,14 +135,31 @@ focuses an open tab or opens `/sessions/<device_id>/<session_id>`.
 - **Close codes** 4401 and 4403 end the session and return to login; every other code reconnects.
 - **Sending** is always `mode: "auto"`; the device decides between send, steer and queue, and the
   button label follows that decision. "Interrupt & send" is a separate, explicit action.
+- **A send shows up immediately** (amendment A12). The app mints the `session.send` request id, and
+  the device echoes it as the `user_message` block id, so the composer clears and the bubble is in
+  the timeline in the same tick as the click — no waiting for the round trip. It renders dimmed with
+  a quiet "Sending…" chip until the device's event replaces it under the ordinary replacement rule,
+  so nothing moves and nothing is duplicated. The pending rows live in `timeline.optimistic`, apart
+  from the device's blocks: they carry no `seq`, never move the replay cursor, always sort last, and
+  survive a resync. `accepted: "queued"` takes the row away again, because the queue row above the
+  composer stands for the message until the device dequeues it under that id and it lands as an
+  ordinary block; a refusal the gateway is certain about also takes the row away, and hands the
+  draft back if nothing was typed since; a minute with no device event turns the chip into
+  "Delivery unconfirmed". A device that still mints its own block id is reconciled by `text` and
+  `source: "remote"` instead, one row per event.
 - **Uncertain delivery** is never resent automatically. The composer offers a Retry that reuses the
   original request id.
 - **The composer is gated on `control`**, never on `state`.
+- **A session's status dot** is toned by `dotTone(state, control, online)` in
+  `src/components/dotTone.ts`, never by the state alone: a finished turn on a live session and a
+  session whose CLI exited both report `idle`. The five tones and when each applies are the table in
+  `docs/DESIGN.md`; `tests/dotTone.test.ts` walks all of it. `OnlineDot`, the device's own dot, is
+  not part of it.
 - **`control: "shared"`** (amendments A10 and A11) is a live terminal session the device is
   attached to. It behaves like `remote`: the composer, the queue and approvals all work. What the
-  attachment cannot carry is disabled, and "Take over" never appears, because there is nothing to
-  take over. Three optional agent booleans say what it carries — `shared_interrupt`,
-  `shared_settings` and `shared_attachments` — each defaulting to false.
+  attachment cannot carry is hidden rather than disabled, and "Take over" never appears, because
+  there is nothing to take over. Three optional agent booleans say what it carries —
+  `shared_interrupt`, `shared_settings` and `shared_attachments` — each defaulting to false.
 - **Long output folds** beyond 20 lines, and `output_truncated` adds "Open full output", which
   fetches the untruncated block.
 - **Reading position** holds: the timeline auto-follows until you scroll away, then counts new
@@ -151,15 +173,20 @@ can inject prompts and answer permission prompts without killing the process. A 
 attached through the channel shim; a bare `codex` TUI is attached through the shared app-server
 daemon, which carries far more.
 
+A control the attachment cannot drive is **hidden, not disabled with a reason**. Nothing above the
+composer repeats what the header already says, so an attached session carries no bar of its own: the
+status line is left to a running turn's steer or queue notice, "Controlled by the terminal · take
+over to send" and "Device offline".
+
 | Surface | Behaviour |
 | --- | --- |
 | Composer | Enabled, exactly as for `remote`. Send label and queue are unchanged |
 | Take over | Never shown. The device is already attached |
 | Stop | Shown only when the agent lists the `interrupt` capability **and** the device reports `shared_interrupt`. A Claude channel cannot interrupt, so Stop and "Interrupt & send" both disappear |
-| Model / permission mode / effort | Enabled when the agent reports `shared_settings`; otherwise disabled with the tooltip "Change it in the terminal". The title is always editable |
-| Attachments | Enabled when the agent reports `shared_attachments`; otherwise disabled with the tooltip "Attachments cannot be delivered to a terminal session", and pasted files are ignored |
-| Attached bar | "Attached to the terminal" when the agent reports both booleans, because nothing is left to the terminal alone; "Attached to the terminal session" while something still is |
-| Status label | "terminal · attached" in the sidebar and the Sessions list; the dot uses the session `state`, so it matches `remote` |
+| Model / permission mode / effort | Shown when the agent reports `shared_settings`; otherwise not rendered at all, and nothing explains their absence. The title is always editable |
+| Attachments | Shown when the agent reports `shared_attachments`; otherwise the button and its file input are not rendered, and pasted files are ignored quietly |
+| Attached bar | None. The header's "terminal · attached" is the only place the attachment is named |
+| Status label | "terminal · attached" in the sidebar and the Sessions list; the dot tones `shared` exactly like `remote` |
 | Approvals | Whatever `options` the block carries. A Claude relay sends Allow and Deny; the Codex daemon sends up to four decisions |
 
 The three booleans are independent and read straight off `AgentInfo`, so no surface needs
@@ -232,7 +259,8 @@ device-offline and gateway-restart recovery, and the 390 px layout. Details and 
 `docs/VALIDATION-APPS.md`.
 
 The A11 shared-Codex surfaces were driven in headless Chrome against the mock gateway: the pickers
-and the attachment button enabled by the two booleans, Stop on a shared turn, a send that steers the
+and the attachment button shown by the two booleans and absent without them, no bar above the
+composer on either shared agent, Stop on a shared turn, a send that steers the
 running turn, a four-option approval answered with "Always allow commands like this" at 1280 px and
 wrapping inside the card at 390 px, the "Answered in the terminal" card, and the daemon hint on a
 terminal Codex session. "Interrupt & send" was driven separately and ends the terminal turn before
@@ -242,6 +270,11 @@ were checked over the socket against the mock. Screenshots are not checked into 
 The approval path was re-verified on the fixed device daemon: the card stays pending until it is
 answered, Allow writes the file, Deny leaves it absent, and both decisions are recorded against the
 remote user.
+
+The A12 send path was driven in the installed Chrome against the mock gateway: the bubble is on
+screen in the frame after the click, the device's echo replaces it in place on the idle, steered and
+queued paths, and the queued message is dequeued under its own id with no second bubble. The dated
+entry is in `docs/VALIDATION-APPS.md`.
 
 ## Not verified
 

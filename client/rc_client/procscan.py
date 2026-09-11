@@ -9,6 +9,7 @@ reads `/proc` directly.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import subprocess
 import sys
@@ -51,18 +52,29 @@ class Scan:
 
 
 async def _run(*args: str, timeout: float = SCAN_TIMEOUT) -> tuple[int, str]:
+    """Run one helper and read its output. A non-zero code means "do not know".
+
+    A child that exits while the loop is still holding it raises
+    `ProcessLookupError` from whichever call reaches it first, and that has to
+    stay inside this function: it reaches the caller as an unfinished scan,
+    which every caller already knows how to refuse, whereas an exception
+    escaping here takes down the whole scan round with it.
+    """
     try:
         process = await asyncio.create_subprocess_exec(
             *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
         )
-    except (FileNotFoundError, PermissionError):
+    except (FileNotFoundError, PermissionError, ProcessLookupError):
         return 127, ""
     try:
         out, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
     except TimeoutError:
-        process.kill()
-        await process.wait()
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+            await process.wait()
         return 124, ""
+    except ProcessLookupError:
+        return 127, ""
     return process.returncode or 0, out.decode("utf-8", "replace")
 
 

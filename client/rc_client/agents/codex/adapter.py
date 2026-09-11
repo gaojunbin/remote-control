@@ -232,7 +232,7 @@ class CodexRunner:
         self._turn_id = str(turn.get("id") or "") or str(uuid.uuid4())
         await self.channel.begin_turn(source)
 
-    async def steer(self, text: str) -> bool:
+    async def steer(self, text: str, block_id: str | None = None) -> bool:
         server = self._server
         if server is None or self._thread_id is None or self._turn_id is None:
             return False
@@ -248,7 +248,10 @@ class CodexRunner:
         except RcError:
             return False
         await self.channel.emit(
-            "user_message", block_id=f"user:{uuid.uuid4()}", text=text, source="remote"
+            "user_message",
+            block_id=block_id or f"user:{uuid.uuid4()}",
+            text=text,
+            source="remote",
         )
         return True
 

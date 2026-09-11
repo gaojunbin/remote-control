@@ -1,4 +1,5 @@
 import SwiftUI
+import RCCore
 #if os(iOS)
 import UIKit
 #endif
@@ -26,7 +27,11 @@ public enum Theme {
     public static let quietFill = ink.opacity(0.06)
 
     public static let running = dynamic(light: 0x22A06B, dark: 0x36BE85)
-    public static let attention = dynamic(light: 0xE0862B, dark: 0xF0A050)
+    /// Amber, not orange: a session blocked on the user has to read as yellow
+    /// beside a green one, and still clear 3:1 against both the white surface a
+    /// row sits on (3.67:1) and the canvas behind the chat status line (3.36:1).
+    /// The light value is the shared `--attention` token in `docs/DESIGN.md`.
+    public static let attention = dynamic(light: 0xB07C00, dark: 0xE3B341)
     public static let resting = dynamic(light: 0xB5B5B0, dark: 0x6E6E69)
     public static let danger = dynamic(light: 0xD23F31, dark: 0xE8695C)
 
@@ -82,13 +87,14 @@ public enum Theme {
     /// Tracking on an uppercase group header. Small caps by another name.
     public static let headerKerning: CGFloat = 0.7
 
-    /// The colour a session's status dot uses.
-    public static func statusColor(_ state: SessionStateToken) -> Color {
-        switch state {
-        case .running: running
-        case .attention: attention
-        case .error: danger
-        case .resting: resting
+    /// The colour a session's status dot uses. `working` and `live` share the
+    /// green; the pulse is what tells a running turn from a quiet one.
+    public static func dotColor(_ tone: DotTone) -> Color {
+        switch tone {
+        case .working, .live: running
+        case .waiting: attention
+        case .failed: danger
+        case .off: resting
         }
     }
 
@@ -101,12 +107,6 @@ public enum Theme {
         Color(rgb: light)
         #endif
     }
-}
-
-/// The four visual states a session dot can take. Shape and text always carry
-/// the same information, so colour is never the only signal.
-public enum SessionStateToken: Sendable {
-    case running, attention, error, resting
 }
 
 extension Color {

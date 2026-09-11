@@ -106,7 +106,8 @@ private struct SubtitleBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.tight) {
             HStack(spacing: Theme.Space.tight) {
-                StatusLabel(state: session.state, text: session.statusLabel)
+                StatusLabel(tone: session.dotTone(online: device?.online ?? false),
+                            text: session.statusLabel)
                     .layoutPriority(2)
                 Text("·").font(Theme.Text.caption).foregroundStyle(Theme.inkSecondary)
                 Text(device?.name ?? session.deviceID)
@@ -243,6 +244,13 @@ private struct Transcript: View {
                 guard chat.isFollowingTail else { return }
                 scrollToTail(proxy)
             }
+            // A12: a message this app has just sent carries no `seq`, so the
+            // cursor above cannot see it arrive. Without this the bubble would
+            // be added below the fold on a full screen.
+            .onChange(of: chat.timeline.optimistic.count) { _, _ in
+                guard chat.isFollowingTail else { return }
+                scrollToTail(proxy)
+            }
             .overlay(alignment: .bottomTrailing) {
                 Group {
                     if !chat.isFollowingTail {
@@ -335,7 +343,7 @@ private struct StatusLine: View {
             VStack(alignment: .leading, spacing: Theme.Space.tight) {
                 if let text = chat.statusLine {
                     HStack(spacing: Theme.Space.tight) {
-                        StatusDot(state: chat.session.state, size: 6)
+                        StatusDot(tone: chat.session.dotTone(online: chat.deviceOnline), size: 6)
                         Text(text)
                             .font(.footnote)
                             .foregroundStyle(Theme.inkSecondary)

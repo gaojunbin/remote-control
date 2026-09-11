@@ -11,7 +11,7 @@ struct TimelineRow: View {
     var body: some View {
         switch entry.body {
         case .userMessage(let payload):
-            UserMessageRow(payload: payload)
+            UserMessageRow(payload: payload, pending: entry.pending)
         case .assistantText:
             MarkdownText(entry.text)
                 .padding(.vertical, 2)
@@ -41,6 +41,13 @@ struct TimelineRow: View {
 
 private struct UserMessageRow: View {
     let payload: UserMessagePayload
+    /// Amendment A12: set while this is the app's own copy, shown before the
+    /// device has echoed the message back.
+    var pending: OptimisticMessage?
+
+    /// A send that has waited far longer than any request takes has not been
+    /// confirmed, and the row stops saying it is on its way.
+    @State private var isUnconfirmed = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.tight) {
@@ -62,6 +69,12 @@ private struct UserMessageRow: View {
                 DeliveryChip(label: Text("waiting for the terminal"))
             } else if payload.delivery == .absorbed {
                 DeliveryChip(label: Text("will be re-sent"))
+            } else if pending != nil {
+                // A word, not a spinner: the message is already on screen, and
+                // a turning wheel would say the app is busy when it is not.
+                Text(isUnconfirmed ? "Delivery unconfirmed" : "Sending…")
+                    .font(.caption)
+                    .foregroundStyle(isUnconfirmed ? Theme.attention : Theme.inkSecondary)
             } else if payload.source == .terminal {
                 Text("sent from the terminal").font(.caption).foregroundStyle(Theme.inkSecondary)
             } else if payload.source == .queue {
@@ -72,9 +85,22 @@ private struct UserMessageRow: View {
         .padding(Theme.Space.small + 2)
         .background(Theme.surfaceSunken,
                     in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        // The bubble is slightly back until the device has it, so the reader
+        // can tell what has landed from what is still on its way.
+        .opacity(pending == nil || isUnconfirmed ? 1 : 0.55)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(spokenLabel)
         .accessibilityIdentifier(identifier)
+        // One sleep per pending row, waking exactly when the wording changes,
+        // rather than a clock the whole transcript redraws from.
+        .task(id: pending?.id) {
+            guard let pending else { isUnconfirmed = false; return }
+            isUnconfirmed = pending.isUnconfirmed()
+            guard !isUnconfirmed else { return }
+            try? await Task.sleep(for: .seconds(pending.remainingBeforeUnconfirmed()))
+            guard !Task.isCancelled else { return }
+            isUnconfirmed = true
+        }
     }
 
     /// The chip is inside a combined element, so its words have to reach
@@ -84,15 +110,18 @@ private struct UserMessageRow: View {
         switch payload.delivery {
         case .some(.pending): return said + Text(", waiting for the terminal")
         case .some(.absorbed): return said + Text(", will be re-sent")
-        default: return said
+        default:
+            guard pending != nil else { return said }
+            return said + Text(isUnconfirmed ? ", delivery unconfirmed" : ", sending")
         }
     }
 
     /// Amendment A10: the row names its delivery state, so a test and VoiceOver
     /// reach the chip even though the bubble is one combined element.
     private var identifier: String {
-        guard let delivery = payload.delivery else { return "chat.message" }
-        return "chat.message.\(delivery.rawValue)"
+        if let delivery = payload.delivery { return "chat.message.\(delivery.rawValue)" }
+        guard pending != nil else { return "chat.message" }
+        return isUnconfirmed ? "chat.message.unconfirmed" : "chat.message.sending"
     }
 }
 

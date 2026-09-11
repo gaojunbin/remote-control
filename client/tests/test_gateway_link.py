@@ -14,8 +14,9 @@ from websockets.asyncio.client import connect as websockets_connect
 from websockets.asyncio.server import ServerConnection, serve
 
 from rc_client import gateway as rc_gateway
+from rc_client import linkstate
 from rc_client.errors import RcError
-from rc_client.gateway import ByteQueue, GatewayLink, describe_error
+from rc_client.gateway import ByteQueue, GatewayLink, close_code, describe_error, reconnect_delay
 
 
 class FakeGateway:
@@ -43,9 +44,9 @@ class FakeGateway:
             self._server.close()
             await self._server.wait_closed()
 
-    async def close_current(self) -> None:
+    async def close_current(self, code: int = 1000, reason: str = "") -> None:
         for socket in list(self._sockets):
-            await socket.close()
+            await socket.close(code, reason)
 
     async def send(self, frame: dict[str, Any]) -> None:
         await self._sockets[-1].send(json.dumps(frame))
@@ -301,3 +302,114 @@ def test_the_logged_reason_hides_the_token_and_is_bounded() -> None:
     assert long.endswith("...")
 
     assert describe_error(RuntimeError()) == "RuntimeError"
+
+
+# ------------------------------------------- what the link does on connect
+
+
+async def test_the_pump_answers_requests_while_connect_work_is_still_running(
+    gateway: FakeGateway,
+) -> None:
+    """A backfill that waits for the gateway cannot be what the gateway waits for."""
+    released = asyncio.Event()
+    started = asyncio.Event()
+
+    async def on_ready() -> None:
+        started.set()
+        await released.wait()
+
+    async def handler(frame: dict[str, Any]) -> dict[str, Any]:
+        return {"echo": frame.get("text")}
+
+    link = GatewayLink(
+        gateway.url,
+        "device-token",
+        hello=hello_payload,
+        handlers={"session.send": handler},
+        on_ready=on_ready,
+    )
+    link.start()
+    await asyncio.wait_for(gateway.ready.wait(), timeout=5)
+    await asyncio.wait_for(started.wait(), timeout=5)
+
+    await gateway.send({"type": "session.send", "id": "req-1", "from": "app-1", "text": "hi"})
+    reply = await gateway.wait_for("reply")
+    assert reply["result"] == {"echo": "hi"}
+    released.set()
+    await link.stop()
+
+
+async def test_connect_work_is_dropped_when_the_connection_goes(
+    gateway: FakeGateway,
+) -> None:
+    running = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def on_ready() -> None:
+        running.set()
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    link = GatewayLink(
+        gateway.url, "device-token", hello=hello_payload, handlers={}, on_ready=on_ready
+    )
+    link.start()
+    await asyncio.wait_for(running.wait(), timeout=5)
+    await gateway.close_current()
+    await asyncio.wait_for(cancelled.wait(), timeout=5)
+    await link.stop()
+
+
+# -------------------------------------------------- close codes (2.5 / A4)
+
+
+def test_the_close_code_decides_whether_to_dial_again() -> None:
+    assert 4401 in rc_gateway.FATAL_CLOSE_CODES
+    assert 4403 in rc_gateway.FATAL_CLOSE_CODES
+    assert 1011 not in rc_gateway.FATAL_CLOSE_CODES
+    # A replaced connection waits rather than racing the one that replaced it.
+    assert reconnect_delay(0, rc_gateway.REPLACED_CLOSE_CODE) >= rc_gateway.REPLACED_DELAY
+    assert reconnect_delay(0, 1011) == rc_gateway.BACKOFF_STEPS[0]
+    assert reconnect_delay(99, None) == rc_gateway.BACKOFF_STEPS[-1]
+
+
+def test_a_close_code_is_read_from_the_exception() -> None:
+    closed = websockets.exceptions.ConnectionClosedError(
+        websockets.frames.Close(4401, "device revoked"), None
+    )
+    assert close_code(closed) == 4401
+    assert close_code(RcError("timeout", "no frames")) is None
+
+
+@pytest.mark.parametrize("code", [4401, 4403])
+async def test_a_rejected_credential_stops_the_link(gateway: FakeGateway, code: int) -> None:
+    link = await link_to(gateway, {})
+    await gateway.close_current(code, "no")
+
+    async def settle() -> None:
+        while link._task is not None and not link._task.done():
+            await asyncio.sleep(0.01)
+
+    await asyncio.wait_for(settle(), timeout=5)
+    assert gateway.connections == 1, "the link never dialled again"
+    state = linkstate.read()
+    assert state is not None and state.status == linkstate.REJECTED
+    await link.stop()
+
+
+async def test_a_transient_close_is_retried(
+    gateway: FakeGateway, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(rc_gateway, "BACKOFF_STEPS", (0.01,))
+    link = await link_to(gateway, {})
+    await gateway.close_current(1011, "keepalive")
+
+    async def reconnected() -> None:
+        while gateway.connections < 2:
+            await asyncio.sleep(0.01)
+
+    await asyncio.wait_for(reconnected(), timeout=5)
+    await link.stop()

@@ -135,7 +135,7 @@ async def _close_unauthorized(
         await ws.close(code=code, reason=reason)
 
 
-def client_ip(request: Request, state: GatewayState) -> str:
+def client_ip(request: Request | WebSocket, state: GatewayState) -> str:
     """The caller's address, trusting ``X-Forwarded-For`` only from a configured proxy.
 
     Without this rule every user behind the proxy would share one rate-limit bucket. With a naive

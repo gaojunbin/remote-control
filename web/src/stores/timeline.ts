@@ -9,9 +9,15 @@
  *  - events carrying `parent_block_id` belong under their parent tool row;
  *  - blocks are ordered by `first_seq ?? seq`, so a tool call that finishes long
  *    after it started keeps its place — live and after a reload.
+ *
+ * Amendment A12 adds one more: the app mints the `session.send` request id and
+ * the device echoes it as the `user_message` block id, so the message is shown
+ * the moment it is sent and the device's event replaces it under rule 1. Those
+ * optimistic blocks are kept apart from `items` — they carry no `seq`, must not
+ * move the replay cursor, and always sort after everything the device sent.
  */
 import { eventKey } from '../lib/ids';
-import type { SessionEvent } from '../protocol/types';
+import type { Attachment, SessionEvent } from '../protocol/types';
 
 export interface TimelineItem {
   key: string;
@@ -20,6 +26,18 @@ export interface TimelineItem {
   ts: number;
   parentBlockId: string | null;
   event: SessionEvent;
+  /** Set on a row the device has not confirmed yet. */
+  pending?: OptimisticBlock;
+}
+
+/** A message this app has sent and the device has not echoed back yet (A12). */
+export interface OptimisticBlock {
+  /** The `session.send` request id, which becomes the device's `block_id`. */
+  id: string;
+  text: string;
+  attachments: Attachment[];
+  /** When the app sent it, for the unconfirmed timeout. */
+  at: number;
 }
 
 export interface TimelineState {
@@ -27,10 +45,20 @@ export interface TimelineState {
   items: Record<string, TimelineItem>;
   lastSeq: number;
   oldestSeq: number | null;
+  /** Sent, not yet confirmed. Rendered after `order`, oldest first. */
+  optimistic: OptimisticBlock[];
 }
 
 export function emptyTimeline(): TimelineState {
-  return { order: [], items: {}, lastSeq: 0, oldestSeq: null };
+  return { order: [], items: {}, lastSeq: 0, oldestSeq: null, optimistic: [] };
+}
+
+/**
+ * A fresh timeline for a resync that keeps the unconfirmed sends. Dropping them
+ * would make a message the user just sent vanish on a reconnect.
+ */
+export function keepOptimistic(previous: TimelineState): TimelineState {
+  return { ...emptyTimeline(), optimistic: previous.optimistic };
 }
 
 /** Event kinds that never produce a timeline item. */
@@ -109,6 +137,55 @@ function insertOrdered(
   return next;
 }
 
+/* --------------------------------------------------------- optimistic (A12) */
+
+/** How long an unconfirmed send waits before the row says so. */
+export const UNCONFIRMED_AFTER_MS = 60_000;
+
+/** Whether a pending row has waited too long. Pure; the row needs only a clock. */
+export function isUnconfirmed(block: OptimisticBlock, now: number): boolean {
+  return now - block.at >= UNCONFIRMED_AFTER_MS;
+}
+
+/** Show a message the moment it is sent. Idempotent, so Retry reuses the row. */
+export function addOptimistic(state: TimelineState, block: OptimisticBlock): TimelineState {
+  if (state.items[block.id] || state.optimistic.some((b) => b.id === block.id)) return state;
+  return { ...state, optimistic: [...state.optimistic, block] };
+}
+
+/** Drop a pending row: the send was refused, or its queue entry was removed. */
+export function removeOptimistic(state: TimelineState, id: string): TimelineState {
+  if (!state.optimistic.some((b) => b.id === id)) return state;
+  return { ...state, optimistic: state.optimistic.filter((b) => b.id !== id) };
+}
+
+/**
+ * Retire the pending rows a `queue` snapshot has taken over. A queued message
+ * is represented by the row above the composer until the device dequeues it and
+ * emits the `user_message` under the same id (A12), so showing both would show
+ * it twice.
+ */
+export function dropQueued(state: TimelineState, ids: readonly string[]): TimelineState {
+  if (state.optimistic.length === 0 || ids.length === 0) return state;
+  const optimistic = state.optimistic.filter((block) => !ids.includes(block.id));
+  return optimistic.length === state.optimistic.length ? state : { ...state, optimistic };
+}
+
+/**
+ * Retire the pending rows an incoming event confirms. The id match is A12; the
+ * text match is the fallback for a device that still mints its own block ids,
+ * and only ever retires one row per event.
+ */
+function reconcile(optimistic: OptimisticBlock[], event: SessionEvent): OptimisticBlock[] {
+  if (optimistic.length === 0) return optimistic;
+  const key = keyFor(event);
+  if (optimistic.some((b) => b.id === key)) return optimistic.filter((b) => b.id !== key);
+  if (event.kind !== 'user_message' || event.source !== 'remote') return optimistic;
+  const index = optimistic.findIndex((b) => b.text === event.text);
+  if (index === -1) return optimistic;
+  return optimistic.filter((_, i) => i !== index);
+}
+
 /** Apply a live event. Out-of-order or duplicate frames are dropped. */
 export function applyEvent(state: TimelineState, event: SessionEvent): TimelineState {
   if (event.seq <= state.lastSeq) return state;
@@ -117,7 +194,8 @@ export function applyEvent(state: TimelineState, event: SessionEvent): TimelineS
   const item = mergeItem(previous, event);
   const lastSeq = event.seq;
   const oldestSeq = state.oldestSeq === null ? event.seq : Math.min(state.oldestSeq, event.seq);
-  if (!item) return { ...state, lastSeq };
+  const optimistic = reconcile(state.optimistic, event);
+  if (!item) return { ...state, lastSeq, optimistic };
 
   const items = { ...state.items, [key]: item };
   let order = state.order;
@@ -132,7 +210,7 @@ export function applyEvent(state: TimelineState, event: SessionEvent): TimelineS
       item.seq,
     );
   }
-  return { order, items, lastSeq, oldestSeq };
+  return { order, items, lastSeq, oldestSeq, optimistic };
 }
 
 export function applyEvents(state: TimelineState, events: readonly SessionEvent[]): TimelineState {
@@ -148,8 +226,11 @@ export function mergeHistory(state: TimelineState, events: readonly SessionEvent
   const items = { ...state.items };
   const added: TimelineItem[] = [];
   let oldest = state.oldestSeq;
+  let optimistic = state.optimistic;
   for (const event of events) {
     if (oldest === null || event.seq < oldest) oldest = event.seq;
+    // A page can carry the device's copy of a send this app is still showing.
+    optimistic = reconcile(optimistic, event);
     const key = keyFor(event);
     if (items[key]) continue;
     const item = mergeItem(undefined, event);
@@ -165,6 +246,7 @@ export function mergeHistory(state: TimelineState, events: readonly SessionEvent
     items,
     lastSeq: Math.max(state.lastSeq, events[events.length - 1]?.seq ?? 0),
     oldestSeq: oldest,
+    optimistic,
   };
 }
 
@@ -208,7 +290,11 @@ export interface TimelineView {
   children: Record<string, TimelineItem[]>;
 }
 
-/** Split items into top-level rows and sub-agent children keyed by parent block. */
+/**
+ * Split items into top-level rows and sub-agent children keyed by parent block,
+ * then append the sends the device has not confirmed yet. A pending row carries
+ * the `user_message` it will become, so the timeline renders it like any other.
+ */
 export function selectView(state: TimelineState): TimelineView {
   const roots: TimelineItem[] = [];
   const children: Record<string, TimelineItem[]> = {};
@@ -222,5 +308,29 @@ export function selectView(state: TimelineState): TimelineView {
       roots.push(item);
     }
   }
+  for (const block of state.optimistic) {
+    if (state.items[block.id]) continue;
+    roots.push(pendingItem(block));
+  }
   return { roots, children };
+}
+
+function pendingItem(block: OptimisticBlock): TimelineItem {
+  return {
+    key: block.id,
+    // Pending rows always sort last; they hold no device `seq`.
+    seq: Number.MAX_SAFE_INTEGER,
+    ts: block.at,
+    parentBlockId: null,
+    pending: block,
+    event: {
+      seq: 0,
+      ts: block.at,
+      kind: 'user_message',
+      block_id: block.id,
+      text: block.text,
+      source: 'remote',
+      ...(block.attachments.length > 0 ? { attachments: block.attachments } : {}),
+    },
+  };
 }

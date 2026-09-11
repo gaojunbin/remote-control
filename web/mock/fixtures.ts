@@ -277,6 +277,33 @@ export const sessions: Session[] = [
     updated_at: minutes(8),
   }),
   session({
+    // A question the agent is blocked on: the dot reads `waiting`, like the
+    // pending approval above it, because both are the user's turn to answer.
+    session_id: 'ses-answer',
+    device_id: 'dev-ci',
+    title: 'Split the ingest migration',
+    cwd: '/home/ci/work/api',
+    state: 'needs_input',
+    state_detail: 'Waiting on an answer',
+    updated_at: minutes(9),
+    git: { branch: 'feat/ingest-split', dirty: true, ahead: 1, behind: 0, worktree: false },
+  }),
+  session({
+    // The CLI failed but the session is still ours, so the row stays active and
+    // its dot reads `failed` rather than `off`.
+    session_id: 'ses-crash',
+    device_id: 'dev-mac',
+    title: 'Regenerate the API client',
+    cwd: '/Users/me/dev/remote-control/gateway',
+    agent: 'codex',
+    model: 'gpt-5.4-codex',
+    permission_mode: 'on-request',
+    effort: 'medium',
+    state: 'error',
+    state_detail: 'the CLI exited with 1',
+    updated_at: minutes(35),
+  }),
+  session({
     // The CLI exited, so nothing owns this session any more: it belongs to its
     // device's Archive rather than to its active rows.
     session_id: 'ses-exited',
@@ -368,6 +395,10 @@ export function historyFor(sessionId: string): SessionEvent[] {
       return codexSharedHistory();
     case 'ses-codex-terminal':
       return codexTerminalHistory();
+    case 'ses-answer':
+      return answerHistory();
+    case 'ses-crash':
+      return crashHistory();
     case 'ses-otlp':
       return codexHistory();
     default:
@@ -618,6 +649,71 @@ function codexTerminalHistory(): SessionEvent[] {
       block_id: 'ct-a1',
       done: true,
       text: 'The regression lands on `feat/batch-ingest`. I need the collector logs to narrow it further.',
+    },
+  ];
+}
+
+/** A session blocked on a question, so the list shows the `waiting` tone. */
+function answerHistory(): SessionEvent[] {
+  const base = minutes(10);
+  return [
+    {
+      seq: 1,
+      ts: base,
+      kind: 'user_message',
+      block_id: 'an-u1',
+      source: 'remote',
+      text: 'Split the ingest migration into two steps.',
+    },
+    {
+      seq: 2,
+      ts: base + 2_000,
+      kind: 'assistant_text',
+      block_id: 'an-a1',
+      done: true,
+      text: 'Both halves are ready. I need to know which one runs first.',
+    },
+    {
+      seq: 3,
+      ts: base + 2_400,
+      kind: 'question',
+      block_id: 'an-q1',
+      request_id: 'req-answer-1',
+      status: 'pending',
+      questions: [
+        {
+          id: 'order',
+          prompt: 'Which migration should run first?',
+          options: [
+            { id: 'backfill', label: 'Backfill the new columns' },
+            { id: 'swap', label: 'Swap the read path' },
+          ],
+          multi: false,
+          allow_text: true,
+        },
+      ],
+    },
+  ];
+}
+
+/** A session whose CLI failed, so the list shows the `failed` tone. */
+function crashHistory(): SessionEvent[] {
+  const base = minutes(36);
+  return [
+    {
+      seq: 1,
+      ts: base,
+      kind: 'user_message',
+      block_id: 'cr-u1',
+      source: 'remote',
+      text: 'Regenerate the API client from the OpenAPI document.',
+    },
+    {
+      seq: 2,
+      ts: base + 1_800,
+      kind: 'notice',
+      level: 'error',
+      text: 'The generator exited with 1: openapi.yaml is not valid YAML.',
     },
   ];
 }

@@ -26,27 +26,19 @@ export function canInterruptShared(agent: AgentInfo | null): boolean {
 }
 
 /**
- * A11 §4.2: the model, permission mode and effort pickers stay enabled on a
- * shared session when the device can forward `session.set` to the CLI.
+ * A11 §4.2: the model, permission mode and effort pickers are shown on a
+ * shared session only when the device can forward `session.set` to the CLI.
  */
 export function canSetShared(agent: AgentInfo | null): boolean {
   return agent?.shared_settings === true;
 }
 
-/** A11 §4.2: whether attachments reach the CLI through the attachment. */
+/**
+ * A11 §4.2: whether attachments reach the CLI through the attachment. When
+ * they cannot, the attachment button is not rendered at all.
+ */
 export function canAttachShared(agent: AgentInfo | null): boolean {
   return agent?.shared_attachments === true;
-}
-
-/**
- * The bar above the composer on a shared session. When the attachment carries
- * settings and attachments there is nothing left the terminal owns alone, so
- * the line is a plain statement of fact rather than a limitation.
- */
-export function attachedLabel(agent: AgentInfo | null): string {
-  return canSetShared(agent) && canAttachShared(agent)
-    ? strings.status.terminalAttachedFully
-    : strings.status.terminalAttached;
 }
 
 /**

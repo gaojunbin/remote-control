@@ -23,6 +23,7 @@ from .fs import list_dirs, merge_recents
 from .gateway import GatewayLink
 from .git import git_info
 from .logging_setup import logger
+from .looplag import watch_loop_lag
 from .models import AgentInfo
 from .registry import Registry
 from .sessions.attach import AttachServer
@@ -52,6 +53,7 @@ class Daemon:
             on_ready=self._on_ready,
         )
         self._refresh_task: asyncio.Task[None] | None = None
+        self._lag_task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------- lifecycle
 
@@ -69,6 +71,7 @@ class Daemon:
         self.link.start()
         self.mirror.start()
         self._refresh_task = asyncio.create_task(self._refresh_loop())
+        self._lag_task = asyncio.create_task(watch_loop_lag(), name="loop-lag")
         try:
             await self._wait_for_stop()
         finally:
@@ -105,11 +108,13 @@ class Daemon:
                     loop.remove_signal_handler(signal_number)
 
     async def shutdown(self) -> None:
-        if self._refresh_task is not None:
-            self._refresh_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._refresh_task
-            self._refresh_task = None
+        for name in ("_refresh_task", "_lag_task"):
+            task: asyncio.Task[None] | None = getattr(self, name)
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+                setattr(self, name, None)
         await self.mirror.stop()
         await self.codex.stop()
         await self.attach.stop()

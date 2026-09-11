@@ -23,6 +23,10 @@ RUNNING_TIMEOUT = 15.0
 BOOTSTRAP_ATTEMPTS = 6
 POLL_INTERVAL = 0.5
 RECOVERY_HINT = "run `rc-client service start` to bring it up"
+# No `ProcessType`: `Background` puts the job in the lowest scheduling band and
+# throttles its disk I/O, which on a loaded machine stalls the event loop long
+# enough for the gateway to call the link dead. Left unset, launchd treats it as
+# `Adaptive`, which is what a job that has to answer a person promptly needs.
 PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" \
 "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -37,7 +41,6 @@ PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>ThrottleInterval</key><integer>5</integer>
-  <key>ProcessType</key><string>Background</string>
   <key>WorkingDirectory</key><string>{home}</string>
   <key>StandardOutPath</key><string>{stdout}</string>
   <key>StandardErrorPath</key><string>{stderr}</string>

@@ -4,8 +4,8 @@ const BOTTOM_THRESHOLD_PX = 56;
 const TOP_TRIGGER_PX = 120;
 
 interface Options {
-  /** The session's last applied seq; changes on every event, streaming included. */
-  revision: number;
+  /** Changes on every event, streaming and unconfirmed sends included. */
+  revision: string | number;
   /** Key of the first row, so a prepended history page can be told from a tail append. */
   firstKey: string | null;
   /** Key of the last row; a change means a genuinely new block arrived. */

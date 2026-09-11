@@ -8,11 +8,13 @@
  * page (PROTOCOL-FROZEN.md §8 and amendment A6).
  */
 import { create } from 'zustand';
+import { base64Size } from '../lib/base64';
 import { requestId } from '../lib/ids';
 import { rpc, getSocket } from '../lib/gateway';
 import { RequestError } from '../lib/ws';
-import type { SendMode } from '../protocol/frames';
+import type { SendMode, SendResult } from '../protocol/frames';
 import type {
+  Attachment,
   OutgoingAttachment,
   QuestionAnswers,
   QueuedMessage,
@@ -22,10 +24,14 @@ import type {
   Usage,
 } from '../protocol/types';
 import {
+  addOptimistic,
   applyEvent,
   applyEvents,
+  dropQueued,
   emptyTimeline,
+  keepOptimistic,
   mergeHistory,
+  removeOptimistic,
   replaceBlock,
   type TimelineState,
 } from './timeline';
@@ -100,7 +106,13 @@ export function foldChat(chat: ChatSession, event: SessionEvent): ChatSession {
     case 'todos':
       return { ...chat, todos: event.items };
     case 'queue':
-      return { ...chat, queue: event.pending };
+      // A12: a queued item keeps the request id, so it names the pending row it
+      // takes over from.
+      return {
+        ...chat,
+        queue: event.pending,
+        timeline: dropQueued(chat.timeline, event.pending.map((item) => item.id)),
+      };
     case 'turn_completed':
       return event.usage ? { ...chat, usage: event.usage } : chat;
     default:
@@ -179,14 +191,21 @@ export const useChat = create<ChatState>((set, get) => ({
       onResult: (result) => {
         useSessions.getState().upsert(result.session);
         patch(set, key, (chat) => {
-          const base = result.resync ? blank(deviceId, sessionId) : chat;
+          // A resync starts the timeline again but keeps the unconfirmed sends.
+          const base = result.resync
+            ? { ...blank(deviceId, sessionId), timeline: keepOptimistic(chat.timeline) }
+            : chat;
           // Buffered events carry todos and queue snapshots the timeline drops.
           const folded = result.events.reduce(foldChat, base);
+          // Amendment A6: an explicit queue snapshot wins over replayed events.
+          const queue = result.queue ? result.queue.pending : folded.queue;
           return {
             ...folded,
-            timeline: applyEvents(folded.timeline, result.events),
-            // Amendment A6: an explicit queue snapshot wins over replayed events.
-            queue: result.queue ? result.queue.pending : folded.queue,
+            timeline: dropQueued(
+              applyEvents(folded.timeline, result.events),
+              queue.map((item) => item.id),
+            ),
+            queue,
             usage: result.session.usage ?? folded.usage,
             ready: true,
             error: null,
@@ -275,8 +294,12 @@ export const useChat = create<ChatState>((set, get) => ({
   send: async (key, input) => {
     const chat = get().sessions[key];
     if (!chat) return;
+    // A12: the request id is the block id the device will echo, so the message
+    // can be rendered now and replaced in place when the device confirms it.
     const id = requestId();
     const attachments = input.attachments ?? [];
+    const at = Date.now();
+    showPending(set, key, { id, text: input.text, attachments, at });
     useOutbox.getState().add({
       id,
       sessionKey: key,
@@ -284,17 +307,29 @@ export const useChat = create<ChatState>((set, get) => ({
       text: input.text,
       attachments,
       mode: input.mode,
-      at: Date.now(),
+      at,
       error: null,
     });
-    await deliver(id, chat.sessionId, input.text, attachments, input.mode);
+    await settle(set, key, id, deliver(id, chat.sessionId, input.text, attachments, input.mode));
   },
 
   retrySend: async (id) => {
     const entry = useOutbox.getState().pending[id];
     if (!entry) return;
     useOutbox.getState().add({ ...entry, error: null });
-    await deliver(id, entry.sessionId, entry.text, entry.attachments, entry.mode);
+    // The row is normally still there; a retry after a resync has to re-add it.
+    showPending(set, entry.sessionKey, {
+      id,
+      text: entry.text,
+      attachments: entry.attachments,
+      at: entry.at,
+    });
+    await settle(
+      set,
+      entry.sessionKey,
+      id,
+      deliver(id, entry.sessionId, entry.text, entry.attachments, entry.mode),
+    );
   },
 
   stop: async (key) => {
@@ -319,8 +354,63 @@ export const useChat = create<ChatState>((set, get) => ({
     const chat = get().sessions[key];
     if (!chat) return;
     await rpc('session.queue_remove', { session_id: chat.sessionId, queued_id });
+    // A12: the queue entry carries the request id, so a send left unconfirmed
+    // must not go on offering a Retry for a message that is gone.
+    useOutbox.getState().clear(queued_id);
   },
 }));
+
+type Setter = (fn: (s: ChatState) => Partial<ChatState>) => void;
+
+/** Put a message in the timeline before the device has echoed it back. */
+function showPending(
+  set: Setter,
+  key: string,
+  input: { id: string; text: string; attachments: OutgoingAttachment[]; at: number },
+): void {
+  patch(set, key, (chat) => ({
+    ...chat,
+    timeline: addOptimistic(chat.timeline, {
+      id: input.id,
+      text: input.text,
+      attachments: input.attachments.map(metadataOf),
+      at: input.at,
+    }),
+  }));
+}
+
+/** A3: the wire carries base64 and the device computes the size; so do we. */
+function metadataOf(attachment: OutgoingAttachment): Attachment {
+  return {
+    name: attachment.name,
+    mime: attachment.mime,
+    size: base64Size(attachment.data_base64),
+  };
+}
+
+/**
+ * Apply the outcome of a `session.send` to its pending row. A definite refusal
+ * takes the row away, and so does `queued`: the queue row above the composer
+ * stands for the message until the device dequeues it and emits the
+ * `user_message` under the same id. Anything else leaves the row waiting.
+ */
+async function settle(
+  set: Setter,
+  key: string,
+  id: string,
+  delivery: Promise<SendResult | null>,
+): Promise<void> {
+  let result: SendResult | null;
+  try {
+    result = await delivery;
+  } catch (err) {
+    patch(set, key, (chat) => ({ ...chat, timeline: removeOptimistic(chat.timeline, id) }));
+    throw err;
+  }
+  if (result?.accepted === 'queued') {
+    patch(set, key, (chat) => ({ ...chat, timeline: removeOptimistic(chat.timeline, id) }));
+  }
+}
 
 /** Error codes that mean the gateway definitely rejected the message. */
 const DEFINITE_FAILURES = new Set([
@@ -341,10 +431,10 @@ async function deliver(
   text: string,
   attachments: OutgoingAttachment[],
   mode: SendMode,
-): Promise<void> {
+): Promise<SendResult | null> {
   const outbox = useOutbox.getState();
   try {
-    await rpc(
+    const result = await rpc(
       'session.send',
       {
         session_id: sessionId,
@@ -355,6 +445,7 @@ async function deliver(
       { id },
     );
     outbox.clear(id);
+    return result;
   } catch (err) {
     const code = err instanceof RequestError ? err.code : 'internal';
     const message = err instanceof Error ? err.message : 'send failed';
@@ -364,6 +455,7 @@ async function deliver(
     }
     // Uncertain delivery: never auto-resend, let the user retry with the same id.
     outbox.fail(id, message);
+    return null;
   }
 }
 

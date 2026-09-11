@@ -128,6 +128,73 @@ Not verified in this pass: a device list long enough to scroll, an Archive with 
 the collapse state surviving a real browser restart (it was read back from the store, not from a
 relaunched browser).
 
+### Status dots — four tones became five
+
+2026-09-11, against the bundled mock gateway (`npm run dev:mock`) in the installed Google Chrome
+driven by `playwright-core`. App-side only, no protocol change: the tone now reads `state`, `control`
+and the device's `online` flag together, so a finished turn on a live session no longer looks like a
+session whose CLI exited. The rule is the table in `docs/DESIGN.md`; `SCRATCH/plan/STATUS-DOTS.md`
+was the frozen brief.
+
+| Check | Result |
+| --- | --- |
+| The rule | `dotTone(state, control, online)` in `src/components/dotTone.ts`, the one place a tone is decided; `StatusDot` renders it and passes `control` at both call sites, the Sessions rows and the chat sidebar |
+| All five tones on screen | `working` on three running rows, `waiting` on the pending approval and the pending question, `live` on the idle and attached-terminal rows, `failed` on the errored Codex row, `off` on the three exited rows in the two Archives |
+| `idle` split by `control` | "iOS push tokens" (`control: "remote"`) reads `live`; "Rewrite the pairing docs" (`control: "none"`) reads `off` |
+| Amber, not orange | `--attention` is `#B07C00`: 3.67:1 on `--surface`, 3.36:1 on the row hover and 3.24:1 on the muted surface, against 2.76:1 for the old `#E0862B` |
+| Motion | Only `working` animates. Under `prefers-reduced-motion: reduce` the computed `animation-name` on every dot is `none`, the tones and colours unchanged |
+| Labels | Each dot's `aria-label` is still the raw state ("needs approval", "running", "idle", "error") while its tooltip names the tone ("Waiting for you", "Working", "Live", "Failed"), read off the rendered DOM |
+| Device dots | `OnlineDot` is untouched, green when online and a grey ring when not |
+| Fixtures | Two sessions added to `mock/fixtures.ts` — a `needs_input` one on the CI box and an errored Codex one on the Mac — so the mock shows every tone; sixteen sessions in total |
+
+Screenshots, 1280 px and 400 px, under `…/scratchpad/dots-pass/web/`: `sessions-*.png`,
+`sessions-all-tones-*.png` (both Archives open, every tone in one frame), `chat-*.png`, and the close
+crops `zoom-active-rows.png`, `zoom-archive-rows.png`, `zoom-waiting-row.png`,
+`zoom-waiting-row-hover.png`. Run artefacts, not checked into the repository.
+
+```
+cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
+→ 19 files / 220 tests passed, tsc clean, eslint clean, built in 1.59 s
+```
+
+Not verified in this pass: an offline device. Both mock devices are online, so the offline row of the
+table rests on `tests/dotTone.test.ts` alone.
+
+### Sending shows the message at once (A12)
+
+2026-09-11, against the bundled mock gateway (`npm run dev:mock`) in the installed Google Chrome
+driven by `playwright-core`. App-side only: amendment A12 makes the app's `session.send` request id
+the `user_message` block id, so the bubble is rendered on the click and the device's event replaces
+it under the ordinary replacement rule. The mock now behaves like the device — it echoes the
+`user_message` under the request id 400 ms after the reply, and a queued message keeps that id
+through to its `user_message`.
+
+| Check | Result |
+| --- | --- |
+| The field clears on the click | The composer no longer awaits `session.send`: the text and attachments are cleared, the error area reset and the row inserted in the same tick. A send that never settles leaves the field empty and the button ready |
+| The bubble appears at once | On an idle Codex session the dimmed bubble with a quiet "Sending…" chip was in the timeline in the screenshot taken with no wait after the click |
+| The device's event replaces it | 400 ms later the chip and the dimming were gone and there was exactly one bubble for the message, in the same place — two `.user-bubble` rows in total, one of them from history |
+| Steering | On the shared Codex thread (`accepted: "steered"`) the same two frames: "Sending…", then replaced in place, two bubbles, none pending |
+| Queueing | A send during a running turn read `accepted: "queued"`: the bubble was taken away again and the queue row above the composer stood for the message alone, so the text was never on screen twice. When the turn ended the device dequeued it under the same id — the queue row went and the message landed as one ordinary bubble |
+| A refusal | A definite refusal (`conflict`, `unsupported`, `bad_request`, …) takes the bubble away and shows the message in the composer, and the draft is handed back if nothing was typed since. Covered by `tests/chat.test.ts` and `tests/Composer.test.tsx` |
+| Uncertain delivery | Unchanged: no automatic resend, the outbox keeps the request id, "Delivery unconfirmed" with Retry. The pending bubble now says the same thing itself once it is a minute old with no device event |
+| Reloads and reconnects | A resync keeps the pending rows and starts the timeline again; the history page that carries the device's copy retires the row rather than duplicating it. `tests/chat.test.ts` walks both |
+| Older devices | A device that still mints its own block id is reconciled by `text` and `source: "remote"`, one row per event, never against a `terminal` message. The mock's `first_message` turn mints its own id, so the dev server exercises it |
+
+Screenshots under `…/scratchpad/send-pass/web/`: `web-send-01-pending.png` and
+`web-send-02-confirmed.png` (idle session), `web-send-03-queued.png`,
+`web-send-04-steer-pending.png` and `web-send-05-steer-confirmed.png` (shared Codex),
+`web-send-06-queue-delivered.png`. Run artefacts, not checked into the repository.
+
+```
+cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
+→ 20 files / 245 tests passed, tsc clean, eslint clean, built in 1.75 s
+```
+
+Not verified in this pass: a real device and gateway — this ran against the mock, so the 400 ms echo
+is the mock's, not a measured round trip. The unconfirmed-after-60-s chip was verified in
+`tests/optimistic-send.test.tsx` with a fake clock rather than by waiting in the browser.
+
 ## 2. iOS, in the simulator, against the same gateway
 
 `ios/UITests/RealGatewaySmokeTests.swift` is new. It skips unless the runner is given a gateway, so
@@ -216,6 +283,35 @@ cover the same rules end to end. Screenshots from the UI test run are under
 
 Not verified in this pass: a physical device, a real gateway, dark mode and VoiceOver on the new
 headers and chips.
+
+### Voice, reading position, status dots and sending — four passes on 2026-09-11
+
+All in the iPhone 17 simulator (iOS 26) against the offline demo, with
+`export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer` from `ios/`. Each pass ended
+with the full set green; the counts below are the last run.
+
+| Pass | What was checked | Result |
+| --- | --- | --- |
+| Voice | Siri-style glow around the whole display in its own window; only Cancel and Done while listening; transcript lands in the field and stays editable; no time limit (on-device recognizer swaps requests every 50 s on one audio tap, gateway STT opens a new socket every 30 s cut at a quiet moment); field on its own row growing to eight lines | RCVerify 841, RCUIVerify 98, swift test 117, UI 11 passed / 4 skipped |
+| Reading position | Tap outside a field dismisses the keyboard without stealing the tap (chat, new session, login); "at the bottom" from `onScrollGeometryChange`; round jump-to-latest button whenever away from the tail, with the count of blocks that arrived; deployment target iOS 18 | RCVerify 852, RCUIVerify 98, swift test 123, UI 14 passed / 4 skipped |
+| Status dots and composer | `DotTone.of(state:control:online:)` over the frozen five-tone table, amber `#B07C00` (3.67:1 on the row surface), pulse only while working, static under Reduce Motion; one control row under the field (`+`, mic, chips scrolling sideways, Send pinned right); the "Attached to the terminal" caption gone, undrivable controls hidden | RCVerify 895, RCUIVerify 105, swift test 130, UI 15 passed / 4 skipped |
+| Sending (A12) | Optimistic `user_message` under the request id in the same frame as the tap, replaced by the device's echo by id (older devices: by text and source); `queued` hands the row to the queue; definitive rejection returns the text to the draft; 60 s unconfirmed → "Delivery unconfirmed"; Send allowed while the transport reconnects (request held up to 20 s for the hello); status line above the composer only for what the header cannot say | RCVerify 912, RCUIVerify 111, swift test 145, build succeeded, UI 16 passed / 4 skipped |
+
+Screenshots, run artefacts under the session scratchpad and not checked in: `voice-pass/named/`
+(`20-composer-one-line`, `21-composer-five-lines`, `24-composer-capped`, `22-voice-listening`,
+`23-voice-done`), `chat-pass/` (`25-keyboard-up` … `30-jump-badge`), `dots-pass/ios/`
+(`30-status-tones`, `12-codex-shared`, `20-composer-one-line`, `06-shared-idle`,
+`22-voice-listening`), `send-pass/ios/` (`40-send-pending`, `41-send-confirmed`, `06-shared-idle`).
+
+Three pre-existing defects were caught by the screenshots and fixed on the way: the top connection
+banner had no background and scrolled rows showed through it; the composer field never grew and
+text spilled past its background; and the first full-screen glow washed colour deep into the page
+(strokes reduced to 30 / 11 / 3.5 pt at 0.13 / 0.26 / 0.44 alpha).
+
+Not verified in these passes: a physical device (no real microphone, APNs or gateway STT), the
+jump-to-latest badge count in a live run (the demo cannot leave the reader away from the tail while
+blocks arrive; the screenshot forced the count), dark mode and VoiceOver on the new controls, and the
+20 s reconnect hold against a real gateway.
 
 ## 3. Attached terminal sessions (A10) in the apps
 

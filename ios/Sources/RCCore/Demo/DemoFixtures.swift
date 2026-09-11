@@ -18,6 +18,9 @@ public enum DemoFixtures {
     /// attachment carries settings, attachments and an interrupt, so the app
     /// drives it as fully as one it started itself.
     public static let codexSharedSessionID = "demo-session-typecheck"
+    /// A turn that ended badly on a machine that is still reachable, so the
+    /// list carries the red dot as well as the other four.
+    public static let erroredSessionID = "demo-session-toolchain"
 
     public static var now: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
@@ -158,6 +161,16 @@ public enum DemoFixtures {
                     state: .readonly, origin: .terminal, control: .terminal,
                     model: "claude-sonnet-4-5", permissionMode: "default",
                     createdAt: now - 2_700_000, updatedAt: now - 300_000, lastSeq: 0),
+            // The agent stopped on an error, and the machine is still there to
+            // say so: a red dot, told apart from the grey of a session nothing
+            // owns any more.
+            Session(sessionID: erroredSessionID, deviceID: macDeviceID, agent: "claude",
+                    title: "Bump the Swift toolchain", cwd: "/Users/me/dev/remote-control/ios",
+                    git: GitInfo(branch: "toolchain", dirty: true),
+                    state: .error, stateDetail: "The agent exited before the build finished",
+                    origin: .remote, control: .remote,
+                    model: "claude-sonnet-4-5", permissionMode: "default",
+                    createdAt: now - 1_200_000, updatedAt: now - 30_000, lastSeq: 0),
             Session(sessionID: doneSessionID, deviceID: ciDeviceID, agent: "codex",
                     title: "Add OTLP traces", cwd: "/work/api",
                     git: nil, state: .idle, origin: .remote, control: .none,
@@ -344,6 +357,26 @@ public enum DemoFixtures {
         ]
     }
 
+    /// The transcript of the turn that ended on an error.
+    public static func erroredHistory(base: Int64 = now - 1_200_000) -> [SessionEvent] {
+        [
+            SessionEvent(seq: 1, ts: base, kind: SessionEvent.userMessageKind, blockID: "u-1",
+                         body: .userMessage(UserMessagePayload(
+                            text: "Move the package to the 6.3 toolchain and rebuild."))),
+            SessionEvent(seq: 2, ts: base + 1_200, kind: SessionEvent.assistantTextKind, blockID: "a-1",
+                         body: .assistantText(StreamTextPayload(
+                            text: "Updated `swift-tools-version` and started the build.", done: true))),
+            SessionEvent(seq: 3, ts: base + 44_000, kind: SessionEvent.errorKind,
+                         body: .error(ErrorPayload(
+                            message: "The agent exited before the build finished.",
+                            code: "agent_exited"))),
+            SessionEvent(seq: 4, ts: base + 44_100, kind: SessionEvent.turnCompletedKind,
+                         body: .turnCompleted(TurnCompletedPayload(turnID: "demo-turn-toolchain",
+                                                                   stopReason: .error,
+                                                                   durationMS: 44_000)))
+        ]
+    }
+
     public static func history(for sessionID: String) -> [SessionEvent] {
         switch sessionID {
         case liveSessionID: liveHistory()
@@ -351,6 +384,7 @@ public enum DemoFixtures {
         case sharedSessionID: sharedHistory()
         case codexSharedSessionID: codexSharedHistory()
         case attachHintSessionID: attachHintHistory()
+        case erroredSessionID: erroredHistory()
         default: [
             SessionEvent(seq: 1, ts: now - 3_600_000, kind: SessionEvent.userMessageKind, blockID: "u-1",
                          body: .userMessage(UserMessagePayload(text: "Add OTLP traces to the API."))),

@@ -138,32 +138,50 @@ async def settle(predicate: Any, timeout: float = 2.0) -> None:
 
 
 def test_the_amendment_table_maps_every_situation() -> None:
-    assert threads.resolve(created_here=True, loaded=True, terminal_seen=False) == (
+    assert threads.resolve(created_here=True, loaded=True, terminal_holds=False) == (
         "remote",
         "remote",
     )
-    assert threads.resolve(created_here=True, loaded=True, terminal_seen=True) == (
+    assert threads.resolve(created_here=True, loaded=True, terminal_holds=True) == (
         "remote",
         "shared",
     )
-    assert threads.resolve(created_here=False, loaded=True, terminal_seen=False) == (
+    assert threads.resolve(created_here=False, loaded=True, terminal_holds=True) == (
         "terminal",
         "shared",
     )
-    assert threads.resolve(created_here=False, loaded=False, terminal_seen=True) == (
+    assert threads.resolve(created_here=False, loaded=False, terminal_holds=True) == (
+        "terminal",
+        "none",
+    )
+
+
+def test_being_loaded_is_not_being_held_by_a_terminal() -> None:
+    """The daemon never unloads a thread, so `loaded` alone proves nothing."""
+    assert threads.resolve(created_here=False, loaded=True, terminal_holds=False) == (
         "terminal",
         "none",
     )
 
 
 def test_a_thread_whose_terminal_left_stays_ours_to_drive() -> None:
-    gone = {"created_here": False, "loaded": True, "terminal_seen": True, "terminal_live": False}
+    gone = {"created_here": False, "loaded": True, "terminal_holds": False}
     assert threads.resolve(**gone) == ("terminal", "none")
     assert threads.resolve(**gone, local_turn=True) == ("terminal", "remote")
     # A thread this device started never depended on a terminal being there.
-    assert threads.resolve(
-        created_here=True, loaded=True, terminal_seen=True, terminal_live=False
-    ) == ("remote", "remote")
+    assert threads.resolve(created_here=True, loaded=True, terminal_holds=False) == (
+        "remote",
+        "remote",
+    )
+
+
+def test_a_thread_with_nothing_in_it_is_not_a_session_yet() -> None:
+    empty = threads.ThreadSummary.parse(thread_row("t-new", preview="", name=None))
+    assert empty is not None and threads.is_empty(empty) is True
+    used = threads.ThreadSummary.parse(thread_row("t-new"))
+    assert used is not None and threads.is_empty(used) is False
+    named = threads.ThreadSummary.parse(thread_row("t-new", preview="", name="Typecheck"))
+    assert named is not None and threads.is_empty(named) is False
 
 
 def test_only_a_bare_codex_on_a_terminal_counts_as_a_tui() -> None:
@@ -178,13 +196,16 @@ def test_only_a_bare_codex_on_a_terminal_counts_as_a_tui() -> None:
     assert terminals.looks_like_a_tui(proc("/App/codex -c features.host=true app-server")) is False
     assert terminals.looks_like_a_tui(proc("codex --enable hooks")) is False
     assert terminals.looks_like_a_tui(proc("codex exec review the diff")) is False
+    bypass = "codex --dangerously-bypass-approvals-and-sandbox"
+    assert terminals.looks_like_a_tui(proc(bypass)) is False
     assert terminals.looks_like_a_tui(proc("/usr/bin/python -m http.server")) is False
 
 
-def test_a_scan_places_a_terminal_by_the_directory_it_runs_in(tmp_path: Path) -> None:
-    scan = terminals.TerminalScan(cwds={os.path.realpath(str(tmp_path))}, complete=True)
+def test_a_scan_counts_the_terminals_in_each_directory(tmp_path: Path) -> None:
+    scan = terminals.TerminalScan(cwds={os.path.realpath(str(tmp_path)): 2}, complete=True)
     assert scan.holds(str(tmp_path)) is True
-    assert scan.holds(str(tmp_path / "sub")) is False
+    assert scan.count(str(tmp_path)) == 2
+    assert scan.count(str(tmp_path / "sub")) == 0
     assert scan.holds("") is False
 
 
@@ -224,6 +245,119 @@ async def test_a_thread_started_elsewhere_becomes_a_shared_session(harness: Harn
     assert harness.hub.entry("t-new").session.origin == "terminal"
 
 
+async def test_one_terminal_claims_one_thread_in_its_directory(harness: Harness) -> None:
+    """The duplicate-session bug, in the shape the real daemon produces it.
+
+    Codex never unloads a thread, so every `codex` ever run in a directory is
+    still loaded there. One live TUI must therefore speak for one thread, not
+    for the whole directory.
+    """
+    await started(harness, loaded=[])
+    older = thread_row("t-old", updatedAt=1788946000000)
+    recent = thread_row("t-recent", updatedAt=1788946900000)
+    harness.daemon.replies["thread/list"] = {"data": [thread_row(), older, recent]}
+    harness.daemon.replies["thread/loaded/list"] = {"data": [THREAD, "t-old", "t-recent"]}
+    await harness.service.refresh()
+
+    control = {name: harness.hub.entry(name).session.control for name in (THREAD, "t-old")}
+    assert control == {THREAD: "none", "t-old": "none"}
+    assert harness.hub.entry("t-recent").session.control == "shared"
+    # The claim is sticky: the next scan does not move it to another thread.
+    await harness.service.refresh()
+    assert harness.hub.entry("t-recent").session.control == "shared"
+
+
+async def test_two_terminals_in_one_directory_claim_two_threads(harness: Harness) -> None:
+    await started(harness, loaded=[])
+    harness.terminals.counts = {"/repo": 2}
+    harness.daemon.replies["thread/list"] = {
+        "data": [thread_row(), thread_row("t-old", updatedAt=1788946000000)]
+    }
+    harness.daemon.replies["thread/loaded/list"] = {"data": [THREAD, "t-old"]}
+    await harness.service.refresh()
+    assert harness.hub.entry(THREAD).session.control == "shared"
+    assert harness.hub.entry("t-old").session.control == "shared"
+
+
+async def test_a_thread_a_terminal_opens_is_no_session_until_it_speaks(
+    harness: Harness,
+) -> None:
+    """The sequence a bare `codex` really produces, recorded on 2026-09-11.
+
+    The TUI opens a thread as it starts, minutes before anything is typed into
+    it, and that thread has no name, no preview and no rollout to resume.
+    """
+    await started(harness, loaded=[])
+    harness.daemon.replies["thread/list"] = {
+        "data": [thread_row(), thread_row("t-old", updatedAt=1788946000000)]
+    }
+    harness.daemon.replies["thread/loaded/list"] = {"data": [THREAD, "t-old"]}
+    await harness.service.refresh()
+
+    opened = thread_row("t-tui", preview="", updatedAt=1788947000000)
+    await harness.daemon.notify("thread/started", {"thread": opened})
+    await asyncio.sleep(0.1)
+    assert "t-tui" not in harness.hub.entries
+    assert harness.service.knows("t-tui") is True
+
+    used = thread_row("t-tui", preview="ok then", updatedAt=1788947000000)
+    harness.daemon.replies["thread/read"] = {"thread": used}
+    await harness.daemon.notify(
+        "thread/status/changed", {"threadId": "t-tui", "status": {"type": "active"}}
+    )
+    await settle(lambda: "t-tui" in harness.hub.entries)
+    assert harness.hub.entry("t-tui").session.control == "shared"
+    assert harness.hub.entry("t-tui").session.state == "running"
+    assert harness.hub.entry("t-old").session.control == "none"
+
+    # The one terminal in the directory now speaks for the thread it opened.
+    harness.daemon.replies["thread/list"] = {
+        "data": [thread_row(), thread_row("t-old", updatedAt=1788946000000), used]
+    }
+    harness.daemon.replies["thread/loaded/list"] = {"data": [THREAD, "t-old", "t-tui"]}
+    await harness.service.refresh()
+    control = {name: harness.hub.entry(name).session.control for name in (THREAD, "t-old")}
+    assert control == {THREAD: "none", "t-old": "none"}
+    assert harness.hub.entry("t-tui").session.control == "shared"
+
+
+async def test_a_terminal_opened_and_abandoned_never_becomes_a_session(
+    harness: Harness,
+) -> None:
+    """A TUI closed before its first message leaves its thread loaded for good."""
+    await started(harness, loaded=[])
+    await harness.daemon.notify("thread/started", {"thread": thread_row("t-empty", preview="")})
+    await asyncio.sleep(0.1)
+    assert "t-empty" not in harness.hub.entries
+
+    harness.daemon.replies["thread/loaded/list"] = {"data": [THREAD, "t-empty"]}
+    harness.daemon.replies["thread/read"] = {"thread": thread_row("t-empty", preview="")}
+    await harness.service.refresh()
+    assert "t-empty" not in harness.hub.entries
+    assert harness.hub.entry(THREAD).session.control == "shared"
+
+
+async def test_an_empty_thread_found_on_a_cold_start_is_left_alone(harness: Harness) -> None:
+    """Nothing distinguishes a thread opened before we connected from one opened now."""
+    harness.daemon.replies["thread/read"] = {"thread": thread_row("t-empty", preview="")}
+    await started(harness, loaded=[THREAD, "t-empty"])
+    assert "t-empty" not in harness.hub.entries
+    assert harness.service.knows("t-empty") is True
+
+
+async def test_a_thread_deleted_while_we_are_attached_is_forgotten(harness: Harness) -> None:
+    await started(harness, loaded=[THREAD])
+    assert isinstance(harness.hub.entry(THREAD).runner, CodexDaemonSession)
+
+    harness.daemon.replies["thread/list"] = {
+        "data": [thread_row("t-other", updatedAt=1788946000000)]
+    }
+    harness.daemon.replies["thread/loaded/list"] = {"data": []}
+    await harness.service.refresh()
+    assert THREAD not in harness.hub.entries
+    assert [frame for frame in harness.frames if frame.get("type") == "session.removed"]
+
+
 async def test_an_ephemeral_thread_start_is_ignored(harness: Harness) -> None:
     await started(harness, loaded=[])
     await harness.daemon.notify("thread/started", {"thread": thread_row("t-title", ephemeral=True)})
@@ -244,7 +378,8 @@ async def test_a_message_typed_in_the_terminal_makes_a_remote_thread_shared(
     await started(harness, loaded=[THREAD])
     entry = harness.hub.entry(THREAD)
     entry.session.origin = "remote"
-    await harness.service.publish_control(entry)
+    # The scan hands no claim to a thread this device started, TUI or no TUI.
+    await harness.service.refresh_terminals()
     assert entry.session.control == "remote"
 
     await harness.daemon.notify(
@@ -338,7 +473,7 @@ async def test_a_terminal_that_comes_back_makes_the_thread_shared_again(harness:
     assert harness.hub.entry(THREAD).session.control == "shared"
 
 
-async def test_nothing_is_scanned_while_no_thread_claims_a_terminal(harness: Harness) -> None:
+async def test_nothing_is_scanned_while_no_thread_is_loaded(harness: Harness) -> None:
     await started(harness, loaded=[])
     scans = harness.terminals.scans
     await harness.service.refresh()
@@ -374,7 +509,7 @@ async def test_a_stamped_echo_of_our_own_prompt_is_still_ours(harness: Harness) 
     await started(harness, loaded=[THREAD])
     entry = harness.hub.entry(THREAD)
     entry.session.origin = "remote"
-    await harness.service.publish_control(entry)
+    await harness.service.refresh_terminals()
     harness.daemon.echo_client_id = "dev-99"
 
     await harness.hub.send({"id": "req-1", "session_id": THREAD, "text": "go"})
@@ -906,3 +1041,86 @@ def test_a_thread_summary_separates_its_name_from_its_first_prompt() -> None:
     named = threads.ThreadSummary.parse(thread_row(name="Fix the web typecheck"))
     assert named is not None
     assert (named.name, named.title) == ("Fix the web typecheck", "Fix the web typecheck")
+
+
+# ------------------------------------- A12, and what a send does before it
+
+
+SEND_REQUEST = "9a2f4c71-3e85-4d0b-b6a1-5c8e7d240f33"
+
+
+async def test_a_send_carries_the_request_id_as_its_block(harness: Harness) -> None:
+    await started(harness, loaded=[THREAD])
+    await harness.hub.send({"id": SEND_REQUEST, "session_id": THREAD, "text": "go"})
+    assert [event["block_id"] for event in harness.events("user_message")] == [SEND_REQUEST]
+
+
+async def test_a_steer_carries_the_request_id_as_its_block(harness: Harness) -> None:
+    await started(harness, loaded=[THREAD])
+    await harness.hub.send({"id": SEND_REQUEST, "session_id": THREAD, "text": "first"})
+    await harness.daemon.notify(
+        "turn/started", {"threadId": THREAD, "turn": {"id": "turn-1", "status": "inProgress"}}
+    )
+    await settle(lambda: harness.hub.entry(THREAD).session.state == "running")
+    steered = "0d6b8e29-4a17-4c3f-9b52-8e1a6f70d3c4"
+    result = await harness.hub.send({"id": steered, "session_id": THREAD, "text": "also this"})
+    assert result == {"accepted": "steered"}
+    assert [event["block_id"] for event in harness.events("user_message")][-1] == steered
+
+
+async def test_a_send_publishes_the_message_before_it_asks_the_daemon_anything(
+    harness: Harness,
+) -> None:
+    """Every request below the bubble is a round trip the sender waits through."""
+    harness.daemon.errors["thread/resume"] = "no rollout found for thread id"
+    await started(harness, loaded=[THREAD])
+    await settle(lambda: bool(harness.daemon.sent("thread/resume")))
+    harness.frames.clear()
+    harness.daemon.calls.clear()
+
+    await harness.hub.send({"id": SEND_REQUEST, "session_id": THREAD, "text": "go"})
+    assert [method for method, _ in harness.daemon.calls] == ["turn/start", "thread/resume"]
+    order = [
+        frame["event"]["kind"] for frame in harness.frames if frame.get("type") == "session.event"
+    ]
+    assert order.index("user_message") < order.index("turn_started")
+
+
+async def test_a_thread_that_cannot_be_resumed_is_not_asked_twice_per_send(
+    harness: Harness,
+) -> None:
+    """A thread whose first turn has not run refuses every resume until it has."""
+    harness.daemon.errors["thread/resume"] = "no rollout found for thread id"
+    await started(harness, loaded=[THREAD])
+    await settle(lambda: bool(harness.daemon.sent("thread/resume")))
+    attempts = len(harness.daemon.sent("thread/resume"))
+
+    await harness.hub.send({"id": SEND_REQUEST, "session_id": THREAD, "text": "go"})
+    # One attempt for this send: the one after `turn/start`, when the rollout
+    # the turn creates makes a resume possible for the first time.
+    assert len(harness.daemon.sent("thread/resume")) == attempts + 1
+
+    # And nothing about a notification that is not a turn boundary retries it.
+    await harness.daemon.notify(
+        "thread/name/updated", {"threadId": THREAD, "threadName": "Fix the typecheck"}
+    )
+    await harness.daemon.notify(
+        "item/completed",
+        {"threadId": THREAD, "item": {"id": "a1", "type": "agentMessage", "text": "ok"}},
+    )
+    await asyncio.sleep(0.1)
+    assert len(harness.daemon.sent("thread/resume")) == attempts + 1
+
+
+async def test_a_turn_boundary_makes_a_refused_resume_worth_another_try(
+    harness: Harness,
+) -> None:
+    harness.daemon.errors["thread/resume"] = "no rollout found for thread id"
+    await started(harness, loaded=[THREAD])
+    await settle(lambda: bool(harness.daemon.sent("thread/resume")))
+    attempts = len(harness.daemon.sent("thread/resume"))
+
+    await harness.daemon.notify(
+        "turn/started", {"threadId": THREAD, "turn": {"id": "turn-9", "status": "inProgress"}}
+    )
+    await settle(lambda: len(harness.daemon.sent("thread/resume")) > attempts)

@@ -308,6 +308,11 @@
   color: var(--ink-secondary);
 }
 
+/* A12: sent from here, not yet echoed back by the device. */
+.user-bubble.pending {
+  opacity: 0.62;
+}
+
 /* A10: where a message sent into an attached terminal session got to. */
 .delivery-chip {
   display: inline-flex;
@@ -936,19 +941,6 @@
 .takeover-hint {
   font-size: var(--fs-12);
   color: var(--ink-tertiary);
-}
-
-/**
- * A disabled control swallows pointer events, so its own `title` never shows.
- * The wrapper carries the tooltip and the control stops hit-testing.
- */
-.tip {
-  display: inline-flex;
-}
-
-.tip > :disabled,
-.tip .pill:disabled {
-  pointer-events: none;
 }
 
 .action-error {

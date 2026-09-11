@@ -140,6 +140,13 @@ def test_device_hello_registers_and_announces(
             assert pushed["device"]["agents"][0]["agent"] == "claude"
             assert state.hub.device_online(enrolled["device_id"])
 
+        # A13: the socket is gone, but a dropped link is not an offline device until the grace
+        # period ends without a replacement.
+        during_grace = client.get("/api/devices", headers=auth).json()["devices"][0]
+        assert during_grace["online"] is True
+        offline = drain_until(app, "device.updated")
+        assert offline["device"]["online"] is False
+
     listed = client.get("/api/devices", headers=auth).json()["devices"][0]
     assert listed["agents"][0]["agent"] == "claude"
     assert listed["online"] is False

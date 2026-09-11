@@ -5,10 +5,14 @@ import RCCore
 
 /// The message bar.
 ///
-/// The field owns a full row of its own and grows with what is in it; the
-/// controls sit on a second row underneath, attachments and dictation on the
-/// left and Send on the right. Return inserts a newline, and sending is always
-/// an explicit, separate tap — dictation fills the draft and stops there.
+/// Two rows and never three. The field owns the first one and grows with what
+/// is in it; everything else sits on the second, in one order: the `+` and the
+/// microphone, then the session's chips, then Send against the trailing edge.
+/// The chips scroll sideways when they do not fit, because a control row that
+/// wraps costs the transcript a line every time a chip is added.
+///
+/// Return inserts a newline, and sending is always an explicit, separate tap —
+/// dictation fills the draft and stops there.
 struct Composer: View {
     let chat: ChatStore
     @Binding var showsQueue: Bool
@@ -22,13 +26,7 @@ struct Composer: View {
     @State private var showsFileImporter = false
     @State private var showsCamera = false
     @State private var attachmentError: String?
-    /// Amendment A10: which terminal-owned control the user just reached for.
-    /// The one-line status swaps to its explanation for a few seconds.
-    @State private var blockedControl: TerminalControl?
     @FocusState private var isWriting: Bool
-
-    /// A control an attached session leaves to the terminal.
-    private enum TerminalControl: Hashable { case attachments, settings }
 
     private var target: VoiceDraftTarget {
         VoiceDraftTarget(account: model.connection.account,
@@ -44,7 +42,6 @@ struct Composer: View {
             if !attachments.isEmpty { attachmentStrip }
             promptField
             controlsRow
-            optionsRow
         }
         .padding(.horizontal, Theme.Space.page)
         .padding(.top, Theme.Space.small)
@@ -72,8 +69,9 @@ struct Composer: View {
         #endif
     }
 
-    /// One line above the field, and never two: an attachment problem, what
-    /// dictation is doing, or what an attached terminal owns.
+    /// One line above the field, and only when something is happening to it:
+    /// an attachment problem, or what dictation is doing. An attached session
+    /// says so in the header and prints nothing here.
     @ViewBuilder
     private var noticeLine: some View {
         if let attachmentError {
@@ -87,8 +85,6 @@ struct Composer: View {
                     guard !Task.isCancelled else { return }
                     voice.voice.dismissFailure()
                 }
-        } else if chat.isAttached {
-            terminalNote
         }
     }
 
@@ -130,8 +126,9 @@ struct Composer: View {
         }
     }
 
-    /// Attachments and dictation on the left, Send on the right — and while
-    /// dictation runs, exactly two controls: Cancel and Done.
+    /// Everything under the field, on one row — and while dictation runs, the
+    /// level meter, the elapsed time and exactly two controls, Cancel and Done,
+    /// in place of all of it.
     @ViewBuilder
     private var controlsRow: some View {
         if let voice, voice.voice.phase.isBusy {
@@ -149,7 +146,7 @@ struct Composer: View {
                             .disabled(chat.isReadOnly)
                     }
                 }
-                Spacer(minLength: Theme.Space.small)
+                chips
                 sendButton
             }
             .frame(minHeight: Theme.Touch.primary)
@@ -176,20 +173,13 @@ struct Composer: View {
 
     private var isDictating: Bool { voice?.voice.phase.isBusy == true }
 
-    /// On an attached session whose attachment cannot carry bytes the picker is
-    /// inert. Reaching for it says so rather than swallowing the tap. Amendment
-    /// A11: an attachment that does carry them keeps the ordinary menu.
+    /// A control that cannot act is not shown at all. A terminal session takes
+    /// no bytes, and neither does an attachment whose device did not report
+    /// `shared_attachments` (amendment A11), so the `+` goes rather than
+    /// standing there dimmed with a caption under the field explaining it.
     @ViewBuilder
     private var attachControl: some View {
-        if chat.isAttached, !chat.allowsAttachments {
-            Button { blockedControl = .attachments } label: { attachLabel }
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.ink)
-                .opacity(0.45)
-                .accessibilityLabel("Add an attachment")
-                .accessibilityHint(attachmentsOwnedByTerminal)
-                .accessibilityIdentifier("composer.attach")
-        } else {
+        if chat.allowsAttachments, agent?.supports(.attachments) == true {
             Menu {
                 Button { showsFileImporter = true } label: { Label("Files", systemImage: "folder") }
                 #if os(iOS)
@@ -203,7 +193,6 @@ struct Composer: View {
                 attachLabel
             }
             .foregroundStyle(Theme.ink)
-            .disabled(!chat.allowsAttachments || agent?.supports(.attachments) != true)
             .accessibilityLabel("Add an attachment")
             .accessibilityIdentifier("composer.attach")
         }
@@ -224,100 +213,73 @@ struct Composer: View {
         }
     }
 
-    private var optionsRow: some View {
-        HStack(spacing: Theme.Space.tight) {
-            Button {
-                openSettings()
-            } label: {
-                Text(agent?.modelLabel(chat.session.model) ?? chat.session.agent)
-            }
-            .buttonStyle(ChipButtonStyle())
-            .opacity(chat.allowsSettingsChanges ? 1 : 0.45)
-            .accessibilityHint(chat.allowsSettingsChanges ? Text("") : settingsOwnedByTerminal)
-            .accessibilityIdentifier("composer.model")
-
-            Button {
-                openSettings()
-            } label: {
-                Text(agent?.permissionModeLabel(chat.session.permissionMode) ?? "Permissions")
-            }
-            .buttonStyle(ChipButtonStyle())
-            .opacity(chat.allowsSettingsChanges ? 1 : 0.45)
-            .accessibilityHint(chat.allowsSettingsChanges ? Text("") : settingsOwnedByTerminal)
-
-            Menu {
-                Picker("Dictation language", selection: languageBinding) {
-                    Text("Automatic").tag("auto")
-                    ForEach(languageCodes, id: \.self) { code in
-                        Text(languageName(code)).tag(code)
+    /// The middle of the control row: what this session is set to, and what is
+    /// waiting behind the turn. They scroll sideways rather than wrap, so the
+    /// row keeps its height however many of them there are.
+    ///
+    /// Amendment A11: the session's own settings are shown only where they can
+    /// be changed from here. On a `shared` session whose device did not report
+    /// `shared_settings` they live in the terminal, so the chips are absent
+    /// rather than dimmed.
+    private var chips: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: Theme.Space.tight) {
+                if chat.allowsSettingsChanges {
+                    settingsChip(agent?.modelLabel(chat.session.model) ?? chat.session.agent,
+                                 identifier: "composer.model")
+                    settingsChip(agent?.permissionModeLabel(chat.session.permissionMode) ?? "Permissions",
+                                 identifier: "composer.permissions")
+                    if agent?.supports(.effort) == true, let efforts = agent?.efforts, !efforts.isEmpty {
+                        settingsChip(agent?.effortLabel(chat.session.effort) ?? "Effort",
+                                     identifier: "composer.effort")
                     }
                 }
-            } label: {
-                Text(model.settings.voiceLanguage == "auto"
-                     ? "Auto" : languageName(model.settings.voiceLanguage))
-            }
-            .menuStyle(.button)
-            .buttonStyle(ChipButtonStyle())
-            .accessibilityLabel("Dictation language")
-            .accessibilityIdentifier("composer.language")
 
-            if chat.session.queued > 0 {
-                Button { showsQueue = true } label: { Text("Up next · \(chat.session.queued)") }
-                    .buttonStyle(ChipButtonStyle())
-                    .accessibilityIdentifier("composer.queue")
+                Menu {
+                    Picker("Dictation language", selection: languageBinding) {
+                        Text("Automatic").tag("auto")
+                        ForEach(languageCodes, id: \.self) { code in
+                            Text(languageName(code)).tag(code)
+                        }
+                    }
+                } label: {
+                    Text(model.settings.voiceLanguage == "auto"
+                         ? "Auto" : languageName(model.settings.voiceLanguage))
+                }
+                .menuStyle(.button)
+                .buttonStyle(ChipButtonStyle())
+                .accessibilityLabel("Dictation language")
+                .accessibilityIdentifier("composer.language")
+
+                if chat.session.queued > 0 {
+                    Button { showsQueue = true } label: { Text("Up next · \(chat.session.queued)") }
+                        .buttonStyle(ChipButtonStyle())
+                        .accessibilityIdentifier("composer.queue")
+                }
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 2)
+        }
+        .scrollIndicators(.hidden)
+        // Nothing to scroll while the chips fit, so the row does not rubber-band
+        // under a thumb aiming for Send.
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        // A chip cut off flat against Send reads as broken text. The last few
+        // points fade instead, which is how a row says there is more of it.
+        .mask {
+            HStack(spacing: 0) {
+                Rectangle()
+                LinearGradient(colors: [.black, .black.opacity(0)],
+                               startPoint: .leading, endPoint: .trailing)
+                    .frame(width: 18)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Amendment A10: one quiet line on an attached session, saying who owns
-    /// the two controls the device cannot drive. Reaching for either swaps the
-    /// line for that control's own sentence rather than adding a second one.
-    private var terminalNote: some View {
-        blockedLabel
-            .font(.caption)
-            .foregroundStyle(Theme.inkSecondary)
-            .lineLimit(1)
-            // The line shrinks a little on a narrow phone rather than
-            // truncating: a half-sentence explains nothing.
-            .minimumScaleFactor(0.8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("composer.terminalNote")
-            .task(id: blockedControl) {
-                guard blockedControl != nil else { return }
-                try? await Task.sleep(for: .seconds(4))
-                guard !Task.isCancelled else { return }
-                blockedControl = nil
-            }
-    }
-
-    private var blockedLabel: Text {
-        switch blockedControl {
-        case .attachments: attachmentsOwnedByTerminal
-        case .settings: settingsOwnedByTerminal
-        case nil: attachedLabel
-        }
-    }
-
-    /// Amendment A11: the line names only what this attachment cannot do. When
-    /// the device drives both settings and attachments there is nothing to hand
-    /// back, so it says where the conversation is and stops.
-    private var attachedLabel: Text {
-        switch (chat.allowsSettingsChanges, chat.allowsAttachments) {
-        case (true, true): Text("Attached to the terminal")
-        case (true, false): Text("Attached to the terminal · attachments are added there")
-        case (false, true): Text("Attached to the terminal · settings are changed there")
-        case (false, false): Text("Attached to the terminal · settings and attachments are changed there")
-        }
-    }
-
-    private var attachmentsOwnedByTerminal: Text {
-        Text("Attachments cannot be delivered to a terminal session")
-    }
-
-    private var settingsOwnedByTerminal: Text {
-        Text("Change it in the terminal")
+    private func settingsChip(_ label: String, identifier: String) -> some View {
+        Button { showsSettings = true } label: { Text(label) }
+            .buttonStyle(ChipButtonStyle())
+            .accessibilityIdentifier(identifier)
     }
 
     private var attachmentStrip: some View {
@@ -368,10 +330,6 @@ struct Composer: View {
         return chat.isAttached ? "Message · sent when the terminal is idle" : "Message · will be queued"
     }
 
-    private func openSettings() {
-        if chat.allowsSettingsChanges { showsSettings = true } else { blockedControl = .settings }
-    }
-
     private func send(mode: SendMode) {
         let outgoing = attachments
         attachments = []
@@ -395,7 +353,7 @@ struct Composer: View {
 
     /// The composer knows about the connection; the chat store does not.
     private func syncSendability() {
-        chat.connectionReady = model.connection.phase == .connected || model.isDemo
+        chat.canReachGateway = model.connection.phase.canReachGateway || model.isDemo
         chat.deviceOnline = model.device(for: chat.session)?.online ?? false
         chat.agent = agent
     }
@@ -490,6 +448,10 @@ private struct VoiceBinding: ViewModifier {
 
 /// Model, permission mode, effort and the STT language, all from what the
 /// device said it supports.
+///
+/// Amendment A11: the sheet is reached only from the composer's chips, and
+/// those exist only where this app may retune the session, so nothing here is
+/// ever locked to the terminal.
 struct SessionSettingsSheet: View {
     let chat: ChatStore
     let agent: AgentInfo?
@@ -505,26 +467,23 @@ struct SessionSettingsSheet: View {
                         Picker("Model", selection: modelBinding) {
                             ForEach(agent.models) { option in Text(option.label).tag(option.id) }
                         }
-                        .disabled(isLockedToTerminal)
                         .accessibilityIdentifier("session.model")
-                    } header: { FieldLabel("Model") } footer: { terminalFooter }
+                    } header: { FieldLabel("Model") }
                 }
                 if let agent, !agent.permissionModes.isEmpty {
                     Section {
                         Picker("Permissions", selection: permissionBinding) {
                             ForEach(agent.permissionModes) { option in Text(option.label).tag(option.id) }
                         }
-                        .disabled(isLockedToTerminal)
                         .accessibilityIdentifier("session.permissions")
-                    } header: { FieldLabel("Permissions") } footer: { terminalFooter }
+                    } header: { FieldLabel("Permissions") }
                 }
                 if let agent, agent.supports(.effort), !agent.efforts.isEmpty {
                     Section {
                         Picker("Effort", selection: effortBinding) {
                             ForEach(agent.efforts) { option in Text(option.label).tag(option.id) }
                         }
-                        .disabled(isLockedToTerminal)
-                    } header: { FieldLabel("Effort") } footer: { terminalFooter }
+                    } header: { FieldLabel("Effort") }
                 }
                 Section {
                     Picker("Dictation language", selection: $settings.voiceLanguage) {
@@ -551,19 +510,6 @@ struct SessionSettingsSheet: View {
 
     private var languages: [String] {
         model.connection.stt.languages.filter { $0 != "auto" }
-    }
-
-    /// Amendment A10: `session.set` is unsupported for model, permission mode
-    /// and effort while a live CLI owns the session.
-    private var isLockedToTerminal: Bool { !chat.allowsSettingsChanges }
-
-    @ViewBuilder
-    private var terminalFooter: some View {
-        if isLockedToTerminal {
-            Text("Change it in the terminal")
-                .font(.caption)
-                .accessibilityIdentifier("session.terminalNote")
-        }
     }
 
     private func languageName(_ code: String) -> String {

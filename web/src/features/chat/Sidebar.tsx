@@ -57,7 +57,7 @@ export function Sidebar({ activeKey, onNewSession }: Props) {
           className={cx('sidebar-item', key === activeKey && 'active')}
           onClick={() => navigate(`/sessions/${key}`)}
         >
-          <StatusDot state={session.state} online={online} />
+          <StatusDot state={session.state} control={session.control} online={online} />
           <span className="sidebar-item-text">
             <span className="sidebar-title">{session.title}</span>
             <span className={cx('sidebar-sub', attention && 'attention')}>

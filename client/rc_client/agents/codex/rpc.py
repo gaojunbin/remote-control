@@ -8,6 +8,7 @@ stream, exactly as the upstream wrapper does.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -83,12 +84,15 @@ class CodexAppServer:
             self._reader.cancel()
         process = self._process
         if process is not None and process.returncode is None:
-            process.terminate()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=5.0)
-            except TimeoutError:
-                process.kill()
-                await process.wait()
+            # Signalling a child that has just exited raises rather than
+            # returning, and this runs while a session is being torn down.
+            with contextlib.suppress(ProcessLookupError):
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+                except TimeoutError:
+                    process.kill()
+                    await process.wait()
         self._process = None
 
     async def _write(self, payload: dict[str, Any]) -> None:

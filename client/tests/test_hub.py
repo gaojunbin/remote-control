@@ -26,6 +26,7 @@ class FakeRunner:
         self.sources: list[str] = []
         self.attachments: list[list[dict[str, Any]] | None] = []
         self.steered: list[str] = []
+        self.steer_block_ids: list[str | None] = []
         self.interrupts = 0
         self.settings: list[tuple[Any, Any, Any]] = []
         self.block_ids: list[str | None] = []
@@ -81,10 +82,11 @@ class FakeRunner:
     def supports_steer(self) -> bool:
         return self._steer
 
-    async def steer(self, text: str) -> bool:
+    async def steer(self, text: str, block_id: str | None = None) -> bool:
         if not self._steer:
             return False
         self.steered.append(text)
+        self.steer_block_ids.append(block_id)
         return True
 
 
@@ -453,4 +455,84 @@ def test_runner_protocol_is_satisfied_by_the_fake(tmp_path: Path) -> None:
 
     runner = FakeRunner(SessionChannel(registry, session, publish))
     assert isinstance(runner, SessionRunner)
+    registry.close()
+
+
+# ------------------------------------------- A12: the app's id is the bubble
+
+FIRST_REQUEST = "3f1c9d2a-6b48-4f2e-9a77-1c5be0d4a911"
+SECOND_REQUEST = "b72e5d18-0c3a-4d6f-8e21-9fd4c7a35b60"
+
+
+async def test_the_request_id_is_the_block_the_message_lands_on(tmp_path: Path) -> None:
+    hub, _, registry = build_hub(tmp_path)
+    entry = add_session(hub)
+    runner = entry.runner
+    assert isinstance(runner, FakeRunner)
+    await hub.send({"id": FIRST_REQUEST, "session_id": "sess-1", "text": "go", "mode": "auto"})
+    assert runner.block_ids == [FIRST_REQUEST]
+    registry.close()
+
+
+async def test_a_retry_of_the_same_send_lands_on_the_same_block(tmp_path: Path) -> None:
+    hub, _, registry = build_hub(tmp_path)
+    entry = add_session(hub)
+    runner = entry.runner
+    assert isinstance(runner, FakeRunner)
+    for _ in range(2):
+        await hub.send({"id": FIRST_REQUEST, "session_id": "sess-1", "text": "go", "mode": "auto"})
+    assert runner.block_ids == [FIRST_REQUEST], "the duplicate was never sent again"
+    registry.close()
+
+
+async def test_a_queued_message_keeps_its_id_from_the_queue_to_the_bubble(
+    tmp_path: Path,
+) -> None:
+    hub, frames, registry = build_hub(tmp_path)
+    entry = add_session(hub)
+    runner = entry.runner
+    assert isinstance(runner, FakeRunner)
+    await hub.send({"id": FIRST_REQUEST, "session_id": "sess-1", "text": "first", "mode": "auto"})
+    await hub.send({"id": SECOND_REQUEST, "session_id": "sess-1", "text": "second", "mode": "auto"})
+    snapshot = [
+        frame["event"]
+        for frame in frames
+        if frame.get("type") == "session.event" and frame["event"]["kind"] == "queue"
+    ][-1]
+    assert snapshot["pending"][0]["id"] == SECOND_REQUEST
+
+    await runner.finish()
+    await hub.drain_queue(entry)
+    assert runner.block_ids == [FIRST_REQUEST, SECOND_REQUEST]
+    registry.close()
+
+
+async def test_a_message_the_device_replays_keeps_an_id_of_its_own(tmp_path: Path) -> None:
+    """A queued message that arrived without a request id is the device's own."""
+    hub, _, registry = build_hub(tmp_path)
+    entry = add_session(hub)
+    runner = entry.runner
+    assert isinstance(runner, FakeRunner)
+    await hub.send({"id": FIRST_REQUEST, "session_id": "sess-1", "text": "first", "mode": "auto"})
+    queued = await hub.send({"session_id": "sess-1", "text": "second", "mode": "auto"})
+    minted = str(queued["queued_id"])
+    assert minted and minted != FIRST_REQUEST
+
+    await runner.finish()
+    await hub.drain_queue(entry)
+    assert runner.block_ids == [FIRST_REQUEST, minted]
+    registry.close()
+
+
+async def test_a_steered_message_carries_the_request_id_too(tmp_path: Path) -> None:
+    hub, _, registry = build_hub(tmp_path)
+    entry = add_session(hub, steer=True)
+    runner = entry.runner
+    assert isinstance(runner, FakeRunner)
+    await hub.send({"id": FIRST_REQUEST, "session_id": "sess-1", "text": "first", "mode": "auto"})
+    result = await hub.send(
+        {"id": SECOND_REQUEST, "session_id": "sess-1", "text": "also this", "mode": "auto"}
+    )
+    assert result == {"accepted": "steered"}
+    assert runner.steer_block_ids == [SECOND_REQUEST]
     registry.close()

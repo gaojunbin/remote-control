@@ -24,7 +24,50 @@ enum SocketChecks {
         await terminal(code: 4001, expected: .replaced, checks: checks)
         await transient(checks: checks)
         await writeOrdering(checks: checks)
+        await sendWhileReconnecting(checks: checks)
+        await sendWithNoSocketAtAll(checks: checks)
         return checks.result()
+    }
+
+    /// A request issued while the socket is still coming up waits for the hello
+    /// instead of failing.
+    ///
+    /// The gateway closes a silent socket after 25 s, so an app returning to
+    /// the foreground has one to rebuild more often than not. Failing the send
+    /// for the length of a TLS handshake reads as a dead Send button.
+    private static func sendWhileReconnecting(checks: CheckRunner) async {
+        let connection = SlowHelloWebSocket(helloDelay: .milliseconds(400))
+        let socket = GatewaySocket(client: await makeClient(),
+                                   factory: SlowHelloFactory(connection: connection))
+        await socket.connect()
+
+        // Issued at once: the hello is still 400 ms away.
+        checks.expect(!(await socket.isConnected), "the request is issued before the socket is up")
+        let started = Date()
+        var delivered = false
+        do {
+            _ = try await socket.request(.stop(sessionID: "s"))
+            delivered = true
+        } catch {
+            checks.expect(false, "a send during a reconnect was refused: \(error)")
+        }
+        checks.expect(delivered, "a request issued while reconnecting is flushed once the hello lands")
+        checks.expect(Date().timeIntervalSince(started) >= 0.3,
+                      "and it really did wait for the connection rather than racing it")
+        checks.equal(await connection.sentTypes, ["session.stop"],
+                     "the gateway sees it once, after the hello")
+        await socket.disconnect()
+    }
+
+    /// The wait is for a socket on its way back, not for one that was never
+    /// asked for: a request on a disconnected transport still fails at once.
+    private static func sendWithNoSocketAtAll(checks: CheckRunner) async {
+        let socket = GatewaySocket(client: await makeClient(),
+                                   factory: SlowHelloFactory(connection: SlowHelloWebSocket(helloDelay: .zero)))
+        var refused = false
+        do { _ = try await socket.request(.stop(sessionID: "s")) }
+        catch { refused = (error as? TransportError) == .notConnected }
+        checks.expect(refused, "a request with no connection attempt under way fails at once")
     }
 
     /// Review finding 12: two frames must reach the gateway in the order they
@@ -109,6 +152,48 @@ enum SocketChecks {
             if Date() > deadline { return }
         }
     }
+}
+
+private struct SlowHelloFactory: WebSocketFactory {
+    let connection: SlowHelloWebSocket
+    func makeConnection(request: URLRequest) async -> any WebSocketConnection { connection }
+}
+
+/// A connection that takes its time over the hello, then answers every request
+/// it is written with an empty successful reply.
+private actor SlowHelloWebSocket: WebSocketConnection {
+    private let helloDelay: Duration
+    private var greeted = false
+    private var replies: [String] = []
+    private(set) var sentTypes: [String] = []
+
+    init(helloDelay: Duration) { self.helloDelay = helloDelay }
+
+    func resume() {}
+
+    func send(text: String) async throws {
+        guard let json = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)),
+              let type = json["type"]?.stringValue, let id = json["id"]?.stringValue else { return }
+        sentTypes.append(type)
+        replies.append(#"{"type":"reply","id":"\#(id)","ok":true,"result":{}}"#)
+    }
+
+    func send(binary: Data) async throws {}
+
+    func receive() async throws -> Data {
+        if !greeted {
+            try await Task.sleep(for: helloDelay)
+            greeted = true
+            return Data(#"{"type":"hello","protocol":1,"gateway_version":"t","user":{"username":"a"},"server_time":0}"#.utf8)
+        }
+        while replies.isEmpty {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        return Data(replies.removeFirst().utf8)
+    }
+
+    func closeCode() -> Int? { nil }
+    func cancel() {}
 }
 
 private struct SingleConnectionFactory: WebSocketFactory {

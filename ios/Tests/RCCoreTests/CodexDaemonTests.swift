@@ -91,7 +91,7 @@ struct CodexDaemonTests {
     func steerWording() {
         let steering = store(agent: daemon)
         #expect(steering.steersRunningTurn)
-        #expect(steering.statusLine == "terminal · attached · working")
+        #expect(steering.statusLine == "Working · your message will steer the turn")
 
         let remote = store(state: .running, agent: daemon, control: .remote)
         #expect(remote.statusLine == "Working · your message will steer the turn")

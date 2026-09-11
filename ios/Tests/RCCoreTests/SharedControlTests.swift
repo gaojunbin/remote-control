@@ -73,7 +73,7 @@ struct SharedControlTests {
         #expect(chat.isAttached)
         #expect(chat.canSend)
         #expect(chat.sendBlockReason == nil)
-        #expect(chat.statusLine == "terminal · attached")
+        #expect(chat.statusLine == nil)
     }
 
     @Test("An attached session never offers takeover")
@@ -144,16 +144,21 @@ struct SharedControlTests {
         #expect(store(state: .needsApproval, control: .shared).canSend)
     }
 
-    @Test("An attached session says who is driving while a turn runs")
+    /// The header already reads `terminal · attached`, so the line above the
+    /// composer is left to what the header cannot say: what becomes of a
+    /// message typed into a turn that is already running.
+    @Test("An attached session says what happens to a message, and nothing else")
     @MainActor
     func attachedStatusLine() {
-        #expect(store(state: .running, control: .shared).statusLine == "terminal · attached · working")
+        #expect(store(state: .running, control: .shared).statusLine
+                == "Working · your message will be queued")
         #expect(store(state: .running, control: .shared, queued: 1).statusLine
-                == "terminal · attached · 1 message waiting")
+                == "Working · 1 message queued")
         #expect(store(state: .running, control: .shared, queued: 2).statusLine
-                == "terminal · attached · 2 messages waiting")
-        #expect(store(state: .needsApproval, control: .shared).statusLine == "Waiting for your approval")
-        #expect(store(state: .needsInput, control: .shared).statusLine == "Waiting for your answer")
+                == "Working · 2 messages queued")
+        #expect(store(state: .needsApproval, control: .shared).statusLine == nil)
+        #expect(store(state: .needsInput, control: .shared).statusLine == nil)
+        #expect(store(state: .idle, control: .shared).statusLine == nil)
     }
 
     // MARK: - Transitions

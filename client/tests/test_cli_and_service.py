@@ -129,6 +129,22 @@ def test_launchd_plist_uses_the_agreed_label_and_paths(client_home: Path) -> Non
     assert str(client_home) in rendered
     assert launchd.plist_path().name == "dev.remote-control.client.plist"
     assert launchd.plist_path().parent.name == "LaunchAgents"
+    # `ProcessType: Background` throttles the job's CPU and disk, which stalled
+    # the event loop long enough for the gateway to call the link dead.
+    assert "ProcessType" not in rendered
+
+
+def test_the_link_state_tells_the_operator_what_to_do(client_home: Path) -> None:
+    from rc_client import linkstate
+
+    assert linkstate.read() is None
+    linkstate.record(linkstate.REJECTED, "close 4401")
+    state = linkstate.read()
+    assert state is not None
+    assert "rc-client enroll" in state.summary()
+    linkstate.record(linkstate.CONNECTED)
+    connected = linkstate.read()
+    assert connected is not None and connected.summary() == "connected"
 
 
 class FakeLaunchd:

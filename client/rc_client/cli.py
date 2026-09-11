@@ -14,7 +14,7 @@ import shutil
 import sys
 from typing import Any
 
-from . import __version__
+from . import __version__, linkstate
 from . import config as config_module
 from .agents.codex.daemon import setup as codex_setup
 from .agents.discovery import detect_agents
@@ -129,6 +129,9 @@ async def _cmd_status(args: argparse.Namespace) -> int:
     print(f"config         {config_path()}")
     print(f"state          {config_module.database_path()}")
     print(f"service        {manager.status()}")
+    link = linkstate.read()
+    if link is not None:
+        print(f"gateway link   {link.summary()}")
     print(f"codex daemon   {(await codex_setup.status()).summary()}")
     return EXIT_OK
 

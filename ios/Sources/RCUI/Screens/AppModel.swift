@@ -48,7 +48,9 @@ public final class AppModel {
 
     /// The offline demo never constructs a transport.
     public func enterDemo() async {
-        let gateway = DemoGateway()
+        // A UI test looks at the moment between a tap and the device's echo, so
+        // the scripted device takes its time over it rather than being raced.
+        let gateway = DemoGateway(echoDelay: isUITesting ? .seconds(3) : DemoGateway.defaultEchoDelay)
         await connection.enterDemo(api: gateway, channel: gateway)
         attachPush()
     }

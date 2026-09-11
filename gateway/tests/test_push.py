@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -47,17 +48,24 @@ def _transition(device: Any, device_id: str, state: str) -> None:
     )
 
 
-def _transition_and_settle(device: Any, app: Any, device_id: str, state: str) -> None:
-    """Apply a state change and wait until the gateway finished reacting to it.
+def _transition_and_settle(
+    device: Any, app: Any, device_id: str, state: str, *, sender: FakeWebPushSender, pushes: int
+) -> None:
+    """Apply a state change and wait until the gateway has finished reacting to it.
 
     The device loop broadcasts ``session.updated`` before it evaluates the push trigger, so a
     repeated no-op update whose broadcast the app has seen proves the previous frame's handler ran
-    to completion.
+    to completion. Delivery deliberately is not part of that handler, so it would hold up the next
+    frame: how many notifications the run should have produced by now is waited for separately.
     """
     _transition(device, device_id, state)
     drain_until(app, "session.updated")
     _transition(device, device_id, state)
     drain_until(app, "session.updated")
+    deadline = time.monotonic() + 2.0
+    while len(sender.sent) < pushes and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert len(sender.sent) == pushes, [payload["rc"]["kind"] for _, payload in sender.sent]
 
 
 def test_transition_kinds() -> None:
@@ -98,9 +106,15 @@ def test_state_transitions_produce_one_push_each(
         device.receive_json()
         with client.websocket_connect("/ws/app", headers=auth) as app:
             drain_until(app, "hello")
-            _transition_and_settle(device, app, enrolled["device_id"], "running")
-            _transition_and_settle(device, app, enrolled["device_id"], "needs_approval")
-            _transition_and_settle(device, app, enrolled["device_id"], "idle")
+            _transition_and_settle(
+                device, app, enrolled["device_id"], "running", sender=web_sender, pushes=0
+            )
+            _transition_and_settle(
+                device, app, enrolled["device_id"], "needs_approval", sender=web_sender, pushes=1
+            )
+            _transition_and_settle(
+                device, app, enrolled["device_id"], "idle", sender=web_sender, pushes=2
+            )
 
     kinds = [payload["rc"]["kind"] for _, payload in web_sender.sent]
     assert kinds == [KIND_NEEDS_APPROVAL, KIND_TURN_COMPLETED]
@@ -127,7 +141,9 @@ def test_no_push_while_a_subscribed_app_is_active(
             drain_until(app, "hello")
             app.send_json({"type": "session.subscribe", "id": "p1", "session_id": SESSION_ID})
             drain_until(app, "reply")
-            _transition_and_settle(device, app, enrolled["device_id"], "needs_approval")
+            _transition_and_settle(
+                device, app, enrolled["device_id"], "needs_approval", sender=web_sender, pushes=0
+            )
     assert web_sender.sent == []
 
 
@@ -145,7 +161,9 @@ def test_a_gone_subscription_is_dropped(
         device.receive_json()
         with client.websocket_connect("/ws/app", headers=auth) as app:
             drain_until(app, "hello")
-            _transition_and_settle(device, app, enrolled["device_id"], "error")
+            _transition_and_settle(
+                device, app, enrolled["device_id"], "error", sender=web_sender, pushes=1
+            )
     assert len(web_sender.sent) == 1
     remaining = client.post(
         "/api/push/web/subscribe",

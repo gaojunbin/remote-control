@@ -66,6 +66,9 @@ const queueEvent = (seq: number, ids: string[]): SessionEvent =>
     pending: ids.map((id) => ({ id, text: `queued ${id}`, ts: 5 })),
   }) as SessionEvent;
 
+const userMessage = (seq: number, blockId: string, text: string): SessionEvent =>
+  ({ seq, ts: 1_000 + seq, kind: 'user_message', block_id: blockId, text, source: 'remote' }) as SessionEvent;
+
 const textEvent = (seq: number, text: string): SessionEvent =>
   ({ seq, ts: 1_000 + seq, kind: 'assistant_text', block_id: `b${seq}`, text, done: true }) as SessionEvent;
 
@@ -306,6 +309,130 @@ describe('sending', () => {
     expect((sends[0]?.[2] as { id: string }).id).toBe(id);
     expect((sends[1]?.[2] as { id: string }).id).toBe(id);
     expect(useOutbox.getState().pending).toEqual({});
+  });
+
+  it('shows the message before the request is answered, under the request id', async () => {
+    const handlers = openSession();
+    handlers.onResult({ session, resync: false, events: [] });
+
+    let release = (_: unknown) => {};
+    rpc.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    const sending = useChat.getState().send(KEY, { text: 'run the tests', mode: 'auto' });
+
+    // Synchronously, before the gateway has replied.
+    const optimistic = chat()?.timeline.optimistic ?? [];
+    expect(optimistic).toHaveLength(1);
+    expect(optimistic[0]?.text).toBe('run the tests');
+    const id = optimistic[0]?.id as string;
+    expect(rpc.mock.calls.at(-1)?.[2]).toMatchObject({ id });
+    // It is not a device event, so the replay cursor stays where it was.
+    expect(chat()?.timeline.lastSeq).toBe(0);
+
+    release({ accepted: 'sent' });
+    await sending;
+    expect(chat()?.timeline.optimistic).toHaveLength(1);
+
+    // A12: the device echoes the request id, so the row is replaced in place.
+    useChat.getState().ingestEvent(SESSION, userMessage(3, id, 'run the tests'), DEVICE);
+    expect(chat()?.timeline.optimistic).toEqual([]);
+    expect(chat()?.timeline.order).toEqual([id]);
+  });
+
+  it('records the attachment metadata on the optimistic row', async () => {
+    const handlers = openSession();
+    handlers.onResult({ session, resync: false, events: [] });
+    rpc.mockResolvedValueOnce({ accepted: 'sent' });
+
+    await useChat.getState().send(KEY, {
+      text: 'look at this',
+      mode: 'auto',
+      attachments: [{ name: 'shot.png', mime: 'image/png', data_base64: 'AAAA' }],
+    });
+
+    expect(chat()?.timeline.optimistic[0]?.attachments).toEqual([
+      { name: 'shot.png', mime: 'image/png', size: 3 },
+    ]);
+  });
+
+  it('gives the row up to the queue when the device queues the message', async () => {
+    const handlers = openSession();
+    handlers.onResult({ session, resync: false, events: [] });
+    rpc.mockResolvedValueOnce({ accepted: 'queued', queued_id: 'q-1' });
+
+    await useChat.getState().send(KEY, { text: 'and then lint', mode: 'auto' });
+    // The queue row above the composer stands for it from here on.
+    expect(chat()?.timeline.optimistic).toEqual([]);
+  });
+
+  it('gives the row up to a queue snapshot that names it, after an uncertain send', async () => {
+    const handlers = openSession();
+    handlers.onResult({ session, resync: false, events: [] });
+    rpc.mockRejectedValueOnce(new RequestError({ code: 'timeout', message: 'no reply' }));
+
+    await useChat.getState().send(KEY, { text: 'and then lint', mode: 'auto' });
+    const id = chat()?.timeline.optimistic[0]?.id as string;
+
+    // The device did get it: its snapshot names the request id (A12).
+    useChat.getState().ingestEvent(SESSION, queueEvent(4, [id]), DEVICE);
+    expect(chat()?.queue.map((q) => q.id)).toEqual([id]);
+    expect(chat()?.timeline.optimistic).toEqual([]);
+  });
+
+  it('stops offering a Retry for a message removed from the queue', async () => {
+    const handlers = openSession();
+    handlers.onResult({ session, resync: false, events: [] });
+    rpc.mockRejectedValueOnce(new RequestError({ code: 'timeout', message: 'no reply' }));
+    await useChat.getState().send(KEY, { text: 'never mind', mode: 'auto' });
+    const id = Object.keys(useOutbox.getState().pending)[0] as string;
+
+    rpc.mockResolvedValueOnce({});
+    await useChat.getState().removeQueued(KEY, id);
+    expect(useOutbox.getState().pending).toEqual({});
+  });
+
+  it('removes the row when the gateway definitely refuses the message', async () => {
+    const handlers = openSession();
+    handlers.onResult({ session, resync: false, events: [] });
+    rpc.mockRejectedValueOnce(new RequestError({ code: 'conflict', message: 'terminal' }));
+
+    await expect(
+      useChat.getState().send(KEY, { text: 'nope', mode: 'auto' }),
+    ).rejects.toBeInstanceOf(RequestError);
+    expect(chat()?.timeline.optimistic).toEqual([]);
+  });
+
+  it('keeps the row when delivery is merely uncertain, and Retry reuses it', async () => {
+    const handlers = openSession();
+    handlers.onResult({ session, resync: false, events: [] });
+    rpc.mockRejectedValueOnce(new RequestError({ code: 'timeout', message: 'no reply' }));
+
+    await useChat.getState().send(KEY, { text: 'maybe', mode: 'auto' });
+    const id = chat()?.timeline.optimistic[0]?.id as string;
+    expect(id).toBeTruthy();
+
+    rpc.mockResolvedValueOnce({ accepted: 'sent' });
+    await useChat.getState().retrySend(id);
+    expect(chat()?.timeline.optimistic.map((b) => b.id)).toEqual([id]);
+  });
+
+  it('keeps the row across a resync and drops it once history confirms it', async () => {
+    const handlers = openSession();
+    handlers.onResult({ session, resync: false, events: [] });
+    rpc.mockResolvedValueOnce({ accepted: 'sent' });
+    await useChat.getState().send(KEY, { text: 'survive the reconnect', mode: 'auto' });
+    const id = chat()?.timeline.optimistic[0]?.id as string;
+
+    // The resync empties the timeline and pages history again.
+    rpc.mockResolvedValueOnce({
+      events: [userMessage(7, id, 'survive the reconnect')],
+      has_more: false,
+    });
+    handlers.onResult({ session, resync: true, events: [] });
+    expect(chat()?.timeline.order).toEqual([]);
+    expect(chat()?.timeline.optimistic.map((b) => b.id)).toEqual([id]);
+
+    await vi.waitFor(() => expect(chat()?.timeline.order).toEqual([id]));
+    expect(chat()?.timeline.optimistic).toEqual([]);
   });
 
   it('forwards attachments only when there are any', async () => {

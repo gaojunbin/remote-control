@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import glob
 import os
 import re
@@ -76,8 +77,10 @@ async def probe_version(path: str) -> str | None:
     try:
         out, err = await asyncio.wait_for(process.communicate(), timeout=VERSION_TIMEOUT)
     except TimeoutError:
-        process.kill()
-        await process.wait()
+        # The child may have exited between the timeout and the signal.
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+            await process.wait()
         return None
     match = _VERSION_RE.search(out.decode("utf-8", "replace") + err.decode("utf-8", "replace"))
     return match.group(1) if match else None

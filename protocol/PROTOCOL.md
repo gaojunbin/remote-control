@@ -115,7 +115,16 @@ app's retry of an unconfirmed send safe.
 
 The gateway sends `ping` every 25 s on both socket types and closes a connection silent for 90 s.
 Any party that receives no frame at all for 60 s MUST treat the connection as half-open and
-reconnect: mobile NAT never delivers `onclose`.
+reconnect: mobile NAT never delivers `onclose`. These are the **only** keepalives on the link: the
+gateway disables its WebSocket server's own protocol-level ping/pong timeout (amendment A13), so a
+device whose event loop stalls for a few seconds is not cut off by a second, shorter clock.
+
+A device link that drops is not offline yet. The gateway keeps reporting `online: true` for a
+**grace period of 20 s** after the socket closes for a transient reason, and reports `online: false`
+only when no replacement connection arrived in that time; a close with `4401` or `4403`, or a device
+that was explicitly removed, turns it `false` at once. Requests addressed to the device during the
+grace period wait for the replacement connection and are answered `device_offline` when the period
+ends without one. A reconnect within the period is invisible to apps.
 
 The close code says whether reconnecting is worth trying (amendment A4). It applies to `/ws/app` and
 `/ws/device` alike.
@@ -770,6 +779,13 @@ are timeline entries or state updates.
 | `attachments` | `Attachment[]` | no | Metadata only |
 | `source` | `remote` \| `terminal` \| `queue` | yes | Where the message came from |
 | `delivery` | `pending` \| `delivered` \| `absorbed` | no | Set only on `shared` sessions; see below |
+
+The `user_message` a device emits for an app's `session.send` carries the request's `id` as its
+`block_id` (amendment A12). An app therefore renders the message the moment it is sent, under that
+id and with `source: "remote"`, and the device's event later replaces it under rule 5.1.1; nothing
+in the timeline moves, and a retry with the same `id` (2.4) lands on the same block. Messages the
+device originates itself (typed in a terminal, replayed from a queue whose item came without an id)
+keep device-minted ids.
 
 `delivery` reports what happened to a message injected into an attached CLI and is absent for an
 ordinary prompt. `pending` means the device accepted the message and is holding it until the
@@ -2841,3 +2857,22 @@ still has the thread: the daemon says nothing when a TUI exits, so the device wa
 process in the thread's `cwd` and reports `remote` or `none` once it is gone. Apps stay
 agent-agnostic: they read the five attachment fields.
 See 4.2, 4.4, 5.7, 6.3, 8.10, 8.13 and 9.
+
+**2026-09-11 A12 — the app's request id is the `user_message` block id.** Apps waited for the
+device's `user_message` before showing what the user had just typed, which costs a full
+app→gateway→device→gateway→app round trip on every send. The `user_message` a device emits for a
+`session.send` now carries the request's `id` as its `block_id`, so an app renders the message at
+once under that id and the device's event replaces it by the ordinary replacement rule; queued
+messages keep the same id from `queue.pending[].id` through to their `user_message`. Devices that
+predate this still emit their own ids, and an app must then fall back to reconciling by text and
+`source`. See 2.4, 5.1, 5.2 and 5.12.
+
+**2026-09-11 A13 — one keepalive clock, and a grace period before `online: false`.** Devices were
+reported offline for half a minute at a time about twice an hour. The gateway's WebSocket server
+had its own default 20 s ping/pong timeout on top of the 25 s / 90 s contract in 2.5, so a device
+whose event loop stalled for twenty seconds was closed with `1011` and broadcast as offline the same
+instant. 2.5 now states that the 25 s / 90 s application pings are the only keepalives, and that the
+gateway holds `online: true` for a 20 s grace period after a transient close, answering requests
+addressed to the device only once the period ends without a replacement connection (they wait for
+one in the meantime). `4401`, `4403` and an explicit removal still flip `online` immediately. See
+2.5 and 4.1.

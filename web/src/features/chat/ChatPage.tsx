@@ -8,6 +8,7 @@ import { useConnection } from '../../stores/connection';
 import { useDevices } from '../../stores/devices';
 import { useOutbox } from '../../stores/outbox';
 import { sessionKey, useSessions } from '../../stores/sessions';
+import { emptyTimeline } from '../../stores/timeline';
 import type { SendMode } from '../../protocol/frames';
 import type { QuestionAnswers } from '../../protocol/types';
 import { NewSessionDrawer } from '../sessions/NewSessionDrawer';
@@ -18,6 +19,9 @@ import { StatusLine } from './StatusLine';
 import { Timeline } from './Timeline';
 import type { AttachmentDraft } from './attachments';
 import './chat.css';
+
+/** Stable identity, so an unopened session does not rebuild the view each render. */
+const NO_TIMELINE = emptyTimeline();
 
 export function ChatPage() {
   const { deviceId = '', sessionId = '' } = useParams();
@@ -187,7 +191,7 @@ export function ChatPage() {
         />
 
         <Timeline
-          timeline={chat?.timeline ?? { order: [], items: {}, lastSeq: 0, oldestSeq: null }}
+          timeline={chat?.timeline ?? NO_TIMELINE}
           historyLoading={chat?.historyLoading ?? false}
           historyHasMore={chat?.historyHasMore ?? false}
           onOpenFull={onOpenFull}
@@ -223,7 +227,11 @@ export function ChatPage() {
               type="button"
               className="btn small"
               onClick={() => {
-                for (const entry of unconfirmed) void retrySend(entry.id);
+                for (const entry of unconfirmed) {
+                  retrySend(entry.id).catch((err: unknown) =>
+                    setActionError(errorText(err, strings.composer.sendFailed)),
+                  );
+                }
               }}
             >
               {strings.common.retry}

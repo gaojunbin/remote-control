@@ -344,3 +344,115 @@ def test_nonsense_limits_fall_back_to_the_defaults() -> None:
     assert loaded.mirror.max_sessions == DEFAULT_MIRROR_MAX_SESSIONS
     assert loaded.mirror.max_age_days == DEFAULT_MIRROR_MAX_AGE_DAYS
     assert loaded.claude.setting_sources == ["user"]
+
+
+# ----------------------------- A12 and the send path's own round trips
+
+
+REQUEST = "5c0a7f36-2d19-4b8c-a4e3-71f0c9d2e845"
+
+
+class StubSDK:
+    """Enough of the SDK client for one `send`."""
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    async def query(self, prompt: str) -> None:
+        self.prompts.append(prompt)
+
+    async def disconnect(self) -> None:
+        return None
+
+
+def claude_runner(tmp_path: Path, frames: list[dict[str, Any]], **kwargs: Any) -> ClaudeRunner:
+    registry = Registry(tmp_path / "state.sqlite3")
+    session = Session(session_id="s1", device_id="d", agent="claude", cwd=str(tmp_path))
+    registry.upsert_session(session)
+
+    async def publish(frame: dict[str, Any]) -> None:
+        frames.append(frame)
+
+    channel = SessionChannel(registry, session, publish)
+    return ClaudeRunner(channel, binary=None, cwd=str(tmp_path), **kwargs)
+
+
+def kinds(frames: list[dict[str, Any]]) -> list[str]:
+    return [
+        frame["event"]["kind"] if frame.get("type") == "session.event" else str(frame.get("type"))
+        for frame in frames
+    ]
+
+
+async def test_a_claude_send_carries_the_request_id_as_its_block(tmp_path: Path) -> None:
+    frames: list[dict[str, Any]] = []
+    runner = claude_runner(tmp_path, frames)
+    runner._client = StubSDK()  # type: ignore[assignment]
+    await runner.send("go", block_id=REQUEST)
+    bubbles = [
+        frame["event"]
+        for frame in frames
+        if frame.get("type") == "session.event" and frame["event"]["kind"] == "user_message"
+    ]
+    assert [bubble["block_id"] for bubble in bubbles] == [REQUEST]
+    runner.channel.registry.close()
+
+
+async def test_a_claude_send_shows_the_message_before_restarting_for_effort(
+    tmp_path: Path,
+) -> None:
+    """A new effort level restarts the CLI, which must not hold up the bubble."""
+    frames: list[dict[str, Any]] = []
+    runner = claude_runner(tmp_path, frames, effort="high")
+    runner._client = StubSDK()  # type: ignore[assignment]
+    runner._applied_effort = "low"
+
+    async def restart() -> None:
+        frames.append({"type": "restarted"})
+
+    runner._reconnect = restart  # type: ignore[method-assign]
+    await runner.send("go", block_id=REQUEST)
+    order = kinds(frames)
+    assert order.index("user_message") < order.index("restarted")
+    assert order.index("restarted") < order.index("turn_started")
+    runner.channel.registry.close()
+
+
+async def test_a_codex_send_carries_the_request_id_as_its_block(tmp_path: Path) -> None:
+    from rc_client.agents.codex.adapter import CodexRunner
+    from rc_client.agents.codex.models import parse_catalog
+
+    frames: list[dict[str, Any]] = []
+    registry = Registry(tmp_path / "codex.sqlite3")
+    session = Session(session_id="s2", device_id="d", agent="codex", cwd=str(tmp_path))
+    registry.upsert_session(session)
+
+    async def publish(frame: dict[str, Any]) -> None:
+        frames.append(frame)
+
+    class StubServer:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        async def request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+            self.calls.append(method)
+            return {"turn": {"id": "turn-1"}}
+
+    runner = CodexRunner(
+        SessionChannel(registry, session, publish),
+        binary="/bin/codex",
+        cwd=str(tmp_path),
+        catalog=parse_catalog([]),
+    )
+    runner._server = StubServer()  # type: ignore[assignment]
+    runner._thread_id = "t1"
+    await runner.send("go", block_id=REQUEST)
+    bubbles = [
+        frame["event"]
+        for frame in frames
+        if frame.get("type") == "session.event" and frame["event"]["kind"] == "user_message"
+    ]
+    assert [bubble["block_id"] for bubble in bubbles] == [REQUEST]
+    order = kinds(frames)
+    assert order.index("user_message") < order.index("turn_started")
+    registry.close()

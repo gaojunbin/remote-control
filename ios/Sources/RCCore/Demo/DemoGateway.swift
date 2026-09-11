@@ -10,6 +10,10 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     public nonisolated let endpoint: GatewayEndpoint
 
     private let continuation: AsyncStream<GatewayEvent>.Continuation
+    /// How long this device takes to report a message it was sent. A real one
+    /// is a round trip away and the app is meant to look the same either way,
+    /// so the demo keeps that moment rather than hiding it (amendment A12).
+    private let echoDelay: Duration
     private var devices = DemoFixtures.devices
     private var sessionList = DemoFixtures.sessions
     private var transcripts: [String: [SessionEvent]] = [:]
@@ -19,8 +23,17 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// The injection script for the attached session runs on its own task, so
     /// it neither cancels nor is cancelled by the live turn.
     private var injecting: Task<Void, Never>?
+    /// Amendment A12: the delayed echo of a message the app sent, which is what
+    /// gives the demo the same "sending" moment a real device does.
+    private var echoing: Task<Void, Never>?
 
-    public init() {
+    /// The default is what a quick local device feels like. A UI test asks for
+    /// a longer one so the state a real send passes through can be looked at
+    /// rather than raced.
+    public static let defaultEchoDelay = Duration.milliseconds(400)
+
+    public init(echoDelay: Duration = DemoGateway.defaultEchoDelay) {
+        self.echoDelay = echoDelay
         endpoint = (try? GatewayEndpoint("https://demo.remote-control.invalid"))
             ?? GatewayEndpoint.placeholder
         let stream = AsyncStream<GatewayEvent>.makeStream(bufferingPolicy: .bufferingOldest(512))
@@ -199,9 +212,11 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             return try sendShared(session: session, requestID: request.id, text: text, mode: mode)
         }
         let running = session.state.isWorking
-        emit(sessionID: id, body: .userMessage(UserMessagePayload(text: text,
-                                                                  source: running ? .queue : .remote)))
+        // Amendment A12: the device echoes the request id as the block id, so
+        // the app's own copy is replaced in place rather than duplicated.
         if running {
+            emit(sessionID: id, blockID: request.id,
+                 body: .userMessage(UserMessagePayload(text: text, source: .queue)))
             emit(sessionID: id, body: .queue(QueuePayload(pending: [
                 QueuedMessage(id: request.id, text: text, ts: DemoFixtures.now)
             ])))
@@ -209,8 +224,22 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         }
         update(sessionID: id) { $0.state = .running; $0.turn = TurnMarker(turnID: UUID().uuidString,
                                                                           startedAt: DemoFixtures.now) }
-        startReplyScript(sessionID: id)
+        // A real device reports the message it was given before it reports what
+        // the agent said about it, so the echo leads and the reply follows it.
+        echoing?.cancel()
+        let delay = echoDelay
+        echoing = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            await self?.echoThenReply(sessionID: id, blockID: request.id, text: text)
+        }
         return try JSONValue.encode(SendResult(accepted: .sent))
+    }
+
+    private func echoThenReply(sessionID: String, blockID: String, text: String) {
+        emit(sessionID: sessionID, blockID: blockID,
+             body: .userMessage(UserMessagePayload(text: text, source: .remote)))
+        startReplyScript(sessionID: sessionID)
     }
 
     /// A message for an attached session takes the route the attachment
@@ -259,7 +288,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// device and injected when the terminal is next idle, so the app first
     /// sees it as `pending` and then the same block again as `delivered`.
     private func inject(sessionID: String, requestID: String, text: String) throws -> JSONValue {
-        let blockID = "shared-\(requestID)"
+        let blockID = requestID
         emit(sessionID: sessionID, blockID: blockID,
              body: .userMessage(UserMessagePayload(text: text, source: .remote, delivery: .pending)))
         emit(sessionID: sessionID, body: .queue(QueuePayload(pending: [

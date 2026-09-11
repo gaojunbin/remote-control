@@ -65,6 +65,12 @@ public actor GatewaySocket {
     private var epoch = 0
     private var active = false
     private var connected = false
+    /// The hello has landed on the current connection, so the gateway is ready
+    /// to be asked for something.
+    private var ready = false
+    /// Requests issued while the socket is still coming back, each waiting for
+    /// the hello under its own deadline.
+    private var waiting: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var lastReceived = Date()
 
     /// A frame at least this often, or the connection is half-open. Mobile NAT
@@ -72,6 +78,11 @@ public actor GatewaySocket {
     private static let silenceLimit: TimeInterval = 60
     private static let forwardedTimeout: TimeInterval = 65
     private static let localTimeout: TimeInterval = 20
+    /// How long a request waits for a socket that is coming back before it is
+    /// reported unconfirmed. The gateway closes a silent socket after 25 s, so
+    /// an app returning to the foreground almost always finds one to rebuild;
+    /// a TLS handshake, a hello and a subscribe fit inside this with room.
+    public static let readyWait: TimeInterval = 20
 
     public init(client: GatewayHTTPClient, factory: any WebSocketFactory = URLSessionWebSocketFactory()) {
         self.client = client
@@ -92,6 +103,8 @@ public actor GatewaySocket {
     public func disconnect() async {
         active = false
         connected = false
+        ready = false
+        releaseWaiting()
         epoch += 1
         worker?.cancel(); worker = nil
         watchdog?.cancel(); watchdog = nil
@@ -114,8 +127,8 @@ public actor GatewaySocket {
     /// for it and two sends cannot reach the gateway out of order.
     @discardableResult
     public func request(_ request: GatewayRequest) async throws -> JSONValue {
-        guard active, connected, let connection else { throw TransportError.notConnected }
         let text = String(decoding: try request.encoded(), as: UTF8.self)
+        let connection = try await readyConnection()
         guard request.expectsReply else {
             try await enqueue(text, on: connection).value
             return .object([:])
@@ -136,6 +149,47 @@ public actor GatewaySocket {
                 catch { await self?.failRequest(id: request.id, error: TransportError.deliveryUncertain) }
             }
         }
+    }
+
+    /// The connection to write on, waiting for one if the socket is on its way
+    /// back up.
+    ///
+    /// A request issued the moment the app returns to the foreground would
+    /// otherwise fail on a socket the gateway had already closed for silence,
+    /// which the user reads as a dead Send button. The request is held instead
+    /// and flushed once the hello lands; past `readyWait` it is reported
+    /// unconfirmed, and the outbox retry under the same id applies.
+    private func readyConnection() async throws -> any WebSocketConnection {
+        if ready, let connection { return connection }
+        guard active else { throw TransportError.notConnected }
+        await waitForReady()
+        guard active, ready, let connection else { throw TransportError.deliveryUncertain }
+        return connection
+    }
+
+    private func waitForReady() async {
+        let id = UUID()
+        let deadline = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.readyWait))
+            guard !Task.isCancelled else { return }
+            await self?.stopWaiting(id)
+        }
+        defer { deadline.cancel() }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // Re-checked here rather than before the call, so a hello that
+            // landed in between cannot leave this request waiting for nothing.
+            if ready || !active { continuation.resume() } else { waiting[id] = continuation }
+        }
+    }
+
+    private func stopWaiting(_ id: UUID) {
+        waiting.removeValue(forKey: id)?.resume()
+    }
+
+    private func releaseWaiting() {
+        let held = waiting
+        waiting.removeAll()
+        for (_, continuation) in held { continuation.resume() }
     }
 
     /// Append a frame to the write chain. Each write awaits the previous one,
@@ -215,6 +269,7 @@ public actor GatewaySocket {
                 if let failure = error as? ProtocolFailure, case .unsupportedVersion(let version) = failure {
                     emit(.failure(.protocolMismatch(version)))
                     active = false
+                    releaseWaiting()
                 } else if let failure = error as? TransportError, failure == .unauthorized {
                     closeReason = .unauthorized
                 } else if let failure = error as? TransportError, closeReason == .transient {
@@ -223,6 +278,7 @@ public actor GatewaySocket {
             }
             guard epoch == generation else { break }
             connected = false
+            ready = false
             watchdog?.cancel(); watchdog = nil
             let old = connection
             connection = nil
@@ -234,6 +290,7 @@ public actor GatewaySocket {
                 // A replaced or refused connection must not be retried: one
                 // stops a reconnect war, the other cannot succeed.
                 active = false
+                releaseWaiting()
                 if closeReason == .unauthorized { emit(.state(.unauthorized)) }
                 emit(.closed(closeReason))
                 break
@@ -246,7 +303,8 @@ public actor GatewaySocket {
             let backoff = min(pow(2.0, Double(attempt - 1)), 15.0)
             try? await Task.sleep(for: .seconds(backoff * Double.random(in: 0.85...1.15)))
         }
-        if epoch == generation { worker = nil; connected = false }
+        if epoch == generation { worker = nil; connected = false; ready = false }
+        releaseWaiting()
     }
 
     private func handle(_ frame: AppFrame, on socket: any WebSocketConnection, generation: Int) async throws {
@@ -255,6 +313,8 @@ public actor GatewaySocket {
             guard hello.protocolVersion == RemoteProtocol.version else {
                 throw ProtocolFailure.unsupportedVersion(hello.protocolVersion)
             }
+            ready = true
+            releaseWaiting()
             emit(.state(.connected))
             emit(.frame(frame))
         case .ping:

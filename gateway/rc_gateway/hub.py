@@ -22,6 +22,7 @@ from .connections import AppConnection, DeviceConnection, SlowClientError, encod
 from .devices import DeviceStore, normalize_pairing_code
 from .frames import (
     CLOSE_DEVICE_REPLACED,
+    CLOSE_FORBIDDEN,
     CLOSE_SLOW_CLIENT,
     CLOSE_UNAUTHORIZED,
     DEVICE_PUSH_TYPES,
@@ -48,7 +49,7 @@ from .frames import (
     request_id,
     text_field,
 )
-from .index import SessionIndex
+from .index import IndexedSession, SessionIndex
 from .logging import logger
 from .replay import ReplayBuffer
 from .views import device_view, has_available_agent
@@ -70,6 +71,14 @@ BACKFILL_LIMIT = 1000
 #: than looping forever against a peer that keeps reporting `has_more`.
 MAX_BACKFILL_PAGES = 64
 ACTIVE_APP_WINDOW_SECONDS = 60.0
+#: How long a shutdown waits for notifications that are already on their way out.
+TRANSITION_DRAIN_SECONDS = 5.0
+#: Amendment A13. A dropped device link is not an offline device: mobile NAT, a suspended laptop
+#: and a daemon restart all look identical for a few seconds, and reporting each one as offline
+#: made devices flap. `online` stays true for this long, and a reconnect inside it is invisible.
+OFFLINE_GRACE_SECONDS = 20.0
+#: Close codes that mean the device is not coming back, so `online` flips at once (A13, §2.5).
+IMMEDIATE_OFFLINE_CLOSES = frozenset({CLOSE_UNAUTHORIZED, CLOSE_FORBIDDEN})
 
 #: Replay buffers hold up to 4 MiB each, so the map itself has to be bounded. Evicting the coldest
 #: buffer only costs the next subscriber a `resync: true`, which the protocol already handles.
@@ -89,6 +98,16 @@ class _Pending:
 
 
 @dataclass
+class _Grace:
+    """A device whose link dropped, still reported online while it might come back (A13)."""
+
+    #: Set when the grace resolves, whichever way: a replacement connection arrived, or the
+    #: period ran out. A request parked on it re-reads the device slot and learns which.
+    resolved: asyncio.Event
+    timer: asyncio.Task[None] | None = None
+
+
+@dataclass
 class _Pairing:
     code: str
     created_at: float
@@ -104,10 +123,12 @@ class Hub:
         *,
         on_session_transition: TransitionHook | None = None,
         request_timeout: float = REQUEST_TIMEOUT_SECONDS,
+        offline_grace: float = OFFLINE_GRACE_SECONDS,
     ) -> None:
         self.index = index
         self.device_store = device_store
         self.request_timeout = request_timeout
+        self.offline_grace = offline_grace
         self._on_session_transition = on_session_transition
         self._devices: dict[str, DeviceConnection] = {}
         self._apps: dict[str, AppConnection] = {}
@@ -117,6 +138,8 @@ class Hub:
         self._pending: dict[tuple[str, str], _Pending] = {}
         self._gateway_pending: dict[str, asyncio.Future[Frame]] = {}
         self._backfills: set[asyncio.Task[None]] = set()
+        self._transitions: set[asyncio.Task[None]] = set()
+        self._grace: dict[str, _Grace] = {}
         self._pairings: dict[str, _Pairing] = {}
         self._lock = asyncio.Lock()
         self._send_lock = asyncio.Lock()
@@ -137,6 +160,9 @@ class Hub:
         for task in list(self._backfills):
             task.cancel()
         self._backfills.clear()
+        for device_id in list(self._grace):
+            self._end_grace(device_id)
+        await self._drain_transitions()
         for waiting in self._gateway_pending.values():
             waiting.cancel()
         self._gateway_pending.clear()
@@ -149,8 +175,22 @@ class Hub:
         self._devices.clear()
         self._apps.clear()
 
+    async def _drain_transitions(self) -> None:
+        """Let the pushes already in flight finish, rather than dropping a notification.
+
+        A vendor that has stopped answering must not hold the shutdown open, so whatever is still
+        running when the grace period ends is cancelled.
+        """
+        pending = list(self._transitions)
+        if pending:
+            _, unfinished = await asyncio.wait(pending, timeout=TRANSITION_DRAIN_SECONDS)
+            for task in unfinished:
+                task.cancel()
+        self._transitions.clear()
+
     def device_online(self, device_id: str) -> bool:
-        return device_id in self._devices
+        """True while the device holds its slot, and through the A13 grace period after it drops."""
+        return device_id in self._devices or device_id in self._grace
 
     def online_device_ids(self) -> list[str]:
         return sorted(self._devices)
@@ -174,18 +214,59 @@ class Hub:
         async with self._send_lock, self._lock:
             previous = self._devices.get(connection.device_id)
             self._devices[connection.device_id] = connection
+        # A13: a replacement inside the grace period ends it without a word to the apps, which
+        # never saw the device leave, and releases whatever requests were parked waiting for it.
+        reconnected = self._end_grace(connection.device_id)
         if previous is not None and previous is not connection:
             await previous.stop(code=CLOSE_DEVICE_REPLACED, reason=DEVICE_REPLACED_CLOSE_REASON)
-        log.info("device connected", device_id=connection.device_id)
+        log.info("device connected", device_id=connection.device_id, within_grace=reconnected)
 
     async def detach_device(self, connection: DeviceConnection) -> None:
         async with self._lock:
             if self._devices.get(connection.device_id) is not connection:
                 return
             del self._devices[connection.device_id]
-        log.info("device disconnected", device_id=connection.device_id)
-        await self._fail_pending_for_device(connection.device_id, ERROR_DEVICE_OFFLINE)
-        record = await self.device_store.get(connection.device_id)
+        code = connection.close_code
+        log.info("device disconnected", device_id=connection.device_id, close_code=code)
+        if code in IMMEDIATE_OFFLINE_CLOSES:
+            await self._report_offline(connection.device_id)
+            return
+        self._begin_grace(connection.device_id)
+
+    def _begin_grace(self, device_id: str) -> None:
+        """Hold a dropped device online for the grace period (A13)."""
+        self._end_grace(device_id)
+        grace = _Grace(resolved=asyncio.Event())
+        grace.timer = asyncio.create_task(self._expire_grace(device_id, grace))
+        self._grace[device_id] = grace
+
+    def _end_grace(self, device_id: str) -> bool:
+        """Drop a device's grace without reporting anything. True when one was running."""
+        grace = self._grace.pop(device_id, None)
+        if grace is None:
+            return False
+        if grace.timer is not None:
+            grace.timer.cancel()
+        grace.resolved.set()
+        return True
+
+    async def _expire_grace(self, device_id: str, grace: _Grace) -> None:
+        try:
+            await asyncio.sleep(self.offline_grace)
+        except asyncio.CancelledError:
+            return
+        if self._grace.get(device_id) is not grace:
+            return
+        del self._grace[device_id]
+        # Released before the broadcast, so a parked request is answered without also waiting for
+        # every app socket to take the frame.
+        grace.resolved.set()
+        log.info("device offline: no reconnect within the grace period", device_id=device_id)
+        await self._report_offline(device_id)
+
+    async def _report_offline(self, device_id: str) -> None:
+        await self._fail_pending_for_device(device_id, ERROR_DEVICE_OFFLINE)
+        record = await self.device_store.get(device_id)
         if record is not None:
             await self.broadcast_apps(
                 {
@@ -194,8 +275,27 @@ class Hub:
                 }
             )
 
+    async def _await_device(self, device_id: str) -> None:
+        """Hold a request while its device is inside the grace period (A13, §2.5).
+
+        A link that dropped is not an offline device, so a message sent in the seconds around a
+        reconnect waits for the replacement connection rather than being refused. The wait is
+        bounded by the period itself: when it ends without one, the caller re-reads the slot,
+        finds it empty and answers ``device_offline`` as before.
+        """
+        if device_id in self._devices:
+            return
+        grace = self._grace.get(device_id)
+        if grace is None:
+            return
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(grace.resolved.wait(), timeout=self.offline_grace)
+
     async def disconnect_device(self, device_id: str, *, reason: str) -> bool:
         """Close a device's socket because its credential is gone (A4: 4401, do not retry)."""
+        # An explicit removal is not a transient drop: end any grace so nothing later reports
+        # this device as merely offline, and release requests parked on it (A13).
+        self._end_grace(device_id)
         async with self._lock:
             connection = self._devices.get(device_id)
         if connection is None:
@@ -504,16 +604,21 @@ class Hub:
                 return
         else:
             session_id = text_field(frame, "session_id")
-            indexed = await self.index.get(session_id) if session_id else None
-            if indexed is None:
+            # Only the owning device is needed to route, and that is in memory: reading the whole
+            # summary back from SQLite would put a disk read in front of every message an app sends.
+            owner = await self._owner_of(session_id) if session_id else None
+            if owner is None:
                 await self._send_app(
                     connection, error_reply(identifier, ERROR_NOT_FOUND, "unknown session")
                 )
                 return
-            device_id = indexed.device_id
+            device_id = owner
             outgoing["device_id"] = device_id
         outgoing["from"] = connection.id
 
+        # Outside the send lock: a device inside its grace period is waited for, and holding the
+        # lock across that would stall every other device's forwarding for the whole period.
+        await self._await_device(device_id)
         async with self._send_lock:
             async with self._lock:
                 device = self._devices.get(device_id)
@@ -654,11 +759,7 @@ class Hub:
         device that announces another machine's session is refused, so it cannot hijack its
         routing, forge its timeline or delete it.
         """
-        owner = self._owners.get(session_id)
-        if owner is None:
-            owner = await self.index.owner(session_id)
-            if owner is not None:
-                self._owners[session_id] = owner
+        owner = await self._owner_of(session_id)
         if owner is None:
             self._owners[session_id] = device_id
             return True
@@ -670,6 +771,20 @@ class Hub:
             owner=owner,
         )
         return False
+
+    async def _owner_of(self, session_id: str) -> str | None:
+        """The device that owns a session, from memory whenever this process has seen it.
+
+        Every session the gateway has already routed a frame for is in ``_owners``, so the common
+        case answers without a disk read; only one first seen by an earlier process needs one.
+        """
+        owner = self._owners.get(session_id)
+        if owner is not None:
+            return owner
+        owner = await self.index.owner(session_id)
+        if owner is not None:
+            self._owners[session_id] = owner
+        return owner
 
     def _buffer_for(self, session_id: str) -> ReplayBuffer:
         buffer = self._buffers.get(session_id)
@@ -716,7 +831,9 @@ class Hub:
             # A6: `queue` describes current state rather than timeline history, so the newest
             # snapshot is kept for `session.subscribe` instead of being replayed from the buffer.
             self._queues[session_id] = event
-        await self.index.record_seq(session_id, seq)
+        # Recorded before the fan-out and without touching the disk, so no app can read a summary
+        # that predates an event it has already been sent, and no event waits on SQLite.
+        self.index.record_seq(session_id, seq)
         # A5: apps address a session by (device_id, session_id) and a pushed event has to carry
         # the device identity the gateway derived from the token, not one the frame claimed.
         outgoing = {**frame, "device_id": device.device_id}
@@ -747,12 +864,42 @@ class Hub:
             return
         if previous.state == indexed.state:
             return
-        await self._on_session_transition(
-            previous.state,
-            indexed.state,
-            indexed.summary,
-            self._has_active_subscriber(indexed.session_id),
+        self._notify_transition(previous.state, indexed)
+
+    def _notify_transition(self, previous_state: str, indexed: IndexedSession) -> None:
+        """Run the push hook off the device read loop.
+
+        A push is an outbound HTTP call to a browser vendor or to APNs. Awaiting it here would
+        hold every later frame from the same device behind it, because that loop reads and
+        dispatches one frame at a time. Whether an app is watching is decided now, at the
+        transition, so the delivery running later cannot change the outcome.
+        """
+        hook = self._on_session_transition
+        if hook is None:
+            return
+        task = asyncio.create_task(
+            self._run_transition(
+                hook,
+                previous_state,
+                indexed.state,
+                indexed.summary,
+                self._has_active_subscriber(indexed.session_id),
+            )
         )
+        self._transitions.add(task)
+        task.add_done_callback(self._transitions.discard)
+
+    async def _run_transition(
+        self, hook: TransitionHook, previous_state: str, state: str, summary: Frame, active: bool
+    ) -> None:
+        try:
+            await hook(previous_state, state, summary, active)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception(
+                "session transition hook failed", session_id=text_field(summary, "session_id")
+            )
 
     async def _forget_session(self, device_id: str, session_id: str) -> None:
         if not await self._claim_session(device_id, session_id):

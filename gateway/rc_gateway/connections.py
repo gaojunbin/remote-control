@@ -62,6 +62,9 @@ class Connection:
         self.last_ping_at = time.monotonic()
         self.ping_sent_at: float | None = None
         self.latency_ms: int | None = None
+        #: The code this side closed with, or ``None`` when the peer or the network ended it.
+        #: Amendment A13 reads it to tell a revoked device from a link that merely dropped.
+        self.close_code: int | None = None
         self._queued_bytes = 0
         self._sender: asyncio.Task[None] | None = None
         self._closed = False
@@ -111,6 +114,8 @@ class Connection:
     async def stop(self, *, code: int | None = None, reason: str = "") -> None:
         already_closed = self._closed
         self._closed = True
+        if code is not None and self.close_code is None:
+            self.close_code = code
         if code is not None and not already_closed:
             with contextlib.suppress(Exception):
                 await self.ws.close(code=code, reason=reason[:123])

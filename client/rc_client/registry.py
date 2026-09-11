@@ -1,12 +1,21 @@
 """SQLite registry for sessions, history events and `session.send` idempotency.
 
-Writes are small and local, so they run inline on the event loop behind one
-lock rather than in a thread pool. `next_seq` is persisted, which is what keeps
-per-session `seq` monotonic across daemon restarts.
+Writes are queued and applied in batches by a single worker, because a commit
+is a disk flush and one per published event put the device's event loop on the
+disk's clock: a busy turn stalled the loop long enough for the gateway to call
+the link dead. Reads apply whatever is queued before they run, so nothing ever
+observes a write that has not landed, and the queue drains inline when there is
+no event loop to run a worker on.
+
+`seq` allocation stays synchronous: it is handed out from memory, in order,
+seeded from the database the first time a session asks. The counter is written
+back with the events it numbered, so a batch lost to a kill takes its events
+and its counter together and no `seq` is ever handed out twice.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 import threading
@@ -14,11 +23,17 @@ from pathlib import Path
 from typing import Any
 
 from .events import bound_block, dedup_key
+from .logging_setup import logger
 from .models import Session, now_ms
+
+log = logger("rc_client.registry")
 
 MAX_EVENTS_PER_SESSION = 20_000
 PRUNE_EVERY = 500
 REQUEST_TTL_MS = 24 * 60 * 60 * 1000
+# How long a batch may wait for company. Short enough that a kill loses almost
+# nothing, long enough that a streaming turn commits once rather than per event.
+FLUSH_DELAY = 0.05
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
@@ -61,6 +76,13 @@ class Registry:
         self._lock = threading.RLock()
         self._db = sqlite3.connect(str(path), check_same_thread=False)
         self._db.row_factory = sqlite3.Row
+        self._queued: list[tuple[str, tuple[Any, ...]]] = []
+        self._prunes: set[str] = set()
+        self._seqs: dict[str, int] = {}
+        self._since_prune: dict[str, int] = {}
+        self._writer: asyncio.Task[None] | None = None
+        self._work: asyncio.Event | None = None
+        self._closed = False
         with self._lock:
             self._db.execute("PRAGMA journal_mode=WAL")
             self._db.execute("PRAGMA synchronous=NORMAL")
@@ -72,35 +94,97 @@ class Registry:
             self._db.commit()
 
     def close(self) -> None:
+        writer, self._writer = self._writer, None
+        if writer is not None:
+            writer.cancel()
+        self.flush()
         with self._lock:
+            self._closed = True
             self._db.close()
+
+    # ----------------------------------------------------------------- writes
+
+    def _defer(self, sql: str, params: tuple[Any, ...]) -> None:
+        """Queue one statement. Order is preserved; the worker commits the batch."""
+        with self._lock:
+            self._queued.append((sql, params))
+        if not self._start_writer():
+            self.flush()
+
+    def _start_writer(self) -> bool:
+        """Wake the writer, starting it if this is the first deferred write.
+
+        False means there is no event loop to run one on — a CLI command, or a
+        test — and the caller applies the queue itself.
+        """
+        if self._closed:
+            return False
+        if self._writer is not None and not self._writer.done():
+            if self._work is not None:
+                self._work.set()
+            return True
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return False
+        self._work = asyncio.Event()
+        self._work.set()
+        self._writer = asyncio.create_task(self._write_loop(), name="registry-writer")
+        return True
+
+    async def _write_loop(self) -> None:
+        """One worker, one batch at a time, off the event loop."""
+        work = self._work
+        assert work is not None
+        while True:
+            await work.wait()
+            work.clear()
+            await asyncio.sleep(FLUSH_DELAY)
+            try:
+                await asyncio.to_thread(self.flush)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("registry write failed")
+
+    def flush(self) -> None:
+        """Apply everything queued, in order, in one transaction."""
+        with self._lock:
+            if self._closed or (not self._queued and not self._prunes):
+                return
+            batch, self._queued = self._queued, []
+            prunes, self._prunes = self._prunes, set()
+            for sql, params in batch:
+                self._db.execute(sql, params)
+            for session_id in sorted(prunes):
+                self._prune(session_id)
+            self._db.commit()
 
     # ---------------------------------------------------------------- sessions
 
     def upsert_session(self, session: Session) -> None:
-        with self._lock:
-            self._db.execute(
-                """
-                INSERT INTO sessions (session_id, agent, data, next_seq, archived, updated_at)
-                VALUES (?, ?, ?, COALESCE(
-                    (SELECT next_seq FROM sessions WHERE session_id = ?), 1), ?, ?)
-                ON CONFLICT(session_id) DO UPDATE SET
-                    agent = excluded.agent, data = excluded.data,
-                    archived = excluded.archived, updated_at = excluded.updated_at
-                """,
-                (
-                    session.session_id,
-                    session.agent,
-                    json.dumps(session.to_dict(), ensure_ascii=False),
-                    session.session_id,
-                    1 if session.archived else 0,
-                    session.updated_at,
-                ),
-            )
-            self._db.commit()
+        self._defer(
+            """
+            INSERT INTO sessions (session_id, agent, data, next_seq, archived, updated_at)
+            VALUES (?, ?, ?, COALESCE(
+                (SELECT next_seq FROM sessions WHERE session_id = ?), 1), ?, ?)
+            ON CONFLICT(session_id) DO UPDATE SET
+                agent = excluded.agent, data = excluded.data,
+                archived = excluded.archived, updated_at = excluded.updated_at
+            """,
+            (
+                session.session_id,
+                session.agent,
+                json.dumps(session.to_dict(), ensure_ascii=False),
+                session.session_id,
+                1 if session.archived else 0,
+                session.updated_at,
+            ),
+        )
 
     def load_sessions(self) -> list[Session]:
         """Every decodable session row; a damaged one is skipped, not fatal."""
+        self.flush()
         with self._lock:
             rows = self._db.execute("SELECT data FROM sessions ORDER BY updated_at DESC").fetchall()
         sessions: list[Session] = []
@@ -115,46 +199,62 @@ class Registry:
         return sessions
 
     def delete_session(self, session_id: str) -> None:
+        for table in ("sessions", "events", "requests"):
+            self._defer(f"DELETE FROM {table} WHERE session_id = ?", (session_id,))
         with self._lock:
-            self._db.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
-            self._db.execute("DELETE FROM events WHERE session_id = ?", (session_id,))
-            self._db.execute("DELETE FROM requests WHERE session_id = ?", (session_id,))
-            self._db.commit()
+            self._seqs.pop(session_id, None)
+            self._since_prune.pop(session_id, None)
 
     def rekey_session(self, old_id: str, new_id: str) -> None:
         """Move a provisional session id to the agent's real one."""
         if old_id == new_id:
             return
+        self._defer("DELETE FROM sessions WHERE session_id = ?", (new_id,))
+        for table in ("sessions", "events", "requests"):
+            self._defer(
+                f"UPDATE OR REPLACE {table} SET session_id = ? WHERE session_id = ?",
+                (new_id, old_id),
+            )
         with self._lock:
-            self._db.execute("DELETE FROM sessions WHERE session_id = ?", (new_id,))
-            for table in ("sessions", "events", "requests"):
-                self._db.execute(
-                    f"UPDATE OR REPLACE {table} SET session_id = ? WHERE session_id = ?",
-                    (new_id, old_id),
-                )
-            self._db.commit()
+            # The counter moves with the rows it numbers.
+            seq = self._seqs.pop(old_id, None)
+            if seq is not None:
+                self._seqs[new_id] = seq
+            self._since_prune[new_id] = self._since_prune.pop(old_id, 0)
 
     # ------------------------------------------------------------------- seqs
 
     def next_seq(self, session_id: str) -> int:
+        """The next `seq` for this session, from memory, in order.
+
+        The first call for a session reads the stored counter; every one after
+        that is arithmetic. The new value is queued with the event it numbers,
+        so the two are persisted or lost together.
+        """
+        with self._lock:
+            seq = self._seqs.get(session_id)
+            if seq is None:
+                seq = self._stored_seq(session_id)
+            self._seqs[session_id] = seq + 1
+        self._defer("UPDATE sessions SET next_seq = ? WHERE session_id = ?", (seq + 1, session_id))
+        return seq
+
+    def _stored_seq(self, session_id: str) -> int:
+        """Where this session's numbering stands on disk, creating a row if needed."""
+        self.flush()
         with self._lock:
             row = self._db.execute(
                 "SELECT next_seq FROM sessions WHERE session_id = ?", (session_id,)
             ).fetchone()
-            if row is None:
-                self._db.execute(
-                    "INSERT INTO sessions (session_id, agent, data, next_seq, archived, updated_at)"
-                    " VALUES (?, '', '{}', 2, 0, ?)",
-                    (session_id, now_ms()),
-                )
-                self._db.commit()
-                return 1
-            seq = int(row["next_seq"])
-            self._db.execute(
-                "UPDATE sessions SET next_seq = ? WHERE session_id = ?", (seq + 1, session_id)
-            )
-            self._db.commit()
-            return seq
+        if row is not None:
+            return int(row["next_seq"])
+        self._defer(
+            "INSERT OR IGNORE INTO sessions"
+            " (session_id, agent, data, next_seq, archived, updated_at)"
+            " VALUES (?, '', '{}', 1, 0, ?)",
+            (session_id, now_ms()),
+        )
+        return 1
 
     # ----------------------------------------------------------------- events
 
@@ -165,45 +265,53 @@ class Registry:
             return
         wire_json = json.dumps(wire, ensure_ascii=False)
         full_json = json.dumps(bound_block(full), ensure_ascii=False)
+        self._defer(
+            """
+            INSERT INTO events (session_id, dedup_key, order_seq, seq, kind, wire, full)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(session_id, dedup_key) DO UPDATE SET
+                seq = excluded.seq, kind = excluded.kind,
+                wire = excluded.wire, full = excluded.full
+            """,
+            (
+                session_id,
+                key,
+                int(wire["seq"]),
+                int(wire["seq"]),
+                str(wire["kind"]),
+                wire_json,
+                full_json if full_json != wire_json else None,
+            ),
+        )
+        with self._lock:
+            written = self._since_prune.get(session_id, 0) + 1
+            if written < PRUNE_EVERY:
+                self._since_prune[session_id] = written
+                return
+            self._since_prune[session_id] = 0
+            self._prunes.add(session_id)
+
+    def _prune(self, session_id: str) -> None:
+        self._prune_to(session_id, MAX_EVENTS_PER_SESSION)
+
+    def _prune_to(self, session_id: str, keep: int) -> None:
+        """Drop everything older than the newest `keep` rows.
+
+        Counting the rows first meant walking every one of them on a session
+        with a long history. The watermark is the oldest row worth keeping,
+        which the `(session_id, order_seq)` index finds by skipping to it, and
+        an empty answer deletes nothing.
+        """
         with self._lock:
             self._db.execute(
                 """
-                INSERT INTO events (session_id, dedup_key, order_seq, seq, kind, wire, full)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(session_id, dedup_key) DO UPDATE SET
-                    seq = excluded.seq, kind = excluded.kind,
-                    wire = excluded.wire, full = excluded.full
+                DELETE FROM events WHERE session_id = ? AND order_seq <= (
+                    SELECT order_seq FROM events WHERE session_id = ?
+                    ORDER BY order_seq DESC LIMIT 1 OFFSET ?
+                )
                 """,
-                (
-                    session_id,
-                    key,
-                    int(wire["seq"]),
-                    int(wire["seq"]),
-                    str(wire["kind"]),
-                    wire_json,
-                    full_json if full_json != wire_json else None,
-                ),
+                (session_id, session_id, keep),
             )
-            self._db.commit()
-            if int(wire["seq"]) % PRUNE_EVERY == 0:
-                self._prune(session_id)
-
-    def _prune(self, session_id: str) -> None:
-        count = self._db.execute(
-            "SELECT COUNT(*) AS n FROM events WHERE session_id = ?", (session_id,)
-        ).fetchone()["n"]
-        if count <= MAX_EVENTS_PER_SESSION:
-            return
-        self._db.execute(
-            """
-            DELETE FROM events WHERE session_id = ? AND order_seq IN (
-                SELECT order_seq FROM events WHERE session_id = ?
-                ORDER BY order_seq ASC LIMIT ?
-            )
-            """,
-            (session_id, session_id, count - MAX_EVENTS_PER_SESSION),
-        )
-        self._db.commit()
 
     def history(
         self,
@@ -222,6 +330,7 @@ class Registry:
         the events a device produced while the link was down.
         """
         capped = max(1, min(limit, 1000))
+        self.flush()
         if after_seq is not None:
             with self._lock:
                 rows = self._db.execute(
@@ -250,6 +359,7 @@ class Registry:
 
     def first_seqs(self, session_id: str) -> dict[str, int]:
         """The seq at which each stored block first appeared (amendment A8)."""
+        self.flush()
         with self._lock:
             rows = self._db.execute(
                 "SELECT dedup_key, order_seq FROM events"
@@ -259,6 +369,7 @@ class Registry:
         return {str(row["dedup_key"])[len("block:") :]: int(row["order_seq"]) for row in rows}
 
     def block(self, session_id: str, block_id: str) -> dict[str, Any] | None:
+        self.flush()
         with self._lock:
             row = self._db.execute(
                 "SELECT wire, full FROM events WHERE session_id = ? AND dedup_key = ?",
@@ -270,6 +381,7 @@ class Registry:
         return payload
 
     def last_seq(self, session_id: str) -> int:
+        self.flush()
         with self._lock:
             row = self._db.execute(
                 "SELECT next_seq FROM sessions WHERE session_id = ?", (session_id,)
@@ -279,33 +391,31 @@ class Registry:
     # -------------------------------------------------------------- key/value
 
     def get_kv(self, key: str) -> str | None:
+        self.flush()
         with self._lock:
             row = self._db.execute("SELECT value FROM kv WHERE key = ?", (key,)).fetchone()
         return str(row["value"]) if row else None
 
     def set_kv(self, key: str, value: str) -> None:
-        with self._lock:
-            self._db.execute("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)", (key, value))
-            self._db.commit()
+        self._defer("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)", (key, value))
 
     # ------------------------------------------------------------ idempotency
 
     def remember_request(self, session_id: str, request_id: str, result: dict[str, Any]) -> None:
         stamp = now_ms()
-        with self._lock:
-            self._db.execute(
-                "INSERT OR REPLACE INTO requests (session_id, request_id, result, ts)"
-                " VALUES (?, ?, ?, ?)",
-                (session_id, request_id, json.dumps(result, ensure_ascii=False), stamp),
-            )
-            # An idempotency record only has to outlive the app's retries.
-            self._db.execute(
-                "DELETE FROM requests WHERE session_id = ? AND ts < ?",
-                (session_id, stamp - REQUEST_TTL_MS),
-            )
-            self._db.commit()
+        self._defer(
+            "INSERT OR REPLACE INTO requests (session_id, request_id, result, ts)"
+            " VALUES (?, ?, ?, ?)",
+            (session_id, request_id, json.dumps(result, ensure_ascii=False), stamp),
+        )
+        # An idempotency record only has to outlive the app's retries.
+        self._defer(
+            "DELETE FROM requests WHERE session_id = ? AND ts < ?",
+            (session_id, stamp - REQUEST_TTL_MS),
+        )
 
     def recall_request(self, session_id: str, request_id: str) -> dict[str, Any] | None:
+        self.flush()
         with self._lock:
             row = self._db.execute(
                 "SELECT result FROM requests WHERE session_id = ? AND request_id = ?",

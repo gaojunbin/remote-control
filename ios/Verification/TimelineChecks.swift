@@ -69,7 +69,8 @@ enum TimelineChecks {
         checks.expect(attachedIdle.canSend, "so the composer is enabled")
         checks.expect(!attachedIdle.canTakeover, "takeover is never offered while attached")
         checks.expect(attachedIdle.attachHint == nil, "and the terminal hint belongs to terminal sessions")
-        checks.equal(attachedIdle.statusLine, "terminal · attached", "the status names the terminal")
+        checks.equal(attachedIdle.statusLine, nil,
+                     "and the composer says nothing the header has already said")
         checks.expect(!attachedIdle.allowsSettingsChanges,
                       "model, permission mode and effort stay in the terminal")
         checks.expect(!attachedIdle.allowsAttachments, "and attachments cannot be relayed")
@@ -78,8 +79,8 @@ enum TimelineChecks {
         let attachedRunning = store(state: .running, control: .shared)
         checks.expect(attachedRunning.isRunning, "an attached turn runs like any other")
         checks.expect(!attachedRunning.canStop, "a channel cannot interrupt the turn it rides on")
-        checks.equal(attachedRunning.statusLine, "terminal · attached · working",
-                     "and the status says the terminal is busy")
+        checks.equal(attachedRunning.statusLine, "Working · your message will be queued",
+                     "and the status says only what becomes of a message typed into it")
 
         let interruptible = store(state: .running, control: .shared,
                                   agent: AgentInfo(agent: "codex", available: true,

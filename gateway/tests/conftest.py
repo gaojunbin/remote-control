@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,11 @@ from fastapi.testclient import TestClient
 
 from rc_gateway.app import build_state, create_app
 from rc_gateway.config import ApnsConfig, Config, SttConfig
-from rc_gateway.hub import Hub
+from rc_gateway.connections import AppConnection, Connection, DeviceConnection
+from rc_gateway.devices import DeviceStore
+from rc_gateway.frames import REQUEST_TIMEOUT_SECONDS
+from rc_gateway.hub import OFFLINE_GRACE_SECONDS, Hub, TransitionHook
+from rc_gateway.index import SessionIndex
 from rc_gateway.push_store import WebPushSubscription
 from rc_gateway.state import GatewayState
 from rc_gateway.stt import SttError, Transcript
@@ -105,6 +110,10 @@ def state(
         built.devices,
         on_session_transition=built.push.on_session_transition,
         request_timeout=0.4,
+        # Short enough to drive the A13 grace period in a test, and well inside the request
+        # timeout above so a parked request is still answered `device_offline` rather than
+        # `timeout` when the period ends without a reconnect.
+        offline_grace=0.2,
     )
     return built
 
@@ -247,3 +256,87 @@ def drain_until(ws: Any, kind: str, limit: int = 40) -> dict[str, Any]:
         if frame.get("type") == kind:
             return dict(frame)
     raise AssertionError(f"{kind!r} never arrived; saw {seen}")
+
+
+class FakeSocket:
+    """A WebSocket stand-in for hub tests that run no server."""
+
+    async def send_text(self, raw: str) -> None:
+        return None
+
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        return None
+
+
+@dataclass
+class HubRig:
+    """A hub with a real store behind it, one enrolled device and one app."""
+
+    hub: Hub
+    index: SessionIndex
+    devices: DeviceStore
+    device: DeviceConnection
+    app: AppConnection
+    device_id: str
+
+
+async def hub_rig(
+    tmp_path: Path,
+    *,
+    on_session_transition: TransitionHook | None = None,
+    request_timeout: float = REQUEST_TIMEOUT_SECONDS,
+    offline_grace: float = OFFLINE_GRACE_SECONDS,
+) -> HubRig:
+    """Build a hub whose connections never drain their queues.
+
+    Leaving the writer tasks unstarted keeps what the gateway produced in the queues, so a test
+    reads exactly the frames the hub emitted, in order, without racing a sender.
+    """
+    index = SessionIndex(tmp_path / "sessions.sqlite3")
+    devices = DeviceStore(tmp_path / "devices.sqlite3")
+    grant = await devices.create_pairing("admin")
+    enrolled = await devices.redeem(
+        grant.code,
+        name="mac-studio",
+        platform="macos",
+        hostname="studio.local",
+        arch="arm64",
+        client_version="0.1.0",
+    )
+    assert not isinstance(enrolled, str), enrolled
+    hub = Hub(
+        index,
+        devices,
+        on_session_transition=on_session_transition,
+        request_timeout=request_timeout,
+        offline_grace=offline_grace,
+    )
+    device = fake_device(enrolled.device_id)
+    app = fake_app()
+    await hub.attach_device(device)
+    await hub.attach_app(app)
+    return HubRig(
+        hub=hub,
+        index=index,
+        devices=devices,
+        device=device,
+        app=app,
+        device_id=enrolled.device_id,
+    )
+
+
+def fake_device(device_id: str) -> DeviceConnection:
+    return DeviceConnection(FakeSocket(), device_id)  # type: ignore[arg-type]
+
+
+def fake_app(username: str = "admin") -> AppConnection:
+    return AppConnection(FakeSocket(), username)  # type: ignore[arg-type]
+
+
+def frames_of(connection: Connection) -> list[dict[str, Any]]:
+    """Everything queued for a connection, drained."""
+    out: list[dict[str, Any]] = []
+    while not connection.queue.empty():
+        raw, _ = connection.queue.get_nowait()
+        out.append(json.loads(raw))
+    return out

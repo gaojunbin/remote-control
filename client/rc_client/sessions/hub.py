@@ -301,13 +301,17 @@ class SessionHub:
                 # app told the user their message would wait its turn.
                 result = await self._enqueue(entry, request_id, text, attachments)
             elif not runner.busy:
-                await self._start_turn(entry, text, attachments)
+                await self._start_turn(entry, text, attachments, request_id)
                 result = {"accepted": "sent"}
             elif mode == "interrupt":
                 await runner.interrupt()
-                await self._start_turn(entry, text, attachments)
+                await self._start_turn(entry, text, attachments, request_id)
                 result = {"accepted": "sent"}
-            elif mode == "auto" and runner.supports_steer and await runner.steer(text):
+            elif (
+                mode == "auto"
+                and runner.supports_steer
+                and await runner.steer(text, request_id or None)
+            ):
                 result = {"accepted": "steered"}
             else:
                 result = await self._enqueue(entry, request_id, text, attachments)
@@ -319,13 +323,23 @@ class SessionHub:
         return result
 
     async def _start_turn(
-        self, entry: SessionEntry, text: str, attachments: list[dict[str, Any]] | None
+        self,
+        entry: SessionEntry,
+        text: str,
+        attachments: list[dict[str, Any]] | None,
+        request_id: str = "",
     ) -> None:
+        """Start a turn for a message an app sent, under that request's own id.
+
+        Amendment A12: the app has already drawn the bubble under the id it
+        chose, so the device's `user_message` has to arrive under the same one
+        or the message appears twice.
+        """
         runner = entry.runner
         if runner is None:
             raise RcError("agent_unavailable", "the session is not running")
         await titles.from_prompt(entry.channel, text)
-        await runner.send(text, attachments)
+        await runner.send(text, attachments, block_id=request_id or None)
 
     def _terminal_conflict_message(self, entry: SessionEntry) -> str:
         """Only offer "take over" when this agent can actually be taken over."""
@@ -344,7 +358,12 @@ class SessionHub:
         text: str,
         attachments: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Hold a message until the turn boundary, keeping its attachments."""
+        """Hold a message until the turn boundary, keeping its attachments.
+
+        The item's id is the app's request id where there is one, and it is
+        also the id its `user_message` carries when the queue drains, so the
+        bubble the app drew on sending is the one that is filled in later.
+        """
         queued_id = request_id or str(uuid.uuid4())
         entry.queue.append(
             {"id": queued_id, "text": text, "ts": now_ms(), "attachments": attachments}
@@ -385,7 +404,7 @@ class SessionHub:
                 str(item["text"]),
                 item.get("attachments") or None,
                 source="queue",
-                block_id=item.get("block_id"),
+                block_id=str(item["id"]),
             )
         except RcError as exc:
             await entry.channel.error(exc.message, code=exc.code)

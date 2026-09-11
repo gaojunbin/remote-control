@@ -105,8 +105,12 @@ def create_app(state: GatewayState | None = None) -> FastAPI:
         try:
             yield
         finally:
-            await resolved.push.stop()
+            # The hub first: it lets the notifications already on their way out finish, which
+            # needs the push service still running. The index last, so the sequence numbers those
+            # frames recorded reach the disk.
             await resolved.hub.stop()
+            await resolved.push.stop()
+            await resolved.index.close()
             closer = getattr(resolved.transcriber, "close", None)
             if closer is not None:
                 await closer()

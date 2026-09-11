@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import json
 import os
+from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
@@ -35,6 +36,9 @@ TerminalScanner = Callable[[], Awaitable[terminals.TerminalScan]]
 
 HISTORY_LIMIT = 100
 THREAD_CONFIG_ENV = "RC_CODEX_THREAD_CONFIG"
+# Threads seen opened but still empty. One per TUI that is started and not
+# typed into, so a handful covers a working day and the oldest may be dropped.
+QUIET_THREADS = 64
 
 
 def thread_config() -> dict[str, Any] | None:
@@ -75,6 +79,13 @@ class CodexDaemonService:
         # its first turn is persisted, and `thread/resume` fails until then, so
         # "loaded" and "we have a runner" are two different facts.
         self._loaded: set[str] = set()
+        # Loaded threads with nothing in them: a TUI opens one at startup and
+        # may never use it. They become sessions when they first speak.
+        self._quiet: deque[str] = deque(maxlen=QUIET_THREADS)
+        # When the daemon last saw each thread used. The session record's own
+        # `updated_at` is the moment the apps last heard about the session,
+        # which a title or a settings change moves for reasons of our own.
+        self._used: dict[str, int] = {}
         self._attaching: set[str] = set()
         self._catalog = ModelCatalog()
         self._config = thread_config()
@@ -166,30 +177,44 @@ class CodexDaemonService:
             await self.refresh_terminals()
 
     async def refresh_terminals(self) -> None:
-        """Find the threads whose terminal has gone, on the scan interval.
+        """Decide which threads a terminal is in, on the scan interval.
 
-        The daemon emits nothing when a TUI exits, so the TUI process is the
-        signal: a thread keeps `shared` while a live `codex` TUI is running in
-        its directory. Only threads that claim a terminal are worth a scan, and
-        an incomplete scan changes nothing.
+        The daemon emits nothing when a TUI exits and never unloads a thread,
+        so the TUI processes are the whole signal — and there are always fewer
+        of them than there are loaded threads in the directory they run in. A
+        directory with one live `codex` therefore hands its claim to one
+        thread: the one that already had it, else the one used most recently.
+        Everything else in that directory is a thread the user finished with.
+        An incomplete scan changes nothing.
         """
         watched = [
             entry
             for entry in list(self.hub.entries.values())
             if isinstance(entry.runner, CodexDaemonSession)
-            and (entry.session.control == "shared" or not entry.runner.terminal_live)
+            and entry.session.session_id in self._loaded
         ]
         if not watched:
             return
         scan = await self._scan_terminals()
         if not scan.complete:
             return
+        rooms: dict[str, list[SessionEntry]] = {}
         for entry in watched:
-            runner = entry.runner
-            if not isinstance(runner, CodexDaemonSession):  # pragma: no cover - narrowing
-                continue
-            runner.terminal_present(scan.holds(entry.session.cwd))
-            await self.publish_control(entry)
+            rooms.setdefault(entry.session.cwd, []).append(entry)
+        for cwd, room in rooms.items():
+            claims = scan.count(cwd)
+            for entry in sorted(room, key=self._claim_order):
+                runner = entry.runner
+                if not isinstance(runner, CodexDaemonSession):  # pragma: no cover - narrowing
+                    continue
+                # A thread this device started is not one a terminal opened, so
+                # the scan never hands it a claim until somebody has been seen
+                # typing in it — after that a `codex resume` on it is as
+                # ordinary as any other terminal.
+                eligible = runner.terminal_seen or not self._created_here(entry)
+                if runner.terminal_present(claims > 0 and eligible):
+                    claims -= 1
+                await self.publish_control(entry)
 
     async def _forget_deleted(self, page: list[threads.ThreadSummary], live: set[str]) -> None:
         """Drop sessions for threads deleted in Codex, as the mirror does for transcripts.
@@ -207,10 +232,14 @@ class CodexDaemonService:
             if entry is None:
                 self._known.discard(thread_id)
                 continue
-            if entry.runner is not None or entry.session.updated_at < cutoff:
+            keeps_running = entry.runner is not None and not isinstance(
+                entry.runner, CodexDaemonSession
+            )
+            if keeps_running or entry.session.updated_at < cutoff:
                 continue
             self._known.discard(thread_id)
             self._loaded.discard(thread_id)
+            self._used.pop(thread_id, None)
             log.info("forgetting a codex thread deleted in the agent")
             await self.hub.delete({"session_id": thread_id})
 
@@ -221,7 +250,13 @@ class CodexDaemonService:
             log.warning("codex daemon request failed", method=method, error=exc.message[:200])
             return {}
 
-    async def _adopt_by_id(self, thread_id: str) -> None:
+    async def _adopt_by_id(self, thread_id: str, *, spoke: bool = False) -> None:
+        """Adopt one thread the index named rather than described.
+
+        `spoke` is for a thread that has just sent a notification: it is in
+        use, whatever the index still says about it, and the client using it
+        is not this device, which drives only threads it already holds.
+        """
         result = await self._safe_request("thread/read", {"threadId": thread_id})
         thread = result.get("thread") if isinstance(result.get("thread"), dict) else result
         if not isinstance(thread, dict) or threads.is_ephemeral(thread):
@@ -230,11 +265,35 @@ class CodexDaemonService:
         if summary is None:
             return
         self._known.add(summary.thread_id)
-        await self._adopt(summary, loaded=True)
+        await self._adopt(summary, loaded=True, terminal=spoke, spoke=spoke)
 
-    async def _adopt(self, summary: threads.ThreadSummary, *, loaded: bool) -> None:
+    async def _adopt(
+        self,
+        summary: threads.ThreadSummary,
+        *,
+        loaded: bool,
+        terminal: bool = False,
+        spoke: bool = False,
+    ) -> None:
+        """Make one daemon thread a session, once there is a session to make.
+
+        An empty thread is not one: a TUI opens a thread the moment it starts,
+        long before anything is typed into it, and publishing that would put an
+        untitled row in every app the moment a terminal window opens — one more
+        for every window the user opens and walks away from. It is remembered
+        instead, and the first thing it says both publishes it and proves whose
+        it is, because the only client that can be in it is the one that opened
+        it.
+        """
+        self._used[summary.thread_id] = summary.updated_at
         entry = self.hub.entries.get(summary.thread_id)
         if entry is None:
+            if summary.thread_id in self._quiet:
+                self._quiet.remove(summary.thread_id)
+                terminal = True
+            elif threads.is_empty(summary) and not spoke:
+                self._quiet.append(summary.thread_id)
+                return
             entry = self.hub.register_mirrored(
                 Session(
                     session_id=summary.thread_id,
@@ -261,6 +320,8 @@ class CodexDaemonService:
             await self._attach(entry)
         else:
             self._loaded.discard(summary.thread_id)
+        if terminal and isinstance(entry.runner, CodexDaemonSession):
+            entry.runner.claim_terminal()
         await self.publish_control(entry)
 
     async def _attach(self, entry: SessionEntry) -> None:
@@ -318,17 +379,34 @@ class CodexDaemonService:
             on_thread_id=on_thread_id,
         )
 
+    def _claim_order(self, entry: SessionEntry) -> tuple[int, int, str]:
+        """Which threads in one directory a terminal is most likely to be in.
+
+        The thread that already had the claim keeps it, so a terminal does not
+        hop between threads while it sits there; the rest are ranked by how
+        recently the daemon saw them used, which is the only thing separating
+        the thread somebody is typing in from the ones they finished with last
+        week.
+        """
+        thread_id = entry.session.session_id
+        runner = entry.runner
+        claimed = isinstance(runner, CodexDaemonSession) and runner.terminal_holds
+        return (0 if claimed else 1, -self._used.get(thread_id, 0), thread_id)
+
+    def _created_here(self, entry: SessionEntry) -> bool:
+        """Whether this device started the thread, whoever is in it now."""
+        runner = entry.runner
+        return entry.session.origin == "remote" or (
+            isinstance(runner, CodexDaemonSession) and runner.created_here
+        )
+
     async def publish_control(self, entry: SessionEntry) -> None:
         """Apply the A11 table and announce a change the way every other one travels."""
         runner = entry.runner if isinstance(entry.runner, CodexDaemonSession) else None
-        created_here = entry.session.origin == "remote" or (
-            runner is not None and runner.created_here
-        )
         origin, control = threads.resolve(
-            created_here,
+            self._created_here(entry),
             loaded=entry.session.session_id in self._loaded,
-            terminal_seen=runner is not None and runner.terminal_seen,
-            terminal_live=runner is None or runner.terminal_live,
+            terminal_holds=runner is not None and runner.terminal_holds,
             local_turn=runner is not None and runner.local_turn,
         )
         changed = entry.session.origin != origin or entry.session.control != control
@@ -371,19 +449,33 @@ class CodexDaemonService:
             return
         session = self._session(thread_id)
         if session is None:
+            # A thread we are not following just spoke: take it, then let it
+            # speak, so the word that made it a session is not the one lost.
             await self._retry_attach(thread_id)
-            return
+            session = self._session(thread_id)
+            if session is None:
+                return
         await session.notification(method, params)
 
     async def _retry_attach(self, thread_id: str) -> None:
-        """A loaded thread we have no runner for just spoke; take one now."""
+        """A loaded thread we have no runner for just spoke; take one now.
+
+        A thread with no session at all is one that was empty when we met it,
+        and this is the moment it stops being empty.
+        """
+        if thread_id not in self._loaded:
+            return
         entry = self.hub.entries.get(thread_id)
-        if entry is None or thread_id not in self._loaded:
+        if entry is None:
+            async with self._lock:
+                if thread_id not in self.hub.entries:
+                    await self._adopt_by_id(thread_id, spoke=True)
             return
         await self._attach(entry)
         await self.publish_control(entry)
 
     async def _thread_started(self, params: dict[str, Any]) -> None:
+        """Another client opened a thread, which is the one it is now sitting in."""
         thread = params.get("thread")
         if not isinstance(thread, dict) or threads.is_ephemeral(thread):
             return
@@ -393,7 +485,7 @@ class CodexDaemonService:
         async with self._lock:
             self._known.add(summary.thread_id)
             self._loaded.add(summary.thread_id)
-            await self._adopt(summary, loaded=True)
+            await self._adopt(summary, loaded=True, terminal=True)
 
     async def _thread_named(self, thread_id: str, name: str) -> None:
         """Codex named the thread from its conversation; the sidebars follow it.
@@ -407,6 +499,8 @@ class CodexDaemonService:
 
     async def _thread_closed(self, thread_id: str) -> None:
         self._loaded.discard(thread_id)
+        if thread_id in self._quiet:
+            self._quiet.remove(thread_id)
         entry = self.hub.entries.get(thread_id)
         if entry is None:
             return

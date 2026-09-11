@@ -110,6 +110,39 @@ status word and the working directory on the second. The path is the only part t
 when the line is tight, and it truncates from the head so the folder survives. Nothing is
 right-aligned into a second column, because a column of statuses reads as a table.
 
+## The status dot
+
+The dot is not the state. A turn that finished and a CLI that exited both report `idle`, so the
+tone reads `state`, the `control` owner and the device's `online` flag together.
+`DotTone.of(state:control:online:)` in `Sources/RCCore/State/DotTone.swift` is that rule, and
+`Session.dotTone(online:)` is how a row asks for it. It lives in `RCCore` so `RCVerify` can run the
+whole table without Xcode. `docs/DESIGN.md` states the table both apps implement; nothing here
+decides anything it does not.
+
+`StatusDot` takes a tone and nothing else, so a caller that has no device to ask cannot quietly get
+a green dot for a machine that is gone. Every call site passes the real flag: a session row from its
+device group, the chat header from the device it resolved, the line under the transcript from
+`ChatStore.deviceOnline`.
+
+| Tone | Colour | Motion |
+| --- | --- | --- |
+| `working` | `Theme.running` | breathes between full and half opacity over 1.1 s, and nothing else does |
+| `live` | `Theme.running` | none |
+| `waiting` | `Theme.attention` | none |
+| `failed` | `Theme.danger` | none |
+| `off` | `Theme.resting` | none |
+
+Reduce Motion holds the `working` dot still at full opacity. `Theme.attention` is `#B07C00`, the
+shared token: amber rather than orange, 3.67:1 on the white of a row and 3.36:1 on the canvas
+behind the chat status line. `StatusLabel` tints its word with it too, and only for `waiting`.
+
+A device's own dot is not a session dot and does not follow this table: green when the device is
+online, grey when it is not.
+
+`Tests/RCCoreTests/StatusDotTests.swift` covers the table on hand-built values;
+`Verification/StoreChecks.swift` covers it again and checks the demo list carries all five tones at
+once.
+
 `Tests/RCCoreTests/SessionGroupingTests.swift` covers the rule on hand-built sessions;
 `Verification/StoreChecks.swift` covers it against the demo fixtures.
 
@@ -159,21 +192,17 @@ it, so the app types into the same conversation instead of taking it over.
 | `none` | enabled, the next send resumes the session | no | no | yes | yes |
 
 `Session.isControlledByTerminal` stays false for `shared`; `Session.isAttached` is the new flag, and
-`ChatStore.isAttached` mirrors it. The chat status line reads `terminal · attached`, plus
-`· working` or `· N messages waiting` while the terminal's turn runs, and the session list shows the
-same words through `Session.statusLabel` with the dot colour a remote session would get.
+`ChatStore.isAttached` mirrors it. The header above the transcript reads `terminal · attached`, and
+so does the session list, through `Session.statusLabel`. Nothing else on the screen repeats it: see
+the status line below.
 
-Two controls can be inert on a `shared` session, and one quiet line above the message field says who
-owns them: "Attached to the terminal · settings and attachments are changed there". The attachment
-button and the model and permission chips are dimmed; reaching for one swaps that line for its own
-sentence for four seconds ("Attachments cannot be delivered to a terminal session", "Change it in
-the terminal") rather than swallowing the tap. The same sentences are the accessibility hints on
-those controls and the footers of the session settings sheet.
+Two controls can be beyond a `shared` session's reach, and the app hides them rather than dimming
+them under a caption: no `+` without `shared_attachments`, no settings chips without
+`shared_settings`. Nothing is printed in their place. The header already reads `terminal ·
+attached`, which is the one thing the reader needs, and a second line saying it again cost the
+transcript a row on every attached session.
 
-Whether either is inert is the device's call, not the app's — see the two booleans below. The line
-names only what this attachment cannot do, so it shrinks to "Attached to the terminal · settings are
-changed there", "…· attachments are added there", or just "Attached to the terminal" when the
-attachment carries both.
+Whether either is reachable is the device's call, not the app's — see the two booleans below.
 
 A message sent into a `shared` session may be held by the device until the terminal-driven turn
 ends. `user_message` then carries `delivery`, and the bubble shows a chip: `pending` reads "waiting
@@ -196,6 +225,9 @@ session, Stop is hidden unless the agent's capabilities include `interrupt` *and
 though Claude lists `interrupt`), and "Take over" appears on a `terminal` session only when the
 agent's capabilities include `takeover`.
 
+`mac-studio-office` also carries `demo-session-toolchain`, a session whose agent stopped on an error,
+so the list shows all five dot tones at once rather than four.
+
 The demo carries both cases: `demo-session-shared` on `mac-studio-office`, whose Claude reports
 `attach: "channel"`, `attach_ready: true`, `shared_interrupt: false`, and `demo-session-rename` on
 `macbook-air`, whose Claude has no shim installed. Sending into the shared session shows the message
@@ -208,12 +240,14 @@ device that never heard of them grants nothing:
 
 | Field | What it opens on a `shared` session | `ChatStore` |
 | --- | --- | --- |
-| `shared_settings` | the model, permission and effort pickers, and the session settings sheet with them | `allowsSettingsChanges` |
+| `shared_settings` | the model, permission and effort chips, and the session settings sheet behind them | `allowsSettingsChanges` |
 | `shared_attachments` | the attachment button, so photos and files go into the live thread | `allowsAttachments` |
 
 Both are read straight off `AgentInfo`; nothing in the app branches on the agent id. Stop is
 unaffected and still needs capability `interrupt` plus `shared_interrupt`. A `terminal` session
-takes no input whatever it reports, so `allowsAttachments` stays false there.
+takes no input whatever it reports, so `allowsAttachments` stays false there. The session settings
+sheet is reached only from the chips, so it never opens on a session it could not change and carries
+no locked state of its own.
 
 Codex behind a running app-server daemon reports `attach: "daemon"`, `attach_ready: true` and all
 three booleans true; a Claude channel reports all three false. A device whose daemon is not running
@@ -287,10 +321,21 @@ lowers the keyboard with the drag.
 
 ## The composer
 
-Two rows. The message field takes the first one to itself, and the controls sit on the second:
-the `+` attachment button and the microphone on the left, Send on the right. Stop is not among
-them — it stays in the navigation bar, so no one ends a turn while reaching for Send. The model,
-permission and dictation-language chips keep their own row underneath.
+Two rows, and never three. The message field takes the first one to itself. Everything else shares
+the second, in one order: the `+` attachment button and the microphone against the leading edge,
+then the session's chips, then Send against the trailing edge. The chips scroll sideways when they
+do not fit and never wrap, so the transcript loses no height when a chip is added. Stop is not among
+them — it stays in the navigation bar, so no one ends a turn while reaching for Send.
+
+| Chip | Shown when | Identifier |
+| --- | --- | --- |
+| Model | `ChatStore.allowsSettingsChanges` | `composer.model` |
+| Permission mode | the same | `composer.permissions` |
+| Effort | the same, and the agent lists capability `effort` with efforts to offer | `composer.effort` |
+| Dictation language | always; it belongs to the microphone beside it | `composer.language` |
+| Up next · N | `session.queued > 0` | `composer.queue` |
+
+While dictation runs the level meter, the elapsed time, Cancel and Done replace that whole row.
 
 The field grows with the draft from one line to eight, then stops growing and scrolls inside
 itself. `ComposerLayout` in `Sources/RCUI/Design/ComposerLayout.swift` holds that range, and the
@@ -299,9 +344,60 @@ answer field on an agent's question uses the same one so the two never disagree.
 takes its height from whatever is left over and squeezes the field back to one scrolling line. The
 transcript above is the view that should give way, not the thing being written.
 
-Every capability rule is unchanged: the attachment button only where the agent and the attachment
-carry bytes, the microphone only where a backend exists, the quiet line above the field naming what
-an attached terminal owns, the send-mode menu on a long press of Send, and the queue chip.
+Above the field the composer draws one line at most, and only while something is happening to it: an
+attachment that was refused, or what dictation is doing. It never says who owns the session — the
+header above the transcript already reads `terminal · attached`, and a control the app cannot drive
+is absent rather than dimmed under a caption explaining why. So the composer is the field row plus
+one control row, with a strip of attachment pills between them while a message carries files.
+
+## The status line
+
+One line between the transcript and the composer, and it is drawn only when it says something the
+header does not. The header already carries the dot and the state word, so `ChatStore.statusLine`
+returns nil for every state the header names — `idle`, `starting`, `stopped`, `needs_approval`,
+`needs_input` — and nil for an attached session that is simply sitting there.
+
+| When | What it says |
+| --- | --- |
+| The device is offline | "Device offline" |
+| `control: "terminal"` | "Controlled by the terminal", plus "· Take over to send" where the agent lists `takeover` |
+| A turn is running | "Working · your message will steer the turn", or "· will be queued", or "· N messages queued" |
+| `state: "error"` | Whatever the device put in `state_detail`, which the header has no room for |
+
+An attached session takes the ordinary rules rather than a rule of its own, so a running shared
+Codex thread reads "Working · your message will steer the turn" and an idle one reads nothing at
+all. `docs/DESIGN.md` holds the same table for both apps.
+
+## Sending
+
+Amendment A12: the app mints the `session.send` request id and the device returns it as the
+`user_message` block id, so nothing about sending waits for a round trip.
+
+Tapping Send clears the field and puts the message in the transcript in the same turn of the run
+loop, as an `OptimisticMessage` in `Sources/RCCore/State/Timeline.swift`. Those rows are kept apart
+from `entries`: they hold no `seq`, so they can neither move the replay cursor nor become a history
+boundary, and `Timeline.roots` appends them after everything the device has sent. The bubble is
+drawn at 55 % with a "Sending…" caption under it, and no spinner — the message is already on screen,
+and a turning wheel would claim the app was busy when it is not.
+
+| What happens next | What the row does |
+| --- | --- |
+| The device's `user_message` arrives under the same `block_id` | Replaced in place by the ordinary replacement rule |
+| An older device sends its own id, `source: "remote"`, identical text | Reconciled by text, one row per event |
+| The reply is `sent` or `steered` | Nothing; the row waits for the event |
+| The reply is `queued` | The row goes, and the queue row above the composer stands for the message until the device dequeues it and emits the `user_message` under the same id |
+| The reply is an error the gateway actually sent | The row goes, the message is shown in the composer, and the text returns to the draft if the user has not started another one |
+| The socket dropped, or the request timed out | The row stays, "Delivery unconfirmed" and Retry appear, and the retry reuses the id rather than sending a second copy |
+| Nothing at all for 60 s | The row says "Delivery unconfirmed" itself, through `OptimisticMessage.isUnconfirmed(at:)` |
+
+A resync keeps these rows — a message the user just typed must not vanish because the socket came
+back — and the reloaded history reconciles them, so a reconnect neither drops nor duplicates one.
+`Tests/RCCoreTests/OptimisticSendTests.swift` covers every line of that table.
+
+The demo device holds its echo back by `DemoGateway.defaultEchoDelay`, 400 ms, and reports the
+message before it reports what the agent said about it, which is the order a real device uses. Under
+`--ui-testing` the delay is three seconds, so a test can look at the state between the tap and the
+echo rather than race it.
 
 ## Voice
 
@@ -376,6 +472,18 @@ transcribed even if it later fails; only the live segment can end the dictation.
 
 A request in flight when the socket drops is reported as uncertain, never resent automatically; the
 retry reuses the original request id.
+
+A request issued while the socket is coming back is held rather than refused. The gateway closes a
+silent socket after 25 s, so an app returning to the foreground usually finds one to rebuild, and
+failing the send for the length of a TLS handshake, a hello and a subscribe reads as a dead Send
+button. `GatewaySocket.request` waits for the hello under `GatewaySocket.readyWait`, 20 s, then
+reports the request unconfirmed and leaves the retry to the user. A request with no connection
+attempt under way still fails at once with `notConnected`.
+
+Send is therefore disabled only for reasons a wait cannot fix: the terminal owns the session, the
+device is offline, there is an unconfirmed send to settle first, or the app is no longer signed in.
+`ConnectionPhase.canReachGateway` is what says which of those a phase is, and the composer copies it
+into `ChatStore.canReachGateway`.
 
 The bearer token lives in the Keychain, device-only and never synchronised. It is never written to
 defaults, a log, a diagnostic report or a URL. The diagnostic report is built from an explicit

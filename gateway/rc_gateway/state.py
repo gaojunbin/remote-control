@@ -18,6 +18,7 @@ from .index import SessionIndex
 from .push import PushService
 from .push_store import PushStore
 from .ratelimit import RateLimiter
+from .rejects import RejectionLog
 from .session_registry import SessionRegistry
 from .stt import Transcriber
 
@@ -38,6 +39,8 @@ class GatewayState:
     push: PushService = field(init=False)
     transcriber: Transcriber | None = None
     apns: ApnsProvider | None = None
+    #: Refused `/ws/device` upgrades, so an orphaned daemon is visible without flooding the log.
+    device_rejects: RejectionLog = field(default_factory=RejectionLog)
 
     def stt_view(self) -> dict[str, Any]:
         return {

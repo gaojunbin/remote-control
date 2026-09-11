@@ -32,7 +32,15 @@ const LIVE_OUTPUT = [
   '72 passed in 38.02s\n',
 ];
 
-export function turnScript(prompt: string): Step[] {
+/**
+ * Amendment A12: the device echoes the `session.send` request id as the
+ * `user_message` block id. `blockId` is that id; a turn the device started
+ * itself, such as a `first_message`, still mints one and exercises the app's
+ * fallback. The echo lags by ECHO_DELAY_MS, the way a real round trip does.
+ */
+export const ECHO_DELAY_MS = 400;
+
+export function turnScript(prompt: string, blockId?: string): Step[] {
   const steps: Step[] = [];
   let at = 0;
   const push = (delay: number, event: Step['event']) => {
@@ -41,11 +49,11 @@ export function turnScript(prompt: string): Step[] {
   };
 
   push(0, (seq, ts) => ({ seq, ts, kind: 'turn_started', turn_id: 'turn-live', trigger: 'remote' }));
-  push(20, (seq, ts) => ({
+  push(ECHO_DELAY_MS, (seq, ts) => ({
     seq,
     ts,
     kind: 'user_message',
-    block_id: `u-${ts}`,
+    block_id: blockId ?? `u-${ts}`,
     source: 'remote',
     text: prompt,
   }));

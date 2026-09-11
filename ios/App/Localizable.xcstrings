@@ -90,61 +90,6 @@
         }
       }
     },
-    "Attached to the terminal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attached to the terminal"
-          }
-        }
-      }
-    },
-    "Attached to the terminal · attachments are added there": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attached to the terminal · attachments are added there"
-          }
-        }
-      }
-    },
-    "Attached to the terminal · settings and attachments are changed there": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attached to the terminal · settings and attachments are changed there"
-          }
-        }
-      }
-    },
-    "Attached to the terminal · settings are changed there": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attached to the terminal · settings are changed there"
-          }
-        }
-      }
-    },
-    "Attachments cannot be delivered to a terminal session": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attachments cannot be delivered to a terminal session"
-          }
-        }
-      }
-    },
     "Automatic": {
       "extractionState": "manual",
       "localizations": {
@@ -196,17 +141,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cancel"
-          }
-        }
-      }
-    },
-    "Change it in the terminal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Change it in the terminal"
           }
         }
       }

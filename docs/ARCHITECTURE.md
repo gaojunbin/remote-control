@@ -32,6 +32,29 @@ The gateway never inspects message text, tool input or tool output. It parses th
 (`type`, `id`, `device_id`, `session_id`, `seq`) and the `Session` summaries it indexes, and treats
 the rest as opaque bytes bounded by size limits.
 
+## Liveness: one clock, and what "offline" means
+
+The gateway pings both socket types every 25 s and closes a connection silent for 90 s. That is the
+only keepalive on the link: uvicorn's own protocol-level ping, which defaults to a 20 s interval
+with a 20 s answer deadline, is switched off (amendment A13). Two clocks meant the shorter one won,
+so a daemon whose event loop stalled — a large `git status`, a laptop resuming — was closed with
+`1011` while still comfortably inside the 90 s the contract gives it.
+
+A device link that drops is not an offline device. Mobile NAT, a suspended laptop and a daemon
+restart are indistinguishable for the first few seconds, so the gateway keeps reporting
+`online: true` for a **20 s grace period** and only reports `online: false` if no replacement
+connection arrived. A reconnect inside the window produces no offline frame at all, and a request
+addressed to the device in the meantime waits for the replacement rather than being refused;
+it is answered `device_offline` only when the period ends without one. A close carrying `4401` or
+`4403`, and an explicitly removed device, skip the grace and flip `online` at once: those say the
+device is not coming back, not that the link went quiet. A second connection for the same device
+still replaces the first with `4001`, unchanged.
+
+Refused `/ws/device` upgrades are logged, at one line per source address per minute carrying how
+many attempts it made in between. A daemon left behind by a wiped machine retries forever — one
+gateway saw 685 refusals in three hours from a single address, all silent — and logging every one
+would let any client fill the disk.
+
 ## The block timeline
 
 Both adapters normalise their agent's output into one model, so the apps contain no agent-specific
@@ -80,6 +103,18 @@ out to subscribers as ordinary events (amendment A9). Apps need no special handl
 events by `block_id` as always. Only a session whose buffer still holds something is backfilled —
 an empty buffer already answers `session.subscribe` with `resync`, and the app pages history for
 itself. The requests run as background tasks so a slow device cannot hold up the reconnect.
+
+Nothing on the way from a device frame to the apps touches the disk. A device socket reads and
+dispatches one frame at a time, so anything awaited while handling a frame is latency every later
+frame from that device inherits. The `last_seq` cursor an event advances is therefore recorded in
+memory, before the fan-out, and written to SQLite by a background task that batches whatever has
+accumulated; every read of the index overlays the values still unwritten, so the recorded cursor is
+visible to `session.subscribe` and to `hello` the instant it is recorded and an app can never be
+told it is up to date about an event it has not received. Losing the unwritten tail to a crash only
+makes a reconnecting app resynchronise, which the protocol already handles. Routing a request from
+an app to a device is answered from the in-memory owner map for the same reason: only the owning
+device id is needed to forward, and reading the whole summary back from SQLite would put a disk
+read in front of every message anyone sends.
 
 ## Terminal sessions: mirroring, attaching, takeover
 
@@ -341,6 +376,12 @@ else:
 A notification fires on an observed *transition* between two states, and only when no app is
 actively watching that session. A session the gateway is seeing for the first time has no previous
 state, so a device reconnecting with a hundred sessions produces no notifications at all.
+
+Delivery is an outbound HTTP call to a browser vendor or to APNs, so it runs as a task rather than
+inside the frame handler that noticed the transition: awaiting it there would hold every later
+frame from that device behind a third party's response time. Whether an app is watching is decided
+at the transition, not when the call goes out, so running late cannot change the outcome. A
+shutdown gives the calls already in flight five seconds to finish before cancelling them.
 
 ## Storage
 

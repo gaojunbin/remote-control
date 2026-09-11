@@ -15,7 +15,6 @@ import { UserMessageRow } from '../src/features/chat/blocks/UserMessageRow';
 import { ApprovalCard } from '../src/features/chat/blocks/ApprovalCard';
 import {
   attachHint,
-  attachedLabel,
   canAttachShared,
   canInterruptShared,
   canSetShared,
@@ -141,24 +140,27 @@ describe.runIf(fixturesAvailable())('A10 composer on a shared session', () => {
   it('never offers Take over', () => {
     render(<Composer {...composerProps(sharedIdle, attachAgent)} />);
     expect(screen.queryByRole('button', { name: 'Take over' })).not.toBeInTheDocument();
-    expect(screen.getByText('Attached to the terminal session')).toBeInTheDocument();
   });
 
-  it('locks the model, permission mode and effort pickers to the terminal', () => {
+  it('repeats nothing the header already says', () => {
+    render(<Composer {...composerProps(sharedIdle, attachAgent)} />);
+    expect(screen.queryByText(/Attached to the terminal/)).not.toBeInTheDocument();
+    expect(document.querySelector('.takeover-bar')).toBeNull();
+  });
+
+  it('hides the model, permission mode and effort pickers', () => {
     render(<Composer {...composerProps(sharedIdle, attachAgent)} />);
     for (const name of ['Model', 'Permission mode', 'Effort']) {
-      expect(screen.getByRole('button', { name })).toBeDisabled();
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
     }
-    const tips = document.querySelectorAll('.tip[title="Change it in the terminal"]');
-    expect(tips).toHaveLength(3);
+    // Hidden, never disabled with a reason: nothing explains the absence.
+    expect(screen.queryByText(/in the terminal/)).not.toBeInTheDocument();
   });
 
-  it('disables attachments, which cannot reach a terminal session', () => {
+  it('hides the attachment button, which cannot reach a terminal session', () => {
     render(<Composer {...composerProps(sharedIdle, attachAgent)} />);
-    expect(screen.getByRole('button', { name: 'Attach files' })).toBeDisabled();
-    expect(
-      document.querySelector('.tip[title="Attachments cannot be delivered to a terminal session"]'),
-    ).not.toBeNull();
+    expect(screen.queryByRole('button', { name: 'Attach files' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Attach files')).not.toBeInTheDocument();
   });
 
   it('hides "Interrupt & send" while the attachment cannot interrupt', () => {
@@ -466,44 +468,35 @@ describe.runIf(fixturesAvailable())('A11 composer on a shared Codex session', ()
     expect(canSetShared(null)).toBe(false);
   });
 
-  it('enables the pickers when the device reports shared_settings', () => {
+  it('shows the pickers when the device reports shared_settings', () => {
     render(<Composer {...composerProps(codexShared, daemonAgent)} />);
     for (const name of ['Model', 'Permission mode', 'Effort']) {
       expect(screen.getByRole('button', { name })).toBeEnabled();
     }
-    expect(document.querySelectorAll('.tip[title="Change it in the terminal"]')).toHaveLength(0);
   });
 
-  it('enables attachments when the device reports shared_attachments', () => {
+  it('shows attachments when the device reports shared_attachments', () => {
     render(<Composer {...composerProps(codexShared, daemonAgent)} />);
     expect(screen.getByRole('button', { name: 'Attach files' })).toBeEnabled();
-    expect(
-      document.querySelector('.tip[title="Attachments cannot be delivered to a terminal session"]'),
-    ).toBeNull();
   });
 
-  it('locks whichever half the device does not report', () => {
+  it('hides whichever half the device does not report', () => {
     const settingsOnly: AgentInfo = { ...daemonAgent, shared_attachments: false };
     const { unmount } = render(<Composer {...composerProps(codexShared, settingsOnly)} />);
     expect(screen.getByRole('button', { name: 'Model' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Attach files' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Attach files' })).not.toBeInTheDocument();
     unmount();
 
     const attachmentsOnly: AgentInfo = { ...daemonAgent, shared_settings: false };
     render(<Composer {...composerProps(codexShared, attachmentsOnly)} />);
-    expect(screen.getByRole('button', { name: 'Model' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Model' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Attach files' })).toBeEnabled();
   });
 
-  it('drops the "session" wording once nothing is left to the terminal', () => {
-    expect(attachedLabel(daemonAgent)).toBe('Attached to the terminal');
-    expect(attachedLabel(attachAgent)).toBe('Attached to the terminal session');
-    expect(attachedLabel({ ...daemonAgent, shared_settings: false })).toBe(
-      'Attached to the terminal session',
-    );
-
+  it('leaves every control live, and says nothing extra, on a shared Codex session', () => {
     render(<Composer {...composerProps(codexShared, daemonAgent)} />);
-    expect(screen.getByText('Attached to the terminal')).toBeInTheDocument();
+    expect(screen.queryByText(/Attached to the terminal/)).not.toBeInTheDocument();
+    expect(document.querySelector('.takeover-bar')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Take over' })).not.toBeInTheDocument();
   });
 

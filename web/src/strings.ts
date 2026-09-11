@@ -174,6 +174,7 @@ export const strings = {
     failed: 'failed',
     cancelled: 'cancelled',
     queuedLabel: 'Queued',
+    sending: 'Sending…',
     deliveryPending: 'waiting for the terminal',
     deliveryAbsorbed: 'will be re-sent',
     attachHintChannel: 'Start claude through the remote-control shim to control it from here',
@@ -205,10 +206,6 @@ export const strings = {
     needsInput: 'Waiting for your answer',
     terminalControlled: 'Controlled by the terminal',
     terminalBusy: 'a turn is running there',
-    // A10: the attachment leaves some controls with the terminal.
-    terminalAttached: 'Attached to the terminal session',
-    // A11: the attachment carries settings and attachments too.
-    terminalAttachedFully: 'Attached to the terminal',
     starting: 'Starting the agent…',
     stopped: 'Stopped',
     errored: 'Errored',
@@ -227,8 +224,6 @@ export const strings = {
     interruptAndSend: 'Interrupt & send',
     sendOptions: 'Send options',
     attach: 'Attach files',
-    attachSharedUnsupported: 'Attachments cannot be delivered to a terminal session',
-    lockedToTerminal: 'Change it in the terminal',
     attachTooMany: (max: number) => `At most ${max} attachments.`,
     attachTooLarge: (name: string, max: string) => `${name} is larger than ${max}.`,
     attachFailed: (name: string) => `Could not read ${name}.`,
@@ -355,6 +350,23 @@ export const stateLabels: Record<string, string> = {
 
 export function stateLabel(state: string): string {
   return stateLabels[state] ?? state;
+}
+
+/**
+ * The tooltip on a session dot. It names the tone `dotTone` picked, while the
+ * dot's accessibility label stays the raw state. The table is in
+ * `docs/DESIGN.md`.
+ */
+export const dotToneLabels: Record<string, string> = {
+  working: 'Working',
+  waiting: 'Waiting for you',
+  live: 'Live',
+  off: 'Off',
+  failed: 'Failed',
+};
+
+export function dotToneLabel(tone: string): string {
+  return dotToneLabels[tone] ?? tone;
 }
 
 /**

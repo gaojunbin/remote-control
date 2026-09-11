@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  UNCONFIRMED_AFTER_MS,
+  addOptimistic,
   applyEvent,
   applyEvents,
+  dropQueued,
   emptyTimeline,
+  isUnconfirmed,
+  keepOptimistic,
   mergeHistory,
+  removeOptimistic,
   replaceBlock,
   selectView,
+  type OptimisticBlock,
 } from '../src/stores/timeline';
 import type { SessionEvent } from '../src/protocol/types';
 import { fixturesAvailable, readFixture } from './fixtures';
@@ -351,5 +358,133 @@ describe.runIf(fixturesAvailable())('protocol timeline fixtures', () => {
       expect(['status', 'meta', 'queue']).not.toContain(event.kind);
       expect('delta' in event ? event.delta : undefined).toBeUndefined();
     }
+  });
+});
+
+describe('optimistic sends (A12)', () => {
+  const SENT_AT = 1_700_000_000_000;
+  const pending = (id: string, text: string): OptimisticBlock => ({
+    id,
+    text,
+    attachments: [],
+    at: SENT_AT,
+  });
+
+  const userMessage = (
+    seq: number,
+    blockId: string,
+    text: string,
+    source: 'remote' | 'terminal' = 'remote',
+  ): SessionEvent =>
+    ({ seq, ts: 3_000 + seq, kind: 'user_message', block_id: blockId, text, source }) as SessionEvent;
+
+  it('renders the message before the device has echoed it', () => {
+    let state = emptyTimeline();
+    state = applyEvent(state, text(1, 'earlier', true));
+    state = addOptimistic(state, pending('req-1', 'run the tests'));
+
+    const roots = selectView(state).roots;
+    expect(roots.map((item) => item.key)).toEqual(['b1', 'req-1']);
+    const row = roots[1];
+    expect(row?.pending?.id).toBe('req-1');
+    expect(row?.event.kind).toBe('user_message');
+    expect(row?.event && 'text' in row.event ? row.event.text : null).toBe('run the tests');
+    // It is not a device event: the replay cursor must not move.
+    expect(state.lastSeq).toBe(1);
+  });
+
+  it('ignores a second insert of the same request id, so Retry reuses the row', () => {
+    let state = addOptimistic(emptyTimeline(), pending('req-1', 'once'));
+    state = addOptimistic(state, { ...pending('req-1', 'once'), at: SENT_AT + 5_000 });
+    expect(state.optimistic).toHaveLength(1);
+    expect(state.optimistic[0]?.at).toBe(SENT_AT);
+  });
+
+  it("replaces the pending row with the device's event under the same id", () => {
+    let state = addOptimistic(emptyTimeline(), pending('req-1', 'run the tests'));
+    state = applyEvent(state, userMessage(4, 'req-1', 'run the tests'));
+
+    expect(state.optimistic).toEqual([]);
+    const roots = selectView(state).roots;
+    expect(roots).toHaveLength(1);
+    expect(roots[0]?.key).toBe('req-1');
+    expect(roots[0]?.pending).toBeUndefined();
+  });
+
+  it('reconciles by text when an older device mints its own block id', () => {
+    let state = addOptimistic(emptyTimeline(), pending('req-1', 'run the tests'));
+    state = applyEvent(state, userMessage(4, 'dev-99', 'run the tests'));
+
+    expect(state.optimistic).toEqual([]);
+    const roots = selectView(state).roots;
+    expect(roots.map((item) => item.key)).toEqual(['dev-99']);
+  });
+
+  it('reconciles one pending row per event and leaves the rest', () => {
+    let state = addOptimistic(emptyTimeline(), pending('req-1', 'same words'));
+    state = addOptimistic(state, pending('req-2', 'same words'));
+    state = applyEvent(state, userMessage(4, 'dev-99', 'same words'));
+
+    expect(state.optimistic.map((b) => b.id)).toEqual(['req-2']);
+  });
+
+  it('never reconciles against a message typed in the terminal', () => {
+    let state = addOptimistic(emptyTimeline(), pending('req-1', 'run the tests'));
+    state = applyEvent(state, userMessage(4, 'dev-99', 'run the tests', 'terminal'));
+
+    expect(state.optimistic.map((b) => b.id)).toEqual(['req-1']);
+    expect(selectView(state).roots.map((item) => item.key)).toEqual(['dev-99', 'req-1']);
+  });
+
+  it('drops a pending row the gateway refused', () => {
+    let state = addOptimistic(emptyTimeline(), pending('req-1', 'nope'));
+    state = removeOptimistic(state, 'req-1');
+    expect(state.optimistic).toEqual([]);
+    expect(selectView(state).roots).toEqual([]);
+    expect(removeOptimistic(state, 'req-1')).toBe(state);
+  });
+
+  it('calls a send unconfirmed only once it is a minute old', () => {
+    const block = pending('req-1', 'hello');
+    expect(isUnconfirmed(block, SENT_AT + 500)).toBe(false);
+    expect(isUnconfirmed(block, SENT_AT + UNCONFIRMED_AFTER_MS - 1)).toBe(false);
+    expect(isUnconfirmed(block, SENT_AT + UNCONFIRMED_AFTER_MS)).toBe(true);
+  });
+
+  it('gives the row up to the queue when a snapshot names it', () => {
+    let state = addOptimistic(emptyTimeline(), pending('req-1', 'first'));
+    state = addOptimistic(state, pending('req-2', 'second'));
+    state = dropQueued(state, ['req-2']);
+
+    // The queue row above the composer stands for it until the device sends it.
+    expect(state.optimistic.map((b) => b.id)).toEqual(['req-1']);
+    // Nothing to change means the same object, so no needless re-render.
+    expect(dropQueued(state, ['req-2'])).toBe(state);
+    expect(dropQueued(state, [])).toBe(state);
+  });
+
+  it('keeps pending rows across a resync and drops the device events', () => {
+    let state = addOptimistic(emptyTimeline(), pending('req-1', 'still sending'));
+    state = applyEvent(state, text(9, 'old answer', true));
+    const fresh = keepOptimistic(state);
+
+    expect(fresh.order).toEqual([]);
+    expect(fresh.lastSeq).toBe(0);
+    expect(fresh.optimistic.map((b) => b.id)).toEqual(['req-1']);
+  });
+
+  it('does not duplicate the row when history carries the device copy', () => {
+    let state = addOptimistic(emptyTimeline(), pending('req-1', 'run the tests'));
+    state = mergeHistory(state, [userMessage(4, 'req-1', 'run the tests')]);
+
+    expect(state.optimistic).toEqual([]);
+    expect(selectView(state).roots.map((item) => item.key)).toEqual(['req-1']);
+  });
+
+  it('hides a pending row whose block the device already sent', () => {
+    let state = applyEvent(emptyTimeline(), userMessage(4, 'req-1', 'run the tests'));
+    // addOptimistic refuses, and selectView would skip it either way.
+    state = addOptimistic(state, pending('req-1', 'run the tests'));
+    expect(selectView(state).roots).toHaveLength(1);
   });
 });

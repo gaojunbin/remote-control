@@ -10,6 +10,7 @@ enum StoreChecks {
         await connection(checks)
         await chat(checks)
         sessionsList(checks)
+        dotTones(checks)
         settings(checks)
         await pairing(checks)
         await closeHandling(checks)
@@ -17,8 +18,57 @@ enum StoreChecks {
         await gapRepair(checks)
         await warmOpen(checks)
         await sendability(checks)
+        await optimisticSend(checks)
         await readingPosition(checks)
         return checks.result()
+    }
+
+    /// The status dot, over the whole table in `docs/DESIGN.md`. The tone is a
+    /// function of all three facts, which is the point: `state` alone cannot
+    /// tell a finished turn on a live session from a session nothing owns.
+    @MainActor
+    private static func dotTones(_ checks: CheckRunner) {
+        let owners: [SessionControl] = [.remote, .terminal, .shared]
+
+        for control in owners + [.none] {
+            for state in [SessionState.starting, .running] {
+                checks.equal(DotTone.of(state: state, control: control, online: true), .working,
+                             "\(state) under \(control) is a turn under way")
+            }
+            for state in [SessionState.needsApproval, .needsInput] {
+                checks.equal(DotTone.of(state: state, control: control, online: true), .waiting,
+                             "\(state) under \(control) is blocked on the user")
+            }
+            checks.equal(DotTone.of(state: .error, control: control, online: true), .failed,
+                         "an error under \(control) is red")
+            checks.equal(DotTone.of(state: .stopped, control: control, online: true), .off,
+                         "a stopped session under \(control) is grey")
+        }
+
+        for control in owners {
+            for state in [SessionState.idle, .readonly] {
+                checks.equal(DotTone.of(state: state, control: control, online: true), .live,
+                             "\(state) is alive and quiet while \(control) still holds it")
+            }
+        }
+        for state in [SessionState.idle, .readonly] {
+            checks.equal(DotTone.of(state: state, control: .none, online: true), .off,
+                         "\(state) with nothing holding it is an exited session")
+        }
+
+        for state in [SessionState.starting, .running, .needsApproval, .needsInput,
+                      .idle, .readonly, .stopped, .error] {
+            checks.equal(DotTone.of(state: state, control: .remote, online: false), .off,
+                         "a machine that is gone reports nothing, whatever \(state) said")
+        }
+        checks.equal(DotTone.of(state: SessionState(rawValue: "compacting"), control: .remote, online: true),
+                     .off, "a state this build has never heard of claims nothing")
+
+        // The five tones the demo carries, so every colour is on screen at once.
+        let devices = Dictionary(uniqueKeysWithValues: DemoFixtures.devices.map { ($0.deviceID, $0.online) })
+        let tones = DemoFixtures.sessions.map { $0.dotTone(online: devices[$0.deviceID] ?? false) }
+        checks.equal(Set(tones), Set(DotTone.allCases), "the demo list shows all five tones")
+        checks.equal(tones.filter { $0 == .failed }.count, 1, "exactly one of them failed")
     }
 
     /// The timeline follows the newest content only while the reader is at the
@@ -160,14 +210,25 @@ enum StoreChecks {
         chat.draft = "hello"
         checks.expect(chat.canSend, "a connected session with a draft can send")
 
-        chat.connectionReady = false
+        chat.canReachGateway = false
         checks.expect(!chat.canSend, "an offline app cannot send")
         checks.equal(chat.sendBlockReason, "Offline · your draft is saved", "and it says so")
-        chat.connectionReady = true
+        chat.canReachGateway = true
 
         chat.deviceOnline = false
         checks.equal(chat.sendBlockReason, "That device is offline", "an offline device says so")
         chat.deviceOnline = true
+
+        // A socket on its way back is not a reason to refuse: the transport
+        // holds the request until the hello lands.
+        checks.expect(ConnectionPhase.reconnecting.canReachGateway,
+                      "a reconnecting socket still reaches the gateway")
+        checks.expect(ConnectionPhase.connecting.canReachGateway, "and so does one still connecting")
+        checks.expect(ConnectionPhase.syncing.canReachGateway, "and one still catching up")
+        checks.expect(!ConnectionPhase.signedOut.canReachGateway, "a signed-out app does not")
+        checks.expect(!ConnectionPhase.expired.canReachGateway, "and neither does an expired session")
+        checks.expect(!ConnectionPhase.superseded.canReachGateway,
+                      "nor a connection another device replaced")
 
         // The bytes ride along on a pending send, so a retry is the same message.
         let attachment = OutboundAttachment(name: "shot.png", mime: "image/png", data: Data([1, 2, 3]))
@@ -219,7 +280,7 @@ enum StoreChecks {
         checks.expect(store.hasSnapshot, "the demo hello arrives")
         checks.equal(store.phase, .connected, "the store reports a connected phase")
         checks.equal(store.devices.count, 3, "hello populates the device list")
-        checks.equal(store.sessions.count, 7, "hello populates the session list")
+        checks.equal(store.sessions.count, 8, "hello populates the session list")
         checks.equal(store.inventorySummary, "3 devices · 1 waiting", "the inventory summary counts waiting sessions")
         checks.equal(store.onlineDevices.count, 2, "only the online devices are offered for a new session")
         checks.expect(store.device(DemoFixtures.macDeviceID)?.agent("claude")?.supports(.takeover) == true,
@@ -326,7 +387,8 @@ enum StoreChecks {
         checks.expect(!chat.isReadOnly, "an attached session is not read-only")
         checks.expect(chat.isAttached, "and reports itself as attached")
         checks.expect(!chat.canTakeover, "takeover is never offered on an attached session")
-        checks.equal(chat.statusLine, "terminal · attached", "an idle attached session names the terminal")
+        checks.equal(chat.statusLine, nil,
+                     "an idle attached session prints nothing the header has not already said")
         checks.expect(!chat.allowsSettingsChanges,
                       "model, permission mode and effort belong to the terminal")
         checks.expect(!chat.allowsAttachments, "and attachments cannot reach a live CLI")
@@ -432,7 +494,7 @@ enum StoreChecks {
         let groups = store.groups(sessions, devices: devices)
         checks.equal(groups.map(\.name), ["mac-studio-office", "macbook-air", "ci-runner-01"],
                      "a machine with live work comes first, then the rest by activity")
-        checks.equal(groups.first?.active.count, 5, "the busy machine holds five live sessions")
+        checks.equal(groups.first?.active.count, 6, "the busy machine holds six live sessions")
         checks.equal(groups.first?.active.first?.state, .needsApproval,
                      "a session waiting on the user sorts first inside its device")
         checks.expect(groups.allSatisfy { !$0.collapsed }, "every group starts expanded")
@@ -488,7 +550,7 @@ enum StoreChecks {
         let withArchived = store.groups(sessions + [archivedByHand], devices: devices)
         checks.equal(withArchived.first?.archive.map(\.sessionID), ["s"],
                      "it joins that machine's Archive rather than a global one")
-        checks.equal(withArchived.first?.active.count, 5,
+        checks.equal(withArchived.first?.active.count, 6,
                      "and never counts as live, whatever still owns it")
 
         checks.equal(SessionListLayout.urgency(.needsInput), 0, "waiting on the user comes first")
@@ -592,6 +654,42 @@ enum StoreChecks {
                 return .object([:])
             }
         }
+    }
+
+    /// Amendment A12: the message is in the transcript before the request has
+    /// been answered, and the device's echo under the same id replaces it
+    /// rather than adding a second copy.
+    @MainActor
+    private static func optimisticSend(_ checks: CheckRunner) async {
+        let gateway = DemoGateway()
+        let connection = ConnectionStore()
+        await connection.enterDemo(api: gateway, channel: gateway)
+        await settle { connection.hasSnapshot }
+        guard let session = connection.sessions.first(where: {
+            $0.sessionID == DemoFixtures.erroredSessionID
+        }) else {
+            return checks.expect(false, "the demo has a reachable session with no turn running")
+        }
+        let chat = ChatStore(session: session, channel: gateway)
+        connection.addFrameHandler("a12") { [weak chat] frame in chat?.receive(frame) }
+        defer { connection.removeFrameHandler("a12") }
+        await chat.open()
+
+        chat.draft = "one more thing"
+        let sending = Task { await chat.send() }
+        await settle(timeout: 2) { chat.timeline.roots.contains { $0.pending != nil } }
+        checks.equal(chat.timeline.roots.last?.pending?.text, "one more thing",
+                     "the message is on screen before the request has been answered")
+        checks.expect(chat.draft.isEmpty, "and the field is already empty")
+        await sending.value
+        checks.equal(chat.lastAcceptance, .sent, "the demo accepts it outright")
+        checks.expect(!chat.timeline.optimistic.isEmpty,
+                      "and the row waits for the device's own event, not for the reply")
+
+        await settle(timeout: 4) { chat.timeline.optimistic.isEmpty }
+        checks.expect(chat.timeline.optimistic.isEmpty, "the echo retires the row")
+        checks.equal(chat.timeline.roots.filter { $0.userMessage?.text == "one more thing" }.count, 1,
+                     "and the transcript holds exactly one copy of the message")
     }
 
     /// Wait for an asynchronous condition without a fixed sleep.

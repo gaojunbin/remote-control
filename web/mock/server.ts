@@ -18,6 +18,7 @@ import type {
 } from '../src/protocol/types';
 import { HOME, devices, historyFor, recentDirs, sessions } from './fixtures';
 import {
+  ECHO_DELAY_MS,
   afterAnswer,
   afterApproval,
   codexSharedAfterApproval,
@@ -151,6 +152,21 @@ function play(sessionId: string, steps: Step[], done?: () => void): void {
   }
   const total = steps.at(-1)?.after ?? 0;
   if (done) setTimeout(done, total + 20);
+}
+
+/**
+ * A remote turn, followed by whatever the queue collected while it ran. The
+ * dequeued message keeps its original request id as its `block_id` (A12).
+ */
+function playRemote(sessionId: string, text: string, blockId: string): void {
+  play(sessionId, turnScript(text, blockId), () => drainQueue(sessionId));
+}
+
+function drainQueue(sessionId: string): void {
+  const [next, ...rest] = state.queues.get(sessionId) ?? [];
+  if (!next) return;
+  emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending: rest });
+  setTimeout(() => playRemote(sessionId, next.text, next.id), 400);
 }
 
 /** Ends the running turn as `interrupted` and leaves the session idle. */
@@ -540,7 +556,11 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       broadcast({ type: 'session.updated', session });
       reply(conn, id, { session });
       if (typeof frame.first_message === 'string' && frame.first_message.length > 0) {
-        setTimeout(() => play(session.session_id, turnScript(frame.first_message as string)), 400);
+        // No `session.send` behind it, so the device mints the block id here.
+        setTimeout(() => {
+          const sid = session.session_id;
+          play(sid, turnScript(frame.first_message as string), () => drainQueue(sid));
+        }, 400);
       }
       return;
     }
@@ -558,6 +578,8 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       const mode = String(frame.mode ?? 'auto');
       const running = session.state === 'running' || session.state === 'needs_approval';
       if (running && mode !== 'interrupt') {
+        // A12: the queue entry keeps the request id all the way to its
+        // `user_message`, so the app can correlate the row it already shows.
         const queuedId = String(id);
         const pending = [...(state.queues.get(sessionId) ?? []), { id: queuedId, text, ts: Date.now() }];
         emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending });
@@ -565,7 +587,7 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
         return;
       }
       reply(conn, id, { accepted: 'sent' });
-      play(sessionId, turnScript(text));
+      playRemote(sessionId, text, String(id));
       return;
     }
 
@@ -840,24 +862,29 @@ function sharedSend(
   }
   const text = String(frame.text ?? '');
   const mode = String(frame.mode ?? 'auto');
-  const blockId = `sh-u-${Date.now()}`;
+  // A12: the request id is the block id the app already rendered under.
+  const blockId = String(id);
   const busy =
     session.state === 'running' ||
     session.state === 'needs_approval' ||
     session.state === 'needs_input';
 
   if (!busy) {
-    emitUserMessage(sessionId, blockId, text, 'delivered');
     reply(conn, id, { accepted: 'sent' });
-    playShared(sessionId, text, false);
+    afterEcho(() => {
+      emitUserMessage(sessionId, blockId, text, 'delivered');
+      playShared(sessionId, text, false);
+    });
     return;
   }
 
   // A11 clarification 1: `auto` on a running thread steers when the agent can.
   if (mode === 'auto' && agent?.capabilities.includes('steer')) {
-    emitUserMessage(sessionId, blockId, text, 'delivered');
     reply(conn, id, { accepted: 'steered' });
-    playShared(sessionId, text, true);
+    afterEcho(() => {
+      emitUserMessage(sessionId, blockId, text, 'delivered');
+      playShared(sessionId, text, true);
+    });
     return;
   }
 
@@ -867,21 +894,30 @@ function sharedSend(
       return replyError(conn, id, 'unsupported', 'stop it in the terminal');
     }
     interruptTurn(sessionId);
-    emitUserMessage(sessionId, blockId, text, 'delivered');
     reply(conn, id, { accepted: 'sent' });
-    playShared(sessionId, text, false);
+    afterEcho(() => {
+      emitUserMessage(sessionId, blockId, text, 'delivered');
+      playShared(sessionId, text, false);
+    });
     return;
   }
 
   const queuedId = String(id);
-  emitUserMessage(sessionId, blockId, text, 'pending');
-  const pending = [...(state.queues.get(sessionId) ?? []), { id: queuedId, text, ts: Date.now() }];
-  emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending });
   state.held.set(sessionId, [
     ...(state.held.get(sessionId) ?? []),
     { block_id: blockId, text, queued_id: queuedId },
   ]);
   reply(conn, id, { accepted: 'queued', queued_id: queuedId });
+  afterEcho(() => {
+    emitUserMessage(sessionId, blockId, text, 'pending');
+    const pending = [...(state.queues.get(sessionId) ?? []), { id: queuedId, text, ts: Date.now() }];
+    emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending });
+  });
+}
+
+/** What a device costs to answer: the reply is instant, the echo is not. */
+function afterEcho(run: () => void): void {
+  setTimeout(run, ECHO_DELAY_MS);
 }
 
 function emitUserMessage(
@@ -936,7 +972,9 @@ let demoStarted = false;
 function maybeStartDemoTurn(): void {
   if (demoStarted) return;
   demoStarted = true;
-  setTimeout(() => play('ses-flaky', turnScript('test_refresh_flow fails ~1 in 5 on CI, never locally. Find the race and fix it.')), 600);
+  const prompt = 'test_refresh_flow fails ~1 in 5 on CI, never locally. Find the race and fix it.';
+  // A device-minted block id, the way a pre-A12 device or a terminal sends one.
+  setTimeout(() => play('ses-flaky', turnScript(prompt), () => drainQueue('ses-flaky')), 600);
 }
 
 /* ---------------------------------------------------------------- ws/stt */

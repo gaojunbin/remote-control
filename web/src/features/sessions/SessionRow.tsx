@@ -24,7 +24,7 @@ export function SessionRow({ session, online, onOpen }: Props) {
   return (
     <li className="session-row">
       <button type="button" className="session-open" onClick={onOpen} aria-label={strings.sessions.open}>
-        <StatusDot state={session.state} online={online} />
+        <StatusDot state={session.state} control={session.control} online={online} />
         <span className="session-text">
           <span className="session-title">{session.title}</span>
           <span className="session-meta">

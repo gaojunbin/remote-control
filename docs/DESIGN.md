@@ -127,14 +127,15 @@ means, then labels the button with the decision:
 | Running, agent supports steering | Send | "Codex is working · your message will steer the turn" |
 | Running, agent does not | Queue | "Claude Code is working · your message will be queued" |
 | Terminal-controlled | disabled | "Controlled by the terminal · take over to send" |
-| Terminal, attached | Send | "terminal · attached", and the composer behaves as for a remote session |
+| Terminal, attached | Send | — (the header already says `terminal · attached`; the composer behaves as for a remote session) |
 | Device offline | disabled | "Device offline" |
 
 An **attached** terminal session is the one case where a live CLI and a live composer coexist. It
 looks like an ordinary session on purpose: the same composer, the same approval cards, the same
-queue. One thing always marks it: the takeover bar is replaced by a quiet line saying the session is
-attached to the terminal, and "Take over" is not offered at all, because there is nothing to take
-over.
+queue. One thing always marks it: the header reads `terminal · attached`, the takeover bar is gone, and
+"Take over" is not offered at all, because there is nothing to take over. Nothing above the composer
+repeats what the header says; the status line is reserved for information the header lacks (a
+running turn's steer/queue notice, "Controlled by the terminal", "Device offline").
 
 Everything else about it depends on what the attachment can carry, and the device says so in three
 booleans on the agent. Nothing in either app asks which agent it is looking at.
@@ -145,12 +146,10 @@ booleans on the agent. Nothing in either app asks which agent it is looking at.
 | `shared_settings` | The model, permission-mode and effort pickers | off | on |
 | `shared_attachments` | The attachment button, and pasted files | off | on |
 
-A control the attachment cannot drive is disabled rather than hidden, and carries the reason: "Change
-it in the terminal", "Attachments cannot be delivered to a terminal session". The quiet line above
-the composer names only what is left to the terminal, so it shrinks as the attachment grows —
-"Attached to the terminal · settings and attachments are changed there", then one clause, then just
-"Attached to the terminal" when the attachment carries both. A shared Codex session reads that last
-form, and every control on it is live.
+A control the attachment cannot drive is hidden, not disabled with a caption: a Claude channel
+session shows no attachment button and no model, permission or effort chips, and nothing explains
+their absence in the composer. A shared Codex session shows every control, all live. The rule keeps
+the composer to two rows (the field, then one row of controls) on the phone.
 
 Steering follows the ordinary rule rather than a shared-session rule. Codex advertises `steer`, so a
 message typed into a running shared Codex turn joins that turn: the status line reads "Codex is
@@ -223,22 +222,44 @@ outside a text field puts the keyboard away without stealing the tap from a cont
 
 One word per state, the same word in both apps and in notifications.
 
-| Session state | What the apps say | Dot |
-| --- | --- | --- |
-| `starting` | "Starting the agent…" | green |
-| `running` | "<agent> is working" | green |
-| `needs_approval` | "Needs your approval" | orange |
-| `needs_input` | "Waiting for your answer" | orange |
-| `idle` | "Idle" | gray |
-| `stopped` | "Stopped" | gray |
-| `readonly` | "Controlled by the terminal" | gray |
-| `error` | "Errored" | red |
-| device offline | "Device offline" | gray |
+| Session state | What the apps say |
+| --- | --- |
+| `starting` | "Starting the agent…" |
+| `running` | "<agent> is working" |
+| `needs_approval` | "Needs your approval" |
+| `needs_input` | "Waiting for your answer" |
+| `idle` | "Idle" |
+| `stopped` | "Stopped" |
+| `readonly` | "Controlled by the terminal" |
+| `error` | "Errored" |
+| device offline | "Device offline" |
 
 One label comes from `control` rather than `state`: an attached terminal session reads **"terminal ·
-attached"** and takes the same dot colour as a session the device runs itself, because from the
-user's side it behaves the same way. `readonly` keeps its own label and stays reserved for a
-terminal session the device cannot reach.
+attached"** and takes the same dot as a session the device runs itself, because from the user's side
+it behaves the same way. `readonly` keeps its own label and stays reserved for a terminal session the
+device cannot reach.
+
+### The status dot
+
+The dot is not the state. A turn that finished and a CLI that exited both report `idle`, so the tone
+reads the session's `state`, its `control` owner and the device's `online` flag together. One pure
+function owns the rule on each platform — `dotTone(state, control, online)` in
+`web/src/components/dotTone.ts`, `DotTone.of(state:control:online:)` in RCCore on iOS — and both are unit
+tested over the whole table.
+
+| Tone | Looks | When |
+| --- | --- | --- |
+| `working` | green, pulsing | `starting`, `running` |
+| `waiting` | amber, solid | `needs_approval`, `needs_input`: the agent is blocked on the user |
+| `live` | green, solid | `idle` or `readonly` while `control` is `remote`, `terminal` or `shared` — the session is alive and quiet: a turn finished, a terminal is still open, or the device holds it |
+| `off` | grey | `stopped`, or `idle` / `readonly` with `control: "none"` (the CLI exited and the session is resumable), or the device is offline whatever the state |
+| `failed` | red, solid | `error` |
+
+Only `working` animates, so a session blocked on the user never reads as a running one at a glance.
+The pulse stops under Reduce Motion. The dot's accessibility label stays the state word and its
+tooltip names the tone — "Working", "Waiting for you", "Live", "Off", "Failed". A device's own dot is
+not a session dot and does not follow this table: it is green when the device is online and a grey
+ring when it is not.
 
 Colour is never the only signal: the dot always sits next to the word.
 
@@ -256,7 +277,7 @@ but the design was not reviewed in dark mode.
 | Ink | `#111111` | Primary text, and the primary button fill |
 | Ink secondary | `#6B6B6B` | Metadata |
 | Running | `#22A06B` | Green status |
-| Attention | `#E0862B` | Needs approval or input |
+| Attention | `#B07C00` | Needs approval or input. Amber, not orange, and above 3:1 on every row background |
 | Idle | `#B5B5B0` | Resting status |
 | Danger | `#D23F31` | Errors and destructive actions |
 | Diff add / remove | `#1F7A4D` / `#C23A2C` | Diff counts and gutters |

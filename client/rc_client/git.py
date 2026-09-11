@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import re
 from pathlib import Path
@@ -46,8 +47,10 @@ async def _git(cwd: str, *args: str, timeout: float = GIT_TIMEOUT) -> tuple[int,
     try:
         out, err = await asyncio.wait_for(process.communicate(), timeout=timeout)
     except TimeoutError:
-        process.kill()
-        await process.wait()
+        # The child may have exited between the timeout and the signal.
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+            await process.wait()
         return 124, "", "git timed out"
     return process.returncode or 0, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
 

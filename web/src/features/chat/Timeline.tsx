@@ -54,7 +54,8 @@ export function Timeline({
   }, [historyHasMore, historyLoading, onLoadOlder]);
 
   const { ref, following, missed, scrollToBottom, onScroll } = useScrollFollow({
-    revision: timeline.lastSeq,
+    // A pending send carries no `seq`, so count it into the revision as well.
+    revision: `${timeline.lastSeq}.${timeline.optimistic.length}`,
     firstKey: timeline.order[0] ?? null,
     lastKey: timeline.order.at(-1) ?? null,
     onReachTop,
@@ -116,7 +117,7 @@ const ItemView = memo(function ItemView({ item, handlers, nested }: ItemProps) {
   const event = item.event;
   switch (event.kind) {
     case 'user_message':
-      return <UserMessageRow event={event as UserMessageEvent} />;
+      return <UserMessageRow event={event as UserMessageEvent} pending={item.pending} />;
     case 'assistant_text': {
       const text = (event as AssistantTextEvent).text ?? '';
       return text ? <MarkdownText text={text} /> : null;

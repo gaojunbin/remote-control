@@ -65,6 +65,7 @@ directory to your `PATH` to call it by name.
   state/attachments/        files received with a message
   state/claude-mcp.json     the channel server definition the shim passes to Claude Code
   state/channel.sock        where channel bridges register (see below)
+  state/link.json           what the gateway link last said about itself
   bin/claude                the shim that starts an attachable Claude session
   logs/                     rc-client.out.log and rc-client.err.log (macOS)
 ```
@@ -77,6 +78,16 @@ gateway without touching your real one.
 **macOS** installs a launchd user agent labelled `dev.remote-control.client` at
 `~/Library/LaunchAgents/dev.remote-control.client.plist`, with stdout and stderr in
 `~/.rc-client/logs/`. It starts at login and restarts on failure.
+
+The plist deliberately sets no `ProcessType`. It used to say `Background`, which puts the job in
+macOS's lowest scheduling band and throttles its disk I/O; on a loaded machine that was enough to
+stall the event loop for tens of seconds at a time and drop the gateway link. Left unset, launchd
+treats the job as `Adaptive`. **An install made before this change keeps the old plist**: re-run
+`rc-client service install` to pick it up, which rewrites the file and restarts the service.
+
+The Codex daemon's own agent, `dev.remote-control.codex-daemon`, dropped `ProcessType` for the same
+reason: it is the app-server every Codex round trip goes through, and throttling it throttles them.
+An existing install picks that up on the next `rc-client codex setup`.
 
 **Linux** installs a systemd *user* unit, `rc-client.service`, under
 `~/.config/systemd/user/`. It runs with `NoNewPrivileges` and `UMask=0077`, restarts after five
@@ -140,6 +151,21 @@ The daemon queues a message that arrives while a turn is running and launches it
 boundary, with `trigger: "queue"` so the UI can tell a queued turn from a typed one. Codex sessions
 advertise `steer`, so an app can redirect a turn in flight instead of queueing. A repeated
 `session.send` with the same request id is recognised as a duplicate and never delivered twice.
+
+The `user_message` the daemon publishes for a `session.send` carries **that request's id as its
+`block_id`** (amendment A12), on all four paths: Claude through the SDK, Claude through a channel,
+Codex through the shared daemon and Codex through its own app-server. The app has already drawn the
+bubble under that id the moment the user pressed send, so the device's event replaces it rather than
+adding a second one, and a retry of an unconfirmed send lands on the same block. A queued message
+keeps the id from its `queue` entry through to the `user_message` that goes out when the queue
+drains, and so does a steer. Messages the device originates itself — typed in a terminal, or
+replayed from a queue entry that arrived without a request id — keep ids the device mints.
+
+Sending is arranged so that nothing the user waits for sits behind a round trip. The message is
+published first and the agent is asked afterwards: a Codex send that has to resume its thread, and a
+Claude send that has to restart the CLI to apply a new effort level, both show the bubble before
+they start. A Codex thread whose first turn has not run refuses every `thread/resume`, so a refusal
+is remembered and not repeated until a turn boundary on that thread says something has changed.
 
 `session.history` pages backwards with `before_seq` and forwards with `after_seq`; the second form
 is how the gateway backfills events produced while its link to the device was down.
@@ -309,7 +335,8 @@ A shared Codex session can do everything a remote one can, which is more than a 
 `--dangerously-bypass-approvals-and-sandbox` on the command line makes the CLI spawn its own
 embedded app-server, which the daemon cannot see and the device cannot attach to. Such a session
 still appears in the apps, mirrored from its rollout file with `control: "terminal"`, because the
-rollout holder scan finds the process holding it. Anything you would have set with `-c` is set from
+rollout holder scan finds the process holding it. It is also excluded from the count of terminals
+the device attributes to daemon threads, so it never speaks for a thread it cannot be in. Anything you would have set with `-c` is set from
 the apps instead, through the model, permission-mode and effort pickers.
 
 ### Setup
@@ -380,19 +407,33 @@ client to connect names the daemon for every thread, so the name is deliberate).
 - `origin` and `control` follow the table in PROTOCOL.md 4.4. An unloaded thread is `none` and the
   next `session.send` resumes it.
 - The daemon says nothing at all when a TUI exits, and a thread it once loaded stays loaded for as
-  long as the daemon lives, so the TUI process is the only signal there is. On the same ten-second
-  scan, every thread that claims a terminal is checked against the live bare `codex` processes: a
-  thread stays `shared` while one of them is running in that thread's `cwd`, and otherwise becomes
-  `remote` while a turn this device started is running and `none` when it is idle. `origin` never
-  changes, the subscription is kept, and the next message typed in that terminal makes the thread
-  `shared` again. A message typed since the last scan outranks the scan, so a TUI resumed from a
-  different directory is not written off while it is being used. A scan that cannot be completed
-  changes nothing, as everywhere else in this client. The process test is the same one the
-  installer documents: a `codex` on a terminal, with no subcommand and no `-c`, `--enable` or
-  `--disable`, because those run an embedded server that never joins the daemon.
-- A thread has no rollout until its first turn, so a thread the terminal just created cannot be
-  resumed yet. It is still `shared` and `turn/start` still works on it; the subscription is taken the
-  moment the first turn creates the rollout. The same applies in reverse: a thread created from an
+  long as the daemon lives, so the TUI process is the only signal there is. **Being loaded therefore
+  proves nothing**: a directory somebody works in holds one loaded thread for every `codex` ever
+  started there, and treating them all as attached is what once put a row in the apps for each of
+  them. A thread is `shared` only while a terminal is known to be in *that* thread. Two things say
+  so. A thread another client opens or resumes is that client's, announced by `thread/started`; and
+  a `userMessage` carrying a `clientId` that is not ours is somebody typing. Failing both, the
+  ten-second process scan decides, and it decides by directory: it counts the live bare `codex`
+  processes running in each `cwd` and hands out that many claims, to the thread that already had one
+  first and then to whichever the daemon saw used most recently. A thread this device started is
+  never handed a claim that way — it is not a thread a terminal opened — until somebody has been
+  seen typing in it, after which a `codex resume` on it is as ordinary as any other terminal. A
+  thread with no claim becomes `remote` while a turn this device started is running and `none` when
+  it is idle; `origin` never changes, the subscription is kept, and the next message typed in that
+  terminal makes it `shared` again. Evidence gathered since the last scan outranks the scan, so a
+  TUI resumed from a different directory is not written off while it is being used, and a scan that
+  cannot be completed changes nothing. The process test is the same one the installer documents: a
+  `codex` on a terminal, with no subcommand and no `-c`, `--enable`, `--disable` or
+  `--dangerously-bypass-approvals-and-sandbox`, because those run an embedded server that never
+  joins the daemon.
+- **A thread with nothing in it is not a session yet.** A TUI opens a thread the moment it starts,
+  before anything is typed into it, and that thread has no name, no preview and no rollout to
+  resume. Publishing it would put an untitled row in every app the moment a terminal window opens,
+  and another one for every window opened and walked away from — the daemon never unloads them and
+  never closes them either. Such a thread is remembered rather than published; the first thing it
+  says both publishes it and proves whose it is, because the only client that can be in it is the
+  one that opened it. A thread has no rollout until that first turn, so `thread/resume` refuses it
+  until then; `turn/start` works throughout. The same applies in reverse: a thread created from an
   app can only be reopened with `codex resume <id>` **after** its first turn.
 - The daemon echoes the prompt that started a turn back as a `userMessage` item, on `item/started`
   and again on `item/completed` with the same item id, and the observed `clientId` of our own
@@ -453,6 +494,35 @@ Before that was pinned down, a machine with a SOCKS proxy in its macOS network s
 had adopted the system proxy on its own and SOCKS support needs an extra package. A `gateway link
 lost` line now carries the exception message, so a failure of that kind is readable in
 `~/.rc-client/logs/rc-client.err.log`.
+
+### Reconnecting, and when not to
+
+The close code decides (PROTOCOL.md 2.5). `4401` and `4403` are the credential's answer: the link
+stops, logs `gateway link stopped` with the reason, and writes `state/link.json`, so
+`rc-client status` prints a `gateway link` line saying the gateway rejected this device and to run
+`rc-client enroll` again. Nothing else in the daemon stops. `4001` means a newer connection replaced
+this one, and racing it back would only replace that one in turn, so the reconnect waits at least
+fifteen seconds. Everything else is transient and retried with backoff, and only a connection that
+stayed up for thirty seconds resets it.
+
+Work that belongs to a fresh connection — the mirror scan the gateway backfills from — runs beside
+the frame pump, never in front of it. Holding the pump back left every forwarded request unanswered
+until that work finished, including the ones it was meant to answer, and the backfill request timed
+out against a device that was connected and silent.
+
+### Staying on time
+
+Two things used to put the loop on the disk's clock. Registry writes committed one per published
+event, and a commit is a flush; they are now queued and applied in batches by a single worker
+thread, with reads applying whatever is queued before they run so nothing observes a missing write.
+`seq` is still handed out synchronously and in order, from memory, and is written back with the
+events it numbered, so a batch lost to a kill takes its events and its counter together and no `seq`
+is ever reused. Pruning a session's history no longer counts its rows first; it deletes below a
+watermark the index finds by skipping to it.
+
+A probe task asks only to be woken every second and logs `event loop stalled` with how late it was
+when the answer takes more than five seconds. A device that goes quiet is either a bad network or a
+stalled loop, and the two are fixed in different places.
 
 ## Uninstalling
 
@@ -567,11 +637,13 @@ and Codex out of step.
   by watching a second subscribed client through a `/quit` and through a killed pane, neither of
   which emitted anything, and the thread stayed in `thread/loaded/list` for the whole observation
   and was still loaded twenty-five minutes later. The device therefore matches TUI processes to
-  threads by working directory, which mis-answers in two ways. A TUI resumed with `codex resume`
-  from a directory other than the thread's own is invisible to the scan, so the thread reads as
-  `none` once it has been silent for one scan; sending from an app still reaches it. Two TUIs in one
-  directory are indistinguishable, so a thread keeps `shared` while either of them is alive, as does
-  a thread whose directory happens to hold an unrelated TUI running an embedded server.
+  threads by working directory and by count, which still mis-answers where the directory holds more
+  threads than terminals. A TUI resumed with `codex resume` from a directory other than the thread's
+  own is invisible to the scan, so the thread reads as `none` once it has been silent for one scan;
+  sending from an app still reaches it. Two TUIs in one directory are indistinguishable from each
+  other, so which of that directory's threads each one is credited with is a guess, ordered by what
+  the daemon last saw used. The count is what bounds the damage: one terminal speaks for one thread,
+  never for the whole directory.
 - Whether the daemon would unload a thread once its last subscriber leaves is unverified: this
   device subscribes to every loaded thread, so there is no moment without one, and answering it
   would mean stopping the user's own client.

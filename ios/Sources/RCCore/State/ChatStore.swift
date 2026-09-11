@@ -3,7 +3,7 @@ import Observation
 
 /// A `session.send` the app issued and what it knows about its fate.
 public struct PendingSend: Identifiable, Sendable, Equatable {
-    public enum Status: Sendable, Equatable { case sending, accepted(SendAcceptance), uncertain, failed(String) }
+    public enum Status: Sendable, Equatable { case sending, accepted(SendAcceptance), uncertain }
     public let id: String
     public let text: String
     /// The bytes are kept until the send is accepted or dismissed, so a retry
@@ -59,7 +59,12 @@ public final class ChatStore {
     /// Set by the view layer, which is what knows about the socket and the
     /// device inventory. A send that cannot succeed is refused with a reason
     /// rather than failing after the draft has been cleared.
-    public var connectionReady = true
+    ///
+    /// "Can reach", not "is connected": a socket that is reconnecting still
+    /// gets there, because the transport holds the request until the hello
+    /// lands. Returning to the foreground would otherwise show a dead Send
+    /// button for as long as a TLS handshake and a subscribe take.
+    public var canReachGateway = true
     public var deviceOnline = true
     /// What the device said this agent can do, from the same inventory. It
     /// decides whether takeover is offered and whether a `shared` session can
@@ -162,26 +167,31 @@ public final class ChatStore {
     }
 
     /// Why the composer cannot send right now, in the words the user sees.
+    /// Reconnecting is not among them: that request waits for the socket.
     public var sendBlockReason: String? {
         if isReadOnly { return "Controlled by the terminal" }
-        if !connectionReady { return "Offline · your draft is saved" }
         if !deviceOnline { return "That device is offline" }
+        if !canReachGateway { return "Offline · your draft is saved" }
         if unconfirmedSend != nil { return "Delivery unconfirmed · retry or dismiss first" }
         return nil
     }
     public var unconfirmedSend: PendingSend? { pendingSends.first(where: \.isUnconfirmed) }
 
-    /// The status line under the transcript.
+    /// The one line between the transcript and the message field.
+    ///
+    /// It is drawn only when it says something the header above the transcript
+    /// does not. The header already carries the dot and the state word, and on
+    /// an attached session it reads `terminal · attached`, so repeating either
+    /// costs the transcript a row and tells the reader nothing. What is left is
+    /// what the header cannot say: that this machine cannot be reached, that
+    /// typing here needs a takeover, what will become of a message typed into a
+    /// running turn, and what the agent said when it failed.
     public var statusLine: String? {
-        // The same line whether the terminal turn is running or idle: what the
-        // user needs to know is that typing here requires taking over.
+        if !deviceOnline { return "Device offline" }
         if isReadOnly {
             return canTakeover ? "Controlled by the terminal · Take over to send" : "Controlled by the terminal"
         }
-        if isAttached { return attachedStatusLine }
         switch session.state {
-        case .needsApproval: return "Waiting for your approval"
-        case .needsInput: return "Waiting for your answer"
         case .running:
             if session.queued > 0 {
                 return "Working · \(session.queued) message\(session.queued == 1 ? "" : "s") queued"
@@ -189,27 +199,9 @@ public final class ChatStore {
             return steersRunningTurn
                 ? "Working · your message will steer the turn"
                 : "Working · your message will be queued"
-        case .starting: return "Starting the agent"
-        case .error: return session.stateDetail ?? "The agent reported an error"
-        case .stopped: return "Stopped"
+        // The word "error" is in the header; what the agent said about it is not.
+        case .error: return session.stateDetail
         default: return nil
-        }
-    }
-
-    /// Amendment A10: an attached session always says whose terminal it is,
-    /// because the CLI is still the one driving.
-    private var attachedStatusLine: String {
-        let attached = "terminal · attached"
-        switch session.state {
-        case .needsApproval: return "Waiting for your approval"
-        case .needsInput: return "Waiting for your answer"
-        case .running:
-            return session.queued > 0
-                ? "\(attached) · \(session.queued) message\(session.queued == 1 ? "" : "s") waiting"
-                : "\(attached) · working"
-        case .error: return session.stateDetail ?? "The agent reported an error"
-        case .stopped: return "Stopped"
-        default: return attached
         }
     }
 
@@ -403,6 +395,10 @@ public final class ChatStore {
                       attachments: pending.attachments, mode: pending.mode)
     }
 
+    /// Amendment A12: the request id is the block id the device will echo, so
+    /// the message is in the transcript before the request has left, and the
+    /// device's own event replaces it in place. Nothing here waits for a round
+    /// trip that the user can feel.
     private func deliver(id: String, text: String, attachments: [OutboundAttachment], mode: SendMode) async {
         // Sending is a request to watch what happens next, so the
         // transcript returns to the tail before the message lands.
@@ -411,17 +407,40 @@ public final class ChatStore {
                                  mode: mode, status: .sending)
         if let index = pendingSends.firstIndex(where: { $0.id == id }) { pendingSends[index] = record }
         else { pendingSends.append(record) }
+        timeline.addOptimistic(OptimisticMessage(id: id, text: text,
+                                                 attachments: attachments.map(\.info)))
         do {
             let request = try GatewayRequest.send(id: id, sessionID: sessionID, text: text,
                                                   attachments: attachments, mode: mode)
             let result = try await channel.request(request, as: SendResult.self)
+            // A queued message is represented by the queue row above the
+            // composer until the device dequeues it and emits the
+            // `user_message` under this same id; two rows would be one too many.
+            if result.accepted == .queued { timeline.removeOptimistic(id) }
             mark(id: id, status: .accepted(result.accepted))
         } catch let error as TransportError where error == .deliveryUncertain || error == .requestTimedOut {
+            // The message may well have landed, so the row stays and Retry
+            // reuses this id rather than sending the agent a second copy.
             mark(id: id, status: .uncertain)
+        } catch let refusal as GatewayErrorBody {
+            // A reply means the request was read and refused: it will never
+            // arrive, so the row goes and the words come back to the draft.
+            reject(id: id, text: text, reason: refusal.message)
         } catch {
-            mark(id: id, status: .failed(describe(error)))
-            errorMessage = describe(error)
+            reject(id: id, text: text, reason: describe(error))
         }
+    }
+
+    /// A send that was definitely refused. The message leaves the transcript so
+    /// nothing claims it is on its way, and the text returns to the field the
+    /// user was typing in — unless they have already started typing the next
+    /// one, which is theirs and not ours to overwrite.
+    private func reject(id: String, text: String, reason: String) {
+        timeline.removeOptimistic(id)
+        // Nothing is left to retry or to hold bytes for, so the record goes too.
+        pendingSends.removeAll { $0.id == id }
+        errorMessage = reason
+        if draft.isEmpty { draft = text }
     }
 
     /// An accepted message is owned by the transcript and the queue snapshot;
@@ -436,8 +455,11 @@ public final class ChatStore {
         }
     }
 
+    /// Giving up on an unconfirmed send. The row goes with it: the user has
+    /// been told it is not confirmed and has chosen not to send it again.
     public func dismiss(_ pending: PendingSend) {
         pendingSends.removeAll { $0.id == pending.id }
+        timeline.removeOptimistic(pending.id)
     }
 
     public func stop() async {
@@ -481,6 +503,8 @@ public final class ChatStore {
     }
 
     public func removeQueued(_ queuedID: String) async {
+        timeline.removeOptimistic(queuedID)
+        pendingSends.removeAll { $0.id == queuedID }
         await perform {
             try await self.channel.request(.queueRemove(sessionID: self.sessionID, queuedID: queuedID))
         }

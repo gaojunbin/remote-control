@@ -9,13 +9,7 @@ import type { SendMode } from '../../protocol/frames';
 import type { AgentInfo, QueuedMessage, Session } from '../../protocol/types';
 import { VoicePanel } from '../voice/VoicePanel';
 import { useVoice } from '../voice/useVoice';
-import {
-  attachHint,
-  attachedLabel,
-  canAttachShared,
-  canInterruptShared,
-  canSetShared,
-} from './attach';
+import { attachHint, canAttachShared, canInterruptShared, canSetShared } from './attach';
 import { readAttachments, textTooLong, type AttachmentDraft } from './attachments';
 
 interface Props {
@@ -46,7 +40,6 @@ export function Composer({
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
-  const [sending, setSending] = useState(false);
   const composing = useRef(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -77,31 +70,36 @@ export function Composer({
   // A10: the channel cannot interrupt a running turn, so neither can we.
   const canInterrupt = shared ? canInterruptShared(agent) : true;
   // A11: the model, permission mode, effort and attachments belong to the
-  // terminal unless the device reports that the attachment carries them.
-  const optionsLocked = shared && !canSetShared(agent);
-  const attachmentsBlocked = shared && !canAttachShared(agent);
+  // terminal unless the device reports that the attachment carries them. A
+  // control the attachment cannot drive is hidden, never disabled with a
+  // caption, so nothing in the composer explains an absence.
+  const showOptions = !shared || canSetShared(agent);
+  const showAttach = !shared || canAttachShared(agent);
 
+  /**
+   * A12: the field is cleared and the message is put in the timeline in this
+   * tick, before the request leaves. Only a refusal the gateway is certain
+   * about comes back, and it hands the draft back if nothing was typed since.
+   */
   const submit = useCallback(
-    async (mode: SendMode, source?: string) => {
+    (mode: SendMode, source?: string) => {
       const value = (source ?? text).trim();
-      if (sending || disabled || (value.length === 0 && attachments.length === 0)) return;
+      if (disabled || (value.length === 0 && attachments.length === 0)) return;
       if (textTooLong(value)) {
         setErrors([strings.composer.textTooLong]);
         return;
       }
-      setSending(true);
+      const files = attachments;
+      setText('');
+      setAttachments([]);
       setErrors([]);
-      try {
-        await onSend(value, attachments, mode);
-        setText('');
-        setAttachments([]);
-      } catch (err) {
+      onSend(value, files, mode).catch((err: unknown) => {
         setErrors([err instanceof Error ? err.message : strings.composer.sendFailed]);
-      } finally {
-        setSending(false);
-      }
+        setText((current) => (current.length === 0 ? value : current));
+        setAttachments((current) => (current.length === 0 ? files : current));
+      });
     },
-    [text, attachments, sending, disabled, onSend],
+    [text, attachments, disabled, onSend],
   );
 
   const voice = useVoice({
@@ -113,7 +111,7 @@ export function Composer({
       // useVoice closes over an older `text`, so it must not read state.
       const merged = textRef.current ? `${textRef.current} ${final}` : final;
       setText(merged);
-      void submit('auto', merged);
+      submit('auto', merged);
     },
   });
 
@@ -173,7 +171,7 @@ export function Composer({
         <ComposerBottomRow
           agent={agent}
           session={session}
-          locked={optionsLocked}
+          showOptions={showOptions}
           language={language}
           sttEnabled={sttEnabled}
           sttLanguages={sttLanguages}
@@ -256,12 +254,6 @@ export function Composer({
         </div>
       ) : null}
 
-      {shared ? (
-        <div className="takeover-bar">
-          <span className="takeover-text">{attachedLabel(agent)}</span>
-        </div>
-      ) : null}
-
       <div className={cx('composer', disabled && 'disabled')}>
         <textarea
           ref={textarea}
@@ -275,7 +267,7 @@ export function Composer({
           onCompositionEnd={() => (composing.current = false)}
           onChange={(e) => setText(e.target.value)}
           onPaste={(e) => {
-            const files = attachmentsBlocked ? [] : [...e.clipboardData.files];
+            const files = showAttach ? [...e.clipboardData.files] : [];
             if (files.length > 0) {
               e.preventDefault();
               void attach(files);
@@ -284,35 +276,34 @@ export function Composer({
           onKeyDown={(e) => {
             if (e.key !== 'Enter' || e.shiftKey || composing.current || e.nativeEvent.isComposing) return;
             e.preventDefault();
-            void submit(primaryMode);
+            submit(primaryMode);
           }}
         />
         <div className="composer-buttons">
-          <input
-            ref={fileInput}
-            type="file"
-            multiple
-            className="sr-only"
-            aria-label={strings.composer.attach}
-            onChange={(e) => {
-              void attach([...(e.target.files ?? [])]);
-              e.target.value = '';
-            }}
-          />
-          <span
-            className="tip"
-            {...(attachmentsBlocked ? { title: strings.composer.attachSharedUnsupported } : {})}
-          >
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label={strings.composer.attach}
-              disabled={disabled || attachmentsBlocked}
-              onClick={() => fileInput.current?.click()}
-            >
-              <Paperclip size={16} />
-            </button>
-          </span>
+          {showAttach ? (
+            <>
+              <input
+                ref={fileInput}
+                type="file"
+                multiple
+                className="sr-only"
+                aria-label={strings.composer.attach}
+                onChange={(e) => {
+                  void attach([...(e.target.files ?? [])]);
+                  e.target.value = '';
+                }}
+              />
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label={strings.composer.attach}
+                disabled={disabled}
+                onClick={() => fileInput.current?.click()}
+              >
+                <Paperclip size={16} />
+              </button>
+            </>
+          ) : null}
           {sttEnabled ? (
             <button
               type="button"
@@ -341,7 +332,7 @@ export function Composer({
                       className="menu-item"
                       onClick={() => {
                         close();
-                        void submit('interrupt');
+                        submit('interrupt');
                       }}
                     >
                       <span className="menu-label">{strings.composer.interruptAndSend}</span>
@@ -354,8 +345,8 @@ export function Composer({
           <button
             type="button"
             className="btn primary small send-btn"
-            disabled={disabled || sending || (text.trim().length === 0 && attachments.length === 0)}
-            onClick={() => void submit(primaryMode)}
+            disabled={disabled || (text.trim().length === 0 && attachments.length === 0)}
+            onClick={() => submit(primaryMode)}
           >
             {running ? primaryLabel : <ArrowUp size={15} aria-hidden />}
             {running ? null : <span className="sr-only">{strings.composer.send}</span>}
@@ -366,7 +357,7 @@ export function Composer({
       <ComposerBottomRow
         agent={agent}
         session={session}
-        locked={optionsLocked}
+        showOptions={showOptions}
         language={language}
         sttEnabled={sttEnabled}
         sttLanguages={sttLanguages}
@@ -386,7 +377,7 @@ export function Composer({
 function ComposerBottomRow({
   agent,
   session,
-  locked,
+  showOptions,
   language,
   sttEnabled,
   sttLanguages,
@@ -396,64 +387,54 @@ function ComposerBottomRow({
   agent: AgentInfo | null;
   session: Session;
   /**
-   * A10/A11: true when `session.set` for the model, permission mode and
+   * A10/A11: false when `session.set` for the model, permission mode and
    * effort has to happen in the terminal, i.e. a shared session whose agent
-   * does not report `shared_settings`.
+   * does not report `shared_settings`. Those pickers are then not rendered.
    */
-  locked: boolean;
+  showOptions: boolean;
   language: string;
   sttEnabled: boolean;
   sttLanguages: string[];
   onSetOption: (patch: { model?: string; permission_mode?: string; effort?: string }) => void;
   onSetLanguage: (code: string) => void;
 }) {
-  const models = agent?.models ?? [];
-  const modes = agent?.permission_modes ?? [];
-  const efforts = agent?.efforts ?? [];
+  const models = showOptions ? (agent?.models ?? []) : [];
+  const modes = showOptions ? (agent?.permission_modes ?? []) : [];
+  const efforts = showOptions ? (agent?.efforts ?? []) : [];
   const labelOf = (list: { id: string; label: string }[], value: string | null, fallback: string) =>
     list.find((item) => item.id === value)?.label ?? fallback;
-  const lock = locked ? { title: strings.composer.lockedToTerminal } : {};
 
   return (
     <div className="composer-bottom">
       {models.length > 0 ? (
-        <span className="tip" {...lock}>
-          <Menu
-            side="top"
-            ariaLabel={strings.composer.model}
-            value={session.model}
-            disabled={locked}
-            options={models.map((m) => ({ id: m.id, label: m.label }))}
-            onSelect={(model) => onSetOption({ model })}
-            label={labelOf(models, session.model, agentLabel(session.agent))}
-          />
-        </span>
+        <Menu
+          side="top"
+          ariaLabel={strings.composer.model}
+          value={session.model}
+          options={models.map((m) => ({ id: m.id, label: m.label }))}
+          onSelect={(model) => onSetOption({ model })}
+          label={labelOf(models, session.model, agentLabel(session.agent))}
+        />
       ) : null}
       {modes.length > 0 ? (
-        <span className="tip" {...lock}>
-          <Menu
-            side="top"
-            ariaLabel={strings.composer.permissionMode}
-            value={session.permission_mode}
-            disabled={locked}
-            options={modes.map((m) => ({ id: m.id, label: m.label }))}
-            onSelect={(permission_mode) => onSetOption({ permission_mode })}
-            label={labelOf(modes, session.permission_mode, strings.composer.permissionMode)}
-          />
-        </span>
+        <Menu
+          side="top"
+          ariaLabel={strings.composer.permissionMode}
+          value={session.permission_mode}
+          options={modes.map((m) => ({ id: m.id, label: m.label }))}
+          onSelect={(permission_mode) => onSetOption({ permission_mode })}
+          label={labelOf(modes, session.permission_mode, strings.composer.permissionMode)}
+        />
       ) : null}
       {efforts.length > 0 ? (
-        <span className="tip" {...lock}>
-          <Menu
-            side="top"
-            ariaLabel={strings.composer.effort}
-            value={session.effort}
-            disabled={locked}
-            options={efforts.map((e) => ({ id: e.id, label: e.label }))}
-            onSelect={(effort) => onSetOption({ effort })}
-            label={labelOf(efforts, session.effort, strings.composer.effort)}
-          />
-        </span>
+        <Menu
+          side="top"
+          ariaLabel={strings.composer.effort}
+          value={session.effort}
+          options={efforts.map((e) => ({ id: e.id, label: e.label }))}
+          onSelect={(effort) => onSetOption({ effort })}
+          label={labelOf(efforts, session.effort, strings.composer.effort)}
+        />
       ) : null}
       {sttEnabled ? (
         <Menu

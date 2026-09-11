@@ -88,15 +88,22 @@ class SharedState:
 
 
 def pending_item(text: str, request_id: str) -> dict[str, Any]:
-    """One held message: a queue entry that also carries its bubble's identity."""
+    """One held message: a queue entry that also carries its bubble's identity.
+
+    The bubble is the app's request id (amendment A12), which is also the id
+    the queue reports, so a message drawn on sending and shown again as queued
+    and once more as delivered is one block throughout. `message_id` stays the
+    channel's own: it names the injection, not the bubble.
+    """
     message_id = str(uuid.uuid4())
+    block_id = request_id or str(uuid.uuid4())
     return {
-        "id": request_id or message_id,
+        "id": block_id,
         "text": text,
         "ts": now_ms(),
         "attachments": [],
         "message_id": message_id,
-        "block_id": str(uuid.uuid4()),
+        "block_id": block_id,
         "retried": False,
     }
 

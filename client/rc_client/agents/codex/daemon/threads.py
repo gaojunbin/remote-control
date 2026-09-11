@@ -24,24 +24,26 @@ def is_active(status: Any) -> bool:
 def resolve(
     created_here: bool,
     loaded: bool,
-    terminal_seen: bool,
-    terminal_live: bool = True,
+    terminal_holds: bool,
     local_turn: bool = False,
 ) -> tuple[str, str]:
     """`(origin, control)` for one Codex thread on the daemon.
 
     An unloaded thread is `none` and the next `session.send` resumes it. A
-    loaded thread is `shared` while a terminal has it, which the daemon never
-    reports: `terminal_live` is the process scan's answer, and it defaults to
-    "still there" so an unknown answer never hands the session away. Once the
-    terminal is gone the thread stays ours to drive — `remote` while a turn
-    this device started is running, `none` when it is idle — and `origin` never
-    changes.
+    loaded thread is `shared` only while a terminal is known to be in it, which
+    the daemon never reports: `terminal_holds` is what the service has pieced
+    together from the thread's own evidence and the process scan. "Loaded" on
+    its own says nothing, because the daemon never unloads a thread — a
+    directory holds every thread ever opened in it — so taking it for a
+    terminal would put a row in the app for every `codex` the user has ever
+    run there. Once the terminal is gone the thread stays ours to drive —
+    `remote` while a turn this device started is running, `none` when it is
+    idle — and `origin` never changes.
     """
     origin = "remote" if created_here else "terminal"
     if not loaded:
         return origin, "none"
-    if (terminal_seen or not created_here) and terminal_live:
+    if terminal_holds:
         return origin, "shared"
     if created_here or local_turn:
         return origin, "remote"
@@ -87,6 +89,17 @@ class ThreadSummary:
             updated_at=updated,
             active=is_active(thread.get("status")),
         )
+
+
+def is_empty(summary: ThreadSummary) -> bool:
+    """Whether the thread has nothing in it yet.
+
+    A TUI opens a thread the moment it starts, before anything is typed into
+    it, and that thread is indistinguishable from one the user opened and
+    walked away from: no name, no preview, no rollout, and `thread/resume`
+    refuses it. It becomes a session when it speaks.
+    """
+    return not summary.title and not summary.name
 
 
 def summaries(threads: Any) -> list[ThreadSummary]:

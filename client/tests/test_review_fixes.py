@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from pathlib import Path
 from typing import Any
@@ -611,3 +612,131 @@ async def test_before_seq_and_after_seq_cannot_be_combined(tmp_path: Path) -> No
         await hub.history({"session_id": "sess-1", "before_seq": 5, "after_seq": 1})
     assert caught.value.code == "bad_request"
     registry.close()
+
+
+# ------------------------------------- a helper process that vanishes mid-scan
+
+
+async def test_a_helper_that_vanishes_leaves_the_scan_unfinished(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`ProcessLookupError` used to escape and abort the whole scan round."""
+    import asyncio
+
+    from rc_client import procscan
+
+    class Vanishing:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            raise ProcessLookupError
+
+    async def spawn(*args: Any, **kwargs: Any) -> Vanishing:
+        return Vanishing()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    assert await procscan.scan_processes() == procscan.Scan(procs=[], complete=False)
+    assert await procscan.process_cwds([1, 2]) == ({}, False)
+    assert await procscan.file_writers("/tmp/rollout.jsonl") == ([], False)
+
+
+# ------------------------------- a child that exits between timeout and signal
+
+
+class VanishingChild:
+    """A process that never answers and is already gone when it is signalled."""
+
+    returncode: int | None = None
+
+    def __init__(self) -> None:
+        self.signals: list[str] = []
+
+    async def communicate(self) -> tuple[bytes, bytes]:
+        await asyncio.sleep(30)
+        return b"", b""
+
+    def kill(self) -> None:
+        self.signals.append("kill")
+        raise ProcessLookupError
+
+    def terminate(self) -> None:
+        self.signals.append("terminate")
+        raise ProcessLookupError
+
+    async def wait(self) -> int:
+        return 0
+
+
+async def test_a_child_that_exits_before_the_kill_is_not_an_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """Every helper here signals a child it has just timed out on."""
+    import asyncio as aio
+
+    from rc_client import git
+    from rc_client.agents.claude import runtime as claude_runtime
+    from rc_client.agents.codex import runtime as codex_runtime
+    from rc_client.agents.codex.rpc import CodexAppServer
+
+    children: list[VanishingChild] = []
+
+    async def spawn(*args: Any, **kwargs: Any) -> VanishingChild:
+        child = VanishingChild()
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(aio, "create_subprocess_exec", spawn)
+    monkeypatch.setattr(claude_runtime, "VERSION_TIMEOUT", 0.01)
+    monkeypatch.setattr(codex_runtime, "VERSION_TIMEOUT", 0.01)
+    assert await git._git(str(tmp_path), "status", timeout=0.01) == (124, "", "git timed out")
+    assert await claude_runtime.probe_version("/bin/claude") is None
+    assert await codex_runtime.probe_version("/bin/codex") is None
+    assert [child.signals for child in children] == [["kill"], ["kill"], ["kill"]]
+
+    # And the app-server child that has already gone when the session is closed.
+    parting = VanishingChild()
+    server = CodexAppServer("/bin/codex")
+    server._process = parting  # type: ignore[assignment]
+    await server.close()
+    assert parting.signals == ["terminate"]
+
+
+# ----------------------------------------- naming the stall that drops the link
+
+
+async def test_the_probe_reports_a_loop_that_woke_up_late(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A stalled loop and a bad network look identical from the gateway."""
+    import asyncio as aio
+    import logging
+    import time as clock
+
+    from rc_client.looplag import watch_loop_lag
+
+    caplog.set_level(logging.WARNING, logger="rc_client.looplag")
+    probe = aio.create_task(watch_loop_lag(tick=0.01, threshold=0.05))
+    await aio.sleep(0.02)
+    clock.sleep(0.2)  # exactly what a synchronous commit does to the loop
+    await aio.sleep(0.05)
+    probe.cancel()
+    with contextlib.suppress(aio.CancelledError):
+        await probe
+    assert [record.message for record in caplog.records] == ["event loop stalled"]
+
+
+async def test_the_probe_says_nothing_about_a_loop_that_is_keeping_up(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import asyncio as aio
+    import logging
+
+    from rc_client.looplag import watch_loop_lag
+
+    caplog.set_level(logging.WARNING, logger="rc_client.looplag")
+    probe = aio.create_task(watch_loop_lag(tick=0.01, threshold=0.5))
+    await aio.sleep(0.05)
+    probe.cancel()
+    with contextlib.suppress(aio.CancelledError):
+        await probe
+    assert caplog.records == []

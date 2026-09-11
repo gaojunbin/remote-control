@@ -180,12 +180,18 @@ async def test_heartbeat_pings_and_closes_silent_connections(
 async def test_the_index_never_moves_a_cursor_backwards(tmp_path: Path) -> None:
     index = SessionIndex(tmp_path / "index.sqlite3")
     await index.upsert(session_summary("s1", "d1", last_seq=40))
-    await index.record_seq("s1", 55)
+    index.record_seq("s1", 55)
     await index.upsert(session_summary("s1", "d1", last_seq=12))
     stored = await index.get("s1")
     assert stored is not None
     assert stored.last_seq == 55
     assert stored.summary["last_seq"] == 55
+    # The same has to hold once the deferred write has landed, not only while it is outstanding.
+    await index.close()
+    persisted = await index.get("s1")
+    assert persisted is not None
+    assert persisted.last_seq == 55
+    assert persisted.summary["last_seq"] == 55
 
 
 @pytest.mark.asyncio

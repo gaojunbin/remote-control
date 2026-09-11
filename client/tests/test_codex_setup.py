@@ -179,6 +179,8 @@ def test_the_launchd_agent_runs_daemon_start_under_our_own_label() -> None:
     assert parsed["ProgramArguments"] == ["/opt/codex", "app-server", "daemon", "start"]
     assert parsed["RunAtLoad"] is True
     assert parsed["StartInterval"] == supervision.NUDGE_SECONDS
+    # Throttling the app-server throttles every Codex round trip through it.
+    assert "ProcessType" not in parsed
     # `enable-remote-control` enrols the machine with OpenAI's relay.
     assert "remote-control" not in " ".join(parsed["ProgramArguments"][1:])
 

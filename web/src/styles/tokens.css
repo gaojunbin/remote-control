@@ -31,8 +31,10 @@
   /* status */
   --running: #22a06b;
   --running-soft: #e7f4ee;
-  --attention: #e0862b;
-  --attention-soft: #fdf1e3;
+  /* Amber, not orange: a blocked session reads as yellow beside the greens,
+     and stays above 3:1 on every row background (3.67:1 on --surface). */
+  --attention: #b07c00;
+  --attention-soft: #fbf3e0;
   --idle: #b5b5b0;
   --danger: #d23f31;
   --danger-soft: #fdeceb;

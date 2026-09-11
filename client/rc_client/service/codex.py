@@ -21,6 +21,9 @@ LABEL = "dev.remote-control.codex-daemon"
 UNIT = "rc-codex-daemon.service"
 NUDGE_SECONDS = 300
 
+# No `ProcessType`, for the same reason as the device's own agent: `Background`
+# is the lowest scheduling band and throttled disk I/O, and this job is the
+# app-server every Codex round trip goes through.
 PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" \
 "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -36,7 +39,6 @@ PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
   </array>
   <key>RunAtLoad</key><true/>
   <key>StartInterval</key><integer>{interval}</integer>
-  <key>ProcessType</key><string>Background</string>
   <key>StandardOutPath</key><string>{stdout}</string>
   <key>StandardErrorPath</key><string>{stderr}</string>
 </dict>

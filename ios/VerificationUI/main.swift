@@ -87,9 +87,10 @@ func run() async -> (passed: Int, failures: [String]) {
         expect(!chat.canStop, "and a Claude channel cannot interrupt the turn")
         expect(!chat.allowsAttachments, "attachments cannot reach a live CLI")
         expect(!chat.allowsSettingsChanges, "model, permission mode and effort stay in the terminal")
-        equal(chat.statusLine, "terminal · attached", "the status names the terminal")
-        equal(shared.statusLabel, "terminal · attached", "and so does the session list")
-        equal(shared.statusToken, SessionState.idle.token, "with the same dot colour as a remote session")
+        equal(chat.statusLine, nil, "and the composer repeats none of it")
+        equal(shared.statusLabel, "terminal · attached", "the session list names the terminal")
+        equal(shared.dotTone(online: true), DotTone.live,
+              "with the green of a session that is alive and quiet, not the grey of an exited one")
         await model.closeChat()
     } else {
         expect(false, "the demo has an attached session")
@@ -119,6 +120,59 @@ func run() async -> (passed: Int, failures: [String]) {
         expect(false, "the demo has a shared Codex thread")
     }
 
+    // MARK: - The status dot through the demo list
+
+    // The five tones are all on the sessions screen at once, and each one comes
+    // from all three facts rather than from `state` alone.
+    let online = Dictionary(uniqueKeysWithValues: model.connection.devices.map { ($0.deviceID, $0.online) })
+    func tone(_ sessionID: String) -> DotTone? {
+        model.connection.sessions.first { $0.sessionID == sessionID }
+            .map { $0.dotTone(online: online[$0.deviceID] ?? false) }
+    }
+    equal(tone(DemoFixtures.liveSessionID), .working, "a running turn pulses green")
+    equal(tone(DemoFixtures.approvalSessionID), .waiting, "a request for approval is amber")
+    equal(tone(DemoFixtures.sharedSessionID), .live, "an attached session that is quiet is solid green")
+    equal(tone(DemoFixtures.erroredSessionID), .failed, "an agent that stopped on an error is red")
+    equal(tone(DemoFixtures.doneSessionID), .off,
+          "a session nothing owns, on a machine that is offline, is grey")
+    equal(tone(DemoFixtures.attachHintSessionID), .live,
+          "a terminal session on a reachable machine is alive, whatever the app may type into it")
+
+    // MARK: - Amendment A12: the message is on screen before the device says so
+    //
+    // Sending starts a turn, so this runs after the dot tones have been read.
+
+    if let quiet = model.connection.sessions.first(where: {
+        $0.sessionID == DemoFixtures.erroredSessionID
+    }) {
+        await model.open(quiet)
+        await settle { model.chat?.key == quiet.id }
+        guard let chat = model.chat else {
+            expect(false, "the quiet session opens")
+            return (passed, failures)
+        }
+        chat.draft = "one more thing"
+        let sending = Task { await chat.send() }
+        await settle { chat.timeline.roots.contains { $0.pending != nil } }
+        expect(chat.timeline.roots.last?.pending?.text == "one more thing",
+               "the bubble is in the transcript before the request has been answered")
+        expect(chat.draft.isEmpty, "and the field is clear the moment Send is tapped")
+        await sending.value
+        await settle(timeout: 5) { chat.timeline.optimistic.isEmpty }
+        expect(chat.timeline.optimistic.isEmpty,
+               "the device's echo under the same id retires the pending row")
+        equal(chat.timeline.roots.filter { $0.userMessage?.text == "one more thing" }.count, 1,
+              "leaving exactly one copy of the message")
+        await model.closeChat()
+    } else {
+        expect(false, "the demo has a reachable session with no turn running")
+    }
+
+    // A socket that is coming back is not a reason to grey out Send: the
+    // transport holds the request until the hello lands.
+    expect(ConnectionPhase.reconnecting.canReachGateway, "a reconnecting app can still send")
+    expect(!ConnectionPhase.expired.canReachGateway, "an expired session cannot")
+
     if let hinted = model.connection.sessions.first(where: {
         $0.sessionID == DemoFixtures.attachHintSessionID
     }) {
@@ -147,6 +201,7 @@ func run() async -> (passed: Int, failures: [String]) {
     let sessions = SessionStore(defaults: UserDefaults(suiteName: "rc-ui-verify-\(UUID().uuidString)")!)
     let groups = sessions.groups(model.connection.sessions, devices: model.connection.devices)
     equal(groups.count, 3, "the list is grouped by device")
+    equal(groups.flatMap { $0.active + $0.archive }.count, 8, "every demo session is placed")
     equal(groups.first?.active.first?.state, .needsApproval,
           "a session waiting on the user sorts first")
     equal(groups.first?.name, "mac-studio-office", "the machine with live work leads the list")

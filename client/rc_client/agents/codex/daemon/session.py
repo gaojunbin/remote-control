@@ -33,6 +33,9 @@ OUTPUT_THROTTLE = 0.2
 DRAIN_TIMEOUT = 15.0
 BACKFILL_ITEMS = 200
 BACKFILL_PAGE = 100
+# Notifications that mean something has moved on this thread, so a resume the
+# daemon refused before may be accepted now.
+TURN_BOUNDARIES = frozenset({"turn/started", "turn/completed", "thread/status/changed"})
 
 ControlCallback = Callable[[], Awaitable[None]]
 TurnEndCallback = Callable[[], Awaitable[None]]
@@ -89,8 +92,12 @@ class CodexDaemonSession:
         self._echoes = EchoLog()
         self._last_item_id: str | None = None
         self._subscribed = False
+        # Whether a resume has already been refused for this thread. A thread
+        # with no rollout refuses every time, and asking again on each message
+        # and each notification puts a failed round trip in front of them.
+        self._resume_refused = False
         self._terminal_seen = False
-        self._terminal_live = True
+        self._terminal_holds = False
         self._terminal_spoke = False
         self._local_turn = False
         self._created_here = thread_id is None if created_here is None else created_here
@@ -103,12 +110,13 @@ class CodexDaemonSession:
 
     @property
     def terminal_seen(self) -> bool:
+        """Whether a terminal has ever been seen in this thread. Never unsaid."""
         return self._terminal_seen
 
     @property
-    def terminal_live(self) -> bool:
-        """Whether a terminal still has this thread, as far as anyone can tell."""
-        return self._terminal_live
+    def terminal_holds(self) -> bool:
+        """Whether a terminal is in this thread now, as far as anyone can tell."""
+        return self._terminal_holds
 
     @property
     def local_turn(self) -> bool:
@@ -127,18 +135,32 @@ class CodexDaemonSession:
     def supports_steer(self) -> bool:
         return True
 
-    def terminal_present(self, present: bool) -> None:
+    def claim_terminal(self) -> None:
+        """Record a terminal in this thread from evidence no scan can give.
+
+        A thread another client has just opened or resumed belongs to whoever
+        opened it, and the process scan may not see that TUI at all: it can be
+        younger than the scan, or running in a directory of its own.
+        """
+        self._terminal_seen = True
+        self._terminal_holds = True
+        self._terminal_spoke = True
+
+    def terminal_present(self, present: bool) -> bool:
         """Fold one process scan into what we believe about the terminal.
 
-        A message typed in a terminal since the last scan outranks the scan:
-        the TUI that sent it may have been resumed from another directory,
-        where no process the scan can see is standing next to this thread.
+        Evidence gathered since the last scan outranks the scan: the TUI that
+        typed, opened or resumed this thread may be standing in a directory
+        where no process the scan can attribute to it is to be found. Answers
+        with what the thread now believes, which is what the caller shares out
+        between the threads competing for the same terminal.
         """
         if self._terminal_spoke:
             self._terminal_spoke = False
-            self._terminal_live = True
-            return
-        self._terminal_live = present
+            self._terminal_holds = True
+        else:
+            self._terminal_holds = present
+        return self._terminal_holds
 
     async def _control_changed(self) -> None:
         if self._on_control_change is not None:
@@ -173,6 +195,24 @@ class CodexDaemonSession:
         if self._on_thread_id is not None:
             await self._on_thread_id(thread_id)
 
+    async def try_resume(self) -> bool:
+        """Resume, unless we already know the daemon will refuse.
+
+        The refusal is remembered until something could have changed it — a
+        turn boundary on this thread, or a turn this device has just started —
+        so an unresumable thread costs one failed request per turn rather than
+        one per message and one per notification.
+        """
+        if self._subscribed:
+            return True
+        if self._resume_refused:
+            return False
+        return await self.resubscribe()
+
+    def resume_again(self) -> None:
+        """Something happened on this thread; a refused resume is worth retrying."""
+        self._resume_refused = False
+
     async def resubscribe(self) -> bool:
         """Resume the thread and catch up on anything we missed while away.
 
@@ -193,9 +233,11 @@ class CodexDaemonSession:
             result = await self._client.request("thread/resume", params)
         except RcError as exc:
             self._subscribed = False
+            self._resume_refused = True
             log.info("codex thread not resumable yet", error=exc.message[:120])
             return False
         self._subscribed = True
+        self._resume_refused = False
         self._adopt_settings(result)
         await self.backfill()
         return True
@@ -266,10 +308,15 @@ class CodexDaemonSession:
     # ---------------------------------------------------------- notifications
 
     async def notification(self, method: str, params: dict[str, Any]) -> None:
+        if method in TURN_BOUNDARIES:
+            # A thread that was too young to resume has a rollout once a turn
+            # has run in it, so this is where a refusal is worth retrying.
+            self.resume_again()
         if not self._subscribed:
-            # The thread just became resumable; take the subscription before
-            # handling anything, so the backfill and the live stream line up.
-            await self.resubscribe()
+            # The thread may have just become resumable; take the subscription
+            # before handling anything, so the backfill and the live stream
+            # line up.
+            await self.try_resume()
         if method == "turn/started":
             await self._turn_started(params)
             return
@@ -383,10 +430,8 @@ class CodexDaemonSession:
         if self._echoes.claim(item_id, _text_of(item.get("content")), client_id):
             return False
         if client_id and not self._echoes.owns(client_id):
-            changed = not self._terminal_seen or not self._terminal_live
-            self._terminal_seen = True
-            self._terminal_live = True
-            self._terminal_spoke = True
+            changed = not self._terminal_holds
+            self.claim_terminal()
             if changed:
                 await self._control_changed()
         return True
@@ -430,11 +475,10 @@ class CodexDaemonSession:
         source: str = "remote",
         block_id: str | None = None,
     ) -> None:
+        """Publish the message, then start the turn that answers it."""
         thread_id = self._thread_id
         if thread_id is None:
             raise RcError("agent_unavailable", "the codex thread is not connected")
-        if not self._subscribed:
-            await self.resubscribe()
         written = materialise(self.channel.session.session_id, attachments) if attachments else []
         inputs = self._inputs(text, written)
         fields: dict[str, Any] = {
@@ -446,7 +490,10 @@ class CodexDaemonSession:
             fields["attachments"] = wire_attachments(written)
         if self.channel.session.control == "shared":
             fields["delivery"] = "delivered"
+        # The message goes out before any request does: everything below is a
+        # round trip to the daemon, and the apps have drawn this bubble already.
         await self.channel.emit("user_message", **fields)
+        subscribed = await self.try_resume()
         self._echoes.remember(str(inputs[0]["text"]))
         self._local_turn = True
         self._turn_started_at = now_ms()
@@ -467,10 +514,12 @@ class CodexDaemonSession:
         except RcError:
             self._local_turn = False
             raise
-        if not self._subscribed:
+        if not subscribed:
             # The rollout exists once a turn has started, so this is the first
             # moment a thread created in the terminal can be subscribed to.
-            await self.resubscribe()
+            # When the resume above worked there is nothing left to do here.
+            self.resume_again()
+            await self.try_resume()
         turn = result.get("turn") or {}
         if epoch == self._turn_epoch:
             turn_id = str(turn.get("id") or "")
@@ -480,7 +529,7 @@ class CodexDaemonSession:
         # A thread with no terminal is `remote` while this turn runs.
         await self._control_changed()
 
-    async def steer(self, text: str) -> bool:
+    async def steer(self, text: str, block_id: str | None = None) -> bool:
         thread_id = self._thread_id
         turn_id = self._turn_id
         if thread_id is None or turn_id is None or turn_id.startswith("unknown:"):
@@ -498,7 +547,7 @@ class CodexDaemonSession:
             return False
         self._echoes.remember(text)
         fields: dict[str, Any] = {
-            "block_id": f"user:{uuid.uuid4()}",
+            "block_id": block_id or f"user:{uuid.uuid4()}",
             "text": text,
             "source": "remote",
         }

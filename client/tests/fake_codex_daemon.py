@@ -28,18 +28,19 @@ class FakeTerminals:
     """The TUI process scan, which is the only signal a TUI exit ever gives.
 
     The daemon itself says nothing when a terminal leaves, so a test that wants
-    to stage one empties `cwds` and lets the next scan run.
+    to stage one empties `cwds` and lets the next scan run. One TUI per
+    directory unless `counts` says otherwise.
     """
 
     cwds: set[str] = field(default_factory=set)
     complete: bool = True
     scans: int = 0
+    counts: dict[str, int] = field(default_factory=dict)
 
     async def __call__(self) -> TerminalScan:
         self.scans += 1
-        return TerminalScan(
-            cwds={os.path.realpath(cwd) for cwd in self.cwds}, complete=self.complete
-        )
+        found = {os.path.realpath(cwd): self.counts.get(cwd, 1) for cwd in self.cwds}
+        return TerminalScan(cwds=found, complete=self.complete)
 
 
 class FakeDaemon:
@@ -49,6 +50,9 @@ class FakeDaemon:
         self.path = path
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.replies: dict[str, Any] = {}
+        # Methods the daemon refuses, by message. `thread/resume` is the one
+        # that matters: it refuses a thread whose first turn has not run.
+        self.errors: dict[str, str] = {}
         self.responder: Responder | None = None
         self.answers: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self.connections = 0
@@ -94,6 +98,17 @@ class FakeDaemon:
         if method:
             self.calls.append((method, params))
         if "id" not in message:
+            return
+        if method in self.errors:
+            await connection.send(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": message["id"],
+                        "error": {"code": -32000, "message": self.errors[method]},
+                    }
+                )
+            )
             return
         if method:
             result = self._result(method, params)

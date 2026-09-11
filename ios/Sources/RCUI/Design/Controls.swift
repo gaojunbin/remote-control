@@ -3,33 +3,41 @@ import RCCore
 
 /// A session status dot. The colour is a shortcut; the label next to it always
 /// says the same thing in words.
+///
+/// `DotTone` in `RCCore` decides what the dot looks like from the state, who
+/// owns the session and whether the machine is reachable. Only a turn under way
+/// pulses, so a session blocked on the user is told from a running one at a
+/// glance rather than by reading the word.
 public struct StatusDot: View {
-    let state: SessionState
+    let tone: DotTone
     var size: CGFloat = 8
 
-    public init(state: SessionState, size: CGFloat = 8) {
-        self.state = state
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var breathing = false
+
+    public init(tone: DotTone, size: CGFloat = 8) {
+        self.tone = tone
         self.size = size
     }
 
+    private var pulses: Bool { tone == .working && !reduceMotion }
+
     public var body: some View {
         Circle()
-            .fill(Theme.statusColor(state.token))
+            .fill(Theme.dotColor(tone))
             .frame(width: size, height: size)
+            // A trough deep enough to read as motion and shallow enough that a
+            // still frame never shows a washed-out green.
+            .opacity(breathing ? 0.5 : 1)
+            .animation(pulses ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true) : nil,
+                       value: breathing)
+            .onAppear { breathing = pulses }
+            .onChange(of: pulses) { _, now in breathing = now }
             .accessibilityHidden(true)
     }
 }
 
 extension SessionState {
-    public var token: SessionStateToken {
-        switch self {
-        case .running, .starting: .running
-        case .needsApproval, .needsInput: .attention
-        case .error: .error
-        default: .resting
-        }
-    }
-
     /// The words shown beside the dot.
     public var label: String {
         switch self {
@@ -50,10 +58,6 @@ extension Session {
     /// What the session list and the chat header say beside the dot.
     /// Amendment A10: an attached session names the terminal that owns it.
     public var statusLabel: String { isAttached ? "terminal · attached" : state.label }
-
-    /// Amendment A10: `shared` takes the same dot colour as `remote`, which is
-    /// what `state` already gives, because `shared` never reports `readonly`.
-    public var statusToken: SessionStateToken { state.token }
 }
 
 /// The black pill used for the one primary action on a screen.
@@ -95,20 +99,20 @@ public struct ChipButtonStyle: ButtonStyle {
 /// A dot and a word, in that order, always both. The dot alone is never the
 /// signal, and the word alone loses the glanceable colour.
 public struct StatusLabel: View {
-    let state: SessionState
+    let tone: DotTone
     let text: String
 
-    public init(state: SessionState, text: String) {
-        self.state = state
+    public init(tone: DotTone, text: String) {
+        self.tone = tone
         self.text = text
     }
 
     public var body: some View {
         HStack(spacing: 5) {
-            StatusDot(state: state)
+            StatusDot(tone: tone)
             Text(text)
                 .font(Theme.Text.meta)
-                .foregroundStyle(state.isBlockedOnUser ? Theme.attention : Theme.inkSecondary)
+                .foregroundStyle(tone == .waiting ? Theme.attention : Theme.inkSecondary)
                 .lineLimit(1)
         }
         .accessibilityElement(children: .combine)

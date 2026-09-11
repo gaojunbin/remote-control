@@ -31,13 +31,13 @@ struct SessionsView: View {
                 Section {
                     if !group.collapsed {
                         ForEach(group.active) { session in
-                            row(session)
+                            row(session, online: group.online)
                         }
                         if !group.archive.isEmpty {
                             archiveHeader(group)
                             if group.archiveExpanded {
                                 ForEach(group.archive) { session in
-                                    row(session)
+                                    row(session, online: group.online)
                                 }
                             }
                         }
@@ -121,11 +121,11 @@ struct SessionsView: View {
         .accessibilityIdentifier("sessions.agentFilter.\(agent ?? "all")")
     }
 
-    private func row(_ session: Session) -> some View {
+    private func row(_ session: Session, online: Bool) -> some View {
         Button {
             Task { await model.open(session) }
         } label: {
-            SessionRow(session: session)
+            SessionRow(session: session, online: online)
         }
         .buttonStyle(.plain)
         .sessionRowLayout()
@@ -224,6 +224,9 @@ struct SessionsView: View {
 /// statuses reads as a table.
 struct SessionRow: View {
     let session: Session
+    /// A session on a machine that is not reachable shows a grey dot whatever
+    /// it last reported, so the row never claims work is under way.
+    let online: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -241,7 +244,7 @@ struct SessionRow: View {
                 // The agent and the status word never shorten; the path is what
                 // gives way, and it truncates from the head so the folder stays.
                 AgentChip(agent: session.agent)
-                StatusLabel(state: session.state, text: session.statusLabel)
+                StatusLabel(tone: session.dotTone(online: online), text: session.statusLabel)
                 if session.archived {
                     separator
                     Text("Archived")

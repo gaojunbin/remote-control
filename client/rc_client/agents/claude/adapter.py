@@ -315,7 +315,7 @@ class ClaudeRunner:
     def supports_steer(self) -> bool:
         return False
 
-    async def steer(self, text: str) -> bool:
+    async def steer(self, text: str, block_id: str | None = None) -> bool:
         return False
 
     async def send(
@@ -325,22 +325,17 @@ class ClaudeRunner:
         source: str = "remote",
         block_id: str | None = None,
     ) -> None:
-        client = self._client
-        if client is None:
+        """Publish the message, then start the turn that answers it."""
+        if self._client is None:
             raise RcError("agent_unavailable", "the Claude session is not connected")
-        if self._effort != self._applied_effort:
-            await self.channel.notice("info", "restarting Claude to apply the new effort level")
-            await self._reconnect()
-            client = self._client
-            if client is None:
-                raise RcError("agent_unavailable", "the Claude session is not connected")
         prompt = text
         written: list[Attachment] = []
         if attachments:
             written = materialise(self.channel.session.session_id, attachments)
             prompt = describe(text, written)
-        self._turn_done.clear()
-        self._turn_started_at = now_ms()
+        # The message goes out before the SDK is touched. Applying a new effort
+        # level restarts Claude, which takes seconds, and the apps have drawn
+        # this bubble already.
         await self.channel.emit(
             "user_message",
             block_id=block_id or f"user:{uuid.uuid4()}",
@@ -348,6 +343,14 @@ class ClaudeRunner:
             source=source,
             **({"attachments": wire_attachments(written)} if written else {}),
         )
+        if self._effort != self._applied_effort:
+            await self.channel.notice("info", "restarting Claude to apply the new effort level")
+            await self._reconnect()
+        client = self._client
+        if client is None:
+            raise RcError("agent_unavailable", "the Claude session is not connected")
+        self._turn_done.clear()
+        self._turn_started_at = now_ms()
         await self.channel.begin_turn(source)
         try:
             await client.query(prompt)

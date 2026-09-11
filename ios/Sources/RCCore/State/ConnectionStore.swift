@@ -16,6 +16,17 @@ public enum ConnectionPhase: Sendable, Equatable {
     /// just fight it, so the user decides.
     case superseded
     case incompatible(gatewayVersion: Int)
+
+    /// Whether a request issued now can still reach the gateway. A socket that
+    /// is connecting or coming back does: the transport holds the request until
+    /// the hello lands, so the composer stays live across a reconnect. A
+    /// session that ended, expired or was replaced does not.
+    public var canReachGateway: Bool {
+        switch self {
+        case .connecting, .syncing, .connected, .reconnecting: true
+        case .signedOut, .expired, .forbidden, .superseded, .incompatible: false
+        }
+    }
 }
 
 /// Gateway identity, authentication, and the live inventory of devices and

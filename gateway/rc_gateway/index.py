@@ -4,20 +4,29 @@ The device owns session history; the gateway keeps only the newest ``Session`` o
 so lists render while a device is offline, plus the highest ``seq`` it has observed so a
 reconnecting app can ask for the right slice. Summaries are stored as opaque JSON: the gateway reads
 only the fields it routes or filters on.
+
+Sequence numbers arrive on the hot path between a device and the apps watching it, so they are
+recorded in memory and written to SQLite by a background task. Reads overlay whatever is still
+unwritten, which makes the recorded value visible immediately: an app can never read a summary
+older than an event it has already received live.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import sqlite3
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from .logging import logger
 from .migrations import Migration, apply_migrations
+
+log = logger("rc_gateway.index")
 
 #: No column has been added since this table's first release; see rc_gateway/migrations.py.
 MIGRATIONS: tuple[Migration, ...] = ()
@@ -41,6 +50,13 @@ class SessionIndex:
         self._initialize()
         # Session titles, working directories and push endpoints are not world-readable.
         os.chmod(self.path, 0o600)
+        # Sequence numbers observed but not yet on disk. Every read overlays them, so this map,
+        # not the table, is the newest truth until the flush task drains it.
+        self._pending_seq: dict[str, int] = {}
+        self._flush: asyncio.Task[None] | None = None
+        # Serialises the database against the flush task, so a read and the overlay it applies
+        # cannot straddle a write that removes the pending entry it was about to use.
+        self._db_lock = asyncio.Lock()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=10)
@@ -76,11 +92,20 @@ class SessionIndex:
         session: ownership is set on first sight and never rebound, so a compromised device cannot
         take over another machine's session by announcing a summary for it.
         """
-        return await asyncio.to_thread(self._upsert, summary)
+        session_id = summary.get("session_id")
+        async with self._db_lock:
+            pending = self._pending_seq.get(session_id, 0) if isinstance(session_id, str) else 0
+            indexed = await asyncio.to_thread(self._upsert, summary, pending)
+            if indexed is None:
+                return None
+            if self._pending_seq.get(indexed.session_id, 0) <= indexed.last_seq:
+                self._pending_seq.pop(indexed.session_id, None)
+            return self._overlaid(indexed)
 
     async def owner(self, session_id: str) -> str | None:
         """The device that owns a session, or ``None`` when the gateway has never seen it."""
-        return await asyncio.to_thread(self._owner, session_id)
+        async with self._db_lock:
+            return await asyncio.to_thread(self._owner, session_id)
 
     def _owner(self, session_id: str) -> str | None:
         if not session_id:
@@ -91,7 +116,7 @@ class SessionIndex:
             ).fetchone()
         return str(row["device_id"]) if row is not None else None
 
-    def _upsert(self, summary: Session) -> IndexedSession | None:
+    def _upsert(self, summary: Session, pending_seq: int) -> IndexedSession | None:
         session_id = summary.get("session_id")
         device_id = summary.get("device_id")
         if not isinstance(session_id, str) or not isinstance(device_id, str):
@@ -109,8 +134,10 @@ class SessionIndex:
             if row is not None and str(row["device_id"]) != device_id:
                 return None
             # A device restarting mid-stream may announce a summary whose last_seq lags the
-            # events it already sent. Never move the cursor backwards.
-            merged_seq = max(last_seq, int(row["last_seq"]) if row is not None else 0)
+            # events it already sent, and the newest of those may not have been written yet.
+            # Never move the cursor backwards.
+            stored_seq = int(row["last_seq"]) if row is not None else 0
+            merged_seq = max(last_seq, stored_seq, pending_seq)
             stored = dict(summary)
             stored["last_seq"] = merged_seq
             connection.execute(
@@ -132,7 +159,7 @@ class SessionIndex:
                     archived,
                     merged_seq,
                     updated_at,
-                    json.dumps(stored, ensure_ascii=False, separators=(",", ":")),
+                    _dumps(stored),
                 ),
             )
         return IndexedSession(
@@ -143,25 +170,89 @@ class SessionIndex:
             summary=stored,
         )
 
-    async def record_seq(self, session_id: str, seq: int) -> None:
-        await asyncio.to_thread(self._record_seq, session_id, seq)
+    # ---- sequence cursor ----
 
-    def _record_seq(self, session_id: str, seq: int) -> None:
+    def record_seq(self, session_id: str, seq: int) -> None:
+        """Note the highest ``seq`` a session has reached, without waiting for the disk.
+
+        The value is authoritative for every read the moment this returns, so an event can be
+        fanned out to apps before SQLite has caught up without the apps ever observing a summary
+        that predates it. Losing the unwritten tail to a crash only makes a reconnecting app
+        resynchronise, which the protocol already handles.
+        """
+        if not session_id or seq <= self._pending_seq.get(session_id, 0):
+            return
+        self._pending_seq[session_id] = seq
+        if self._flush is None or self._flush.done():
+            self._flush = asyncio.create_task(self._flush_pending())
+
+    async def flush(self) -> None:
+        """Write every recorded sequence number, in as few transactions as the batches allow."""
+        while self._pending_seq:
+            batch = dict(self._pending_seq)
+            async with self._db_lock:
+                await asyncio.to_thread(self._record_seqs, batch)
+                for session_id, seq in batch.items():
+                    if self._pending_seq.get(session_id) == seq:
+                        del self._pending_seq[session_id]
+
+    async def _flush_pending(self) -> None:
+        try:
+            await self.flush()
+        except Exception:
+            # The entries stay in `_pending_seq`, so reads remain correct and the next recorded
+            # sequence number schedules another attempt.
+            log.exception("session index flush failed", sessions=len(self._pending_seq))
+        finally:
+            # No await separates the loop's last check from here, so a sequence number recorded
+            # after that check always finds a finished task and schedules a new one.
+            self._flush = None
+
+    async def close(self) -> None:
+        """Drain the outstanding sequence writes. Called once, when the gateway shuts down."""
+        task = self._flush
+        if task is not None:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+        await self._flush_pending()
+
+    def _record_seqs(self, batch: dict[str, int]) -> None:
         with self._connect() as connection:
-            row = connection.execute(
-                "SELECT summary, last_seq FROM sessions WHERE session_id=?", (session_id,)
-            ).fetchone()
-            if row is None or int(row["last_seq"]) >= seq:
-                return
-            summary = _loads(row["summary"])
-            summary["last_seq"] = seq
-            connection.execute(
-                "UPDATE sessions SET last_seq=?, summary=? WHERE session_id=?",
-                (seq, json.dumps(summary, ensure_ascii=False, separators=(",", ":")), session_id),
-            )
+            for session_id, seq in batch.items():
+                row = connection.execute(
+                    "SELECT summary, last_seq FROM sessions WHERE session_id=?", (session_id,)
+                ).fetchone()
+                if row is None or int(row["last_seq"]) >= seq:
+                    continue
+                summary = _loads(row["summary"])
+                summary["last_seq"] = seq
+                connection.execute(
+                    "UPDATE sessions SET last_seq=?, summary=? WHERE session_id=?",
+                    (seq, _dumps(summary), session_id),
+                )
+
+    def _overlaid(self, indexed: IndexedSession) -> IndexedSession:
+        """Raise a stored row to the newest recorded sequence number."""
+        pending = self._pending_seq.get(indexed.session_id, 0)
+        if pending <= indexed.last_seq:
+            return indexed
+        return replace(indexed, last_seq=pending, summary={**indexed.summary, "last_seq": pending})
+
+    def _overlaid_summary(self, summary: Session) -> Session:
+        session_id = summary.get("session_id")
+        if not isinstance(session_id, str):
+            return summary
+        pending = self._pending_seq.get(session_id, 0)
+        if pending <= _as_int(summary.get("last_seq")):
+            return summary
+        return {**summary, "last_seq": pending}
+
+    # ---- reads ----
 
     async def get(self, session_id: str) -> IndexedSession | None:
-        return await asyncio.to_thread(self._get, session_id)
+        async with self._db_lock:
+            indexed = await asyncio.to_thread(self._get, session_id)
+            return None if indexed is None else self._overlaid(indexed)
 
     def _get(self, session_id: str) -> IndexedSession | None:
         with self._connect() as connection:
@@ -175,7 +266,9 @@ class SessionIndex:
     async def list_sessions(
         self, *, device_id: str | None = None, archived: bool | None = None
     ) -> list[Session]:
-        return await asyncio.to_thread(self._list, device_id, archived)
+        async with self._db_lock:
+            rows = await asyncio.to_thread(self._list, device_id, archived)
+            return [self._overlaid_summary(row) for row in rows]
 
     def _list(self, device_id: str | None, archived: bool | None) -> list[Session]:
         clauses: list[str] = []
@@ -194,9 +287,14 @@ class SessionIndex:
             ).fetchall()
         return [_loads(row["summary"]) for row in rows]
 
+    # ---- removal ----
+
     async def remove(self, session_id: str) -> str | None:
         """Delete one session. Returns its device id when it existed."""
-        return await asyncio.to_thread(self._remove, session_id)
+        async with self._db_lock:
+            device_id = await asyncio.to_thread(self._remove, session_id)
+            self._pending_seq.pop(session_id, None)
+            return device_id
 
     def _remove(self, session_id: str) -> str | None:
         with self._connect() as connection:
@@ -209,7 +307,11 @@ class SessionIndex:
         return str(row["device_id"])
 
     async def remove_for_device(self, device_id: str) -> list[str]:
-        return await asyncio.to_thread(self._remove_for_device, device_id)
+        async with self._db_lock:
+            removed = await asyncio.to_thread(self._remove_for_device, device_id)
+            for session_id in removed:
+                self._pending_seq.pop(session_id, None)
+            return removed
 
     def _remove_for_device(self, device_id: str) -> list[str]:
         with self._connect() as connection:
@@ -228,6 +330,10 @@ def _indexed(row: Any) -> IndexedSession:
         last_seq=int(row["last_seq"]),
         summary=_loads(row["summary"]),
     )
+
+
+def _dumps(summary: Session) -> str:
+    return json.dumps(summary, ensure_ascii=False, separators=(",", ":"))
 
 
 def _loads(raw: Any) -> Session:

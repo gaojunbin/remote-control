@@ -17,7 +17,7 @@ from typing import Any
 import websockets
 from websockets.asyncio.client import ClientConnection, connect
 
-from . import PROTOCOL_VERSION, __version__
+from . import PROTOCOL_VERSION, __version__, linkstate
 from .errors import RcError
 from .logging_setup import logger
 
@@ -27,6 +27,18 @@ BACKOFF_STEPS = (1.0, 2.0, 4.0, 8.0, 15.0)
 SILENCE_TIMEOUT = 60.0
 WATCHDOG_TICK = 5.0
 STABLE_CONNECTION_SECONDS = 30.0
+# PROTOCOL.md 2.5: the close code says whether reconnecting is worth trying.
+# These two are the credential's answer, and retrying only hammers the gateway
+# with something it has already refused.
+REJECTED = "credential rejected; re-enroll with `rc-client enroll`"
+FATAL_CLOSE_CODES = {
+    4401: REJECTED,
+    4403: "this device is not allowed on this gateway; re-enroll with `rc-client enroll`",
+}
+# A newer connection replaced this one. Racing it back would replace that one in
+# turn, so this reconnect waits.
+REPLACED_CLOSE_CODE = 4001
+REPLACED_DELAY = 15.0
 # PROTOCOL §5 allows 8 attachments of 6 MiB decoded in one `session.send`, which
 # is ~64 MiB of base64 plus the surrounding JSON.
 MAX_FRAME_BYTES = 80 * 1024 * 1024
@@ -54,6 +66,21 @@ def describe_error(exc: BaseException, secret: str = "") -> str:
     if len(text) > MAX_ERROR_CHARS:
         text = text[:MAX_ERROR_CHARS] + "..."
     return text
+
+
+def reconnect_delay(attempt: int, code: int | None) -> float:
+    """How long to wait before dialling again (PROTOCOL.md 2.5)."""
+    delay = BACKOFF_STEPS[min(max(attempt, 0), len(BACKOFF_STEPS) - 1)]
+    if code == REPLACED_CLOSE_CODE:
+        return max(delay, REPLACED_DELAY)
+    return delay
+
+
+def close_code(exc: BaseException) -> int | None:
+    """The code the gateway closed with, when it closed rather than vanished."""
+    received = getattr(exc, "rcvd", None)
+    code = getattr(received, "code", None)
+    return int(code) if isinstance(code, int) else None
 
 
 class ByteQueue:
@@ -153,22 +180,32 @@ class GatewayLink:
         attempt = 0
         while not self._stop:
             started = time.monotonic()
+            code: int | None = None
             try:
                 await self._session()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                log.warning("gateway link lost", error=describe_error(exc, self._token))
+                code = close_code(exc)
+                description = describe_error(exc, self._token)
+                log.warning("gateway link lost", error=description)
+                linkstate.record(linkstate.RETRYING, description)
             finally:
                 self._connected = False
                 dropped = self._queue.clear()
                 if dropped:
                     log.debug("dropped queued frames on disconnect", frames=dropped)
+            if code in FATAL_CLOSE_CODES:
+                reason = FATAL_CLOSE_CODES[code]
+                log.error("gateway link stopped", code=code, reason=reason)
+                linkstate.record(linkstate.REJECTED, f"close {code}")
+                self._stop = True
+                return
             # Only a connection that actually stayed up resets the backoff, so a
             # gateway that accepts and immediately drops us is not hammered.
             if time.monotonic() - started >= STABLE_CONNECTION_SECONDS:
                 attempt = 0
-            delay = BACKOFF_STEPS[min(attempt, len(BACKOFF_STEPS) - 1)]
+            delay = reconnect_delay(attempt, code)
             attempt += 1
             await asyncio.sleep(delay)
 
@@ -196,9 +233,31 @@ class GatewayLink:
             if ack.get("type") != "hello_ack":
                 raise RcError("unauthorized", f"unexpected gateway reply {ack.get('type')}")
             self._connected = True
-            if self._on_ready is not None:
-                await self._on_ready()
-            await self._pump(socket)
+            linkstate.record(linkstate.CONNECTED)
+            # Whatever happens on connect — a mirror scan, a registry read, a
+            # backfill the gateway is waiting for — runs beside the pump, never
+            # in front of it. Holding the pump back leaves every forwarded
+            # request unanswered until it finishes, including the ones this work
+            # is meant to answer.
+            ready = self._begin_ready()
+            try:
+                await self._pump(socket)
+            finally:
+                if ready is not None and not ready.done():
+                    ready.cancel()
+
+    async def _ready(self) -> None:
+        if self._on_ready is not None:
+            await self._on_ready()
+
+    def _begin_ready(self) -> asyncio.Task[None] | None:
+        if self._on_ready is None:
+            return None
+        task: asyncio.Task[None] = asyncio.create_task(self._ready(), name="gateway-ready")
+        self._inflight.add(task)
+        task.add_done_callback(self._inflight.discard)
+        task.add_done_callback(_report_ready)
+        return task
 
     async def _pump(self, socket: ClientConnection) -> None:
         """Race the three socket tasks so any one of them can end the session.
@@ -288,6 +347,15 @@ class GatewayLink:
             reply["ok"] = True
             reply["result"] = outcome
         await self.send(reply)
+
+
+def _report_ready(task: asyncio.Task[None]) -> None:
+    """A connect-time task that failed must say so; nobody is awaiting it."""
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        log.warning("gateway connect work failed", error=describe_error(error))
 
 
 ConnectionClosed = websockets.exceptions.ConnectionClosed

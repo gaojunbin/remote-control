@@ -136,7 +136,39 @@ describe('Composer send mode', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it('clears the box only after a successful send', async () => {
+  it('clears the field in the same tick as the send (A12)', async () => {
+    const user = userEvent.setup();
+    // A send that never settles: the field must not wait for it.
+    const onSend = vi.fn().mockReturnValue(new Promise<void>(() => {}));
+    render(
+      <Composer
+        session={baseSession}
+        agent={claudeAgent}
+        deviceOnline
+        queue={[]}
+        sttEnabled={false}
+        sttLanguages={['auto']}
+        onSend={onSend}
+        onSetOption={vi.fn()}
+        onRemoveQueued={vi.fn()}
+        onTakeover={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText('Message the agent…');
+    await user.click(input);
+    await user.keyboard('run the tests');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(onSend).toHaveBeenCalledWith('run the tests', [], 'auto');
+    expect(input).toHaveValue('');
+    // Empty again, so the button is ready for the next message rather than busy.
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    await user.click(input);
+    await user.keyboard('and then lint');
+    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+  });
+
+  it('hands the draft back when the gateway refuses the message', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockRejectedValue(new Error('That device is offline.'));
     render(
@@ -159,6 +191,36 @@ describe('Composer send mode', () => {
 
     await screen.findByText('That device is offline.');
     expect(screen.getByLabelText('Message the agent…')).toHaveValue('keep me');
+  });
+
+  it('leaves a newer draft alone when an older send is refused', async () => {
+    const user = userEvent.setup();
+    let refuse = (_: unknown) => {};
+    const onSend = vi.fn().mockReturnValue(new Promise((_resolve, reject) => (refuse = reject)));
+    render(
+      <Composer
+        session={baseSession}
+        agent={claudeAgent}
+        deviceOnline
+        queue={[]}
+        sttEnabled={false}
+        sttLanguages={['auto']}
+        onSend={onSend}
+        onSetOption={vi.fn()}
+        onRemoveQueued={vi.fn()}
+        onTakeover={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText('Message the agent…');
+    await user.click(input);
+    await user.keyboard('first message');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.click(input);
+    await user.keyboard('second message');
+
+    refuse(new Error('That device is offline.'));
+    await screen.findByText('That device is offline.');
+    expect(input).toHaveValue('second message');
   });
 });
 
