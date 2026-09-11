@@ -18,7 +18,11 @@ CONFIRMATION_HINT = (
 def install(shell_rc: bool = True, rc_path: Path | None = None) -> list[str]:
     """Write the shim and optionally put its directory in front of PATH."""
     state = shim.install()
-    lines = [f"shim installed at {state.path}", f"mcp config at {state.mcp_config}"]
+    lines = [
+        f"shim installed at {state.path}",
+        f"mcp config at {state.mcp_config}",
+        f"settings at {state.settings}",
+    ]
     lines.append(
         f"real claude at {state.real}"
         if state.real
@@ -34,10 +38,13 @@ def install(shell_rc: bool = True, rc_path: Path | None = None) -> list[str]:
 
 
 def remove(shell_rc: bool = True, rc_path: Path | None = None) -> list[str]:
-    lines = []
-    lines.append(
-        f"removed {paths.shim_path()}" if shim.remove() else f"no shim at {paths.shim_path()}"
-    )
+    removal = shim.remove()
+    lines = [
+        f"removed {paths.shim_path()}" if removal.shim else f"no shim at {paths.shim_path()}",
+        f"removed {paths.settings_path()}"
+        if removal.settings
+        else f"no settings at {paths.settings_path()}",
+    ]
     if shell_rc:
         target = rc_path or shellrc.rc_file()
         lines.append(f"{'cleaned' if shellrc.remove(target) else 'nothing to clean in'} {target}")
@@ -51,5 +58,6 @@ def status() -> list[str]:
         f"first on PATH {'yes' if state.on_path else 'no'}",
         f"real claude  {state.real or 'not found'}",
         f"mcp config   {state.mcp_config}",
+        f"settings     {state.settings}",
         f"socket       {paths.socket_path()}",
     ]

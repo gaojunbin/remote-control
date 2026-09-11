@@ -101,6 +101,9 @@ class MirrorService:
         if self.codex_daemon is not None:
             await self.codex_daemon.tick(resolve_codex())
         self._adopt_claude(found_claude)
+        # After the adoption, so a session whose transcript was just found is
+        # never mistaken for one that never had one.
+        await self.hub.sweep_ghosts()
         self._adopt_codex(found_codex)
         await self._watch_titles()
         await self._refresh_claude_control()

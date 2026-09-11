@@ -380,6 +380,20 @@ class Registry:
         payload: dict[str, Any] = json.loads(row["full"] or row["wire"])
         return payload
 
+    def has_events(self, session_id: str) -> bool:
+        """Whether anything worth replaying was ever stored for this session.
+
+        `last_seq` cannot answer this: it counts every event a session was
+        given a number for, including the `meta` and `status` ones that are
+        published and never stored.
+        """
+        self.flush()
+        with self._lock:
+            row = self._db.execute(
+                "SELECT 1 FROM events WHERE session_id = ? LIMIT 1", (session_id,)
+            ).fetchone()
+        return row is not None
+
     def last_seq(self, session_id: str) -> int:
         self.flush()
         with self._lock:

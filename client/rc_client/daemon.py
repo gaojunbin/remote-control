@@ -16,6 +16,7 @@ from .agents.codex.runtime import resolve_binary as resolve_codex
 from .agents.discovery import detect_agents
 from .channel import paths as channel_paths
 from .channel.mcp_config import write_mcp_config
+from .channel.settings import write_settings
 from .child_env import scrub_parent_secrets
 from .config import Config
 from .errors import RcError
@@ -52,6 +53,7 @@ class Daemon:
             handlers=self._handlers(),
             on_ready=self._on_ready,
         )
+        self.hub.link_up = lambda: self.link.connected
         self._refresh_task: asyncio.Task[None] | None = None
         self._lag_task: asyncio.Task[None] | None = None
 
@@ -78,13 +80,14 @@ class Daemon:
             await self.shutdown()
 
     async def _prepare_attachment(self) -> None:
-        """Publish the MCP config the shim points at and open the channel socket.
+        """Publish the files the shim points at and open the channel socket.
 
-        Neither is fatal: without them the device simply cannot attach to
+        None of it is fatal: without them the device simply cannot attach to
         terminal sessions, and everything else keeps working.
         """
         try:
             write_mcp_config()
+            write_settings()
             await self.attach.start()
         except OSError as exc:
             log.warning("terminal attachment unavailable", error=str(exc))

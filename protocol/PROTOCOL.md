@@ -602,6 +602,16 @@ attachment drops while the CLI process is still alive, and `shared → none` whe
 transition travels the way every other `control` change does: a `meta` event carrying `control`
 (5.11), a `status` event when the state changes with it (5.10), and a republished session summary.
 
+An attachment follows the CLI process, not the id the process was started with (amendment A16). A
+Claude CLI that resumes another session inside the TUI, or clears to a fresh one, keeps its channel;
+the device learns the new id from the CLI's own `SessionStart` hook and moves the attachment there:
+the session the terminal is now in becomes `shared`, and the one it left becomes `none` by the
+transition above. A session that never held a message and has no transcript on disk — the id a CLI
+was started with and then left by `/resume` or by quitting — is not kept: the device removes it with
+`session.removed` (7) as soon as the terminal leaves it, and on its next scan for any it missed.
+`session.removed` is therefore not only the answer to a `session.delete`; an app drops the row
+whenever the frame arrives.
+
 #### `origin` and `control` for Codex threads on the shared daemon
 
 Codex runs every bare `codex` TUI inside one local app-server daemon, and the device attaches to
@@ -2720,6 +2730,9 @@ by `block_id` like any other.
       unloaded, and reports `terminal` for a rollout held by a Codex process that is not the daemon.
 - [ ] Resolves a Codex approval it did not answer with `decision: {option_id: "elsewhere",
       by: "terminal"}`.
+- [ ] Moves a Claude attachment to the session id the CLI's `SessionStart` hook names, and removes
+      a terminal-origin session with no events and no transcript with `session.removed` the moment
+      its terminal leaves it (A16).
 
 ### 9.3 App
 
@@ -2907,3 +2920,14 @@ was resumed from a terminal, or written to from an app, ran on with `archived: t
 folded in the Archive while it worked. The device now clears `archived` whenever a turn starts in
 the session or a terminal attaches to it, and publishes the change, so the row returns to the
 device's Active list by the ordinary layout rule. See 6.3.
+
+**2026-09-12 A16 — the attachment follows the CLI, and a session that never held a message is
+removed.** A Claude CLI started through the shim registered its channel under the id it was started
+with; `/resume` and `/clear` inside the TUI moved the process to another id without telling anybody,
+so the live session showed `control: "none"` while an empty row stayed `shared`, and every CLI start
+that was quit or resumed away from left an empty session behind for good. The device now takes a
+`SessionStart` hook from the CLI (installed through a settings file the shim passes), moves the
+attachment to the id the hook names, and removes any terminal-origin session with no events and no
+transcript the moment its terminal leaves it. The device sends `session.removed` on its own
+initiative for those; the gateway and the apps already treat the frame as authoritative. See 4.4
+and 7.

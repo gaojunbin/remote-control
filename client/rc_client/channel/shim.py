@@ -5,6 +5,12 @@ Claude Code only loads a self-hosted channel behind
 instead of asking the user to remember two flags. The wrapper is deliberately
 inert for everything that is not a human at a terminal: the device's own remote
 sessions drive `claude` over pipes and must reach the real binary unchanged.
+
+It also passes a `--settings` file carrying a `SessionStart` hook. The channel
+bridge can only report the session id the CLI started with, and `/resume`,
+`/clear` and a compaction all move the terminal to a different one; the hook is
+what tells the daemon where it went. A caller who brings their own `--settings`
+keeps it, and the session still attaches - it just has no hook.
 """
 
 from __future__ import annotations
@@ -18,6 +24,7 @@ from pathlib import Path
 from ..config import client_home, ensure_dirs
 from . import paths
 from .mcp_config import write_mcp_config
+from .settings import write_settings
 
 MARKER = "rc-client claude shim"
 CHANNEL_FLAG = "--dangerously-load-development-channels"
@@ -78,6 +85,7 @@ def render(real: str) -> str:
         real=_quote(real),
         home=_quote(str(client_home())),
         mcp_config=_quote(str(paths.mcp_config_path())),
+        settings=_quote(str(paths.settings_path())),
         channel_flag=CHANNEL_FLAG,
         channel_value=CHANNEL_VALUE,
     )
@@ -95,10 +103,19 @@ class ShimStatus:
     on_path: bool
     real: str | None
     mcp_config: str
+    settings: str
 
     @property
     def ready(self) -> bool:
         return self.installed and self.on_path
+
+
+@dataclass(frozen=True, slots=True)
+class ShimRemoval:
+    """What `remove` actually deleted, so the CLI can say so."""
+
+    shim: bool
+    settings: bool
 
 
 def status() -> ShimStatus:
@@ -111,11 +128,12 @@ def status() -> ShimStatus:
         on_path=bool(resolved and is_shim(resolved)),
         real=real_claude(),
         mcp_config=str(paths.mcp_config_path()),
+        settings=str(paths.settings_path()),
     )
 
 
 def install() -> ShimStatus:
-    """Write the wrapper and the MCP config; both are rewritten on every call."""
+    """Write the wrapper, the MCP config and the settings file; all three every call."""
     ensure_dirs()
     target = paths.shim_path()
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -123,23 +141,28 @@ def install() -> ShimStatus:
     target.write_text(render(real), encoding="utf-8")
     target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IRUSR | stat.S_IWUSR)
     write_mcp_config()
+    write_settings()
     return status()
 
 
-def remove() -> bool:
-    """Delete the wrapper, leaving anything we did not write alone."""
+def remove() -> ShimRemoval:
+    """Delete the wrapper and its settings file, leaving anything we did not write alone."""
+    settings_file = paths.settings_path()
+    removed_settings = settings_file.is_file()
+    settings_file.unlink(missing_ok=True)
     target = paths.shim_path()
     if not target.is_file() or not is_shim(target):
-        return False
+        return ShimRemoval(shim=False, settings=removed_settings)
     target.unlink()
-    return True
+    return ShimRemoval(shim=True, settings=removed_settings)
 
 
 SHIM_TEMPLATE = """#!/bin/sh
 # {marker}
 #
 # Appends the Claude Code channel flags when a person starts an interactive
-# session, so the remote-control device can attach to it. Every other
+# session, so the remote-control device can attach to it, plus a settings file
+# whose SessionStart hook says which session the terminal moved to. Every other
 # invocation - piped, --print, or already carrying channel flags - reaches the
 # real executable untouched. Managed by `rc-client shim install`.
 set -u
@@ -148,6 +171,7 @@ RC_SHIM_DIR={shim_dir}
 RC_FALLBACK_CLAUDE={real}
 RC_CLIENT_HOME=${{RC_CLIENT_HOME:-{home}}}
 RC_MCP_CONFIG={mcp_config}
+RC_SETTINGS={settings}
 export RC_CLIENT_HOME
 
 is_shim() {{
@@ -178,16 +202,26 @@ fi
 attach=1
 [ -t 0 ] && [ -t 1 ] || attach=0
 [ -f "$RC_MCP_CONFIG" ] || attach=0
+
+# Settings of the caller's own win: the hook is then simply absent, and the
+# session still attaches.
+add_settings=1
+[ -f "$RC_SETTINGS" ] || add_settings=0
+
 for arg in "$@"; do
     case "$arg" in
         -p|--print|--input-format|--output-format|--sdk-url|{channel_flag}|--mcp-config) attach=0 ;;
         --print=*|--input-format=*|--output-format=*|--sdk-url=*|--mcp-config=*) attach=0 ;;
         {channel_flag}=*) attach=0 ;;
+        --settings|--settings=*) add_settings=0 ;;
     esac
 done
 
 if [ "$attach" -eq 1 ]; then
-    exec "$REAL" "$@" {channel_flag} {channel_value} --mcp-config "$RC_MCP_CONFIG"
+    set -- "$@" {channel_flag} {channel_value} --mcp-config "$RC_MCP_CONFIG"
+    if [ "$add_settings" -eq 1 ]; then
+        set -- "$@" --settings "$RC_SETTINGS"
+    fi
 fi
 exec "$REAL" "$@"
 """

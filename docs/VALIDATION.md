@@ -210,6 +210,66 @@ exercised against real files; neither was re-driven against a live TUI in this p
 are internal to Claude Code and its documentation warns they may change, so the parser treats an
 unrecognised or malformed row as "not a title" and a format change would cost the titles alone.
 
+### The session behind a terminal changes (2026-09-12)
+
+Two defects, both from the same missing fact. Every interactive `claude` started through the shim
+spawns its channel bridge with `CLAUDE_CODE_SESSION_ID` set to the id Claude Code picked at startup,
+and an MCP server keeps the environment it was spawned with for as long as it runs. Picking another
+conversation with `/resume`, or clearing one with `/clear`, therefore changes nothing the bridge
+says.
+
+The first defect is the sessions left behind. The device's own state database held nine Claude rows
+created between 02:08 and 02:28 that day — `origin: "terminal"`, no stored events, no transcript
+under `~/.claude/projects`, empty title — one per `claude` whose startup id was abandoned before
+anyone typed into it. Claude Code never writes a transcript for such an id, so nothing ever removed
+them and the apps showed nine "Untitled session" rows. The second is the live session the device
+cannot reach: at 02:28:46 `claude` pid 11668 started on `f5048523…`, the person resumed `178ad3ef…`
+inside the TUI, and the database had `f5048523` as `control: "shared"` with no events while
+`178ad3ef`, the conversation actually on screen, was `control: "none"`. A message sent from the phone
+would have gone to the abandoned id.
+
+The fix gives Claude Code a `SessionStart` hook through the shim's `--settings` file. The hook sends
+one `session_start` frame to the daemon socket — the session id, the CLI's own pid, the source
+(`startup`, `resume`, `clear` or `compact`) and the transcript path — and hangs up; it is not an
+attachment and is answered nothing. The hub keeps the last frame per pid, so a bridge that registers
+afterwards lands on the session the hook named rather than the one in its environment, and a hook
+that arrives later moves the live attachment: the session being left has its approvals expired, a
+running turn ended as `stopped`, `control: "none"` and no holder, and the session being entered is
+created or reused and takes the attachment over. A session with a runner of this device's own is
+never moved onto. A session that was never used — a Claude terminal session with no stored events, no
+transcript and no live attachment — is removed outright when its terminal leaves it, when its bridge
+closes, and by a sweep over every entry on each mirror scan.
+
+Two decisions are worth recording. The first is how "never used" is measured. `last_seq` cannot
+answer it: it counts every event a session was given a number for, including the `meta` and `status`
+ones an attachment publishes about itself and that are never stored, so an attached-then-closed
+session stands at `last_seq` 2 with nothing in its history. The registry gained `has_events()`, one
+indexed lookup in the `events` table, and that is the test; `client/tests/test_session_start.py`
+asserts both halves of it against a real registry. The second concerns publishing. `GatewayLink.send`
+drops every frame while the link is down, and the gateway keeps every session a device has ever
+announced (its `hello` handler adds sessions and prunes none), so a removal published before the link
+is up would leave the ghost in the apps for good. The sweep therefore runs unconditionally and each
+ghost removal is repeated once on the next link, which the hub recognises from the `hello` it builds;
+the repeat itself waits until the daemon reports the link as connected, so it cannot fall into the
+same gap. The mirror scan the link runs on connect is what carries it out.
+
+Covered by `client/tests/test_session_start.py` (twelve cases: a bridge landing on the hook's id, a
+startup hook for the current session doing nothing, a resume moving the attachment and taking the
+empty session with it, a clear leaving a used session at `control: "none"`, a move onto an existing
+session keeping its title and history, a refusal to move onto a session this device drives, a bridge
+closing on an empty and on a used session, a closed bridge's pid being forgotten, the sweep against
+sessions with events, with a transcript, with a live attachment, of another agent and of remote
+origin, the repeat on the next link, and a full `MirrorService.scan_once` confirming the moved
+session is `control: "shared"` while the one left behind stays `none`) and by the frame round trip in
+`client/tests/test_attach_channel.py`.
+
+Not driven live in this pass: the owner's daemon was not restarted and no real TUI was resumed
+against it, so the nine ghosts above are still in the database — they disappear the first time the
+daemon runs this code, and the shim has to be reinstalled before any already-running `claude` starts
+sending hook frames. Not covered either: `compact`, which reports the same id and is treated as the
+no-op it is, and a `--settings` file the person passes themselves, which keeps the CLI attached but
+without the hook and so back to the old behaviour.
+
 ## 7. Codex on the shared daemon (A11)
 
 Amendment A11 attaches the device to the local Codex app-server daemon, so a bare `codex` TUI is a

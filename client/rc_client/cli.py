@@ -20,6 +20,7 @@ from .agents.codex.daemon import setup as codex_setup
 from .agents.discovery import detect_agents
 from .channel import commands as shim_commands
 from .channel.bridge import main as channel_main
+from .channel.hook import main as hook_main
 from .config import config_exists, config_path, load_config
 from .daemon import Daemon
 from .enroll import enroll
@@ -51,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "channel", help="run the Claude Code channel bridge (started by the CLI, not by hand)"
     )
+    hook_parser = sub.add_parser(
+        "hook", help="run a Claude Code hook (started by Claude Code, not by hand)"
+    )
+    hook_parser.add_argument("event", choices=["session-start"])
 
     shim_parser = sub.add_parser("shim", help="manage the claude shim used to attach sessions")
     shim_parser.add_argument("action", choices=["install", "remove", "status"])
@@ -192,8 +197,10 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    # The channel bridge owns stdout, and its stderr is the CLI's: stay quiet.
-    setup_logging(args.log_level or ("warning" if args.command == "channel" else None))
+    # The channel bridge owns stdout and the hook writes into a live session:
+    # both have to stay quiet.
+    quiet = args.command in {"channel", "hook"}
+    setup_logging(args.log_level or ("warning" if quiet else None))
     handlers: dict[str, Any] = {
         "enroll": _cmd_enroll,
         "run": _cmd_run,
@@ -210,6 +217,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_shim(args)
         if args.command == "channel":
             return int(channel_main())
+        if args.command == "hook":
+            return int(hook_main())
         if args.command == "uninstall":
             return _cmd_uninstall(args)
     except RcError as exc:

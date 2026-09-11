@@ -17,6 +17,7 @@ from ..config import client_home, state_dir
 
 SOCKET_NAME = "channel.sock"
 MCP_CONFIG_NAME = "claude-mcp.json"
+SETTINGS_NAME = "claude-settings.json"
 SHIM_NAME = "claude"
 CHANNEL_SERVER_NAME = "rc"
 
@@ -36,6 +37,10 @@ def mcp_config_path() -> Path:
     return state_dir() / MCP_CONFIG_NAME
 
 
+def settings_path() -> Path:
+    return state_dir() / SETTINGS_NAME
+
+
 def socket_path() -> Path:
     """The daemon's channel socket, shortened when the home directory is deep."""
     preferred = state_dir() / SOCKET_NAME
@@ -45,12 +50,22 @@ def socket_path() -> Path:
     return Path(tempfile.gettempdir()) / f"rc-{os.getuid()}-{digest}" / SOCKET_NAME
 
 
-def channel_command() -> list[str]:
-    """How to start `rc-client channel` from wherever this code is installed."""
+def entrypoint() -> list[str]:
+    """How to call `rc-client` from wherever this code is installed."""
     script = Path(sys.executable).with_name("rc-client")
     if script.is_file() and os.access(script, os.X_OK):
-        return [str(script), "channel"]
-    return [sys.executable, "-m", "rc_client.cli", "channel"]
+        return [str(script)]
+    return [sys.executable, "-m", "rc_client.cli"]
+
+
+def channel_command() -> list[str]:
+    """The stdio MCP server Claude Code spawns for the channel."""
+    return [*entrypoint(), "channel"]
+
+
+def hook_command() -> list[str]:
+    """The `SessionStart` hook Claude Code runs when it enters a session."""
+    return [*entrypoint(), "hook", "session-start"]
 
 
 def path_with_shim(base: str | None = None) -> str:

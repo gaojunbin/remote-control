@@ -48,6 +48,7 @@ Pairing codes are single use and expire after ten minutes. If enrollment fails, 
 | `rc-client shim install\|remove\|status [--no-shell-rc]` | Manage the `claude` shim that makes terminal sessions attachable |
 | `rc-client codex setup\|status [--no-install]` | Bring up and check the shared Codex app-server daemon that makes terminal Codex sessions attachable |
 | `rc-client channel` | The channel bridge Claude Code spawns; never run it by hand |
+| `rc-client hook session-start` | The `SessionStart` hook Claude Code runs; never run it by hand |
 | `rc-client uninstall [--purge] [--no-shell-rc]` | Remove the service and the shim, and with `--purge` the config, state and logs |
 
 Exit codes: `0` success, `1` runtime failure, `2` usage error, `3` not enrolled.
@@ -64,6 +65,7 @@ directory to your `PATH` to call it by name.
   state/rc-client.sqlite3   sessions, events, request idempotency, tail offsets
   state/attachments/        files received with a message
   state/claude-mcp.json     the channel server definition the shim passes to Claude Code
+  state/claude-settings.json  the SessionStart hook the shim passes to Claude Code
   state/channel.sock        where channel bridges register (see below)
   state/link.json           what the gateway link last said about itself
   bin/claude                the shim that starts an attachable Claude session
@@ -307,17 +309,42 @@ The block is appended, never rewritten, so a startup file that is a symlink into
 repository stays one. `install.sh --no-shell-rc` skips it, and `rc-client uninstall` removes it by
 its markers.
 
-The wrapper appends the channel flags **only** when stdin and stdout are both terminals and the
-command line carries none of `-p`, `--print`, `--input-format`, `--output-format`, `--sdk-url`,
-`--mcp-config` or `--dangerously-load-development-channels`. Every other invocation reaches the real
-executable unchanged, which is what keeps the device's own remote sessions — driven over pipes with
+The wrapper appends the channel flags, and the settings file described below, **only** when stdin
+and stdout are both terminals and the command line carries none of `-p`, `--print`,
+`--input-format`, `--output-format`, `--sdk-url`, `--mcp-config` or
+`--dangerously-load-development-channels`. Every other invocation reaches the real executable
+unchanged, which is what keeps the device's own remote sessions — driven over pipes with
 `stream-json` — out of the attachment path entirely. The daemon resolves the real binary itself and
 never points the SDK at the wrapper.
 
 Open a new terminal after installing, then run `claude` as usual. **Claude Code shows a one-time
 confirmation per session** warning about development channels; choose "I am using this for local
 development" and the device attaches within a second. `rc-client shim status` prints where the shim
-is, whether it is first on `PATH`, and which executable it wraps.
+is, whether it is first on `PATH`, which executable it wraps, and the two files it passes.
+
+### The hook that follows `/resume` and `/clear`
+
+An MCP server keeps the environment it was spawned with for as long as it lives, so the channel
+bridge can only ever report the session id Claude Code picked when the terminal started. That is
+wrong the moment you type `/resume` and pick another conversation, or `/clear` and start a new one:
+the terminal is somewhere else and the device is still pointing at the id it was told at startup.
+The session you are actually typing into then shows as `control: "none"` and a message sent from a
+phone cannot reach it, while the session nobody is in claims to be attached.
+
+So the wrapper also passes `--settings ~/.rc-client/state/claude-settings.json`, whose only content
+is a `SessionStart` hook: `rc-client hook session-start`. Claude Code runs it on startup and again
+on every `/resume`, `/clear` and compaction. The hook reads the session id from the hook payload,
+walks up to find the `claude` process that ran it, writes one line to the channel socket and exits;
+the daemon then moves the live attachment to that session. It prints nothing on stdout, because
+anything a `SessionStart` hook prints there is appended to the model's context, and it always exits
+0, because a failing hook would interrupt your session over a feature you did not ask for. If you
+pass a `--settings` file of your own the wrapper leaves it alone: the session still attaches, it
+just carries no hook, and `/resume` inside it goes unnoticed again.
+
+The hook file is written by `rc-client shim install` and again by the daemon at startup, so it names
+whichever installation ran most recently. **A `claude` that was already running when the shim was
+installed or re-installed keeps the wrapper it started with** — the command line and the settings
+file are both read once, at startup — so quit and start it again to pick up a change.
 
 ### What works and what does not
 
@@ -562,8 +589,9 @@ rc-client uninstall           # stop and remove the service and the shim, keep t
 rc-client uninstall --purge   # also delete config, state and logs
 ```
 
-`uninstall` also deletes `bin/claude` and strips the `# >>> remote-control >>>` block from your
-shell startup file. Pass `--no-shell-rc` to leave that file alone.
+`uninstall` also deletes `bin/claude` and `state/claude-settings.json`, and strips the
+`# >>> remote-control >>>` block from your shell startup file. Pass `--no-shell-rc` to leave that
+file alone.
 
 or, from the gateway's own script:
 

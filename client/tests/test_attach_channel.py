@@ -15,7 +15,7 @@ import pytest
 from rc_client.channel import rpc, wire
 from rc_client.channel.bridge import ChannelBridge
 from rc_client.channel.link import DaemonLink
-from rc_client.sessions.attach import Attachment, AttachServer
+from rc_client.sessions.attach import Attachment, AttachServer, SessionStart
 
 
 @pytest.fixture
@@ -130,6 +130,7 @@ class RecordingSink:
         self.registered: list[Attachment] = []
         self.permissions: list[dict[str, Any]] = []
         self.closed: list[Attachment] = []
+        self.starts: list[SessionStart] = []
         self.saw_close = asyncio.Event()
         self.saw_permission = asyncio.Event()
 
@@ -145,6 +146,9 @@ class RecordingSink:
     async def attach_closed(self, attachment: Attachment) -> None:
         self.closed.append(attachment)
         self.saw_close.set()
+
+    async def attach_session_started(self, start: SessionStart) -> None:
+        self.starts.append(start)
 
 
 async def test_a_bridge_and_the_daemon_talk_over_the_unix_socket(short_dir: Path) -> None:
@@ -214,6 +218,69 @@ async def test_a_bridge_started_before_the_daemon_buffers_and_reconnects(
     finally:
         await link.stop()
         await server.stop()
+
+
+async def test_the_session_start_hook_delivers_one_frame_and_hangs_up(short_dir: Path) -> None:
+    """The hook is not an attachment: it says one thing, is answered nothing, and goes."""
+    socket = short_dir / "channel.sock"
+    sink = RecordingSink()
+    server = AttachServer(socket, sink)
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_unix_connection(str(socket))
+        writer.write(
+            wire.encode(
+                wire.session_start("sess-new", "/repo", 4242, "resume", "/transcripts/new.jsonl")
+            )
+        )
+        await writer.drain()
+        assert await reader.read() == b"", "the daemon says nothing back to a hook"
+        writer.close()
+        await asyncio.wait_for(_until(lambda: bool(sink.starts)), timeout=2)
+    finally:
+        await server.stop()
+
+    assert sink.starts == [
+        SessionStart(
+            session_id="sess-new",
+            cwd="/repo",
+            pid=4242,
+            source="resume",
+            transcript_path="/transcripts/new.jsonl",
+        )
+    ]
+    assert sink.registered == []
+
+
+async def test_an_unusable_session_start_frame_is_dropped(short_dir: Path) -> None:
+    socket = short_dir / "channel.sock"
+    sink = RecordingSink()
+    server = AttachServer(socket, sink)
+    await server.start()
+    unusable: list[dict[str, Any]] = [
+        {"type": wire.SESSION_START, "session_id": "", "pid": 7},
+        {"type": wire.SESSION_START, "session_id": "with space", "pid": 7},
+        {"type": wire.SESSION_START, "session_id": "sess-new", "pid": 0},
+        {"type": wire.SESSION_START, "session_id": "sess-new", "pid": "not a number"},
+    ]
+    try:
+        for frame in unusable:
+            reader, writer = await asyncio.open_unix_connection(str(socket))
+            writer.write(wire.encode(frame))
+            await writer.drain()
+            assert await reader.read() == b""
+            writer.close()
+        # An unknown `source` is not a reason to drop the frame: the session
+        # moved either way, and Claude Code may name a source we do not know.
+        reader, writer = await asyncio.open_unix_connection(str(socket))
+        writer.write(wire.encode(dict(wire.session_start("s1", "/repo", 9, "later", ""))))
+        await writer.drain()
+        assert await reader.read() == b""
+        writer.close()
+        await asyncio.wait_for(_until(lambda: bool(sink.starts)), timeout=2)
+    finally:
+        await server.stop()
+    assert [start.source for start in sink.starts] == ["startup"]
 
 
 async def test_a_connection_that_never_registers_is_dropped(short_dir: Path) -> None:

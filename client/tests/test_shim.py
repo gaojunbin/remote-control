@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import pty
+import stat
 import subprocess
 from pathlib import Path
 
@@ -11,6 +13,7 @@ import pytest
 
 from rc_client.channel import paths, shellrc, shim
 from rc_client.channel.mcp_config import mcp_config, write_mcp_config
+from rc_client.channel.settings import write_settings
 
 
 @pytest.mark.parametrize(
@@ -64,8 +67,12 @@ def test_install_writes_a_shim_that_is_recognisable_and_removable(
     assert json.loads(paths.mcp_config_path().read_text())["mcpServers"]["rc"]["args"][-1] == (
         "channel"
     )
-    assert shim.remove() is True
-    assert shim.remove() is False
+    assert paths.settings_path().is_file()
+
+    removal = shim.remove()
+    assert (removal.shim, removal.settings) == (True, True)
+    assert not paths.settings_path().exists()
+    assert shim.remove() == shim.ShimRemoval(shim=False, settings=False)
 
 
 def test_remove_leaves_a_foreign_executable_alone(
@@ -74,7 +81,7 @@ def test_remove_leaves_a_foreign_executable_alone(
     monkeypatch.setenv("PATH", str(tmp_path))
     paths.bin_dir().mkdir(parents=True, exist_ok=True)
     paths.shim_path().write_text("#!/bin/sh\necho not ours\n", encoding="utf-8")
-    assert shim.remove() is False
+    assert shim.remove().shim is False
     assert paths.shim_path().exists()
 
 
@@ -97,6 +104,87 @@ def test_the_shim_resolves_past_itself_and_appends_the_flags_only_on_a_tty(
     assert result.stdout.splitlines() == ["--resume", "abc"]
 
 
+def _run_shim_on_a_tty(args: list[str]) -> list[str]:
+    """Run the wrapper with both ends on a pty: what makes it append its flags.
+
+    The output is read while the child is still alive. A pty discards whatever
+    is still queued when its last slave closes, so collecting it afterwards
+    reads an empty terminal.
+    """
+    primary, secondary = pty.openpty()
+    chunks: list[bytes] = []
+    try:
+        process = subprocess.Popen(
+            [str(paths.shim_path()), *args],
+            stdin=secondary,
+            stdout=secondary,
+            stderr=subprocess.DEVNULL,
+        )
+        os.close(secondary)
+        while True:
+            try:
+                data = os.read(primary, 65536)
+            except OSError:  # the child exited and closed the last slave
+                break
+            if not data:
+                break
+            chunks.append(data)
+        assert process.wait() == 0
+    finally:
+        os.close(primary)
+    text = b"".join(chunks).decode("utf-8").replace("\r\n", "\n")
+    return [line for line in text.split("\n") if line]
+
+
+def _installed_shim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    real = _fake_claude(tmp_path / "real")
+    monkeypatch.setenv("PATH", f"{paths.bin_dir()}{os.pathsep}{real.parent}")
+    shim.install()
+
+
+def test_an_interactive_run_gets_the_channel_flags_and_the_settings_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _installed_shim(tmp_path, monkeypatch)
+    assert _run_shim_on_a_tty(["--model", "opus"]) == [
+        "--model",
+        "opus",
+        shim.CHANNEL_FLAG,
+        shim.CHANNEL_VALUE,
+        "--mcp-config",
+        str(paths.mcp_config_path()),
+        "--settings",
+        str(paths.settings_path()),
+    ]
+
+
+@pytest.mark.parametrize(
+    "own",
+    [["--settings", "/tmp/mine.json"], ["--settings=/tmp/mine.json"]],
+    ids=["space", "equals"],
+)
+def test_a_settings_file_of_the_persons_own_is_kept_and_never_doubled(
+    own: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Their settings win; the session still attaches, it just carries no hook."""
+    _installed_shim(tmp_path, monkeypatch)
+    tokens = _run_shim_on_a_tty(own)
+    assert tokens[: len(own)] == own
+    assert str(paths.settings_path()) not in tokens
+    assert tokens.count("--settings") == own.count("--settings")
+    assert shim.CHANNEL_FLAG in tokens
+
+
+def test_no_settings_file_means_no_settings_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _installed_shim(tmp_path, monkeypatch)
+    paths.settings_path().unlink()
+    tokens = _run_shim_on_a_tty([])
+    assert "--settings" not in tokens
+    assert tokens[-2:] == ["--mcp-config", str(paths.mcp_config_path())]
+
+
 def test_a_shim_earlier_on_path_is_skipped_when_resolving_the_real_binary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -113,6 +201,16 @@ def test_the_mcp_config_names_this_installation_and_its_home() -> None:
     assert server["command"] == "/opt/rc/bin/rc-client"
     assert server["args"] == ["channel"]
     assert server["env"]["RC_CLIENT_HOME"]
+
+
+def test_the_settings_file_holds_one_session_start_hook_and_stays_private() -> None:
+    target = write_settings(["/opt/rc/bin/rc-client", "hook", "session-start"])
+    assert target == paths.settings_path()
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    entries = json.loads(target.read_text())["hooks"]["SessionStart"]
+    assert len(entries) == 1
+    assert "matcher" not in entries[0], "no matcher, so every source fires"
+    assert entries[0]["hooks"][0]["command"].endswith("/opt/rc/bin/rc-client hook session-start")
 
 
 def test_the_socket_path_stays_inside_the_unix_limit(monkeypatch: pytest.MonkeyPatch) -> None:

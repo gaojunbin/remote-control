@@ -57,6 +57,13 @@ The open or closed choice is kept per device id as well. A session that comes ba
 from a terminal, or written to from an app — leaves the Archive by itself: the device clears the
 flag as the turn starts (A15), and the row is back among Active rows before its first output lands.
 
+**A session that never held a message does not exist.** A CLI picks an id the moment it starts, and
+if the person then resumes another session or quits, that id never gets a transcript. The device
+removes it the instant the terminal leaves it (A16), so no list ever shows an "Untitled session" row
+that nothing can open. When a terminal moves from one session to another with `/resume` or `/clear`,
+the row that turns `shared` is the one the terminal is actually in, and the one it left drops to the
+Archive by the rule above.
+
 A non-empty search overrides both stored choices without writing either: it opens every device group
 that still holds a match and every Archive a match landed in. Clearing the query hands the list back
 to what was stored.

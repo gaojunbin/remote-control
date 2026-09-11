@@ -16,6 +16,9 @@ MAX_LINE_BYTES = 256 * 1024
 REGISTER = "register"
 PERMISSION_REQUEST = "permission_request"
 CLOSED = "closed"
+# session-start hook -> daemon: one frame on its own connection, then EOF
+SESSION_START = "session_start"
+SESSION_START_SOURCES = ("startup", "resume", "clear", "compact")
 # daemon -> bridge
 INJECT = "inject"
 PERMISSION = "permission"
@@ -46,6 +49,24 @@ def register(session_id: str, cwd: str, pid: int, claude_version: str | None) ->
         "cwd": cwd,
         "pid": pid,
         "claude_version": claude_version,
+    }
+
+
+def session_start(
+    session_id: str, cwd: str, pid: int, source: str, transcript_path: str
+) -> dict[str, Any]:
+    """What the `SessionStart` hook tells the daemon: which session `pid` serves now.
+
+    `pid` is the Claude Code process itself (the hook's ancestor), never the
+    hook's own shell. `source` is Claude Code's word for why the hook fired.
+    """
+    return {
+        "type": SESSION_START,
+        "session_id": session_id,
+        "cwd": cwd,
+        "pid": pid,
+        "source": source,
+        "transcript_path": transcript_path,
     }
 
 

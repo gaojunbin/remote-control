@@ -12,6 +12,7 @@ from typing import Any
 
 from .. import attachments
 from ..agents.base import SessionRunner
+from ..agents.claude import transcripts
 from ..agents.claude.adapter import ClaudeRunner
 from ..agents.codex.adapter import CodexRunner
 from ..agents.codex.daemon.service import CodexDaemonService
@@ -22,7 +23,7 @@ from ..logging_setup import logger
 from ..models import AgentInfo, Session, now_ms, title_from_text
 from ..registry import Registry
 from . import titles
-from .attach import Attachment
+from .attach import Attachment, SessionStart
 from .channel import SessionChannel
 from .shared import EXIT_SETTLE, SharedControl, SharedState
 
@@ -31,6 +32,11 @@ log = logger("rc_client.hub")
 Publisher = Callable[[dict[str, Any]], Awaitable[None]]
 MAX_TEXT_BYTES = 64 * 1024
 MAX_ATTACHMENTS = 8
+# How many terminals may be remembered at once, and how many removals may wait
+# for a link. Both are bounded because a terminal that never closes its bridge
+# and a link that never comes back would otherwise grow them without end.
+MAX_TERMINALS = 64
+MAX_PENDING_REMOVALS = 64
 
 
 def _as_int(value: Any, field: str) -> int | None:
@@ -73,6 +79,16 @@ class SessionHub:
         # Set by the daemon once the shared Codex app-server answers a handshake
         # (amendment A11); absent means the per-session spawn path.
         self.codex_daemon: CodexDaemonService | None = None
+        # The session each terminal CLI last said it was in, by its own pid.
+        self._terminals: dict[int, SessionStart] = {}
+        # Ghost removals and the link they were published on. A frame published
+        # while the link is down is dropped, so each one is said again on the
+        # next link.
+        self._removed: list[tuple[int, str]] = []
+        self._link = 0
+        # Whether the gateway link is up right now; the daemon wires the real
+        # answer in, so a repeated removal is never published into a gap.
+        self.link_up: Callable[[], bool] = lambda: True
 
     # ------------------------------------------------------------- accessors
 
@@ -83,6 +99,8 @@ class SessionHub:
         raise RcError("agent_unavailable", f"unknown agent {agent}")
 
     def snapshot(self) -> list[dict[str, Any]]:
+        """The sessions a `hello` announces, and the mark that a link is starting."""
+        self._link += 1
         return [entry.session.to_dict() for entry in self.entries.values()]
 
     def entry(self, session_id: str) -> SessionEntry:
@@ -548,8 +566,12 @@ class SessionHub:
         return {"session": entry.session.to_dict()}
 
     async def delete(self, params: dict[str, Any]) -> dict[str, Any]:
-        session_id = str(params.get("session_id") or "")
-        entry = self.entry(session_id)
+        await self._remove(self.entry(str(params.get("session_id") or "")))
+        return {}
+
+    async def _remove(self, entry: SessionEntry) -> None:
+        """Forget a session here and everywhere: nothing of it is kept."""
+        session_id = entry.session.session_id
         if entry.shared is not None:
             entry.shared.attachment.detach()
             entry.shared = None
@@ -560,7 +582,6 @@ class SessionHub:
         self.registry.delete_session(session_id)
         attachments.cleanup(session_id)
         await self.publish({"type": "session.removed", "session_id": session_id})
-        return {}
 
     async def takeover(self, params: dict[str, Any]) -> dict[str, Any]:
         from ..agents.claude.holders import release_holder
@@ -599,25 +620,41 @@ class SessionHub:
             await self.shared.registered(entry, attachment)
 
     def _attach_entry(self, attachment: Attachment) -> SessionEntry | None:
-        entry = self.entries.get(attachment.session_id)
+        """The session this bridge speaks for, which is not always the one it names.
+
+        Claude Code hands an MCP server the environment it was spawned with, so
+        a bridge reports the id the CLI chose at startup for as long as it runs.
+        Where its hook has already said otherwise, the hook is the fresher
+        account and the attachment follows it.
+        """
+        start = self._terminals.get(attachment.pid)
+        if start is not None and start.session_id != attachment.session_id:
+            attachment.session_id = start.session_id
+            return self._terminal_entry(start.session_id, attachment.cwd, start.transcript_path)
+        return self._terminal_entry(attachment.session_id, attachment.cwd, "")
+
+    def _terminal_entry(self, session_id: str, cwd: str, transcript: str) -> SessionEntry | None:
+        """The entry a terminal CLI attaches to, created the first time it is seen."""
+        entry = self.entries.get(session_id)
         if entry is not None:
             if entry.runner is not None:
                 # This device already drives the session; a second writer would
                 # interleave two conversations in one transcript.
                 log.warning("refusing a channel attachment for a session we drive")
                 return None
+            entry.transcript = entry.transcript or transcript or None
             return entry
         session = Session(
-            session_id=attachment.session_id,
+            session_id=session_id,
             device_id=self.device_id,
             agent="claude",
-            cwd=attachment.cwd,
+            cwd=cwd,
             title="",
             state="idle",
             origin="terminal",
             control="shared",
         )
-        entry = self.register_mirrored(session)
+        entry = self.register_mirrored(session, transcript or None)
         entry.channel.start()
         return entry
 
@@ -632,6 +669,7 @@ class SessionHub:
 
     async def attach_closed(self, attachment: Attachment) -> None:
         """The bridge went away: back to the terminal if the CLI is still alive."""
+        self._terminals.pop(attachment.pid, None)
         entry = self.entries.get(attachment.session_id)
         if entry is None or entry.shared is None:
             return
@@ -639,6 +677,113 @@ class SessionHub:
         control = await self._holder_control(entry)
         async with entry.lock:
             await self.shared.closed(entry, attachment, control)
+        if control == "none" and self._is_ghost(entry):
+            await self._remove_ghost(entry)
+
+    # --------------------------------------------------- the session behind it
+
+    async def attach_session_started(self, start: SessionStart) -> None:
+        """A `SessionStart` hook: the CLI at `start.pid` is now in `start.session_id`.
+
+        The hook is the only account of a `/resume` or a `/clear` the device
+        gets: those change the session a terminal is in without restarting
+        anything, so the bridge keeps naming the session the CLI started on.
+        """
+        self._remember_terminal(start)
+        entry = self._attached_to(start.pid)
+        if entry is None or entry.session.session_id == start.session_id:
+            return
+        await self._move_attachment(entry, start)
+
+    def _remember_terminal(self, start: SessionStart) -> None:
+        self._terminals.pop(start.pid, None)
+        self._terminals[start.pid] = start
+        for pid in list(self._terminals)[:-MAX_TERMINALS]:
+            self._terminals.pop(pid, None)
+
+    def _attached_to(self, pid: int) -> SessionEntry | None:
+        """The session whose live bridge belongs to this CLI process."""
+        for entry in self.entries.values():
+            state = entry.shared
+            if state is not None and state.attachment.pid == pid:
+                return entry
+        return None
+
+    async def _move_attachment(self, entry: SessionEntry, start: SessionStart) -> None:
+        """Carry a live attachment over to the session its terminal has moved to."""
+        state = entry.shared
+        if state is None:
+            return
+        attachment = state.attachment
+        target = self._terminal_entry(start.session_id, start.cwd, start.transcript_path)
+        if target is None:
+            return
+        log.info("a terminal moved to another session", source=start.source)
+        attachment.session_id = start.session_id
+        async with entry.lock:
+            entry.holder_pid = None
+            entry.holder_identity = None
+            await self.shared.closed(entry, attachment, "none")
+        async with target.lock:
+            await self.shared.registered(target, attachment)
+        if self._is_ghost(entry):
+            await self._remove_ghost(entry)
+
+    # ---------------------------------------------------------------- ghosts
+
+    def _is_ghost(self, entry: SessionEntry) -> bool:
+        """A session a terminal announced and left without ever using it.
+
+        Every interactive `claude` names a session before anyone types into it,
+        and picking another one with `/resume` leaves that name behind: no
+        transcript is ever written for it and nothing is ever said in it. The
+        test for "nothing was said" is the stored history rather than
+        `last_seq`, which counts the `meta` and `status` events an attachment
+        publishes about itself and is never 0 for a session that was attached.
+        """
+        session = entry.session
+        if session.agent != "claude" or session.origin != "terminal":
+            return False
+        if entry.shared is not None or entry.runner is not None:
+            return False
+        if entry.transcript is not None:
+            return False
+        if self.registry.has_events(session.session_id):
+            return False
+        return transcripts.find_transcript(session.session_id) is None
+
+    async def sweep_ghosts(self) -> None:
+        """Drop every ghost the device is holding, and repeat older removals.
+
+        Run from the mirror's scan, which also runs once the gateway link comes
+        up: a `session.removed` published while the link was down was dropped,
+        and the gateway keeps every session a device has ever announced, so an
+        unrepeated removal would leave the ghost in the apps.
+        """
+        await self._repeat_removals()
+        for entry in list(self.entries.values()):
+            if self._is_ghost(entry):
+                await self._remove_ghost(entry)
+
+    async def _remove_ghost(self, entry: SessionEntry) -> None:
+        session_id = entry.session.session_id
+        await self._remove(entry)
+        self._removed.append((self._link, session_id))
+        del self._removed[:-MAX_PENDING_REMOVALS]
+
+    async def _repeat_removals(self) -> None:
+        """Announce again every removal that went out over an earlier link.
+
+        Only while the link is up: a repeat published into a gap would be
+        dropped like the original, and the record with it.
+        """
+        if not self.link_up():
+            return
+        current = self._link
+        stale = [session_id for link, session_id in self._removed if link < current]
+        self._removed = [item for item in self._removed if item[0] >= current]
+        for session_id in stale:
+            await self.publish({"type": "session.removed", "session_id": session_id})
 
     async def _holder_control(self, entry: SessionEntry) -> str:
         """Whether the CLI whose bridge just closed is still sitting in the terminal.

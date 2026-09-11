@@ -1,8 +1,10 @@
 """The daemon end of the channel: a Unix socket the `rc-client channel` bridges dial.
 
-One connection is one attached CLI session. The socket lives inside the device
-home with owner-only permissions, because anything that can write to it can
-inject prompts into a live agent and approve its tool calls.
+A connection is either one attached CLI session, held open for as long as that
+session lives, or a single `session_start` frame from the hook Claude Code runs
+when a terminal enters a session. The socket lives inside the device home with
+owner-only permissions, because anything that can write to it can inject
+prompts into a live agent and approve its tool calls.
 """
 
 from __future__ import annotations
@@ -10,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import re
 import stat
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,6 +24,18 @@ from ..logging_setup import logger
 log = logger("rc_client.attach")
 
 REGISTER_TIMEOUT = 10.0
+_SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,80}")
+
+
+@dataclass(slots=True, frozen=True)
+class SessionStart:
+    """The session a terminal CLI serves from now on, as its hook reported it."""
+
+    session_id: str
+    cwd: str
+    pid: int
+    source: str
+    transcript_path: str
 
 
 class AttachSink(Protocol):
@@ -33,6 +48,8 @@ class AttachSink(Protocol):
     ) -> None: ...
 
     async def attach_closed(self, attachment: Attachment) -> None: ...
+
+    async def attach_session_started(self, start: SessionStart) -> None: ...
 
 
 @dataclass(slots=True)
@@ -136,7 +153,15 @@ class AttachServer:
                 await writer.wait_closed()
 
     async def _session(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        attachment = await self._register(reader, writer)
+        message = await self._opening_frame(reader)
+        if message is None:
+            return
+        if message.get("type") == wire.SESSION_START:
+            start = _session_start(message)
+            if start is not None:
+                await self._sink.attach_session_started(start)
+            return
+        attachment = await self._register(message, writer)
         if attachment is None:
             return
         await self._sink.attach_registered(attachment)
@@ -154,16 +179,18 @@ class AttachServer:
             await self._sink.attach_closed(attachment)
 
     @staticmethod
-    async def _register(
-        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> Attachment | None:
-        """The first frame must identify the session, or the connection is dropped."""
+    async def _opening_frame(reader: asyncio.StreamReader) -> dict[str, Any] | None:
+        """What the connection is for; a caller that says nothing in time is dropped."""
         try:
             line = await asyncio.wait_for(reader.readline(), timeout=REGISTER_TIMEOUT)
         except (TimeoutError, OSError):
             return None
-        message = wire.decode(line)
-        if message is None or message.get("type") != wire.REGISTER:
+        return wire.decode(line)
+
+    @staticmethod
+    async def _register(message: dict[str, Any], writer: asyncio.StreamWriter) -> Attachment | None:
+        """The first frame must identify the session, or the connection is dropped."""
+        if message.get("type") != wire.REGISTER:
             return None
         session_id = str(message.get("session_id") or "")
         if not session_id:
@@ -178,3 +205,29 @@ class AttachServer:
             claude_version=str(raw_version) if raw_version else None,
             writer=writer,
         )
+
+
+def _session_start(message: dict[str, Any]) -> SessionStart | None:
+    """Read a `session_start` frame, or None when it names no live CLI.
+
+    The hook runs unattended in the terminal, so a frame that cannot be trusted
+    to identify a process and a session is dropped rather than guessed at: an
+    unusable one would move a live attachment onto the wrong conversation.
+    """
+    session_id = str(message.get("session_id") or "")
+    if not _SESSION_ID.fullmatch(session_id):
+        return None
+    try:
+        pid = int(message.get("pid") or 0)
+    except (TypeError, ValueError):
+        return None
+    if pid <= 0:
+        return None
+    source = str(message.get("source") or "")
+    return SessionStart(
+        session_id=session_id,
+        cwd=str(message.get("cwd") or ""),
+        pid=pid,
+        source=source if source in wire.SESSION_START_SOURCES else "startup",
+        transcript_path=str(message.get("transcript_path") or ""),
+    )
