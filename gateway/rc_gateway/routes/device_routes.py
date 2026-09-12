@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -10,6 +11,7 @@ from fastapi.responses import JSONResponse
 from ..config import PAIRING_TTL_SECONDS
 from ..logging import logger
 from ..origins import websocket_url
+from ..pairing_requests import is_claim_token
 from ..security import Credential, client_ip, require_user, state_of
 from ..views import device_view
 from .session_routes import _bounded_body
@@ -108,6 +110,75 @@ async def cancel_pairing(
     if not removed:
         raise HTTPException(status_code=404, detail={"code": "not_found"})
     return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/api/pairing/requests")
+async def create_pairing_request(request: Request) -> JSONResponse:
+    """A host asks to be claimed by scanning (A23). Unauthenticated: the token grants nothing."""
+    state = state_of(request)
+    if state.pairing_limiter.limited(client_ip(request, state)):
+        raise HTTPException(status_code=429, detail={"code": "too_many_requests"})
+    pending = state.pairing_requests.mint()
+    if pending is None:
+        log.warning("pairing request refused: too many outstanding claim tokens")
+        raise HTTPException(status_code=429, detail={"code": "too_many_requests"})
+    return JSONResponse(
+        {
+            "token": pending.token,
+            "expires_at": pending.expires_at * 1000,
+            "claim_url": f"{state.config.public_origin}/pair#{pending.token}",
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/api/pairing/requests/{token}")
+async def pairing_request_status(token: str, request: Request) -> JSONResponse:
+    """The host's long poll: held open until the token is claimed, then the code, exactly once."""
+    state = state_of(request)
+    pending = state.pairing_requests.find(token) if is_claim_token(token) else None
+    if pending is None:
+        raise HTTPException(status_code=404, detail={"code": "not_found"})
+    if pending.expired(int(time.time())):
+        state.pairing_requests.spend(token)
+        raise HTTPException(status_code=410, detail={"code": "not_found"})
+    if not await state.pairing_requests.wait_for_claim(pending):
+        return JSONResponse({"status": "waiting"}, headers={"Cache-Control": "no-store"})
+    # Delivered exactly once: the host enrols with the code, and a replayed poll reads 404.
+    state.pairing_requests.spend(token)
+    return JSONResponse(
+        {
+            "status": "claimed",
+            "code": pending.code,
+            "expires_at": pending.code_expires_at * 1000,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/api/pairing/requests/{token}/claim")
+async def claim_pairing_request(
+    token: str, request: Request, credential: Credential = Depends(require_user)
+) -> JSONResponse:
+    """Bind a host's request to the signed-in user and mint its pairing code (A23)."""
+    state = state_of(request)
+    outcome = state.pairing_requests.begin_claim(token) if is_claim_token(token) else "not_found"
+    if outcome == "not_found":
+        raise HTTPException(status_code=404, detail={"code": "not_found"})
+    if outcome == "conflict":
+        raise HTTPException(status_code=409, detail={"code": "conflict"})
+    try:
+        grant = await state.devices.create_pairing(credential.username, ttl=PAIRING_TTL_SECONDS)
+    except Exception:
+        state.pairing_requests.abandon(token)
+        raise
+    await state.hub.pairing_started(grant.code)
+    state.pairing_requests.fulfil(token, grant.code, grant.expires_at)
+    log.info("pairing request claimed")
+    return JSONResponse(
+        {"code": grant.code, "expires_at": grant.expires_at * 1000},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.post("/api/devices/enroll")

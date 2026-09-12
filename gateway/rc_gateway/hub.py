@@ -19,13 +19,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .connections import AppConnection, DeviceConnection, SlowClientError, encode
-from .devices import DeviceStore, normalize_pairing_code
+from .devices import UPDATE_FAILED, UPDATE_RUNNING, DeviceStore, normalize_pairing_code
 from .frames import (
     CLOSE_DEVICE_REPLACED,
     CLOSE_FORBIDDEN,
     CLOSE_SLOW_CLIENT,
     CLOSE_UNAUTHORIZED,
     DEVICE_PUSH_TYPES,
+    DEVICE_UPDATE,
+    DEVICE_UPDATE_FAILED,
     ERROR_BAD_REQUEST,
     ERROR_DEVICE_OFFLINE,
     ERROR_NOT_FOUND,
@@ -87,6 +89,11 @@ MAX_REPLAY_BUFFERS = 512
 #: Session states that mean a turn is in progress (``needs_*`` are sub-states of running, §3).
 ACTIVE_STATES = frozenset({"running", "needs_approval", "needs_input"})
 
+#: A22. A device that accepted an update installs a wheel and restarts its service, so it is gone
+#: for a few seconds. Past this it is not coming back on its own and the row says so.
+UPDATE_TIMEOUT_SECONDS = 300.0
+UPDATE_TIMEOUT_MESSAGE = "the device did not come back"
+
 TransitionHook = Callable[[str, str, dict[str, Any], bool], Awaitable[None]]
 
 
@@ -94,6 +101,8 @@ TransitionHook = Callable[[str, str, dict[str, Any], bool], Awaitable[None]]
 class _Pending:
     device_id: str
     connection_id: str
+    #: The frame type that was forwarded; ``device.update`` moves the device on an accepted reply.
+    kind: str = ""
     timer: asyncio.Task[None] | None = None
 
 
@@ -124,11 +133,13 @@ class Hub:
         on_session_transition: TransitionHook | None = None,
         request_timeout: float = REQUEST_TIMEOUT_SECONDS,
         offline_grace: float = OFFLINE_GRACE_SECONDS,
+        update_timeout: float = UPDATE_TIMEOUT_SECONDS,
     ) -> None:
         self.index = index
         self.device_store = device_store
         self.request_timeout = request_timeout
         self.offline_grace = offline_grace
+        self.update_timeout = update_timeout
         self._on_session_transition = on_session_transition
         self._devices: dict[str, DeviceConnection] = {}
         self._apps: dict[str, AppConnection] = {}
@@ -140,6 +151,7 @@ class Hub:
         self._backfills: set[asyncio.Task[None]] = set()
         self._transitions: set[asyncio.Task[None]] = set()
         self._grace: dict[str, _Grace] = {}
+        self._updates: dict[str, asyncio.Task[None]] = {}
         self._pairings: dict[str, _Pairing] = {}
         self._lock = asyncio.Lock()
         self._send_lock = asyncio.Lock()
@@ -162,6 +174,8 @@ class Hub:
         self._backfills.clear()
         for device_id in list(self._grace):
             self._end_grace(device_id)
+        for device_id in list(self._updates):
+            self._cancel_update_timer(device_id)
         await self._drain_transitions()
         for waiting in self._gateway_pending.values():
             waiting.cancel()
@@ -318,6 +332,12 @@ class Hub:
             arch=text_field(frame, "arch"),
             client_version=text_field(frame, "client_version"),
         )
+        # A22: the device that comes back is the outcome of any update it was asked for, so the
+        # build it announces lands before the apps are told anything about it.
+        self._cancel_update_timer(connection.device_id)
+        await self.device_store.record_build(
+            connection.device_id, text_field(frame, "client_build") or None
+        )
         await self.device_store.touch(connection.device_id)
         sessions = frame.get("sessions")
         if isinstance(sessions, list):
@@ -458,6 +478,45 @@ class Hub:
             await self._announce_device(connection)
             if has_available_agent(connection.agents):
                 await self._advance_pairing(connection.device_id, "agents")
+        elif kind == DEVICE_UPDATE_FAILED:
+            await self._fail_update(
+                connection.device_id, text_field(frame, "message") or "the update did not complete"
+            )
+
+    # ---- client updates (A22) ----
+
+    async def _begin_update(self, device_id: str) -> None:
+        """The device accepted ``device.update``: it is away until it returns, or until it fails."""
+        await self.device_store.set_update(device_id, UPDATE_RUNNING)
+        await self._announce_stored_device(device_id)
+        self._arm_update_timer(device_id)
+
+    async def _fail_update(self, device_id: str, message: str) -> None:
+        self._cancel_update_timer(device_id)
+        await self.device_store.set_update(device_id, UPDATE_FAILED, message)
+        await self._announce_stored_device(device_id)
+
+    def _arm_update_timer(self, device_id: str) -> None:
+        self._cancel_update_timer(device_id)
+        self._updates[device_id] = asyncio.create_task(self._expire_update(device_id))
+
+    def _cancel_update_timer(self, device_id: str) -> None:
+        timer = self._updates.pop(device_id, None)
+        if timer is not None:
+            timer.cancel()
+
+    async def _expire_update(self, device_id: str) -> None:
+        try:
+            await asyncio.sleep(self.update_timeout)
+        except asyncio.CancelledError:
+            return
+        self._updates.pop(device_id, None)
+        record = await self.device_store.get(device_id)
+        if record is None or record.update_state != UPDATE_RUNNING:
+            return
+        log.warning("client update did not complete", device_id=device_id)
+        await self.device_store.set_update(device_id, UPDATE_FAILED, UPDATE_TIMEOUT_MESSAGE)
+        await self._announce_stored_device(device_id)
 
     # ---- app side ----
 
@@ -641,14 +700,16 @@ class Hub:
                     error_reply(identifier, ERROR_DEVICE_OFFLINE, "device link broken"),
                 )
                 return
-        self._track_pending(connection, identifier, device_id)
+        self._track_pending(connection, identifier, device_id, kind)
 
-    def _track_pending(self, connection: AppConnection, identifier: str, device_id: str) -> None:
+    def _track_pending(
+        self, connection: AppConnection, identifier: str, device_id: str, kind: str
+    ) -> None:
         key = (connection.id, identifier)
         existing = self._pending.get(key)
         if existing is not None and existing.timer is not None:
             existing.timer.cancel()
-        pending = _Pending(device_id=device_id, connection_id=connection.id)
+        pending = _Pending(device_id=device_id, connection_id=connection.id, kind=kind)
         self._pending[key] = pending
         pending.timer = asyncio.create_task(self._expire_pending(key, identifier))
 
@@ -691,6 +752,8 @@ class Hub:
         del self._pending[key]
         if pending.timer is not None:
             pending.timer.cancel()
+        if pending.kind == DEVICE_UPDATE and frame.get("ok") is True:
+            await self._begin_update(device.device_id)
         async with self._lock:
             connection = self._apps.get(target)
         if connection is None:
@@ -950,6 +1013,22 @@ class Hub:
                 "type": "device.updated",
                 "device": device_view(
                     record, online=True, latency_ms=connection.latency_ms, last_seen=_now_ms()
+                ),
+            }
+        )
+
+    async def _announce_stored_device(self, device_id: str) -> None:
+        """Publish a device the gateway changed itself, with its connection state as it is now."""
+        record = await self.device_store.get(device_id)
+        if record is None:
+            return
+        await self.broadcast_apps(
+            {
+                "type": "device.updated",
+                "device": device_view(
+                    record,
+                    online=self.device_online(device_id),
+                    latency_ms=self.latency_for(device_id),
                 ),
             }
         )

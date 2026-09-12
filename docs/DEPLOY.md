@@ -44,6 +44,31 @@ curl https://rc.example.com/api/health
 Open the origin in a browser, sign in with `RC_PASSWORD`, and add your first device from
 **Devices → Add device**.
 
+## Pairing a device
+
+Two flows reach the same enrolment, and both start at **Devices → Add device**.
+
+**A typed code.** The app mints a pairing code, single use and valid for ten minutes, and shows the
+command to run on the host:
+
+```sh
+curl -fsSL https://rc.example.com/install.sh | sh -s -- --pair RC-XXXX-XXXX
+```
+
+**A scanned code.** The host runs the same installer with no code:
+
+```sh
+curl -fsSL https://rc.example.com/install.sh | sh
+```
+
+It asks the gateway for a claim token, prints `https://rc.example.com/pair#<token>` as a QR code and
+waits. Scanning that code with the iOS app, or opening the link in a signed-in browser, claims the
+token for that user: the gateway mints the ordinary pairing code, hands it to the waiting host and
+enrolment continues exactly as it does for a typed code. Claim tokens live in memory only, for ten
+minutes. Restarting the gateway forgets them, the host's poll then reads `404` and the installer
+says to run the command again. Minting one needs no credential, so it is rate limited to six per
+minute per address and fifty outstanding tokens for the whole gateway.
+
 ## `.env` reference
 
 Only `PUBLIC_ORIGIN` and `RC_PASSWORD` are required; the gateway refuses to start without them and
@@ -165,6 +190,18 @@ Each of the four databases applies its own additive migrations when it is opened
 apps stay signed in: login sessions are recorded in `auth.sqlite3` rather than in memory, so a
 restart or an image update no longer signs everyone out. Expired and revoked rows are pruned at
 startup, which is logged as `pruned expired login sessions`.
+
+**Updating the devices.** The gateway serves one client wheel at `/dist/rc_client-latest.whl` and
+reports it to the apps as `client` in `GET /api/config`: its version, its SHA-256 and its URL. Every
+device reports the build it was installed from, so a row in **Devices** whose build differs offers
+**Update**, which asks that device to fetch exactly that build, verify its hash, install it and
+restart its service. The row reads "Updating…" until the device reconnects on the new build, and
+"Update failed · <reason>" if it reports a failure or does not come back within five minutes. The gateway needs nothing beyond the wheel it already serves:
+rebuild after a `git pull` and every device can be brought forward from an app.
+
+`GET /api/config` omits `client` in exactly one case, a gateway run from a source checkout where no
+wheel has been built. The apps then offer no update, because there is no build to name. The image
+`docker compose build` produces always carries one.
 
 **Backing up.** Everything durable is in the `rc-data` volume: login sessions, the device registry,
 the session index, push subscriptions, the token-signing secret and the VAPID private key.

@@ -38,6 +38,8 @@ from .ws import app_ws, device_ws, stt_ws
 log = logger("rc_gateway.app")
 
 ENROLL_MAX_PER_IP = 30
+#: A23: an unauthenticated host may ask to be claimed this often per minute.
+PAIRING_MAX_PER_IP = 6
 _STATUS_CODES = {
     "bad_request": 400,
     "unauthorized": 401,
@@ -69,6 +71,7 @@ def build_state(
         sessions=SessionRegistry(auth_store),
         login_limiter=RateLimiter(max_per_ip=MAX_PER_IP),
         enroll_limiter=RateLimiter(max_per_ip=ENROLL_MAX_PER_IP),
+        pairing_limiter=RateLimiter(max_per_ip=PAIRING_MAX_PER_IP),
     )
     state.apns = apns if apns is not None else _build_apns(config)
     state.push = PushService(

@@ -27,12 +27,20 @@ from .migrations import Migration, apply_migrations
 MIGRATIONS: tuple[Migration, ...] = (
     ("devices", "agents", "TEXT NOT NULL DEFAULT '[]'"),
     ("pairing_codes", "redeemed_at", "INTEGER"),
+    ("devices", "client_build", "TEXT"),
+    ("devices", "update_state", "TEXT NOT NULL DEFAULT 'idle'"),
+    ("devices", "update_message", "TEXT"),
 )
 
 PAIR_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 CODE_BODY_LENGTH = 8
 MAX_ACTIVE_DEVICES = 64
 MIN_TOKEN_LENGTH = 32
+
+#: ``Device.update_state`` (A22). A device is ``idle`` until an app asks it to update.
+UPDATE_IDLE = "idle"
+UPDATE_RUNNING = "updating"
+UPDATE_FAILED = "failed"
 
 
 def _digest(value: str) -> bytes:
@@ -63,6 +71,10 @@ class DeviceRecord:
     created_at: int
     last_seen: int | None
     agents: list[dict[str, Any]] = field(default_factory=list)
+    #: A22: the wheel the client was installed from, and the update an app asked for.
+    client_build: str | None = None
+    update_state: str = UPDATE_IDLE
+    update_message: str | None = None
 
 
 @dataclass(frozen=True)
@@ -109,7 +121,10 @@ class DeviceStore:
                     token_hash BLOB NOT NULL UNIQUE,
                     created_at INTEGER NOT NULL,
                     last_seen INTEGER,
-                    agents TEXT NOT NULL DEFAULT '[]'
+                    agents TEXT NOT NULL DEFAULT '[]',
+                    client_build TEXT,
+                    update_state TEXT NOT NULL DEFAULT 'idle',
+                    update_message TEXT
                 )
                 """
             )
@@ -332,6 +347,33 @@ class DeviceStore:
                 (*updates.values(), device_id),
             )
 
+    async def record_build(self, device_id: str, client_build: str | None) -> None:
+        """Store the build a ``hello`` reported and clear whatever update it ended (A22).
+
+        Every ``hello`` clears the update: the device that comes back is the outcome, whether it
+        carries the new build or the old one after a failed install.
+        """
+        await asyncio.to_thread(self._record_build, device_id, client_build)
+
+    def _record_build(self, device_id: str, client_build: str | None) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE devices SET client_build=?, update_state=?, update_message=NULL "
+                "WHERE device_id=?",
+                (client_build or None, UPDATE_IDLE, device_id),
+            )
+
+    async def set_update(self, device_id: str, state: str, message: str | None = None) -> None:
+        """Record that an app-requested update is running or has failed (A22)."""
+        await asyncio.to_thread(self._set_update, device_id, state, message)
+
+    def _set_update(self, device_id: str, state: str, message: str | None) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE devices SET update_state=?, update_message=? WHERE device_id=?",
+                (state, message, device_id),
+            )
+
     async def rename(self, device_id: str, username: str, name: str) -> bool:
         return await asyncio.to_thread(self._rename, device_id, username, name)
 
@@ -355,7 +397,8 @@ class DeviceStore:
 
 
 _COLUMNS = (
-    "device_id, name, platform, hostname, arch, client_version, created_at, last_seen, agents"
+    "device_id, name, platform, hostname, arch, client_version, created_at, last_seen, agents, "
+    "client_build, update_state, update_message"
 )
 
 
@@ -370,6 +413,9 @@ def _record(row: Any) -> DeviceRecord:
         created_at=int(row["created_at"]),
         last_seen=None if row["last_seen"] is None else int(row["last_seen"]),
         agents=_agents(row["agents"]),
+        client_build=None if row["client_build"] is None else str(row["client_build"]),
+        update_state=str(row["update_state"] or UPDATE_IDLE),
+        update_message=None if row["update_message"] is None else str(row["update_message"]),
     )
 
 

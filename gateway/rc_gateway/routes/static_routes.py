@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 
+from ..client_dist import WHEEL_ALIAS, newest_wheel
 from ..logging import logger
 from ..security import state_of
 
@@ -21,7 +22,6 @@ log = logger("rc_gateway.static")
 router = APIRouter()
 
 GATEWAY_ORIGIN_PLACEHOLDER = "__GATEWAY_ORIGIN__"
-WHEEL_ALIAS = "rc_client-latest.whl"
 IMMUTABLE = "public, max-age=31536000, immutable"
 NO_STORE = "no-store, must-revalidate"
 _SAFE_NAME = re.compile(r"[A-Za-z0-9._+-]{1,128}")
@@ -70,7 +70,7 @@ async def client_wheel(filename: str, request: Request) -> Response:
     if _SAFE_NAME.fullmatch(filename) is None:
         raise HTTPException(status_code=404, detail={"code": "not_found"})
     directory = state.config.client_dist_dir
-    target = _newest_wheel(directory) if filename == WHEEL_ALIAS else directory / filename
+    target = newest_wheel(directory) if filename == WHEEL_ALIAS else directory / filename
     if target is None or not target.is_file() or target.parent != directory:
         raise HTTPException(status_code=404, detail={"code": "not_found"})
     return FileResponse(
@@ -120,13 +120,3 @@ def _fingerprinted(candidate: Path, root: Path) -> bool:
         return candidate.relative_to(root.resolve()).parts[0] == "assets"
     except ValueError:
         return False
-
-
-def _newest_wheel(directory: Path) -> Path | None:
-    if not directory.is_dir():
-        return None
-    wheels = sorted(
-        (item for item in directory.glob("rc_client-*.whl") if item.is_file()),
-        key=lambda item: item.stat().st_mtime,
-    )
-    return wheels[-1] if wheels else None

@@ -43,12 +43,24 @@ FORWARDED_BY_SESSION = frozenset(
         "session.delete",
     }
 )
-FORWARDED_BY_DEVICE = frozenset({"session.create", "device.dirs", "device.git", "device.agents"})
+FORWARDED_BY_DEVICE = frozenset(
+    {"session.create", "device.dirs", "device.git", "device.agents", "device.update"}
+)
 FORWARDED_TYPES = FORWARDED_BY_SESSION | FORWARDED_BY_DEVICE
+
+#: A22: an accepted reply to this puts the device into `updating` until it comes back.
+DEVICE_UPDATE = "device.update"
+DEVICE_UPDATE_FAILED = "update.failed"
 
 #: Frames a device may send unsolicited.
 DEVICE_PUSH_TYPES = frozenset(
-    {"session.updated", "session.removed", "session.event", "agents.updated"}
+    {
+        "session.updated",
+        "session.removed",
+        "session.event",
+        "agents.updated",
+        DEVICE_UPDATE_FAILED,
+    }
 )
 
 #: Amendment A4 close codes. 4401 tells an app to stop reconnecting and return to login; 4403

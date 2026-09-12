@@ -15,7 +15,15 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from .conftest import device_hello, drain_until, enroll_device, session_summary
+from rc_gateway.state import GatewayState
+
+from .conftest import (
+    device_hello,
+    drain_until,
+    enroll_device,
+    session_summary,
+    write_wheel,
+)
 
 jsonschema = pytest.importorskip("jsonschema")
 SCHEMA_DIR = Path(__file__).resolve().parents[2] / "protocol" / "schema"
@@ -73,9 +81,34 @@ def test_device_list_matches_the_schema(client: TestClient, auth: dict[str, str]
     with client.websocket_connect(
         "/ws/device", headers={"Authorization": f"Bearer {enrolled['device_token']}"}
     ) as device:
-        device.send_json(device_hello())
+        device.send_json(device_hello(client_build="a" * 64))
         device.receive_json()
     check(client.get("/api/devices", headers=auth).json(), "http.json", "DeviceListResponse")
+
+
+def test_config_and_pairing_request_bodies_match_the_schema(
+    tmp_path: Path, state: GatewayState, client: TestClient, auth: dict[str, str]
+) -> None:
+    """A22 and A23: the served wheel, the claim token, the poll and the claim."""
+    write_wheel(tmp_path)
+    state.pairing_requests.poll_timeout = 0.05
+    check(client.get("/api/config", headers=auth).json(), "http.json", "ConfigResponse")
+
+    minted = client.post("/api/pairing/requests").json()
+    check(minted, "http.json", "PairingRequestResponse")
+    token = minted["token"]
+    check(
+        client.get(f"/api/pairing/requests/{token}").json(),
+        "http.json",
+        "PairingRequestStatusResponse",
+    )
+    claimed = client.post(f"/api/pairing/requests/{token}/claim", headers=auth).json()
+    check(claimed, "http.json", "PairingClaimResponse")
+    check(
+        client.get(f"/api/pairing/requests/{token}").json(),
+        "http.json",
+        "PairingRequestStatusResponse",
+    )
 
 
 def test_hello_ack_and_app_hello_match_the_schema(client: TestClient, auth: dict[str, str]) -> None:

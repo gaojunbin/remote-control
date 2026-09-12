@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from rc_gateway.app import build_state, create_app
-from rc_gateway.routes.static_routes import _newest_wheel, _resolve
+from rc_gateway.client_dist import newest_wheel, served_client
+from rc_gateway.routes.static_routes import _resolve
 
 from .conftest import ORIGIN, make_config
 
@@ -67,13 +69,26 @@ def test_the_wheel_alias_is_404_without_a_build(tmp_path: Path) -> None:
     assert response.json()["error"]["code"] == "not_found"
 
 
+def test_the_served_client_is_named_by_its_version_and_hash(tmp_path: Path) -> None:
+    """A22: `GET /api/config` reports exactly the wheel `/dist/rc_client-latest.whl` hands out."""
+    dist = tmp_path / "client-dist"
+    dist.mkdir()
+    (dist / "rc_client-0.4.0-py3-none-any.whl").write_bytes(b"wheel bytes")
+    served = served_client(dist)
+    assert served is not None
+    assert served.version == "0.4.0"
+    assert served.build == hashlib.sha256(b"wheel bytes").hexdigest()
+    assert served.url == "/dist/rc_client-latest.whl"
+    assert served_client(tmp_path / "missing") is None
+
+
 def test_wheel_filenames_are_restricted(tmp_path: Path) -> None:
     dist = tmp_path / "client-dist"
     dist.mkdir()
     (dist / "rc_client-0.1.0-py3-none-any.whl").write_bytes(b"wheel")
     (tmp_path / "secret.txt").write_text("top secret", encoding="utf-8")
-    assert _newest_wheel(dist) is not None
-    assert _newest_wheel(tmp_path / "missing") is None
+    assert newest_wheel(dist) is not None
+    assert newest_wheel(tmp_path / "missing") is None
     assert _resolve(dist, "../secret.txt") is None
     assert _resolve(dist, "rc_client-0.1.0-py3-none-any.whl") is not None
 

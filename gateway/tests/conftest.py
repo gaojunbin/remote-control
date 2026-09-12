@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -16,7 +17,12 @@ from rc_gateway.config import ApnsConfig, Config, SttConfig
 from rc_gateway.connections import AppConnection, Connection, DeviceConnection
 from rc_gateway.devices import DeviceStore
 from rc_gateway.frames import REQUEST_TIMEOUT_SECONDS
-from rc_gateway.hub import OFFLINE_GRACE_SECONDS, Hub, TransitionHook
+from rc_gateway.hub import (
+    OFFLINE_GRACE_SECONDS,
+    UPDATE_TIMEOUT_SECONDS,
+    Hub,
+    TransitionHook,
+)
 from rc_gateway.index import SessionIndex
 from rc_gateway.push_store import WebPushSubscription
 from rc_gateway.state import GatewayState
@@ -135,6 +141,14 @@ def token(client: TestClient) -> str:
 @pytest.fixture
 def auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def write_wheel(tmp_path: Path, version: str = "0.1.0", body: bytes = b"wheel") -> str:
+    """Put a client wheel where the gateway serves it, and return its SHA-256 (A22)."""
+    dist = tmp_path / "client-dist"
+    dist.mkdir(parents=True, exist_ok=True)
+    (dist / f"rc_client-{version}-py3-none-any.whl").write_bytes(body)
+    return hashlib.sha256(body).hexdigest()
 
 
 def enroll_device(
@@ -286,6 +300,7 @@ async def hub_rig(
     on_session_transition: TransitionHook | None = None,
     request_timeout: float = REQUEST_TIMEOUT_SECONDS,
     offline_grace: float = OFFLINE_GRACE_SECONDS,
+    update_timeout: float = UPDATE_TIMEOUT_SECONDS,
 ) -> HubRig:
     """Build a hub whose connections never drain their queues.
 
@@ -310,6 +325,7 @@ async def hub_rig(
         on_session_transition=on_session_transition,
         request_timeout=request_timeout,
         offline_grace=offline_grace,
+        update_timeout=update_timeout,
     )
     device = fake_device(enrolled.device_id)
     app = fake_app()

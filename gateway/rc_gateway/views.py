@@ -34,6 +34,11 @@ def device_view(
         "created_at": record.created_at * 1000,
         "latency_ms": latency_ms,
         "agents": record.agents,
+        # A22. `update_state` is always present, including its `idle` default, so an app reads one
+        # field rather than an absence.
+        "client_build": record.client_build,
+        "update_state": record.update_state,
+        "update_message": record.update_message,
     }
 
 

@@ -18,7 +18,7 @@ from rc_gateway.push import build_payload
 from rc_gateway.replay import ReplayBuffer
 from rc_gateway.state import GatewayState
 
-from .conftest import FIXTURE_DIR, drain_until, enroll_device
+from .conftest import FIXTURE_DIR, drain_until, enroll_device, write_wheel
 
 pytestmark = pytest.mark.skipif(
     not FIXTURE_DIR.is_dir(), reason="protocol/fixtures has not been produced yet"
@@ -40,7 +40,7 @@ def forwarded_files() -> list[str]:
 
 
 def test_health_and_config_match_the_fixture_shape(
-    client: TestClient, auth: dict[str, str]
+    tmp_path: Path, client: TestClient, auth: dict[str, str]
 ) -> None:
     expected = fixture("http", "health.response.json")
     body = client.get("/api/health").json()
@@ -49,10 +49,12 @@ def test_health_and_config_match_the_fixture_shape(
     assert body["auth"] == expected["auth"]
 
     expected_config = fixture("http", "config.response.json")
+    write_wheel(tmp_path)
     config = client.get("/api/config", headers=auth).json()
     assert set(config) == set(expected_config)
     assert set(config["stt"]) == set(expected_config["stt"])
     assert set(config["push"]) == set(expected_config["push"])
+    assert set(config["client"]) == set(expected_config["client"])
 
 
 def test_device_hello_fixture_is_accepted(client: TestClient, auth: dict[str, str]) -> None:
@@ -182,7 +184,10 @@ def test_device_list_fixture_shape(client: TestClient, auth: dict[str, str]) -> 
     expected = fixture("http", "devices.list.response.json")["devices"][0]
     enroll_device(client, auth)
     listed = client.get("/api/devices", headers=auth).json()["devices"][0]
-    assert set(listed) == set(expected)
+    # The A22 fields are optional in the schema and this fixture predates them, so the gateway
+    # sends three more than it shows; it must never send fewer than the fixture names.
+    assert set(expected) <= set(listed)
+    assert set(listed) - set(expected) == {"client_build", "update_state", "update_message"}
 
 
 def test_tool_category_is_named_tool_kind() -> None:
