@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import struct
 from pathlib import Path
 from typing import Any
@@ -11,8 +13,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rc_gateway.app import build_state, create_app
-from rc_gateway.config import SttConfig
-from rc_gateway.stt import OpenAiTranscriber, SttError, Utterance, wav_from_pcm16
+from rc_gateway.config import ConfigError, SttConfig, load_config
+from rc_gateway.stt import (
+    MAX_BASE64_BYTES,
+    MimoTranscriber,
+    OpenAiTranscriber,
+    SttError,
+    Utterance,
+    wav_from_pcm16,
+)
 
 from .conftest import FakeTranscriber, make_config
 
@@ -305,3 +314,150 @@ async def test_the_guard_stops_a_chunked_body_at_the_cap() -> None:
     stopped = await counted()
     assert stopped["body"] == b""
     assert stopped["more_body"] is False
+
+
+def _mimo_config() -> SttConfig:
+    return SttConfig(
+        provider="mimo",
+        base_url="https://mimo.invalid/v1",
+        api_key="secret",
+        model="mimo-v2.5-asr",
+        languages=("auto", "zh", "en"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_mimo_recognises_audio_through_a_chat_completion() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["authorization"] = request.headers.get("Authorization")
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", "content": "  hello  "}}]}
+        )
+
+    wav = wav_from_pcm16(SILENCE)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        transcriber = MimoTranscriber(_mimo_config(), client=http)
+        result = await transcriber.transcribe(
+            wav, filename="a.wav", content_type="audio/wav", language="zh"
+        )
+
+    assert result.text == "hello"
+    assert result.language == "zh"
+    assert seen["url"] == "https://mimo.invalid/v1/chat/completions"
+    assert seen["authorization"] == "Bearer secret"
+    body = seen["body"]
+    assert body["model"] == "mimo-v2.5-asr"
+    assert body["asr_options"] == {"language": "zh"}
+    part = body["messages"][0]["content"][0]
+    assert part["type"] == "input_audio"
+    data_url = part["input_audio"]["data"]
+    assert data_url.startswith("data:audio/wav;base64,")
+    assert base64.b64decode(data_url.split(",", 1)[1]) == wav
+
+
+@pytest.mark.asyncio
+async def test_mimo_leaves_the_language_to_the_backend_when_it_is_auto() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        transcriber = MimoTranscriber(_mimo_config(), client=http)
+        result = await transcriber.transcribe(
+            b"RIFFdata", filename="a.wav", content_type="audio/wav", language="auto"
+        )
+
+    assert result.language == "auto"
+    assert "asr_options" not in seen["body"]
+
+
+@pytest.mark.asyncio
+async def test_mimo_reports_an_empty_transcript_for_an_unexpected_shape() -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"choices": []}))
+    ) as http:
+        transcriber = MimoTranscriber(_mimo_config(), client=http)
+        result = await transcriber.transcribe(
+            b"RIFFdata", filename="a.wav", content_type="audio/wav", language=None
+        )
+    assert result.text == ""
+    assert result.language == "auto"
+
+
+@pytest.mark.asyncio
+async def test_mimo_backend_errors_become_stt_errors() -> None:
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(500, json={"error": "boom"}))
+    ) as http:
+        transcriber = MimoTranscriber(_mimo_config(), client=http)
+        with pytest.raises(SttError) as rejected:
+            await transcriber.transcribe(
+                b"RIFFdata", filename="a.wav", content_type="audio/wav", language=None
+            )
+    assert rejected.value.code == "internal"
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, content=b"not json"))
+    ) as http:
+        transcriber = MimoTranscriber(_mimo_config(), client=http)
+        with pytest.raises(SttError):
+            await transcriber.transcribe(
+                b"RIFFdata", filename="a.wav", content_type="audio/wav", language=None
+            )
+
+
+@pytest.mark.asyncio
+async def test_mimo_refuses_audio_over_the_base64_limit_without_calling_the_backend() -> None:
+    """The data URL is capped at 10 MB of base64, so oversized audio never leaves the gateway."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    oversized = b"\x00" * (MAX_BASE64_BYTES // 4 * 3 + 3)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        transcriber = MimoTranscriber(_mimo_config(), client=http)
+        with pytest.raises(SttError) as too_large:
+            await transcriber.transcribe(
+                oversized, filename="a.wav", content_type="audio/wav", language="en"
+            )
+    assert too_large.value.code == "too_large"
+    assert calls == []
+
+
+def test_the_mimo_provider_enables_voice_input(tmp_path: Path) -> None:
+    config = make_config(tmp_path, stt=_mimo_config())
+    state = build_state(config)
+    assert isinstance(state.transcriber, MimoTranscriber)
+    with TestClient(create_app(state)) as app:
+        token = app.post(
+            "/api/login",
+            json={"password": config.password},
+            headers={"Origin": config.public_origin},
+        ).json()["token"]
+        reported = app.get("/api/config", headers={"Authorization": f"Bearer {token}"}).json()
+    assert reported["stt"]["enabled"] is True
+
+
+def test_an_unknown_stt_provider_stops_the_gateway(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("PUBLIC_ORIGIN", "https://rc.example.com")
+    monkeypatch.setenv("RC_PASSWORD", "hunter2hunter2")
+    monkeypatch.delenv("WEB_PUSH_CONTACT", raising=False)
+
+    monkeypatch.setenv("STT_PROVIDER", "whisper-cpp")
+    with pytest.raises(ConfigError) as unknown:
+        load_config(load_env_file=False)
+    assert "none, openai, mimo" in str(unknown.value)
+
+    monkeypatch.setenv("STT_PROVIDER", "MiMo")
+    assert load_config(load_env_file=False).stt.enabled is True

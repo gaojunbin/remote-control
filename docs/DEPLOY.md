@@ -57,8 +57,8 @@ names the missing one.
 | `GATEWAY_BIND` | `0.0.0.0` | The host address that port binds to. A proxy running as a container reaches the host over the Docker bridge, so loopback only works when the proxy is on the host network |
 | `RC_SECRET` | generated | Signs login tokens. Left empty, one is generated into `DATA_DIR` on first start. Set it explicitly to pin the signing key instead of depending on a file inside the volume |
 | `DATA_DIR` | `/data` | Where SQLite databases and generated keys live. Backed by the `rc-data` volume |
-| `STT_PROVIDER` | `none` | `none` disables voice input. `openai` targets any OpenAI-compatible transcription server |
-| `STT_BASE_URL` | `https://api.openai.com/v1` | Base URL. The gateway posts to `{STT_BASE_URL}/audio/transcriptions` |
+| `STT_PROVIDER` | `none` | One of `none`, `openai`, `mimo`. `none` disables voice input, `openai` targets any OpenAI-compatible transcription server, `mimo` targets Xiaomi MiMo. Any other value stops the gateway at startup |
+| `STT_BASE_URL` | `https://api.openai.com/v1` | Base URL. `openai` posts to `{STT_BASE_URL}/audio/transcriptions`, `mimo` to `{STT_BASE_URL}/chat/completions` |
 | `STT_API_KEY` | empty | Bearer token for that server. Not needed by most local servers |
 | `STT_MODEL` | `whisper-1` | Model name the backend expects |
 | `STT_LANGUAGES` | `auto,zh,en` | The languages offered in the composer's picker. `auto` lets the backend detect |
@@ -181,9 +181,10 @@ orphaned along with the VAPID key.
 
 ## Speech to text
 
-Voice input is off until `STT_PROVIDER=openai`. Two ways to provide a backend.
+Voice input is off until `STT_PROVIDER` names a backend. Three ways to provide one.
 
-**A hosted provider.** Any server implementing `POST {STT_BASE_URL}/audio/transcriptions`:
+**A hosted OpenAI-compatible provider.** Any server implementing
+`POST {STT_BASE_URL}/audio/transcriptions`:
 
 ```sh
 STT_PROVIDER=openai
@@ -191,6 +192,21 @@ STT_BASE_URL=https://api.openai.com/v1
 STT_API_KEY=sk-…
 STT_MODEL=whisper-1
 ```
+
+**MiMo.** Xiaomi MiMo has no transcription endpoint: the gateway sends the utterance as a base64
+WAV data URL inside a chat completion and reads the transcript back out of the assistant's reply.
+
+```sh
+STT_PROVIDER=mimo
+STT_BASE_URL=https://api.xiaomimimo.com/v1
+STT_API_KEY=…
+STT_MODEL=mimo-v2.5-asr
+```
+
+MiMo accepts only `auto`, `zh` and `en`, so `STT_LANGUAGES` must list no others. It also caps an
+utterance at 10 MB of base64; the gateway refuses anything larger before it sends the request, which
+no recording under the protocol's 120 s limit reaches. The request shape was checked against a fake
+local server, not against MiMo: the machine that wrote this had no MiMo key.
 
 **On the VPS.** The compose file carries an optional `stt` service on the internal network, so audio
 never leaves the host:

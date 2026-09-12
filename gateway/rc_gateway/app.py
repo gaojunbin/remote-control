@@ -31,7 +31,7 @@ from .ratelimit import MAX_PER_IP, RateLimiter
 from .routes import device_routes, push_routes, session_routes, static_routes, stt_routes
 from .session_registry import SessionRegistry
 from .state import VERSION, GatewayState
-from .stt import OpenAiTranscriber, Transcriber
+from .stt import MimoTranscriber, OpenAiTranscriber, Transcriber
 from .uploads import BoundedUploads
 from .ws import app_ws, device_ws, stt_ws
 
@@ -189,6 +189,8 @@ def _default_message(code: str) -> str:
 def _build_transcriber(config: Config) -> Transcriber | None:
     if not config.stt.enabled:
         return None
+    if config.stt.provider == "mimo":
+        return MimoTranscriber(config.stt)
     return OpenAiTranscriber(config.stt)
 
 

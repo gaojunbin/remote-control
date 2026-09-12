@@ -24,6 +24,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SESSION_TTL_SECONDS = 30 * 24 * 3600
 PAIRING_TTL_SECONDS = 600
 DEFAULT_STT_LANGUAGES = ("auto", "zh", "en")
+#: The speech backends the gateway has a client for; ``none`` disables voice input.
+STT_BACKENDS = ("openai", "mimo")
+STT_PROVIDERS = ("none", *STT_BACKENDS)
 DEFAULT_TRUSTED_PROXIES = ("127.0.0.0/8", "::1/128")
 
 
@@ -41,7 +44,7 @@ class SttConfig:
 
     @property
     def enabled(self) -> bool:
-        return self.provider == "openai"
+        return self.provider in STT_BACKENDS
 
 
 @dataclass(frozen=True)
@@ -139,6 +142,23 @@ def _split_languages(raw: str) -> tuple[str, ...]:
     return values or DEFAULT_STT_LANGUAGES
 
 
+def _stt_config() -> SttConfig:
+    """Read the ``STT_*`` block, rejecting a provider the gateway has no client for."""
+    provider = _env("STT_PROVIDER", "none").lower() or "none"
+    if provider not in STT_PROVIDERS:
+        raise ConfigError(
+            f"STT_PROVIDER is not a supported provider: {provider!r} "
+            f"(expected one of {', '.join(STT_PROVIDERS)})"
+        )
+    return SttConfig(
+        provider=provider,
+        base_url=_env("STT_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
+        api_key=_env("STT_API_KEY"),
+        model=_env("STT_MODEL", "whisper-1"),
+        languages=_split_languages(_env("STT_LANGUAGES", ",".join(DEFAULT_STT_LANGUAGES))),
+    )
+
+
 def _default_path(env_name: str, docker_path: str, repo_relative: str) -> Path:
     configured = _env(env_name)
     if configured:
@@ -173,6 +193,9 @@ def load_config(*, load_env_file: bool = True) -> Config:
     if not password:
         raise ConfigError("RC_PASSWORD is required: set the login password for the admin user")
 
+    # Before DATA_DIR is touched: a typo in the provider name should not leave secrets behind.
+    stt = _stt_config()
+
     data_dir = Path(_env("DATA_DIR", "/data") or "/data").expanduser()
     try:
         data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -198,13 +221,7 @@ def load_config(*, load_env_file: bool = True) -> Config:
         ),
         client_dist_dir=_default_path("CLIENT_DIST_DIR", "/app/client/dist", "client/dist"),
         web_push_contact=web_push_contact,
-        stt=SttConfig(
-            provider=_env("STT_PROVIDER", "none").lower() or "none",
-            base_url=_env("STT_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
-            api_key=_env("STT_API_KEY"),
-            model=_env("STT_MODEL", "whisper-1"),
-            languages=_split_languages(_env("STT_LANGUAGES", ",".join(DEFAULT_STT_LANGUAGES))),
-        ),
+        stt=stt,
         apns=ApnsConfig(
             team_id=_env("APNS_TEAM_ID"),
             key_id=_env("APNS_KEY_ID"),
