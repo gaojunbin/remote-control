@@ -64,6 +64,22 @@ that nothing can open. When a terminal moves from one session to another with `/
 the row that turns `shared` is the one the terminal is actually in, and the one it left drops to the
 Archive by the rule above.
 
+**A session with no title still has a name.** A thread Codex has not named yet, or one whose first
+prompt gave nothing to fall back on, arrives with an empty `title`. Both apps print "Untitled
+session" in the title's place — on the row, in the chat header, in the page or navigation-bar title —
+in the title's own type, never a blank line above the meta. The row is otherwise unchanged; it opens
+like any other, because a row that exists has events behind it.
+
+**Work another application owns is not a session.** Codex keeps one history for the whole machine,
+so the desktop app's chats and scheduled automations, an IDE extension's threads and the subagents a
+thread spawned all sit in the daemon's index beside what a person typed at a terminal. Only two kinds
+are the device's to show: a thread its own daemon holds, and a thread a terminal on that machine
+started on its own Codex — and neither when it is a subagent, which belongs to the thread that
+spawned it. The device tells them apart by the thread's `originator` and `source` and publishes
+nothing else (A18); a thread it published before the rule is removed. There is no "show
+everything" switch — a thread no terminal is in and the apps could only resume by taking it away from
+the application that owns it would be a row that misleads on both counts.
+
 A non-empty search overrides both stored choices without writing either: it opens every device group
 that still holds a match and every Archive a match landed in. Clearing the query hands the list back
 to what was stored.
@@ -233,7 +249,11 @@ ordinary Send button; no utterance is ever sent by the act of stopping the recor
 disappears entirely when the gateway has no speech backend rather than failing when pressed.
 
 **Composer layout** on the phone: the text field has a row to itself and grows with its content
-up to eight lines, then scrolls inside; the `+`, mic and Send controls sit on the row below it.
+up to eight lines, then scrolls inside; the `+`, mic and Send controls sit on the row below it. Once
+it scrolls, the system scroll indicator runs down its trailing edge while the draft is being
+scrolled and fades when scrolling stops, exactly as it does in any scroll view — that is the whole
+cue that there is more above or below, and nothing is added around it: no expand button, no
+permanent bar, no line count.
 
 ## Approvals and questions
 

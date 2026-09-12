@@ -646,6 +646,18 @@ the same loaded thread. A later message typed in a terminal makes it `shared` ag
 scan that cannot be completed changes nothing. Apps need no Codex-specific logic here; they read
 `control` and the agent's attachment fields (4.2) and nothing else.
 
+Not every thread the daemon's history lists is a session. Codex keeps one history for the whole
+machine, and the desktop app's chats and scheduled automations, an IDE extension's threads and the
+subagents a thread spawned all land in it beside the terminal's. The device publishes a Codex
+thread only when it is the device's to show (amendment A18): its `source` is a plain string — a
+subagent's `source` is an object naming its parent, and a subagent is never a session of its own —
+and either the thread's `originator` is the name the device itself connects to Codex under, or its
+`source` is `cli` or `exec`, which is a terminal on that machine running its own Codex. Any other
+thread belongs to the application, or the parent thread, that started
+it: the device never publishes it, never mirrors its rollout, and sends `session.removed` for any
+it published before this rule, repeating the frame on the next link as A16 does. The apps need
+nothing for this; a session they never receive is a row they never draw.
+
 `fixtures/app/session.updated.json`
 
 ```json
@@ -2747,6 +2759,9 @@ by `block_id` like any other.
       its terminal leaves it (A16).
 - [ ] Reports `model`, `permission_mode` and `effort` for a mirrored Claude session from its
       transcript and publishes each change as `meta` (A17).
+- [ ] Publishes a Codex thread only when its `source` is a string and either its `originator` is
+      the device's own or its `source` is `cli` or `exec`, and removes with `session.removed` any
+      other thread it published before (A18).
 
 ### 9.3 App
 
@@ -2955,3 +2970,12 @@ model the terminal was running. The device now reads the three values from the t
 Code writes for itself and publishes changes as `meta`; apps show them as values that cannot be
 changed from there. Nothing new on the wire: `Session` already carried the fields and `meta` already
 carried the updates. See 4.4, 5.11, 9.2 and 9.3.
+
+**2026-09-12 A18 — work another application owns is not a session.** The daemon's `thread/list`
+is the history of every Codex thread on the machine, and the device turned all of it into sessions:
+the ChatGPT desktop app's scheduled automations and chats showed up in the apps as terminal
+sessions, one of them `control: "terminal"` for as long as that app held its rollout open, none of
+them anything a person had started at a terminal. The device now reads the `originator` and
+`source` the index carries and publishes only threads its own daemon holds or a terminal started;
+the rest are that application's and are removed if they were ever published. Nothing new on the
+wire: `session.removed` already exists and the apps already honour it. See 4.4 and 9.2.
