@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Check } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '../../components/Button';
 import { Modal } from '../../components/Modal';
 import { Segmented } from '../../components/Segmented';
@@ -8,11 +7,10 @@ import { clock } from '../../lib/format';
 import { strings } from '../../strings';
 import { useConnection } from '../../stores/connection';
 import { useNow } from '../../lib/useNow';
-import type { PairingStep } from '../../protocol/frames';
+import { PairingSteps } from './PairingProgress';
+import { usePairingProgress } from './usePairingProgress';
 
 type Platform = 'macos' | 'linux';
-
-const STEP_ORDER: Record<PairingStep, number> = { waiting: 0, enrolled: 1, online: 2, agents: 3 };
 
 /** Mounted only while open so each visit requests exactly one pairing code. */
 export function AddDeviceModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -25,10 +23,9 @@ function AddDevice({ onClose }: { onClose: () => void }) {
   const [pairing, setPairing] = useState<PairingResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [manual, setManual] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<'code' | 'scan' | null>(null);
   const [attempt, setAttempt] = useState(0);
 
-  const progress = useConnection((s) => s.pairing);
   const clearPairing = useConnection((s) => s.clearPairing);
   const clockSkewMs = useConnection((s) => s.clockSkewMs);
   const now = useNow(500);
@@ -50,9 +47,7 @@ function AddDevice({ onClose }: { onClose: () => void }) {
     };
   }, [attempt]);
 
-  const live = progress && pairing && progress.code === pairing.code ? progress : null;
-  const step = live?.step ?? null;
-  const connected = isConnected(step);
+  const { connected } = usePairingProgress(pairing?.code ?? null);
 
   const close = useCallback(() => {
     if (pairing && !connected) void api.cancelPairing(pairing.code).catch(() => undefined);
@@ -65,12 +60,7 @@ function AddDevice({ onClose }: { onClose: () => void }) {
   const serverNow = now + clockSkewMs;
   const remaining = pairing ? Math.max(0, pairing.expires_at - serverNow) : 0;
   const expired = pairing !== null && remaining === 0 && !connected;
-  const elapsed = Math.max(0, now - openedAt);
-
-  const agentChips = useMemo(
-    () => live?.device?.agents.filter((a) => a.available).map((a) => a.agent) ?? [],
-    [live],
-  );
+  const scanCommand = strings.pairing.scanCommand(window.location.origin);
 
   return (
     <Modal
@@ -109,11 +99,11 @@ function AddDevice({ onClose }: { onClose: () => void }) {
             disabled={!command}
             onClick={async () => {
               await copyText(command);
-              setCopied(true);
-              window.setTimeout(() => setCopied(false), 1400);
+              setCopied('code');
+              window.setTimeout(() => setCopied(null), 1400);
             }}
           >
-            {copied ? strings.common.copied : strings.common.copy}
+            {copied === 'code' ? strings.common.copied : strings.common.copy}
           </Button>
         </div>
         <div className="pair-command-foot">
@@ -131,38 +121,25 @@ function AddDevice({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      <div className="pair-steps">
-        <div className="pair-steps-head">
-          <span className="pair-steps-title">
-            <span className={`dot ${connected ? 'running' : 'pulse'}`} aria-hidden />
-            {connected && live?.device
-              ? strings.pairing.connected(live.device.name)
-              : strings.pairing.waiting}
-          </span>
-          <span className="mono hint">{strings.pairing.listening(clock(elapsed))}</span>
+      <PairingSteps code={pairing?.code ?? null} openedAt={openedAt} />
+
+      <section className="pair-scan">
+        <h3 className="pair-scan-title">{strings.pairing.scanTitle}</h3>
+        <div className="pair-scan-command">
+          <code>{scanCommand}</code>
+          <Button
+            small
+            onClick={async () => {
+              await copyText(scanCommand);
+              setCopied('scan');
+              window.setTimeout(() => setCopied(null), 1400);
+            }}
+          >
+            {copied === 'scan' ? strings.common.copied : strings.common.copy}
+          </Button>
         </div>
-        <div className="pair-progress" aria-hidden>
-          <span style={{ width: `${progressWidth(step)}%` }} />
-        </div>
-        <ol className="pair-step-list">
-          <Step done label={strings.pairing.stepGateway} />
-          <Step
-            done={rank(step) >= STEP_ORDER.enrolled}
-            active={rank(step) < STEP_ORDER.enrolled}
-            label={strings.pairing.stepHandshake}
-          />
-          <Step
-            done={rank(step) >= STEP_ORDER.agents}
-            active={rank(step) === STEP_ORDER.online}
-            label={strings.pairing.stepAgents}
-            trailing={
-              agentChips.length > 0 ? (
-                <span className="mono pair-agents">{agentChips.join(' · ')}</span>
-              ) : null
-            }
-          />
-        </ol>
-      </div>
+        <p className="hint">{strings.pairing.scanBody}</p>
+      </section>
 
       <p className="pair-manual">
         {strings.pairing.noCurl}{' '}
@@ -188,39 +165,6 @@ function AddDevice({ onClose }: { onClose: () => void }) {
       ) : null}
     </Modal>
   );
-}
-
-function Step({
-  done,
-  active,
-  label,
-  trailing,
-}: {
-  done?: boolean;
-  active?: boolean;
-  label: string;
-  trailing?: ReactNode;
-}) {
-  return (
-    <li className={done ? 'done' : active ? 'active' : ''}>
-      <span className="pair-step-mark" aria-hidden>
-        {done ? <Check size={11} strokeWidth={3} /> : null}
-      </span>
-      <span className="pair-step-label">{label}</span>
-      {trailing}
-    </li>
-  );
-}
-
-const rank = (step: PairingStep | null): number => (step ? STEP_ORDER[step] : -1);
-
-const isConnected = (step: PairingStep | null | undefined): boolean =>
-  step === 'online' || step === 'agents';
-
-function progressWidth(step: PairingStep | null): number {
-  const r = rank(step);
-  if (r < 0) return 12;
-  return Math.min(100, 25 * (r + 1));
 }
 
 function detectPlatform(): Platform {

@@ -3,7 +3,19 @@ import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import type { TimelineDetail } from './timeline';
 
+/**
+ * The language the app speaks its own words in. It is English until the reader
+ * asks for something else — never guessed from `navigator.language`, because a
+ * developer whose system is Chinese still reads the agent in English and a
+ * surprise translation at first launch reads as a different product.
+ */
+export type InterfaceLanguage = 'en' | 'zh-Hans';
+
+export const INTERFACE_LANGUAGES: InterfaceLanguage[] = ['en', 'zh-Hans'];
+
 interface SettingsState {
+  /** The app's own words. Never applied to anything a device reported. */
+  language: InterfaceLanguage;
   sttLanguage: string;
   /** How much of a transcript is drawn. Simple by default, and never sent. */
   timelineDetail: TimelineDetail;
@@ -11,6 +23,7 @@ interface SettingsState {
   collapsedDevices: string[];
   /** Devices whose Archive sub-group is open. Collapsed by default. */
   archiveExpanded: string[];
+  setLanguage: (language: InterfaceLanguage) => void;
   setSttLanguage: (language: string) => void;
   setTimelineDetail: (detail: TimelineDetail) => void;
   toggleDeviceCollapsed: (deviceId: string) => void;
@@ -52,10 +65,12 @@ const storage = browserStorage() ?? memoryStorage();
 export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
+      language: 'en',
       sttLanguage: 'auto',
       timelineDetail: 'simple',
       collapsedDevices: [],
       archiveExpanded: [],
+      setLanguage: (language) => set({ language }),
       setSttLanguage: (sttLanguage) => set({ sttLanguage }),
       setTimelineDetail: (timelineDetail) => set({ timelineDetail }),
       toggleDeviceCollapsed: (deviceId) =>

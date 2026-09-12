@@ -3,6 +3,7 @@ import { Plus } from 'lucide-react';
 import { Button } from '../../components/Button';
 import { ConfirmDialog, Modal } from '../../components/Modal';
 import { strings } from '../../strings';
+import { useAuth } from '../../stores/auth';
 import { useDevices } from '../../stores/devices';
 import { useSessions } from '../../stores/sessions';
 import type { Device } from '../../protocol/types';
@@ -16,12 +17,17 @@ export function DevicesPage() {
   const load = useDevices((s) => s.load);
   const rename = useDevices((s) => s.rename);
   const revoke = useDevices((s) => s.revoke);
+  const requestUpdate = useDevices((s) => s.requestUpdate);
+  const updateErrors = useDevices((s) => s.updateErrors);
   const sessions = useSessions((s) => s.sessions);
+  // A22: the wheel this gateway serves. Absent in a developer checkout.
+  const gatewayBuild = useAuth((s) => s.config?.client?.build);
 
   const [adding, setAdding] = useState(false);
   const [renaming, setRenaming] = useState<Device | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [revoking, setRevoking] = useState<Device | null>(null);
+  const [updating, setUpdating] = useState<Device | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -64,10 +70,13 @@ export function DevicesPage() {
               key={device.device_id}
               device={device}
               sessionCount={sessionCounts[device.device_id] ?? 0}
+              gatewayBuild={gatewayBuild}
+              updateError={updateErrors[device.device_id]}
               onRename={() => {
                 setRenaming(device);
                 setRenameValue(device.name);
               }}
+              onUpdate={() => setUpdating(device)}
               onRevoke={() => setRevoking(device)}
             />
           ))}
@@ -114,6 +123,25 @@ export function DevicesPage() {
           onChange={(e) => setRenameValue(e.target.value)}
         />
       </Modal>
+
+      <ConfirmDialog
+        open={updating !== null}
+        title={strings.devices.updateTitle}
+        body={updating ? strings.devices.updateBody(updating.name) : ''}
+        confirmLabel={strings.devices.updateConfirm}
+        busy={busy}
+        onClose={() => setUpdating(null)}
+        onConfirm={async () => {
+          if (!updating || gatewayBuild === undefined) return;
+          setBusy(true);
+          try {
+            await requestUpdate(updating.device_id, gatewayBuild);
+            setUpdating(null);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
 
       <ConfirmDialog
         open={revoking !== null}

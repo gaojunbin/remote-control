@@ -438,6 +438,80 @@ hook, and a real terminal answering one first — both came from the mock, so th
 against the shape of the events, not against the CLI. The `by: "remote"` wording was read from the
 mock's own resolution rather than from a device.
 
+### Round 14 — the interface language, and the model card (A21)
+
+2026-09-13, in the installed Google Chrome driven by `playwright-core` against the bundled mock
+(`npm run dev:mock`) at 1280 px. Two changes. **Interface language**: `Settings → 语言` offers
+English and 中文, starts at English whatever the browser reports, and applies to every open screen
+at once — after picking 中文 on the Settings page the group headings read
+`账户 / 通知 / 语音 / 语言 / 时间线 / 关于`, the top-bar tabs read `设备 / 会话 / 设置`, the
+Sessions title reads `会话`, `<html lang>` is `zh-Hans`, and the chat composer reads
+"消息将排队…" under the status line "Claude Code 正在工作 · 消息将排队". Nothing the device
+reported moved: the composer chip still reads "Sonnet 4.5 High", the recent-directory paths stay
+`~/dev/remote-control/gateway`, and only their timestamps translate ("30 分钟前", "2 小时前",
+"昨天"). Two defects found and fixed in the pass, both the same mistake: `AppLayout`'s tab labels
+and `errors.ts`'s code table were built at module scope, so they kept the language the app booted
+in; both are now built inside a function. **A21, the model card**: on the shared Codex session the
+composer's one chip read "GPT-5.4 Codex Medium", opened a card with the two rows, and the effort
+slider carried `aria-valuetext="Medium"`. The lightning toggle sent `session.set {speed:"priority"}`,
+came back `aria-pressed="true"`, and the chip behind the card gained the glyph; one `ArrowLeft` on
+the slider moved the word beside the model name to "Low" and committed `effort: "low"`. The
+terminal-held Codex thread (`ses-codex-terminal`, `speed: "priority"`) drew two static chips, the
+first labelled "Model and effort · GPT-5.4 Codex Medium · Fast · set in the terminal" and opening
+nothing. The New session drawer's labels, with Codex picked, read
+`设备 / Agent / 模型 / 思考强度 / 权限 / 速度 / 工作目录 / Git` — the required order, with the speed
+switch after the three lists. Screenshots under `…/scratchpad/web-lang/shots/`:
+`settings-zh-1280.png`, `sessions-zh-1280.png`, `chat-zh-1280.png`, `new-session-zh-1280.png`,
+`model-card-1280.png`, `model-card-fast-1280.png`, `model-card-effort-1280.png` and
+`terminal-held-chip-1280.png`. Run artefacts, not checked into the repository.
+
+```
+cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
+→ 27 files / 336 tests passed, tsc clean, eslint clean, built in 1.60 s
+```
+
+Not verified in this pass: a real device advertising `speeds` or accepting `session.set {speed}` —
+the tier came from the mock, so the app was checked against the shape of A21 and not against Codex;
+and the Chinese wording was not read by a native reader against the running product, only against
+the round's glossary.
+
+### Round 15 — the same three actions on a device, an update from the app (A22), and pairing by scanning (A23)
+
+2026-09-13, in the installed Google Chrome driven by `playwright-core` against the bundled mock
+(`npm run dev:mock`) at 1280 px and 400 px. **The device list**: rows read `client 0.0.9 · Update
+available` and `client 0.1.0 · 3f2b4a9c`, the build being the first eight characters of
+`client_build` and giving way to whatever the update has to say; every row menu read
+`Rename / Update / Revoke` in that order. On the row already running the gateway's wheel, Update was
+disabled with the title "This device runs the build the gateway serves." **The update**: Update on
+the row behind confirmed with "Update ci-runner-01 to the gateway's client? Its service restarts;
+sessions it drives are stopped.", sent `device.update` with `config.client.build`, and the row then
+read `client 0.0.9 · Updating…` with exactly one pulsing dot; six seconds later the mock's device
+came back and both rows read `client 0.1.0 · 3f2b4a9c`. **Pairing by scanning**: the Add device
+modal's second block, "From your phone", carried `curl -fsSL http://localhost:5173/install.sh | sh`
+with its own Copy; opening `/pair#<token>` for a token minted through `POST /api/pairing/requests`
+claimed it, showed the code the gateway handed back, and walked the same steps to "new-laptop
+connected · claude · codex"; the same link a second time read "This code was already used." One
+defect found and fixed in the pass: React's double-invoked effect claimed the token twice and the
+second claim came back 409, so the page showed that same "already used" instead of the code —
+`PairPage` now claims once per token, and `tests/PairPage.test.tsx` renders it inside `StrictMode`
+to hold that. Rows measured 64 px at 1280 px and 129 px at 400 px with no horizontal overflow
+(`document.scrollWidth` 400), the fixed row height in `devices.css` having become a floor so the
+third line cannot be clipped. Screenshots under `…/scratchpad/web-devices/shots/`:
+`devices-update-available-1280.png`, `devices-menu-1280.png`, `devices-update-confirm-1280.png`,
+`devices-updating-1280.png`, `devices-updated-1280.png`, `add-device-scan-1280.png`,
+`pair-claimed-1280.png`, `pair-connected-1280.png`, `pair-used-1280.png` and `devices-400.png`.
+Run artefacts, not checked into the repository.
+
+```
+cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
+→ 29 files / 359 tests passed, tsc clean, eslint clean, built in 1.36 s
+```
+
+Not verified in this pass: a real gateway serving a real wheel and a real device installing it —
+both builds came from the mock, so the app was checked against the shape of A22 and not against
+`rc-client`; and only the app's half of A23 was exercised, since no host printed a QR code or held
+the long poll.
+
 ## 2. iOS, in the simulator, against the same gateway
 
 `ios/UITests/RealGatewaySmokeTests.swift` is new. It skips unless the runner is given a gateway, so

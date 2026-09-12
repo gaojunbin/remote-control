@@ -11,9 +11,13 @@ import { rpc } from '../../lib/gateway';
 import { agentLabel, agentMark, strings } from '../../strings';
 import { useDevices } from '../../stores/devices';
 import { useSessions } from '../../stores/sessions';
-import type { AgentInfo, Device } from '../../protocol/types';
+import type { AgentInfo, Choice, Device } from '../../protocol/types';
+import type { SessionOptions } from '../chat/Composer';
 import { DirectoryPicker } from './DirectoryPicker';
 import { useDirectoryProbe, type DirStatus } from './useDirectoryProbe';
+
+/** The row id the picker uses for "no tier", which the wire spells as null. */
+const STANDARD_SPEED = 'standard';
 
 interface Props {
   open: boolean;
@@ -65,6 +69,22 @@ function NewSessionForm({ devices, presetDeviceId, onClose }: FormProps) {
     return explicit ?? agents.find((a) => a.available) ?? agents[0] ?? null;
   }, [agents, pickedAgent]);
 
+  /**
+   * What the reader chose instead of the agent's own defaults. Cleared with the
+   * agent, because a model id belongs to one agent and means nothing to another.
+   */
+  const [options, setOptions] = useState<SessionOptions>({});
+  const models = agent?.models ?? [];
+  const efforts = agent?.efforts ?? [];
+  const modes = agent?.permission_modes ?? [];
+  const speeds = agent?.speeds ?? [];
+  const model = options.model ?? agent?.default_model ?? null;
+  const effort = options.effort ?? agent?.default_effort ?? null;
+  const permissionMode = options.permission_mode ?? agent?.default_permission_mode ?? null;
+  const speed = options.speed ?? null;
+  const labelOf = (list: { id: string; label: string }[], value: string | null) =>
+    list.find((item) => item.id === value)?.label ?? '';
+
   const [cwd, setCwd] = useState('');
   const [cwdTouched, setCwdTouched] = useState(false);
   const [worktree, setWorktree] = useState(false);
@@ -105,11 +125,11 @@ function NewSessionForm({ devices, presetDeviceId, onClose }: FormProps) {
         device_id: device.device_id,
         agent: agent.agent,
         cwd: cwd.trim(),
-        ...(agent.default_model ? { model: agent.default_model } : {}),
-        ...(agent.default_permission_mode
-          ? { permission_mode: agent.default_permission_mode }
-          : {}),
-        ...(agent.default_effort ? { effort: agent.default_effort } : {}),
+        ...(model ? { model } : {}),
+        ...(permissionMode ? { permission_mode: permissionMode } : {}),
+        ...(effort ? { effort } : {}),
+        // A21: omitted for the standard speed, which is what null means.
+        ...(speed ? { speed } : {}),
         ...(canWorktree && worktree ? { worktree: true } : {}),
       });
       onClose();
@@ -119,7 +139,21 @@ function NewSessionForm({ devices, presetDeviceId, onClose }: FormProps) {
     } finally {
       setBusy(false);
     }
-  }, [canStart, device, agent, cwd, canWorktree, worktree, createSession, onClose, navigate]);
+  }, [
+    canStart,
+    device,
+    agent,
+    cwd,
+    model,
+    effort,
+    permissionMode,
+    speed,
+    canWorktree,
+    worktree,
+    createSession,
+    onClose,
+    navigate,
+  ]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -160,6 +194,7 @@ function NewSessionForm({ devices, presetDeviceId, onClose }: FormProps) {
           onSelect={(id) => {
             setDeviceId(id);
             setPickedAgent(null);
+            setOptions({});
             if (!cwdTouched) setCwd('');
           }}
           options={devices.map((d) => ({
@@ -182,7 +217,10 @@ function NewSessionForm({ devices, presetDeviceId, onClose }: FormProps) {
         <Segmented<string>
           ariaLabel={strings.newSession.agent}
           value={agent?.agent ?? ''}
-          onChange={setPickedAgent}
+          onChange={(next) => {
+            setPickedAgent(next);
+            setOptions({});
+          }}
           options={agents.map((a) => ({
             value: a.agent,
             disabled: !a.available,
@@ -205,6 +243,61 @@ function NewSessionForm({ devices, presetDeviceId, onClose }: FormProps) {
           </p>
         ) : null}
       </section>
+
+      {models.length > 0 ? (
+        <section>
+          <span className="label">{strings.newSession.model}</span>
+          <Menu
+            ariaLabel={strings.newSession.model}
+            align="start"
+            value={model}
+            onSelect={(id) => setOptions((current) => ({ ...current, model: id }))}
+            options={models.map((m) => ({ id: m.id, label: m.label }))}
+            label={labelOf(models, model)}
+          />
+        </section>
+      ) : null}
+
+      {efforts.length > 0 ? (
+        <section>
+          <span className="label">{strings.newSession.effort}</span>
+          <Menu
+            ariaLabel={strings.newSession.effort}
+            align="start"
+            value={effort}
+            onSelect={(id) => setOptions((current) => ({ ...current, effort: id }))}
+            options={efforts.map((e) => ({ id: e.id, label: e.label }))}
+            label={labelOf(efforts, effort)}
+          />
+        </section>
+      ) : null}
+
+      {modes.length > 0 ? (
+        <section>
+          <span className="label">{strings.newSession.permissions}</span>
+          <Menu
+            ariaLabel={strings.newSession.permissions}
+            align="start"
+            value={permissionMode}
+            onSelect={(id) => setOptions((current) => ({ ...current, permission_mode: id }))}
+            options={modes.map((m) => ({ id: m.id, label: m.label }))}
+            label={labelOf(modes, permissionMode)}
+          />
+        </section>
+      ) : null}
+
+      {speeds.length > 0 ? (
+        <section>
+          <div className="speed-row">
+            <span className="label">{strings.newSession.speed}</span>
+            <SpeedField
+              speeds={speeds}
+              value={speed}
+              onChange={(next) => setOptions((current) => ({ ...current, speed: next }))}
+            />
+          </div>
+        </section>
+      ) : null}
 
       <section>
         <div className="label-row">
@@ -303,4 +396,43 @@ function dirStatusLabel(status: DirStatus): string {
     default:
       return '';
   }
+}
+
+/**
+ * A21: the speed tier a new session starts at. One tier is a switch — on is
+ * that tier, off is the standard speed; an agent that ever lists several gets
+ * the same list picker as the three fields above it.
+ */
+function SpeedField({
+  speeds,
+  value,
+  onChange,
+}: {
+  speeds: Choice[];
+  value: string | null;
+  onChange: (next: string | null) => void;
+}) {
+  const only = speeds[0];
+  if (speeds.length === 1 && only) {
+    return (
+      <Switch
+        checked={value === only.id}
+        onChange={(on) => onChange(on ? only.id : null)}
+        label={strings.newSession.speed}
+      />
+    );
+  }
+  return (
+    <Menu
+      ariaLabel={strings.newSession.speed}
+      align="end"
+      value={value}
+      onSelect={(id) => onChange(id === STANDARD_SPEED ? null : id)}
+      options={[
+        { id: STANDARD_SPEED, label: strings.composer.speedStandard },
+        ...speeds.map((s) => ({ id: s.id, label: s.label })),
+      ]}
+      label={speeds.find((s) => s.id === value)?.label ?? strings.composer.speedStandard}
+    />
+  );
 }

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUp, Mic, Paperclip, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { ArrowUp, ChevronRight, Mic, Paperclip, X, Zap } from 'lucide-react';
 import { Menu, Popover } from '../../components/Popover';
 import { bytes } from '../../lib/format';
 import { cx } from '../../lib/cx';
@@ -8,6 +8,7 @@ import { useSettings } from '../../stores/settings';
 import type { SendMode } from '../../protocol/frames';
 import type {
   AgentInfo,
+  Choice,
   QuestionAnswers,
   QuestionEvent,
   QueuedMessage,
@@ -32,7 +33,7 @@ interface Props {
   sttLanguages: string[];
   onSend: (text: string, attachments: AttachmentDraft[], mode: SendMode) => Promise<void>;
   onAnswer: (requestId: string, answers: QuestionAnswers) => Promise<void>;
-  onSetOption: (patch: { model?: string; permission_mode?: string; effort?: string }) => void;
+  onSetOption: (patch: SessionOptions) => void;
   onRemoveQueued: (queuedId: string) => void;
   onTakeover: () => void;
 }
@@ -437,6 +438,24 @@ export function Composer({
   }
 }
 
+/** What `session.set` can carry from the composer. A21 adds the speed tier. */
+export interface SessionOptions {
+  model?: string;
+  permission_mode?: string;
+  effort?: string;
+  speed?: string | null;
+}
+
+/**
+ * The label an agent's list gives an id, or the id itself. The agent's own ids
+ * need not appear in its lists — `auto` is a real Claude permission mode the
+ * device does not advertise — so an unknown one is shown as it arrived (A17).
+ */
+function labelOf(options: Choice[], value: string | null | undefined): string | null {
+  if (!value) return null;
+  return options.find((option) => option.id === value)?.label ?? value;
+}
+
 function ComposerBottomRow({
   agent,
   session,
@@ -452,73 +471,83 @@ function ComposerBottomRow({
   /**
    * A10/A11/A17: false when the model, permission mode and effort belong to a
    * terminal — a `terminal` session, or a shared one whose agent does not
-   * report `shared_settings`. The pickers are then replaced by what the device
-   * read from the transcript, drawn as chips that open nothing.
+   * report `shared_settings`. The card is then replaced by what the device read
+   * from the transcript, drawn as chips that open nothing.
    */
   showOptions: boolean;
   language: string;
   sttEnabled: boolean;
   sttLanguages: string[];
-  onSetOption: (patch: { model?: string; permission_mode?: string; effort?: string }) => void;
+  onSetOption: (patch: SessionOptions) => void;
   onSetLanguage: (code: string) => void;
 }) {
-  const models = showOptions ? (agent?.models ?? []) : [];
-  const modes = showOptions ? (agent?.permission_modes ?? []) : [];
-  const efforts = showOptions ? (agent?.efforts ?? []) : [];
-  const labelOf = (list: { id: string; label: string }[], value: string | null, fallback: string) =>
-    list.find((item) => item.id === value)?.label ?? fallback;
+  const models = agent?.models ?? [];
+  const modes = agent?.permission_modes ?? [];
+  const efforts = agent?.efforts ?? [];
+  const speeds = agent?.speeds ?? [];
+
+  const modelText = labelOf(models, session.model);
+  const effortText = labelOf(efforts, session.effort);
+  const speedText = labelOf(speeds, session.speed);
+  // "Opus 4.6 High": what runs, and how hard, in one line of the composer row.
+  const cardText = [modelText, effortText].filter((part) => part !== null).join(' ');
+  const hasCard = models.length > 0 || efforts.length > 0 || speeds.length > 0;
 
   return (
     <div className="composer-bottom">
-      {showOptions ? null : (
-        <>
-          <TerminalSetting
-            name={strings.composer.model}
-            value={session.model}
-            options={agent?.models ?? []}
-          />
-          <TerminalSetting
-            name={strings.composer.permissionMode}
-            value={session.permission_mode}
-            options={agent?.permission_modes ?? []}
-          />
-          <TerminalSetting
-            name={strings.composer.effort}
-            value={session.effort}
-            options={agent?.efforts ?? []}
-          />
-        </>
+      {showOptions ? (
+        hasCard ? (
+          <Popover
+            side="top"
+            align="start"
+            chevron={false}
+            ariaLabel={strings.composer.modelCard}
+            triggerClassName="model-card-chip"
+            label={
+              <>
+                {speedText ? <Zap size={12} aria-hidden className="speed-glyph" /> : null}
+                <span>{cardText || agentLabel(session.agent)}</span>
+              </>
+            }
+          >
+            {() => (
+              <ModelCard
+                session={session}
+                models={models}
+                efforts={efforts}
+                speeds={speeds}
+                onSetOption={onSetOption}
+              />
+            )}
+          </Popover>
+        ) : null
+      ) : (
+        <TerminalSetting
+          name={strings.composer.modelCard}
+          text={cardText}
+          speed={speedText}
+          glyph={speedText !== null}
+        />
       )}
-      {models.length > 0 ? (
-        <Menu
-          side="top"
-          ariaLabel={strings.composer.model}
-          value={session.model}
-          options={models.map((m) => ({ id: m.id, label: m.label }))}
-          onSelect={(model) => onSetOption({ model })}
-          label={labelOf(models, session.model, agentLabel(session.agent))}
+      {showOptions ? (
+        modes.length > 0 ? (
+          <Menu
+            side="top"
+            ariaLabel={strings.composer.permissionMode}
+            value={session.permission_mode}
+            options={modes.map((m) => ({ id: m.id, label: m.label }))}
+            onSelect={(permission_mode) => onSetOption({ permission_mode })}
+            label={labelOf(modes, session.permission_mode) ?? strings.composer.permissionMode}
+          />
+        ) : null
+      ) : (
+        <TerminalSetting
+          name={strings.composer.permissionMode}
+          text={labelOf(modes, session.permission_mode) ?? ''}
+          speed={null}
+          glyph={false}
         />
-      ) : null}
-      {modes.length > 0 ? (
-        <Menu
-          side="top"
-          ariaLabel={strings.composer.permissionMode}
-          value={session.permission_mode}
-          options={modes.map((m) => ({ id: m.id, label: m.label }))}
-          onSelect={(permission_mode) => onSetOption({ permission_mode })}
-          label={labelOf(modes, session.permission_mode, strings.composer.permissionMode)}
-        />
-      ) : null}
-      {efforts.length > 0 ? (
-        <Menu
-          side="top"
-          ariaLabel={strings.composer.effort}
-          value={session.effort}
-          options={efforts.map((e) => ({ id: e.id, label: e.label }))}
-          onSelect={(effort) => onSetOption({ effort })}
-          label={labelOf(efforts, session.effort, strings.composer.effort)}
-        />
-      ) : null}
+      )}
       {sttEnabled ? (
         <Menu
           side="top"
@@ -534,28 +563,208 @@ function ComposerBottomRow({
 }
 
 /**
+ * A21 — the card the model chip opens: the speed tier and the model on one row,
+ * the effort slider under it. It stays open until it is dismissed, so several
+ * changes can be made in one visit, and the model list takes the card over
+ * rather than stacking a second popover on top of it.
+ */
+function ModelCard({
+  session,
+  models,
+  efforts,
+  speeds,
+  onSetOption,
+}: {
+  session: Session;
+  models: Choice[];
+  efforts: Choice[];
+  speeds: Choice[];
+  onSetOption: (patch: SessionOptions) => void;
+}) {
+  const [picking, setPicking] = useState(false);
+  const modelText = labelOf(models, session.model) ?? agentLabel(session.agent);
+
+  if (picking) {
+    return (
+      <ul className="menu" role="listbox" aria-label={strings.composer.model}>
+        {models.map((model) => (
+          <li key={model.id}>
+            <button
+              type="button"
+              role="option"
+              aria-selected={session.model === model.id}
+              className={cx('menu-item', session.model === model.id && 'selected')}
+              onClick={() => {
+                setPicking(false);
+                if (session.model !== model.id) onSetOption({ model: model.id });
+              }}
+            >
+              <span className="menu-label">{model.label}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  return (
+    <div className="model-card">
+      <div className="model-card-top">
+        {speeds.length > 0 ? (
+          <SpeedToggle session={session} speeds={speeds} onSetOption={onSetOption} />
+        ) : null}
+        {models.length > 0 ? (
+          <button
+            type="button"
+            className="model-card-name"
+            aria-label={strings.composer.option(strings.composer.model, modelText)}
+            onClick={() => setPicking(true)}
+          >
+            <span>{modelText}</span>
+            <EffortWord session={session} efforts={efforts} />
+            <ChevronRight size={14} aria-hidden className="model-card-chevron" />
+          </button>
+        ) : (
+          <span className="model-card-name static">
+            <span>{modelText}</span>
+            <EffortWord session={session} efforts={efforts} />
+          </span>
+        )}
+      </div>
+      {efforts.length > 0 ? (
+        <EffortSlider session={session} efforts={efforts} onSetOption={onSetOption} />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The effort word beside the model name. It follows the slider's thumb while it
+ * moves, which is why the slider publishes its stop on the element rather than
+ * through state the card would have to thread back down.
+ */
+function EffortWord({ session, efforts }: { session: Session; efforts: Choice[] }) {
+  const text = labelOf(efforts, session.effort);
+  if (!text) return null;
+  return (
+    <span className="model-card-effort" data-effort-word>
+      {text}
+    </span>
+  );
+}
+
+/**
+ * One stop per effort level, in the order the agent lists them. Moving it
+ * rewrites the word above at once; the value is only sent when the thumb is
+ * released, which is the DOM's own `change` rather than React's (which fires on
+ * every step).
+ */
+function EffortSlider({
+  session,
+  efforts,
+  onSetOption,
+}: {
+  session: Session;
+  efforts: Choice[];
+  onSetOption: (patch: SessionOptions) => void;
+}) {
+  const stop = Math.max(
+    0,
+    efforts.findIndex((effort) => effort.id === session.effort),
+  );
+  const [index, setIndex] = useState(stop);
+  const [drawnStop, setDrawnStop] = useState(stop);
+  const input = useRef<HTMLInputElement>(null);
+
+  // A change from anywhere else — a `/model` in the terminal, another tab —
+  // wins over the position the thumb was left in.
+  if (drawnStop !== stop) {
+    setDrawnStop(stop);
+    setIndex(stop);
+  }
+
+  useEffect(() => {
+    const el = input.current;
+    if (!el) return;
+    const commit = () => {
+      const picked = efforts[Number(el.value)];
+      if (picked && picked.id !== session.effort) onSetOption({ effort: picked.id });
+    };
+    el.addEventListener('change', commit);
+    return () => el.removeEventListener('change', commit);
+  }, [efforts, session.effort, onSetOption]);
+
+  const word = efforts[index]?.label ?? '';
+  return (
+    <input
+      ref={input}
+      type="range"
+      className="effort-slider"
+      min={0}
+      max={efforts.length - 1}
+      step={1}
+      value={index}
+      aria-label={strings.composer.effort}
+      aria-valuetext={word}
+      style={{ '--fill': `${(index / Math.max(1, efforts.length - 1)) * 100}%` } as CSSProperties}
+      onChange={(e) => setIndex(Number(e.target.value))}
+    />
+  );
+}
+
+/** A21: standard → each tier the agent lists → standard, one tap at a time. */
+function SpeedToggle({
+  session,
+  speeds,
+  onSetOption,
+}: {
+  session: Session;
+  speeds: Choice[];
+  onSetOption: (patch: SessionOptions) => void;
+}) {
+  const tier = speeds.find((speed) => speed.id === session.speed) ?? null;
+  return (
+    <button
+      type="button"
+      className={cx('speed-toggle', tier && 'on')}
+      aria-pressed={tier !== null}
+      aria-label={strings.composer.speed(tier?.label ?? strings.composer.speedStandard)}
+      onClick={() => {
+        const next = speeds[speeds.findIndex((speed) => speed.id === session.speed) + 1] ?? null;
+        onSetOption({ speed: next?.id ?? null });
+      }}
+    >
+      <Zap size={15} aria-hidden />
+    </button>
+  );
+}
+
+/**
  * A17: one value a terminal chose, where its picker would be. It is the shape
  * of the trigger beside it, opens nothing, and carries the whole sentence for
  * assistive technology, because on its own "auto" says nothing about who set
- * it. A value the device has not seen draws no chip at all.
+ * it. A21 folds the model, the effort and the tier into the first of them, the
+ * same one chip the card would open from. A value the device has not seen draws
+ * no chip at all.
  */
 function TerminalSetting({
   name,
-  value,
-  options,
+  text,
+  speed,
+  glyph,
 }: {
   name: string;
-  value: string | null;
-  options: { id: string; label: string }[];
+  text: string;
+  speed: string | null;
+  glyph: boolean;
 }) {
-  if (!value) return null;
-  // The agent's own ids need not appear in its lists: `auto` is a real Claude
-  // permission mode that the device does not advertise, so it is shown as it is.
-  const shown = options.find((option) => option.id === value)?.label ?? value;
+  if (text.length === 0) return null;
+  const shown = speed === null ? text : `${text} · ${speed}`;
   const sentence = strings.composer.setInTerminal(name, shown);
   return (
     <span className="composer-chip readonly" role="note" title={sentence} aria-label={sentence}>
-      {shown}
+      {glyph ? <Zap size={12} aria-hidden className="speed-glyph" /> : null}
+      {text}
     </span>
   );
 }

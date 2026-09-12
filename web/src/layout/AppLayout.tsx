@@ -6,11 +6,14 @@ import { useConnection } from '../stores/connection';
 import { Mark } from './Mark';
 import './layout.css';
 
-const TABS = [
-  { to: '/devices', label: strings.nav.devices },
-  { to: '/sessions', label: strings.nav.sessions },
-  { to: '/settings', label: strings.nav.settings },
-];
+/** Built on every render, so the tabs follow the interface language. */
+function tabs(): { to: string; label: string }[] {
+  return [
+    { to: '/devices', label: strings.nav.devices },
+    { to: '/sessions', label: strings.nav.sessions },
+    { to: '/settings', label: strings.nav.settings },
+  ];
+}
 
 export function AppLayout() {
   const config = useAuth((s) => s.config);
@@ -27,8 +30,8 @@ export function AppLayout() {
             <Mark />
             <span>{strings.productName}</span>
           </div>
-          <nav className="tabs" aria-label="Primary">
-            {TABS.map((tab) => (
+          <nav className="tabs" aria-label={strings.nav.primary}>
+            {tabs().map((tab) => (
               <NavLink
                 key={tab.to}
                 to={tab.to}

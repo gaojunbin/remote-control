@@ -56,6 +56,27 @@ describe('App routing', () => {
     expect(screen.queryByRole('heading', { name: strings.sessions.title })).not.toBeInTheDocument();
   });
 
+  it('returns to a /pair link, fragment and all, once the password lands (A23)', async () => {
+    stubFetch(401);
+    render(
+      <MemoryRouter initialEntries={['/pair#7ZK3M9Q2X5H8B1V4N6P0R2T4W6']}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByText(strings.login.subtitle)).toBeInTheDocument());
+    // The claim token lives in the fragment, so the whole path has to survive
+    // the round trip through the login screen.
+    useAuth.setState({ status: 'signed-in', username: 'admin' });
+
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: strings.pairing.claimTitle })).toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(requested).toContain('/api/pairing/requests/7ZK3M9Q2X5H8B1V4N6P0R2T4W6/claim'),
+    );
+  });
+
   it('never issues an authenticated request while signed out', async () => {
     stubFetch(401);
     render(

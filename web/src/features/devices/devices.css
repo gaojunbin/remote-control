@@ -4,12 +4,15 @@
   padding: 0;
 }
 
-/* Rows are parted by their own fixed height, never by a rule between them. */
+/* Rows are parted by their own height, never by a rule between them. It is a
+   floor rather than a fixed height: the client line (A22) and the agent chips
+   both wrap on a narrow screen, and a clipped row would be worse than a tall
+   one. Nothing moves at the widths where they do not wrap. */
 .device-row {
   display: flex;
   align-items: center;
   gap: var(--sp-4);
-  height: var(--row-h);
+  min-height: var(--row-h);
   padding: 0 var(--sp-5);
   transition: background var(--dur-fast) var(--ease);
 }
@@ -59,6 +62,34 @@
   content: '·';
   margin-right: var(--sp-2);
   color: var(--line-strong);
+}
+
+/* A22: the client build, and whatever the update has to say about it. */
+.device-client {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--sp-2);
+  margin-top: 1px;
+  padding-left: 15px;
+  font-size: var(--fs-12);
+  line-height: 1.45;
+  color: var(--ink-tertiary);
+}
+
+.device-update {
+  color: var(--ink-secondary);
+}
+
+/* Parted from the version the way the two halves of the meta line are. */
+.device-update::before {
+  content: '·';
+  margin-right: var(--sp-2);
+  color: var(--line-strong);
+}
+
+.device-update.failed {
+  color: var(--danger);
 }
 
 .device-agents {
@@ -245,6 +276,51 @@
   color: var(--ink-secondary);
 }
 
+/* A23: the second way in, under the code flow rather than beside it. */
+.pair-scan {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+}
+
+.pair-scan-title {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-13);
+  font-weight: 600;
+}
+
+.pair-scan-command {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+}
+
+.pair-scan-command code {
+  flex: 1;
+  font-size: var(--fs-13);
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.pair-scan .hint {
+  margin-top: var(--sp-3);
+  font-size: var(--fs-13);
+  max-width: 52ch;
+}
+
+/* The `/pair` page: the same steps, on a page instead of in a dialog. */
+.pair-claim {
+  padding: var(--sp-5);
+}
+
+.pair-claim .pair-steps {
+  margin-top: var(--sp-3);
+}
+
 .pair-manual {
   margin-top: var(--sp-4);
   font-size: var(--fs-13);
@@ -275,8 +351,8 @@
     flex-wrap: wrap;
     align-content: center;
     gap: var(--sp-2) var(--sp-3);
-    height: var(--row-h-stacked);
-    padding: 0 var(--sp-4);
+    min-height: var(--row-h-stacked);
+    padding: var(--sp-3) var(--sp-4);
   }
 
   .device-main {
@@ -303,6 +379,6 @@
 /* On a phone the hostname and the session count part as well. */
 @media (max-width: 480px) {
   .device-row {
-    height: var(--row-h-stacked-tall);
+    min-height: var(--row-h-stacked-tall);
   }
 }

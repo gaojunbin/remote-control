@@ -416,3 +416,15 @@
     opacity: 1;
   }
 }
+
+/* A21: the speed tier sits on one line with its switch, after the three lists. */
+.speed-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.speed-row .label {
+  margin-bottom: 0;
+}

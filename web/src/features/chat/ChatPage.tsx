@@ -13,7 +13,7 @@ import type { SendMode } from '../../protocol/frames';
 import type { QuestionAnswers } from '../../protocol/types';
 import { NewSessionDrawer } from '../sessions/NewSessionDrawer';
 import { ChatHeader } from './ChatHeader';
-import { Composer } from './Composer';
+import { Composer, type SessionOptions } from './Composer';
 import { Sidebar } from './Sidebar';
 import { StatusLine } from './StatusLine';
 import { Timeline } from './Timeline';
@@ -93,7 +93,7 @@ export function ChatPage() {
   );
 
   const onSetOption = useCallback(
-    (path: { model?: string; permission_mode?: string; effort?: string }) => {
+    (path: SessionOptions) => {
       void rpc('session.set', { session_id: sessionId, ...path })
         .then((result) => useSessions.getState().upsert(result.session))
         .catch((err: unknown) => setActionError(errorText(err, strings.errors.setFailed)));

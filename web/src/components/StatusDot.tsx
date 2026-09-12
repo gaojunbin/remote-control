@@ -30,11 +30,11 @@ export function StatusDot({
   );
 }
 
-/** A device's own dot. Online or not, nothing else. */
-export function OnlineDot({ online }: { online: boolean }) {
+/** A device's own dot. Online or not, and pulsing while it updates itself (A22). */
+export function OnlineDot({ online, pulse }: { online: boolean; pulse?: boolean }) {
   return (
     <span
-      className={cx('dot', online ? 'running' : 'offline')}
+      className={cx('dot', online ? 'running' : 'offline', pulse && 'pulse')}
       role="img"
       aria-label={online ? 'online' : 'offline'}
     />

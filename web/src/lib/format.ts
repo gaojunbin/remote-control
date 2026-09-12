@@ -1,41 +1,57 @@
-/** Display formatters. Pure functions so they are cheap to unit test. */
+/**
+ * Display formatters. The ones that carry words read them from the interface
+ * language's table, so "3m ago" becomes "3 分钟前"; every number, clock and unit
+ * of storage is written the same way in both languages.
+ */
+import { strings } from '../strings';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-/** Compact relative time as used in session rows: "4m", "3h", "2d", "just now". */
+function shortDate(ts: number): string {
+  return new Date(ts).toLocaleDateString(strings.format.dateLocale, {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+/** Compact relative time as used in session rows: "4m", "3h", "2d", "now". */
 export function relativeTime(ts: number, now = Date.now()): string {
   const delta = Math.max(0, now - ts);
-  if (delta < 45_000) return 'now';
-  if (delta < HOUR) return `${Math.round(delta / MINUTE)}m`;
-  if (delta < DAY) return `${Math.round(delta / HOUR)}h`;
-  if (delta < 7 * DAY) return `${Math.round(delta / DAY)}d`;
-  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  if (delta < 45_000) return strings.format.now;
+  if (delta < HOUR) return strings.format.minutes(Math.round(delta / MINUTE));
+  if (delta < DAY) return strings.format.hours(Math.round(delta / HOUR));
+  if (delta < 7 * DAY) return strings.format.days(Math.round(delta / DAY));
+  return shortDate(ts);
 }
 
 /** Longer relative form used for "recent directories": "2h ago", "yesterday". */
 export function relativeAgo(ts: number, now = Date.now()): string {
   const delta = Math.max(0, now - ts);
-  if (delta < MINUTE) return 'just now';
-  if (delta < HOUR) return `${Math.round(delta / MINUTE)}m ago`;
-  if (delta < DAY) return `${Math.round(delta / HOUR)}h ago`;
-  if (delta < 2 * DAY) return 'yesterday';
-  if (delta < 7 * DAY) return `${Math.round(delta / DAY)}d ago`;
-  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  if (delta < MINUTE) return strings.format.justNow;
+  if (delta < HOUR) return strings.format.minutesAgo(Math.round(delta / MINUTE));
+  if (delta < DAY) return strings.format.hoursAgo(Math.round(delta / HOUR));
+  if (delta < 2 * DAY) return strings.format.yesterday;
+  if (delta < 7 * DAY) return strings.format.daysAgo(Math.round(delta / DAY));
+  return shortDate(ts);
 }
 
 /** "6.4s", "1m 12s", "820ms" — durations inside tool rows and turn timers. */
 export function duration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '';
-  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 1000) return strings.format.millis(Math.round(ms));
   const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`;
+  if (seconds < 60) {
+    return strings.format.seconds(
+      seconds < 10 ? seconds.toFixed(1) : String(Math.round(seconds)),
+    );
+  }
   const m = Math.floor(seconds / 60);
   const s = Math.round(seconds % 60);
-  if (m < 60) return `${m}m ${s}s`;
+  if (m < 60) return strings.format.minutesSeconds(m, s);
   const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
+  return strings.format.hoursMinutes(h, m % 60);
 }
 
 /** "0:12" / "9:47" clock used by pairing countdowns and the voice timer. */

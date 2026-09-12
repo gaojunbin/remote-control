@@ -16,7 +16,15 @@ import type {
   TodoItem,
   QueuedMessage,
 } from '../src/protocol/types';
-import { HOME, devices, historyFor, recentDirs, sessions } from './fixtures';
+import {
+  CLIENT_BUILD,
+  CLIENT_VERSION,
+  HOME,
+  devices,
+  historyFor,
+  recentDirs,
+  sessions,
+} from './fixtures';
 import {
   ECHO_DELAY_MS,
   afterAnswer,
@@ -43,6 +51,8 @@ const state = {
   todos: new Map<string, TodoItem[]>(),
   queues: new Map<string, QueuedMessage[]>(),
   pairings: new Map<string, { expires_at: number; timers: NodeJS.Timeout[] }>(),
+  /** A23: claim tokens a host asked for; `code` appears once an app claims it. */
+  claims: new Map<string, { expires_at: number; code?: string }>(),
   tokens: new Set<string>(),
   /** A10: messages the device accepted but could not inject yet, per session. */
   held: new Map<string, { block_id: string; text: string; queued_id: string }[]>(),
@@ -199,6 +209,8 @@ function json(res: ServerResponse, status: number, body: unknown, headers: Recor
 const unauthorized = (res: ServerResponse): void =>
   json(res, 401, { ok: false, error: { code: 'unauthorized', message: 'sign in first' } });
 
+const failure = (code: string, message: string) => ({ ok: false, error: { code, message } });
+
 function authed(req: IncomingMessage): boolean {
   const cookie = req.headers.cookie ?? '';
   const token = /rc_session=([^;]+)/.exec(cookie)?.[1];
@@ -224,6 +236,29 @@ function pairingCode(): string {
   const group = () =>
     Array.from({ length: 4 }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join('');
   return `RC-${group()}-${group()}`;
+}
+
+/** A23: 26 Crockford characters, as the gateway mints from 16 random bytes. */
+function claimToken(): string {
+  return Array.from(
+    { length: 26 },
+    () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)],
+  ).join('');
+}
+
+type ClaimLookup =
+  | { status: 'unknown' | 'expired' }
+  | { status: 'live'; request: { expires_at: number; code?: string } };
+
+/** Unknown is a 404 and expired a 410, so the two are never the same answer. */
+function lookupClaim(token: string): ClaimLookup {
+  const request = state.claims.get(token);
+  if (!request) return { status: 'unknown' };
+  if (request.expires_at <= Date.now()) {
+    state.claims.delete(token);
+    return { status: 'expired' };
+  }
+  return { status: 'live', request };
 }
 
 function startPairing(code: string): void {
@@ -306,8 +341,60 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
     return;
   }
 
+  // A23: the host's half of pairing by scanning. The host has no credential
+  // yet, so both of these are unauthenticated. The status poll answers at once
+  // rather than holding a connection for 25 s the way the gateway does; nothing
+  // in the web app polls it, and a developer curling it wants an answer.
+  if (path === '/api/pairing/requests' && method === 'POST') {
+    const token = claimToken();
+    const expires_at = Date.now() + 10 * 60_000;
+    state.claims.set(token, { expires_at });
+    json(res, 200, { token, expires_at, claim_url: `http://127.0.0.1:5173/pair#${token}` });
+    return;
+  }
+
+  const claimStatus = /^\/api\/pairing\/requests\/([^/]+)$/.exec(path);
+  if (claimStatus && method === 'GET') {
+    const token = decodeURIComponent(claimStatus[1] ?? '');
+    const lookup = lookupClaim(token);
+    if (lookup.status !== 'live') {
+      json(res, lookup.status === 'expired' ? 410 : 404, failure('not_found', 'no such request'));
+      return;
+    }
+    if (lookup.request.code === undefined) {
+      json(res, 200, { status: 'waiting' });
+      return;
+    }
+    state.claims.delete(token);
+    json(res, 200, {
+      status: 'claimed',
+      code: lookup.request.code,
+      expires_at: lookup.request.expires_at,
+    });
+    return;
+  }
+
   if (!authed(req)) {
     unauthorized(res);
+    return;
+  }
+
+  const claim = /^\/api\/pairing\/requests\/([^/]+)\/claim$/.exec(path);
+  if (claim && method === 'POST') {
+    const token = decodeURIComponent(claim[1] ?? '');
+    const lookup = lookupClaim(token);
+    if (lookup.status !== 'live') {
+      json(res, lookup.status === 'expired' ? 410 : 404, failure('not_found', 'no such request'));
+      return;
+    }
+    if (lookup.request.code !== undefined) {
+      json(res, 409, failure('conflict', 'this request was already claimed'));
+      return;
+    }
+    const code = pairingCode();
+    lookup.request.code = code;
+    startPairing(code);
+    json(res, 200, { code, expires_at: Date.now() + 10 * 60_000 });
     return;
   }
 
@@ -328,6 +415,7 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
       stt: { enabled: true, languages: ['auto', 'zh', 'en'] },
       push: { web_enabled: true, apns_enabled: false },
       version: GATEWAY_VERSION,
+      client: { version: CLIENT_VERSION, build: CLIENT_BUILD, url: '/dist/rc_client-latest.whl' },
     });
     return;
   }
@@ -680,8 +768,19 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       const optionKeys = ['model', 'permission_mode', 'effort'] as const;
       const settingsLocked =
         session.control === 'shared' && agentFor(session)?.shared_settings !== true;
-      if (settingsLocked && optionKeys.some((k) => typeof frame[k] === 'string')) {
+      const setsSpeed = 'speed' in frame;
+      if (settingsLocked && (optionKeys.some((k) => typeof frame[k] === 'string') || setsSpeed)) {
         return replyError(conn, id, 'unsupported', 'change it in the terminal');
+      }
+      // A21: a tier the agent does not list is a bad request, and null is the
+      // standard speed rather than a missing value.
+      if (setsSpeed) {
+        const speed = frame.speed;
+        const tiers = agentFor(session)?.speeds ?? [];
+        if (speed !== null && !tiers.some((tier) => tier.id === speed)) {
+          return replyError(conn, id, 'bad_request', 'unknown speed tier');
+        }
+        session.speed = speed as string | null;
       }
       if (typeof frame.model === 'string') session.model = frame.model;
       if (typeof frame.permission_mode === 'string') session.permission_mode = frame.permission_mode;
@@ -690,6 +789,19 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       session.updated_at = Date.now();
       broadcast({ type: 'session.updated', session });
       reply(conn, id, { session });
+      // The device publishes what it actually set as `meta` (5.11), so a second
+      // app on the same session sees the change without asking for it.
+      emit(sessionId, {
+        seq: nextSeq(sessionId),
+        ts: Date.now(),
+        kind: 'meta',
+        ...(typeof frame.model === 'string' ? { model: frame.model } : {}),
+        ...(typeof frame.permission_mode === 'string'
+          ? { permission_mode: frame.permission_mode }
+          : {}),
+        ...(typeof frame.effort === 'string' ? { effort: frame.effort } : {}),
+        ...(setsSpeed ? { speed: session.speed ?? null } : {}),
+      });
       return;
     }
 
@@ -786,6 +898,30 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       const device = state.devices.find((d) => d.device_id === String(frame.device_id ?? ''));
       if (!device) return replyError(conn, id, 'not_found', 'no such device');
       reply(conn, id, { agents: device.agents });
+      return;
+    }
+
+    // A22: the device takes the update, restarts, and comes back on the new
+    // build a few seconds later, which is what a real `hello` would report.
+    case 'device.update': {
+      const device = state.devices.find((d) => d.device_id === String(frame.device_id ?? ''));
+      if (!device) return replyError(conn, id, 'not_found', 'no such device');
+      if (!device.online) return replyError(conn, id, 'device_offline', 'the device is offline');
+      const build = String(frame.build ?? '');
+      if (device.client_build === build) {
+        return replyError(conn, id, 'conflict', 'already on this build');
+      }
+      reply(conn, id, { accepted: true, from: device.client_build ?? null });
+      device.update_state = 'updating';
+      device.update_message = null;
+      broadcast({ type: 'device.updated', device });
+      setTimeout(() => {
+        device.client_build = build;
+        device.client_version = CLIENT_VERSION;
+        device.update_state = 'idle';
+        device.update_message = null;
+        broadcast({ type: 'device.updated', device });
+      }, 6_000);
       return;
     }
 

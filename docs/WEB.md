@@ -9,7 +9,8 @@ hand-written CSS with no framework. It talks only to the gateway and follows
 | Route | What it does |
 | --- | --- |
 | `/login` | Password sign-in against the gateway |
-| `/devices` | Device list with online state, agents and session counts; rename and revoke; **Add device** with the copyable one-liner, the pairing code, its expiry, and live handshake steps |
+| `/devices` | Device list with online state, agents, session counts and the client build; Rename, Update and Remove on every row; **Add device** with the copyable one-liner, the pairing code, its expiry, live handshake steps, and the scan flow beside them |
+| `/pair` | Claims the token a host printed as a QR code and shows the same handshake (A23) |
 | `/sessions` | Every session across every device: one collapsible group per device, its active rows and then its own collapsed **Archive**, a search, an agent filter and a device filter, and **New session** in a right-hand drawer |
 | `/sessions/:deviceId/:sessionId` | The chat: sidebar, timeline, composer, status line |
 | `/settings` | Grouped settings — account and sign out, browser notifications, voice language and push-to-talk, and an About group with the gateway origin, both versions and the connection state |
@@ -58,7 +59,14 @@ message queued during a turn is dequeued when that turn ends and keeps its id, w
 starts itself, such as a `first_message`, mints its own block id and exercises the app's fallback.
 Pairing walks
 `waiting → enrolled → online → agents` over about six seconds, and the speech socket returns
-scripted partials and a final transcript. The mock and the tests share
+scripted partials and a final transcript. One of the two devices runs the build `/api/config`
+reports and the other the one before it, so the list shows a row with nothing to do beside a row
+offering Update; `device.update` is accepted, flips that device to `updating`, and brings it back on
+the new build six seconds later, which is what its `hello` would report (A22). Both halves of
+pairing by scanning are there (A23): `POST /api/pairing/requests` mints a claim token for a host,
+`POST /api/pairing/requests/{token}/claim` mints its pairing code and starts the same progress, and
+the host's status poll answers at once instead of holding a connection for 25 s the way the gateway
+does — nothing in the app polls it. The mock and the tests share
 `mock/fixtures.ts`, so a fixture change shows up in both.
 
 ## Structure
@@ -76,7 +84,37 @@ mock/          the mock gateway
 tests/         vitest suites
 ```
 
-Every user-visible string lives in `src/strings.ts` so the app can be localised later.
+Every user-visible string lives in `src/strings.ts`, the English table and the type; the Chinese
+table beside it is `src/strings.zh-Hans.ts`.
+
+## Language
+
+The app speaks English or 中文 (`Settings → Language`), and it starts in English whatever
+`navigator.language` says — a developer whose system is Chinese still reads the agent in English,
+and a surprise translation at first launch reads as a different product. The choice is
+`language` in the settings store, persisted under `rc.settings` with the other preferences, and
+`<html lang>` follows it.
+
+`strings` is not a table but a view on one: a proxy that reads `stringTables[language]` on every
+property access, so a component keeps writing `strings.composer.send` and needs to know nothing.
+Two things follow from that. A change re-renders every open screen because `App` carries the
+language as the key of its `<Routes>` — the socket and the session probe sit above it and are not
+disturbed. And **no module may read a string at import time**: a table built at module scope
+(`const TABS = [{ label: strings.nav.devices }]`) keeps the language the app booted in.
+`src/layout/AppLayout.tsx` and `src/lib/errors.ts` build theirs inside a function for exactly that
+reason.
+
+`src/strings.zh-Hans.ts` is typed `StringTable`, so the compiler refuses it the moment a key is
+added or renamed in English, and `tests/language.test.tsx` walks both tables to catch a missing
+nested key that the type cannot see. The functions in the table (`archiveGroup(n)`,
+`status.workingQueued(agent)`, `format.minutesAgo(n)`) are translated as functions, which is how
+"3m ago" becomes "3 分钟前" while the number stays where it is.
+
+Only the app's own words are translated. Everything the device reported — agent output, device
+names, paths, branches, and the model, effort, permission and speed **labels** the agent's own
+lists carry — is drawn as it arrived, so the composer's chip reads "Sonnet 4.5 High" in both
+languages. "Remote Control", "Claude Code" and "Codex" stay in Latin script, and each of the two
+interface languages is always named in its own script.
 
 ## The icon
 
@@ -141,6 +179,42 @@ focuses an open tab or opens `/sessions/<device_id>/<session_id>`.
   overlay the device picker inside the New session drawer opened behind the drawer and looked dead.
   The drawer's own outside-click check compares the event target with the overlay element, so a
   click inside the portalled panel never closes it.
+- **The model card** (A21) is one chip in the composer row reading "<model> <effort>", with a small
+  lightning before it while `session.speed` is set. It opens a popover above the composer holding
+  two rows. The first has the speed toggle at its leading edge — drawn only when `agent.speeds` is
+  non-empty, lit while a tier is on, and cycling standard → each tier → standard through
+  `session.set {speed}` where `null` is the standard speed — then the model name, the effort word
+  and a chevron; tapping the name replaces the card's contents with the model list rather than
+  stacking a second popover on it. The second row is an `<input type="range">` with one stop per
+  `agent.efforts` entry. The word in the first row follows the thumb, and the value is only sent
+  when the thumb is released: React's `onChange` fires on every step, so the commit listens for the
+  DOM's own `change` on the element instead. The slider's accessible name is "Effort" and its
+  `aria-valuetext` is the word, which a screen reader announces as "Effort, Extra high"; the toggle
+  names itself "Speed, Fast" or "Speed, Standard". An agent with no efforts draws no slider, one
+  with no tiers draws no toggle, and the permission-mode picker follows the card in the row. On a
+  session a terminal holds (A17) the same chip is drawn as a static value with the tier appended to
+  its label, and it opens nothing.
+- **Devices offer three actions and one of them is Update** (A22). Every row carries Rename, Update
+  and Remove, in that order, and shows the client version with the first eight characters of
+  `client_build` under the hostname. `updateNotice` in `src/stores/devices.ts` is the one rule for
+  what replaces that build: "Updating…" while `update_state` is `updating`, "Update failed ·
+  <message>" for `failed`, and "Update available" when the device's build differs from
+  `config.client.build` — the wheel the gateway serves, read once on boot with the rest of
+  `/api/config`. Update confirms first, then sends `device.update {device_id, build}` with the
+  gateway's build, never the row's. It is disabled with a title saying why while the device is
+  offline, while an update is in flight, when the builds already match and when the gateway serves
+  no wheel at all. A refusal the device sends back — a running session, a client installed from
+  source — is not an `update_state`, so it is kept per device in the store's `updateErrors` and
+  drawn in the same place until the gateway sends that device again.
+- **Pairing has two ways in** (A23). The Add device modal mints a code as before and now carries a
+  second block, "From your phone", with the one-liner the scan flow uses: the host asks the gateway
+  for a claim token and prints it as a QR code encoding `<origin>/pair#<token>`. `/pair` claims that
+  token with `POST /api/pairing/requests/{token}/claim` and then shows the handshake the modal
+  shows, because the gateway mints the host an ordinary pairing code and `pairing.progress` follows
+  it. Claiming spends the token, so `PairPage` claims once per token rather than once per mount — an
+  effect that ran twice would answer its own first request with "This code was already used." Signed
+  out, the login screen keeps the whole path including the fragment, since the token lives there;
+  `rememberedDestination` accepts only a path inside the app.
 - **Reconnect** backs off exponentially to 5 s, replies to `ping`, and treats 60 s of silence as a
   half-open socket. Subscriptions are re-issued with the latest `since_seq`.
 - **Close codes** 4401 and 4403 end the session and return to login; every other code reconnects.

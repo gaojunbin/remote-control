@@ -1,10 +1,19 @@
 /**
- * Single English string catalog. Keep every user-visible string here so the app
- * can be localised later without touching components.
+ * The app's own words, in English, and the type every other table implements.
+ *
+ * `strings` is a view on whichever table the interface language names, so a
+ * component keeps writing `strings.x.y` and follows the setting without holding
+ * a copy of anything. `stores/settings.ts` owns the choice; `App` re-renders the
+ * screens on it. Nothing a device reported is ever translated — agent output,
+ * device names, paths, branches, model and permission ids, and the agent labels
+ * below all stay as they arrived.
  */
+import { useSettings } from './stores/settings';
+import type { InterfaceLanguage } from './stores/settings';
 import type { TimelineDetail } from './stores/timeline';
+import { zhHans } from './strings.zh-Hans';
 
-export const strings = {
+export const en = {
   productName: 'Remote Control',
 
   nav: {
@@ -12,6 +21,7 @@ export const strings = {
     sessions: 'Sessions',
     settings: 'Settings',
     backToSessions: 'Back to sessions',
+    primary: 'Primary',
   },
 
   common: {
@@ -64,6 +74,20 @@ export const strings = {
     lastSeen: (rel: string) => `last seen ${rel}`,
     renameTitle: 'Rename device',
     renameLabel: 'Device name',
+    clientBuild: (version: string, build: string) => `client ${version} · ${build}`,
+    clientVersion: (version: string) => `client ${version}`,
+    update: 'Update',
+    updateAvailable: 'Update available',
+    updating: 'Updating…',
+    updateFailed: (message: string) => `Update failed · ${message}`,
+    updateTitle: 'Update device',
+    updateBody: (name: string) =>
+      `Update ${name} to the gateway's client? Its service restarts; sessions it drives are stopped.`,
+    updateConfirm: 'Update device',
+    updateOffline: 'This device is offline.',
+    updateInFlight: 'This device is already updating.',
+    updateCurrent: 'This device runs the build the gateway serves.',
+    updateNoBuild: 'This gateway is not serving a client build.',
     revokeTitle: 'Revoke device',
     revokeBody: (name: string) =>
       `Revoke ${name}? Its token stops working and its sessions leave this gateway. The machine keeps its agents and transcripts.`,
@@ -98,6 +122,16 @@ export const strings = {
     manualPairCommand: (origin: string, code: string) =>
       `rc-client pair --gateway ${origin} --code ${code}`,
     createFailed: 'Could not create a pairing code.',
+    scanTitle: 'From your phone',
+    scanBody: 'The host prints a QR code. Scan it with the phone app, or open its link here.',
+    scanCommand: (origin: string) => `curl -fsSL ${origin}/install.sh | sh`,
+    claimTitle: 'Pair this host',
+    claimIntro: 'The host that printed this code is joining your gateway.',
+    claiming: 'Claiming this code…',
+    claimInvalid: 'This link carries no code.',
+    claimExpired: 'This code has expired. Run the command again on the host.',
+    claimUsed: 'This code was already used.',
+    claimFailed: 'Could not claim this code.',
   },
 
   sessions: {
@@ -125,6 +159,10 @@ export const strings = {
     device: 'Device',
     agent: 'Agent',
     agentUnavailable: 'not installed',
+    model: 'Model',
+    effort: 'Effort',
+    permissions: 'Permissions',
+    speed: 'Speed',
     workingDirectory: 'Working directory',
     browse: 'Browse…',
     dirExists: 'exists',
@@ -241,6 +279,13 @@ export const strings = {
     model: 'Model',
     permissionMode: 'Permission mode',
     effort: 'Effort',
+    /** A21: the one chip that carries the model, the effort and the tier. */
+    modelCard: 'Model and effort',
+    /** A21: "Speed, Fast" / "Speed, Standard" on the tier toggle. */
+    speed: (tier: string) => `Speed, ${tier}`,
+    speedStandard: 'Standard',
+    /** The accessible name of a control in the card: "Model, Opus 4.6". */
+    option: (name: string, value: string) => `${name}, ${value}`,
     /** A17: what a terminal chose, shown where its picker would be. */
     setInTerminal: (name: string, value: string) => `${name} · ${value} · set in the terminal`,
     language: 'Voice language',
@@ -275,6 +320,7 @@ export const strings = {
     voice: 'Voice',
     voiceLanguage: 'Default language',
     voiceServerDisabled: 'Speech-to-text is not configured on this gateway.',
+    language: 'Language',
     timeline: 'Timeline',
     timelineDetail: 'Detail',
     timelineDetailNote:
@@ -321,8 +367,88 @@ export const strings = {
     expandRow: 'Expand row',
     collapseRow: 'Collapse row',
   },
-} as const;
 
+  /** Word lists the helpers below read. Unknown ids fall back to the id itself. */
+  labels: {
+    state: {
+      starting: 'starting',
+      idle: 'idle',
+      running: 'running',
+      needs_approval: 'needs approval',
+      needs_input: 'needs input',
+      error: 'error',
+      stopped: 'stopped',
+      readonly: 'terminal',
+    } as Record<string, string>,
+    /**
+     * The tooltip on a session dot. It names the tone `dotTone` picked, while
+     * the dot's accessibility label stays the raw state. The table is in
+     * `docs/DESIGN.md`.
+     */
+    dotTone: {
+      working: 'Working',
+      waiting: 'Waiting for you',
+      live: 'Live',
+      off: 'Off',
+      failed: 'Failed',
+    } as Record<string, string>,
+    /** Speech-to-text languages. Every name but "Auto" is its own endonym. */
+    voiceLanguage: {
+      auto: 'Auto',
+      zh: '中文',
+      en: 'English',
+      ja: '日本語',
+      ko: '한국어',
+      de: 'Deutsch',
+      fr: 'Français',
+      es: 'Español',
+    } as Record<string, string>,
+    /** The two timeline detail levels, in the order Settings offers them. */
+    timelineDetail: { simple: 'Simple', detailed: 'Detailed' } as Record<TimelineDetail, string>,
+    terminal: 'terminal',
+    terminalAttached: 'terminal · attached',
+    terminalBusy: (state: string) => `terminal · ${state}`,
+  },
+
+  /** Relative times and durations. Numbers stay; only the words move. */
+  format: {
+    /** Passed to `toLocaleDateString` for dates older than a week. */
+    dateLocale: 'en',
+    now: 'now',
+    minutes: (n: number) => `${n}m`,
+    hours: (n: number) => `${n}h`,
+    days: (n: number) => `${n}d`,
+    justNow: 'just now',
+    minutesAgo: (n: number) => `${n}m ago`,
+    hoursAgo: (n: number) => `${n}h ago`,
+    yesterday: 'yesterday',
+    daysAgo: (n: number) => `${n}d ago`,
+    millis: (n: number) => `${n}ms`,
+    seconds: (s: string) => `${s}s`,
+    minutesSeconds: (m: number, s: number) => `${m}m ${s}s`,
+    hoursMinutes: (h: number, m: number) => `${h}h ${m}m`,
+  },
+};
+
+/** Every table implements this. The compiler rejects an incomplete one. */
+export type StringTable = typeof en;
+
+export const stringTables: Record<InterfaceLanguage, StringTable> = { en, 'zh-Hans': zhHans };
+
+function table(): StringTable {
+  return stringTables[useSettings.getState().language];
+}
+
+/**
+ * Reads through to the table the setting names, so every `strings.x.y` in the
+ * app follows a language change without a single call site knowing about it.
+ */
+export const strings: StringTable = new Proxy({} as StringTable, {
+  get: (_target, key) => table()[key as keyof StringTable],
+  has: (_target, key) => key in table(),
+});
+
+/** Product names, never translated. */
 export const agentLabels: Record<string, string> = {
   claude: 'Claude Code',
   codex: 'Codex',
@@ -342,36 +468,26 @@ export function agentMark(agent: string): string {
   return agentMarks[agent] ?? agent.charAt(0).toUpperCase();
 }
 
-export const stateLabels: Record<string, string> = {
-  starting: 'starting',
-  idle: 'idle',
-  running: 'running',
-  needs_approval: 'needs approval',
-  needs_input: 'needs input',
-  error: 'error',
-  stopped: 'stopped',
-  readonly: 'terminal',
+/** The two interface languages, each written in its own script. */
+export const interfaceLanguageLabels: Record<InterfaceLanguage, string> = {
+  en: 'English',
+  'zh-Hans': '中文',
 };
 
 export function stateLabel(state: string): string {
-  return stateLabels[state] ?? state;
+  return strings.labels.state[state] ?? state;
 }
 
-/**
- * The tooltip on a session dot. It names the tone `dotTone` picked, while the
- * dot's accessibility label stays the raw state. The table is in
- * `docs/DESIGN.md`.
- */
-export const dotToneLabels: Record<string, string> = {
-  working: 'Working',
-  waiting: 'Waiting for you',
-  live: 'Live',
-  off: 'Off',
-  failed: 'Failed',
-};
-
 export function dotToneLabel(tone: string): string {
-  return dotToneLabels[tone] ?? tone;
+  return strings.labels.dotTone[tone] ?? tone;
+}
+
+export function languageLabel(code: string): string {
+  return strings.labels.voiceLanguage[code] ?? code.toUpperCase();
+}
+
+export function timelineDetailLabel(detail: TimelineDetail): string {
+  return strings.labels.timelineDetail[detail];
 }
 
 /**
@@ -380,14 +496,14 @@ export function dotToneLabel(tone: string): string {
  * `shared`: a terminal session the device is attached to.
  */
 export function sessionStateLabel(session: { state: string; control: string }): string {
-  if (session.control === 'shared') return 'terminal · attached';
+  if (session.control === 'shared') return strings.labels.terminalAttached;
   if (session.control !== 'terminal') return stateLabel(session.state);
   const busy =
     session.state === 'running' ||
     session.state === 'starting' ||
     session.state === 'needs_approval' ||
     session.state === 'needs_input';
-  return busy ? `terminal · ${stateLabel(session.state)}` : 'terminal';
+  return busy ? strings.labels.terminalBusy(stateLabel(session.state)) : strings.labels.terminal;
 }
 
 /**
@@ -399,29 +515,4 @@ export function sessionStateLabel(session: { state: string; control: string }): 
  */
 export function sessionTitle(session: { title: string }): string {
   return session.title.trim() || strings.sessions.untitled;
-}
-
-export const languageLabels: Record<string, string> = {
-  auto: 'Auto',
-  zh: '中文',
-  en: 'English',
-  ja: '日本語',
-  ko: '한국어',
-  de: 'Deutsch',
-  fr: 'Français',
-  es: 'Español',
-};
-
-export function languageLabel(code: string): string {
-  return languageLabels[code] ?? code.toUpperCase();
-}
-
-/** The two timeline detail levels, in the order Settings offers them. */
-export const timelineDetailLabels: Record<TimelineDetail, string> = {
-  simple: 'Simple',
-  detailed: 'Detailed',
-};
-
-export function timelineDetailLabel(detail: TimelineDetail): string {
-  return timelineDetailLabels[detail];
 }

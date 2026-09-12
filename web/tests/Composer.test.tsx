@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Composer } from '../src/features/chat/Composer';
 import { foldSession } from '../src/stores/chat';
@@ -322,8 +322,9 @@ describe('Composer disabled states', () => {
 
 /**
  * A17 — what the terminal chose is shown, not offered. `docs/DESIGN.md`
- * § "The composer": a session a terminal holds draws the model, permission mode
- * and effort as chips that open nothing.
+ * § "The composer": a session a terminal holds draws the model card and the
+ * permission mode as chips that open nothing, and A21 puts the tier on the
+ * first of them.
  */
 describe('Composer settings a terminal holds', () => {
   const renderComposer = (session: Partial<Session>, agent: AgentInfo | null = claudeAgent) =>
@@ -347,21 +348,22 @@ describe('Composer settings a terminal holds', () => {
   const chip = (name: string, value: string) =>
     screen.queryByLabelText(strings.composer.setInTerminal(name, value));
 
-  it('shows the three values on a shared Claude session', () => {
+  it('shows the model card and the permission mode on a shared Claude session', () => {
     renderComposer({ control: 'shared' });
 
-    expect(chip(strings.composer.model, 'Sonnet 4.5')).toBeInTheDocument();
+    expect(chip(strings.composer.modelCard, 'Sonnet 4.5 High')).toBeInTheDocument();
     expect(chip(strings.composer.permissionMode, 'Ask before edits')).toBeInTheDocument();
-    expect(chip(strings.composer.effort, 'High')).toBeInTheDocument();
-    // Chips, not pickers: nothing in the row opens a menu.
-    expect(screen.queryByRole('button', { name: strings.composer.model })).not.toBeInTheDocument();
-    expect(document.querySelectorAll('.composer-chip.readonly')).toHaveLength(3);
+    // Chips, not pickers: nothing in the row opens a card.
+    expect(
+      screen.queryByRole('button', { name: strings.composer.modelCard }),
+    ).not.toBeInTheDocument();
+    expect(document.querySelectorAll('.composer-chip.readonly')).toHaveLength(2);
   });
 
   it('shows them on a terminal session too, whose composer is disabled', () => {
     renderComposer({ control: 'terminal' });
 
-    expect(chip(strings.composer.model, 'Sonnet 4.5')).toBeInTheDocument();
+    expect(chip(strings.composer.modelCard, 'Sonnet 4.5 High')).toBeInTheDocument();
     expect(screen.getByLabelText(strings.composer.placeholder)).toBeDisabled();
   });
 
@@ -377,34 +379,53 @@ describe('Composer settings a terminal holds', () => {
     renderComposer({ control: 'shared', permission_mode: 'auto', model: 'claude-opus-5[1m]' });
 
     expect(chip(strings.composer.permissionMode, 'auto')).toBeInTheDocument();
-    expect(chip(strings.composer.model, 'claude-opus-5[1m]')).toBeInTheDocument();
+    expect(chip(strings.composer.modelCard, 'claude-opus-5[1m] High')).toBeInTheDocument();
   });
 
   it('shows them with no agent at all, by their ids', () => {
     renderComposer({ control: 'terminal' }, null);
 
-    expect(chip(strings.composer.model, 'claude-sonnet-4-5')).toBeInTheDocument();
-    expect(chip(strings.composer.effort, 'high')).toBeInTheDocument();
+    expect(chip(strings.composer.modelCard, 'claude-sonnet-4-5 high')).toBeInTheDocument();
   });
 
-  it('keeps the pickers on a session the device drives', () => {
+  /** A21: a Codex thread that was switched to the faster tier in its terminal. */
+  it('names the tier on the read-only chip of a terminal-held Codex session', () => {
+    renderComposer(
+      {
+        agent: 'codex',
+        control: 'terminal',
+        model: 'gpt-5.4-codex',
+        effort: 'medium',
+        speed: 'priority',
+      },
+      codexAgent,
+    );
+
+    const held = chip(strings.composer.modelCard, 'GPT-5.4 Codex Medium · Fast');
+    expect(held).toBeInTheDocument();
+    expect(held).toHaveTextContent('GPT-5.4 Codex Medium');
+    // The lightning is the only mark of the tier in the row itself.
+    expect(held?.querySelector('.speed-glyph')).not.toBeNull();
+  });
+
+  it('keeps the card on a session the device drives', () => {
     renderComposer({ control: 'remote' });
 
-    expect(screen.getByRole('button', { name: strings.composer.model })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: strings.composer.modelCard })).toBeInTheDocument();
     expect(document.querySelectorAll('.composer-chip.readonly')).toHaveLength(0);
   });
 
-  it('keeps the pickers on a shared agent that carries the settings', () => {
+  it('keeps the card on a shared agent that carries the settings', () => {
     renderComposer({ control: 'shared', agent: 'codex', model: 'gpt-5.4' }, codexAgent);
 
-    expect(screen.getByRole('button', { name: strings.composer.model })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: strings.composer.modelCard })).toBeInTheDocument();
     expect(document.querySelectorAll('.composer-chip.readonly')).toHaveLength(0);
   });
 
   it('follows a meta event that changes the model', () => {
     const session = { ...baseSession, control: 'shared' as const };
     const { rerender } = renderComposer(session);
-    expect(chip(strings.composer.model, 'Sonnet 4.5')).toBeInTheDocument();
+    expect(chip(strings.composer.modelCard, 'Sonnet 4.5 High')).toBeInTheDocument();
 
     // What the socket does with a `/model` typed in the terminal.
     const next = foldSession(session, [
@@ -427,7 +448,138 @@ describe('Composer settings a terminal holds', () => {
       />,
     );
 
-    expect(chip(strings.composer.model, 'Haiku 4.5')).toBeInTheDocument();
-    expect(chip(strings.composer.model, 'Sonnet 4.5')).toBeNull();
+    expect(chip(strings.composer.modelCard, 'Haiku 4.5 High')).toBeInTheDocument();
+    expect(chip(strings.composer.modelCard, 'Sonnet 4.5 High')).toBeNull();
+  });
+});
+
+/**
+ * A21 — the model card. `docs/DESIGN.md` § "The composer": one chip for what
+ * runs and how hard, a card with the tier and the model on one row and the
+ * effort slider under it.
+ */
+describe('Composer model card', () => {
+  const renderComposer = (session: Partial<Session>, agent: AgentInfo = claudeAgent) => {
+    const onSetOption = vi.fn();
+    render(
+      <Composer
+        session={{ ...baseSession, ...session }}
+        agent={agent}
+        deviceOnline
+        queue={[]}
+        sttEnabled={false}
+        sttLanguages={['auto']}
+        question={null}
+        onAnswer={vi.fn().mockResolvedValue(undefined)}
+        onSend={vi.fn().mockResolvedValue(undefined)}
+        onSetOption={onSetOption}
+        onRemoveQueued={vi.fn()}
+        onTakeover={vi.fn()}
+      />,
+    );
+    return { onSetOption };
+  };
+
+  const openCard = async () => {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: strings.composer.modelCard }));
+    return user;
+  };
+
+  it('reads the model and the effort in one chip', () => {
+    renderComposer({});
+    expect(screen.getByRole('button', { name: strings.composer.modelCard })).toHaveTextContent(
+      'Sonnet 4.5 High',
+    );
+    expect(document.querySelector('.model-card-chip .speed-glyph')).toBeNull();
+  });
+
+  it('marks the chip with the lightning while a tier is on', () => {
+    renderComposer({ agent: 'codex', model: 'gpt-5.4-codex', speed: 'priority' }, codexAgent);
+    expect(document.querySelector('.model-card-chip .speed-glyph')).not.toBeNull();
+  });
+
+  it('opens a card with the model name and the effort slider', async () => {
+    renderComposer({});
+    await openCard();
+
+    expect(
+      screen.getByRole('button', {
+        name: strings.composer.option(strings.composer.model, 'Sonnet 4.5'),
+      }),
+    ).toBeInTheDocument();
+    const slider = screen.getByRole('slider', { name: strings.composer.effort });
+    expect(slider).toHaveValue('2');
+    expect(slider).toHaveAttribute('aria-valuetext', 'High');
+  });
+
+  it('updates the word while the thumb moves and sends only on release', async () => {
+    const { onSetOption } = renderComposer({});
+    await openCard();
+    const slider = screen.getByRole('slider', { name: strings.composer.effort });
+
+    fireEvent.input(slider, { target: { value: '0' } });
+    expect(slider).toHaveAttribute('aria-valuetext', 'Low');
+    expect(document.querySelector('[data-effort-word]')).toHaveTextContent('High');
+    expect(onSetOption).not.toHaveBeenCalled();
+
+    fireEvent.change(slider, { target: { value: '0' } });
+    expect(onSetOption).toHaveBeenCalledWith({ effort: 'low' });
+  });
+
+  it('draws no slider for an agent with no effort levels', async () => {
+    renderComposer({}, { ...claudeAgent, efforts: [], default_effort: null });
+    await openCard();
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+  });
+
+  it('changes the model from the list the card opens', async () => {
+    const { onSetOption } = renderComposer({});
+    const user = await openCard();
+
+    await user.click(
+      screen.getByRole('button', {
+        name: strings.composer.option(strings.composer.model, 'Sonnet 4.5'),
+      }),
+    );
+    await user.click(screen.getByRole('option', { name: 'Haiku 4.5' }));
+
+    expect(onSetOption).toHaveBeenCalledWith({ model: 'claude-haiku-4-5' });
+  });
+
+  it('offers no speed toggle for an agent that lists no tiers', async () => {
+    expect(claudeAgent.speeds).toBeUndefined();
+    renderComposer({});
+    await openCard();
+    expect(document.querySelector('.speed-toggle')).toBeNull();
+  });
+
+  it('cycles standard → the tier → standard for Codex', async () => {
+    expect(codexAgent.speeds).toEqual([{ id: 'priority', label: 'Fast' }]);
+    const { onSetOption } = renderComposer(
+      { agent: 'codex', model: 'gpt-5.4-codex', effort: 'medium' },
+      codexAgent,
+    );
+    const user = await openCard();
+
+    const toggle = screen.getByRole('button', {
+      name: strings.composer.speed(strings.composer.speedStandard),
+    });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await user.click(toggle);
+    expect(onSetOption).toHaveBeenCalledWith({ speed: 'priority' });
+  });
+
+  it('turns the tier back off from the lit toggle', async () => {
+    const { onSetOption } = renderComposer(
+      { agent: 'codex', model: 'gpt-5.4-codex', effort: 'medium', speed: 'priority' },
+      codexAgent,
+    );
+    const user = await openCard();
+
+    const toggle = screen.getByRole('button', { name: strings.composer.speed('Fast') });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await user.click(toggle);
+    expect(onSetOption).toHaveBeenCalledWith({ speed: null });
   });
 });

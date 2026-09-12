@@ -7,6 +7,8 @@ import { claudeAgent, codexAgent } from '../mock/fixtures';
 import type { Device } from '../src/protocol/types';
 
 const CODE = 'RC-7K42-QX9M';
+// Two one-liners are on screen now: this one, and the scan flow's (A23).
+const PAIR_COMMAND = /curl -fsSL.+--pair/;
 
 const pairingResponse = {
   code: CODE,
@@ -67,14 +69,14 @@ describe('AddDeviceModal', () => {
     render(<AddDeviceModal open onClose={vi.fn()} />);
     // The code appears twice: inside the one-liner and on its own below it.
     expect(await screen.findAllByText(new RegExp(CODE))).toHaveLength(2);
-    expect(screen.getByText(/curl -fsSL/)).toHaveTextContent(CODE);
+    expect(screen.getByText(PAIR_COMMAND)).toHaveTextContent(CODE);
     expect(screen.getByText(/single use/)).toHaveTextContent(/expires in \d+:\d\d/);
   });
 
   it('switches the command between the macOS and Linux tabs', async () => {
     const user = userEvent.setup();
     render(<AddDeviceModal open onClose={vi.fn()} />);
-    await screen.findByText(/curl -fsSL/);
+    await screen.findByText(PAIR_COMMAND);
 
     const linux = screen.getByRole('button', { name: 'Linux' });
     await user.click(linux);
@@ -84,7 +86,7 @@ describe('AddDeviceModal', () => {
 
   it('walks the live steps from pairing.progress and only then enables Continue', async () => {
     render(<AddDeviceModal open onClose={vi.fn()} />);
-    await screen.findByText(/curl -fsSL/);
+    await screen.findByText(PAIR_COMMAND);
 
     const stepItem = (label: string): HTMLElement => {
       const node = screen.getByText(label).closest('li');
@@ -114,15 +116,27 @@ describe('AddDeviceModal', () => {
 
   it('ignores progress frames for a different pairing code', async () => {
     render(<AddDeviceModal open onClose={vi.fn()} />);
-    await screen.findByText(/curl -fsSL/);
+    await screen.findByText(PAIR_COMMAND);
     useConnection.setState({ pairing: { code: 'RC-0000-0000', step: 'online', device: pairedDevice } });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled());
+  });
+
+  it('offers the scan flow beside the code, with its own one-liner (A23)', async () => {
+    render(<AddDeviceModal open onClose={vi.fn()} />);
+    await screen.findByText(PAIR_COMMAND);
+
+    expect(screen.getByRole('heading', { name: 'From your phone' })).toBeInTheDocument();
+    // The scan one-liner carries no code: the host asks for its own token.
+    const scan = screen.getByText(`curl -fsSL ${window.location.origin}/install.sh | sh`);
+    expect(scan).toHaveTextContent(/install\.sh \| sh$/);
+    expect(scan.textContent).not.toContain(CODE);
+    expect(screen.getByText(/The host prints a QR code/)).toBeInTheDocument();
   });
 
   it('reveals the manual install steps on demand', async () => {
     const user = userEvent.setup();
     render(<AddDeviceModal open onClose={vi.fn()} />);
-    await screen.findByText(/curl -fsSL/);
+    await screen.findByText(PAIR_COMMAND);
     await user.click(screen.getByRole('button', { name: 'Manual install' }));
     expect(screen.getByText(/rc-client pair --gateway/)).toHaveTextContent(CODE);
   });
@@ -131,7 +145,7 @@ describe('AddDeviceModal', () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     render(<AddDeviceModal open onClose={onClose} />);
-    await screen.findByText(/curl -fsSL/);
+    await screen.findByText(PAIR_COMMAND);
 
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onClose).toHaveBeenCalled();

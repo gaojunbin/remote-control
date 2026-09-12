@@ -53,11 +53,19 @@ export interface HealthResponse {
   auth: { mode: string };
 }
 
+/** A22: the client wheel the gateway serves. Absent in a developer checkout. */
+export interface ClientBuildInfo {
+  version: string;
+  build: string;
+  url: string;
+}
+
 export interface ConfigResponse {
   public_origin: string;
   stt: { enabled: boolean; languages: string[] };
   push: { web_enabled: boolean; apns_enabled: boolean };
   version: string;
+  client?: ClientBuildInfo;
 }
 
 export interface SessionResponse {
@@ -79,6 +87,12 @@ export interface PairingResponse {
   install: { macos: string; linux: string };
 }
 
+/** A23: what claiming a host's scan token hands back — an ordinary pairing code. */
+export interface PairingClaimResponse {
+  code: string;
+  expires_at: number;
+}
+
 export const api = {
   health: () => get<HealthResponse>('/api/health'),
   config: () => get<ConfigResponse>('/api/config'),
@@ -96,6 +110,8 @@ export const api = {
   createPairing: () => post<PairingResponse>('/api/devices/pairing'),
   cancelPairing: (code: string) =>
     del<{ ok: boolean }>(`/api/devices/pairing/${encodeURIComponent(code)}`),
+  claimPairingRequest: (token: string) =>
+    post<PairingClaimResponse>(`/api/pairing/requests/${encodeURIComponent(token)}/claim`),
 
   sessions: (params?: { device_id?: string; archived?: boolean }) => {
     const q = new URLSearchParams();

@@ -64,7 +64,14 @@ function assertAgent(agent: AgentInfo): void {
   expect(Array.isArray(agent.permission_modes)).toBe(true);
   expect(Array.isArray(agent.efforts)).toBe(true);
   expect(Array.isArray(agent.capabilities)).toBe(true);
-  for (const choice of [...agent.models, ...agent.permission_modes, ...agent.efforts]) {
+  // A21: speed tiers are optional, and a list of the same labelled ids.
+  expect(agent.speeds === undefined || Array.isArray(agent.speeds)).toBe(true);
+  for (const choice of [
+    ...agent.models,
+    ...agent.permission_modes,
+    ...agent.efforts,
+    ...(agent.speeds ?? []),
+  ]) {
     expect(typeof choice.id).toBe('string');
     expect(typeof choice.label).toBe('string');
   }
@@ -100,6 +107,10 @@ function assertSession(session: Session): void {
   expect(['remote', 'terminal', 'shared', 'none']).toContain(session.control);
   expect(['remote', 'terminal']).toContain(session.origin);
   expect(typeof session.last_seq).toBe('number');
+  // A21: absent or null is the standard speed.
+  expect(
+    session.speed === undefined || session.speed === null || typeof session.speed === 'string',
+  ).toBe(true);
   if (session.usage) assertUsage(session.usage);
   if (session.turn) expect(typeof session.turn.turn_id).toBe('string');
 }
@@ -239,6 +250,24 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
     }
   });
 
+  it('decodes the agent list and the speed tier it advertises (A21)', () => {
+    const reply = readFixture<Reply<{ agents: AgentInfo[] }>>('app/reply.device.agents.json');
+    expect(reply.ok).toBe(true);
+    if (!reply.ok) return;
+    reply.result.agents.forEach(assertAgent);
+
+    const codex = reply.result.agents.find((agent) => agent.agent === 'codex');
+    expect(codex?.speeds).toEqual([{ id: 'priority', label: 'Fast' }]);
+    // Claude has no faster tier, so the apps draw no control for it.
+    expect(reply.result.agents.find((agent) => agent.agent === 'claude')?.speeds).toBeUndefined();
+
+    const set = readFixture<{ type: string; session_id: string; speed?: string | null }>(
+      'app/session.set.json',
+    );
+    expect(set.type).toBe('session.set');
+    expect(codex?.speeds?.some((tier) => tier.id === set.speed)).toBe(true);
+  });
+
   it('decodes an error reply into a code the UI knows', () => {
     const reply = readFixture<Reply>('app/reply.error.json');
     expect(reply.ok).toBe(false);
@@ -257,10 +286,15 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
       public_origin: string;
       stt: { enabled: boolean; languages: string[] };
       push: { web_enabled: boolean; apns_enabled: boolean };
+      client?: { version: string; build: string; url: string };
     }>('http/config.response.json');
     expect(typeof config.public_origin).toBe('string');
     expect(Array.isArray(config.stt.languages)).toBe(true);
     expect(typeof config.push.web_enabled).toBe('boolean');
+    // A22: the wheel this gateway serves, which every device row is read against.
+    expect(config.client?.build).toMatch(/^[0-9a-f]{64}$/);
+    expect(typeof config.client?.version).toBe('string');
+    expect(config.client?.url).toContain('/dist/');
 
     const devices = readFixture<{ devices: Device[] }>('http/devices.list.response.json');
     devices.devices.forEach(assertDevice);
@@ -276,6 +310,46 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
     expect(pairing.code).toMatch(/^RC-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/);
     expect(pairing.install.macos).toContain(pairing.code);
     expect(pairing.install.linux).toContain(pairing.code);
+  });
+
+  it('decodes the device update request and its reply (A22)', () => {
+    const request = readFixture<{ type: string; device_id: string; build: string }>(
+      'app/device.update.json',
+    );
+    expect(request.type).toBe('device.update');
+    expect(request.build).toMatch(/^[0-9a-f]{64}$/);
+
+    const reply = readFixture<Reply<{ accepted: boolean; from?: string | null }>>(
+      'app/reply.device.update.json',
+    );
+    expect(reply.ok).toBe(true);
+    if (!reply.ok) return;
+    expect(reply.result.accepted).toBe(true);
+
+    // The build a device reports is what the row compares with the gateway's.
+    const updated = readFixture<{ device: Device }>('app/device.updated.json');
+    assertDevice(updated.device);
+    expect(updated.device.client_build).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('decodes the pairing-by-scanning bodies (A23)', () => {
+    const request = readFixture<{ token: string; expires_at: number; claim_url: string }>(
+      'http/devices.pairing.request.response.json',
+    );
+    expect(request.token).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+    // The web app reads the token out of the fragment of exactly this link.
+    expect(request.claim_url).toBe(`${new URL(request.claim_url).origin}/pair#${request.token}`);
+
+    const status = readFixture<{ status: string; code?: string }>(
+      'http/devices.pairing.request.status.response.json',
+    );
+    expect(['waiting', 'claimed']).toContain(status.status);
+
+    const claim = readFixture<{ code: string; expires_at: number }>(
+      'http/devices.pairing.claim.response.json',
+    );
+    expect(claim.code).toMatch(/^RC-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/);
+    expect(typeof claim.expires_at).toBe('number');
   });
 
   it('decodes the push payload the service worker renders', () => {

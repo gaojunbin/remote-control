@@ -70,6 +70,8 @@ export interface CreateSessionParams {
   model?: string;
   permission_mode?: string;
   effort?: string;
+  /** A21: a tier id from `AgentInfo.speeds`; omitted for the standard speed. */
+  speed?: string;
   worktree?: boolean;
   first_message?: string;
   title?: string;
@@ -127,6 +129,12 @@ export interface BlockResult {
   event: SessionEvent;
 }
 
+/** A22: the device took the update and names the build it is leaving. */
+export interface UpdateAcceptedResult {
+  accepted: boolean;
+  from?: string | null;
+}
+
 /** Request type -> (params, result) mapping used by the typed socket client. */
 export interface RequestMap {
   'session.subscribe': [{ session_id: string; since_seq?: number }, SubscribeResult];
@@ -147,6 +155,8 @@ export interface RequestMap {
       model?: string;
       permission_mode?: string;
       effort?: string;
+      /** A21: a tier id from `AgentInfo.speeds`, or null for the standard speed. */
+      speed?: string | null;
       title?: string;
     },
     SessionResult,
@@ -163,6 +173,8 @@ export interface RequestMap {
   'device.dirs': [{ device_id: string; path?: string }, DirsResult];
   'device.git': [{ device_id: string; path: string }, GitResult];
   'device.agents': [{ device_id: string }, AgentsResult];
+  /** A22: bring the device to the build the gateway serves. */
+  'device.update': [{ device_id: string; build: string }, UpdateAcceptedResult];
 }
 
 export type RequestType = keyof RequestMap;

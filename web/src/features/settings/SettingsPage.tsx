@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button } from '../../components/Button';
 import { Menu } from '../../components/Popover';
-import { languageLabel, strings, timelineDetailLabel } from '../../strings';
+import { interfaceLanguageLabels, languageLabel, strings, timelineDetailLabel } from '../../strings';
 import { useAuth } from '../../stores/auth';
 import { useConnection } from '../../stores/connection';
-import { useSettings } from '../../stores/settings';
+import { INTERFACE_LANGUAGES, useSettings } from '../../stores/settings';
+import type { InterfaceLanguage } from '../../stores/settings';
 import type { TimelineDetail } from '../../stores/timeline';
 import { currentPushState, disablePush, enablePush, type PushState } from '../../push/webpush';
 import './settings.css';
@@ -23,8 +24,10 @@ export function SettingsPage() {
   const protocol = useConnection((s) => s.protocol);
   const stt = useConnection((s) => s.stt);
 
-  const language = useSettings((s) => s.sttLanguage);
-  const setLanguage = useSettings((s) => s.setSttLanguage);
+  const sttLanguage = useSettings((s) => s.sttLanguage);
+  const setSttLanguage = useSettings((s) => s.setSttLanguage);
+  const uiLanguage = useSettings((s) => s.language);
+  const setUiLanguage = useSettings((s) => s.setLanguage);
   const detail = useSettings((s) => s.timelineDetail);
   const setDetail = useSettings((s) => s.setTimelineDetail);
 
@@ -122,16 +125,36 @@ export function SettingsPage() {
                 <Menu
                   align="end"
                   ariaLabel={strings.settings.voiceLanguage}
-                  value={language}
-                  onSelect={setLanguage}
+                  value={sttLanguage}
+                  onSelect={setSttLanguage}
                   options={stt.languages.map((code) => ({ id: code, label: languageLabel(code) }))}
-                  label={languageLabel(language)}
+                  label={languageLabel(sttLanguage)}
                 />
               </div>
             </div>
           ) : (
             <p className="settings-note">{strings.settings.voiceServerDisabled}</p>
           )}
+        </section>
+
+        <section className="settings-section">
+          <h2 className="group-title">{strings.settings.language}</h2>
+          <div className="settings-group surface">
+            <div className="settings-row">
+              <span>{strings.settings.language}</span>
+              <Menu
+                align="end"
+                ariaLabel={strings.settings.language}
+                value={uiLanguage}
+                onSelect={(id) => setUiLanguage(id as InterfaceLanguage)}
+                options={INTERFACE_LANGUAGES.map((code) => ({
+                  id: code,
+                  label: interfaceLanguageLabels[code],
+                }))}
+                label={interfaceLanguageLabels[uiLanguage]}
+              />
+            </div>
+          </div>
         </section>
 
         <section className="settings-section">

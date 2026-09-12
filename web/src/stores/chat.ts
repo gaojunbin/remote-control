@@ -150,6 +150,7 @@ export function foldSession(session: Session, events: readonly SessionEvent[]): 
             ? { permission_mode: event.permission_mode }
             : {}),
           ...(event.effort !== undefined ? { effort: event.effort } : {}),
+          ...(event.speed !== undefined ? { speed: event.speed } : {}),
           ...(event.cwd !== undefined ? { cwd: event.cwd } : {}),
           ...(event.git !== undefined ? { git: event.git } : {}),
           ...(event.control !== undefined ? { control: event.control } : {}),

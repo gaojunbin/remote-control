@@ -61,6 +61,12 @@ export interface AgentInfo {
   default_permission_mode: string | null;
   efforts: Choice[];
   default_effort: string | null;
+  /**
+   * A21: speed tiers the agent can run a session at beyond its standard speed,
+   * for example Codex's `priority` ("Fast"). Absent or empty when it has none,
+   * and an agent with none draws no control.
+   */
+  speeds?: Choice[];
   capabilities: Capability[];
   /** Amendment A10: how this agent's terminal sessions can be attached. */
   attach?: AttachMode | null;
@@ -80,6 +86,9 @@ export interface AgentInfo {
   shared_attachments?: boolean;
 }
 
+/** A22: where an app-requested client update stands. Absent means `idle`. */
+export type DeviceUpdateState = 'idle' | 'updating' | 'failed';
+
 export interface Device {
   device_id: string;
   name: string;
@@ -87,6 +96,12 @@ export interface Device {
   hostname: string;
   arch: string;
   client_version: string;
+  /** A22: SHA-256 of the wheel the client was installed from; null when unknown. */
+  client_build?: string | null;
+  /** A22: an app-requested update in flight or failed. */
+  update_state?: DeviceUpdateState;
+  /** A22: why the last update failed. */
+  update_message?: string | null;
   online: boolean;
   last_seen: number;
   created_at: number;
@@ -152,6 +167,8 @@ export interface Session {
   model: string | null;
   permission_mode: string | null;
   effort: string | null;
+  /** A21: the tier from `AgentInfo.speeds` this session runs at. Null is standard. */
+  speed?: string | null;
   created_at: number;
   updated_at: number;
   last_seq: number;
@@ -350,6 +367,8 @@ export interface MetaEvent extends EventBase {
   model?: string;
   permission_mode?: string;
   effort?: string;
+  /** A21: the tier the session now runs at; null is the standard speed. */
+  speed?: string | null;
   cwd?: string;
   git?: GitInfo | null;
   control?: ControlOwner;

@@ -84,6 +84,9 @@ export const codexAgent: AgentInfo = {
   ],
   default_effort: 'medium',
   capabilities: ['worktree', 'interrupt', 'queue', 'steer', 'attachments', 'effort', 'history'],
+  // A21: Codex's own service tier. The apps draw the lightning only because
+  // this list is non-empty; Claude lists none and draws nothing.
+  speeds: [{ id: 'priority', label: 'Fast' }],
   // Amendment A11: every bare `codex` TUI on this device runs inside the shared
   // app-server daemon, so an attached session carries the interrupt, the
   // settings and the image inputs as well as prompts and approvals.
@@ -103,6 +106,16 @@ export const codexNoDaemon: AgentInfo = {
   shared_attachments: false,
 };
 
+/**
+ * A22: the build the mock gateway serves as `/api/config` `client.build`.
+ * `dev-mac` runs it and `dev-ci` runs the one before, so the device list shows
+ * both a row with nothing to do and a row offering Update.
+ */
+export const CLIENT_VERSION = '0.1.0';
+export const CLIENT_BUILD = '3f2b4a9c1d8e7f60a5b4c3d2e1f0918273645a5b6c7d8e9f0a1b2c3d4e5f6a7b';
+export const OLD_CLIENT_BUILD =
+  '9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d';
+
 export const devices: Device[] = [
   {
     device_id: 'dev-mac',
@@ -111,6 +124,7 @@ export const devices: Device[] = [
     hostname: 'mac-studio.local',
     arch: 'arm64',
     client_version: '0.1.0',
+    client_build: CLIENT_BUILD,
     online: true,
     last_seen: now,
     created_at: minutes(60 * 24 * 9),
@@ -123,7 +137,8 @@ export const devices: Device[] = [
     platform: 'linux',
     hostname: 'ci-runner-01',
     arch: 'x86_64',
-    client_version: '0.1.0',
+    client_version: '0.0.9',
+    client_build: OLD_CLIENT_BUILD,
     online: true,
     last_seen: minutes(2),
     created_at: minutes(60 * 24 * 30),
@@ -264,6 +279,8 @@ export const sessions: Session[] = [
     model: 'gpt-5.4-codex',
     permission_mode: 'on-request',
     effort: 'medium',
+    // A21: `/fast` was typed in that terminal, and the chip says so.
+    speed: 'priority',
     state: 'readonly',
     origin: 'terminal',
     control: 'terminal',

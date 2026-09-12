@@ -158,9 +158,9 @@ describe.runIf(fixturesAvailable())('A10 composer on a shared session', () => {
     expect(document.querySelector('.takeover-bar')).toBeNull();
   });
 
-  it('hides the model, permission mode and effort pickers', () => {
+  it('hides the model card and the permission-mode picker', () => {
     render(<Composer {...composerProps(sharedIdle, attachAgent)} />);
-    for (const name of ['Model', 'Permission mode', 'Effort']) {
+    for (const name of ['Model and effort', 'Permission mode', 'Model', 'Effort']) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
     }
     // Hidden, never disabled with a reason: nothing explains the absence.
@@ -187,7 +187,7 @@ describe.runIf(fixturesAvailable())('A10 composer on a shared session', () => {
   it('leaves the pickers alone on a remote session', () => {
     const session: Session = { ...sharedIdle, control: 'remote', origin: 'remote' };
     render(<Composer {...composerProps(session, claudeAgent)} />);
-    expect(screen.getByRole('button', { name: 'Model' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Model and effort' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Attach files' })).toBeEnabled();
   });
 });
@@ -460,7 +460,7 @@ describe.runIf(fixturesAvailable())('A11 composer on a shared Codex session', ()
 
   it('shows the pickers when the device reports shared_settings', () => {
     render(<Composer {...composerProps(codexShared, daemonAgent)} />);
-    for (const name of ['Model', 'Permission mode', 'Effort']) {
+    for (const name of ['Model and effort', 'Permission mode']) {
       expect(screen.getByRole('button', { name })).toBeEnabled();
     }
   });
@@ -473,13 +473,13 @@ describe.runIf(fixturesAvailable())('A11 composer on a shared Codex session', ()
   it('hides whichever half the device does not report', () => {
     const settingsOnly: AgentInfo = { ...daemonAgent, shared_attachments: false };
     const { unmount } = render(<Composer {...composerProps(codexShared, settingsOnly)} />);
-    expect(screen.getByRole('button', { name: 'Model' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Model and effort' })).toBeEnabled();
     expect(screen.queryByRole('button', { name: 'Attach files' })).not.toBeInTheDocument();
     unmount();
 
     const attachmentsOnly: AgentInfo = { ...daemonAgent, shared_settings: false };
     render(<Composer {...composerProps(codexShared, attachmentsOnly)} />);
-    expect(screen.queryByRole('button', { name: 'Model' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Model and effort' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Attach files' })).toBeEnabled();
   });
 
@@ -500,7 +500,7 @@ describe.runIf(fixturesAvailable())('A11 composer on a shared Codex session', ()
     const noInterrupt: AgentInfo = { ...daemonAgent, shared_interrupt: false };
     render(<Composer {...composerProps(codexShared, noInterrupt)} />);
     expect(screen.queryByRole('button', { name: 'Send options' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Model' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Model and effort' })).toBeEnabled();
   });
 
   it('says the prompt will steer, matching the status line and the Send label', () => {
