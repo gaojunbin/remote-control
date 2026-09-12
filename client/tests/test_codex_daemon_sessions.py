@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from rc_client.agents.codex import provenance
 from rc_client.agents.codex.daemon import approvals, terminals, threads
 from rc_client.agents.codex.daemon.service import CodexDaemonService, thread_config
 from rc_client.agents.codex.daemon.session import CodexDaemonSession
@@ -16,7 +17,7 @@ from rc_client.errors import RcError
 from rc_client.models import AgentInfo, Choice, Session
 from rc_client.procscan import OpenPaths, Proc, Scan
 from rc_client.registry import Registry
-from rc_client.sessions.hub import SessionHub
+from rc_client.sessions.hub import SessionEntry, SessionHub
 from tests.fake_codex_daemon import FakeDaemon, FakeTerminals
 
 THREAD = "01a08bde-23d6-7262-a563-68dcfb2c4b59"
@@ -55,6 +56,10 @@ def thread_row(thread_id: str = THREAD, **extra: Any) -> dict[str, Any]:
         "model": "gpt-5.4-codex",
         "reasoningEffort": "medium",
         "status": {"type": "idle"},
+        # A thread this device opened through the shared daemon, which is what
+        # the index says about one it is allowed to publish (A18).
+        "originator": provenance.DAEMON_CLIENT_NAME,
+        "source": "vscode",
     }
     row.update(extra)
     return row
@@ -1074,6 +1079,128 @@ async def test_a_loaded_thread_is_never_forgotten(harness: Harness) -> None:
     await harness.service.refresh()
     assert THREAD in harness.hub.entries
     assert [f for f in harness.frames if f.get("type") == "session.removed"] == []
+
+
+# ------------------------------------------- work another application owns
+
+
+def desktop_row(thread_id: str) -> dict[str, Any]:
+    """What the ChatGPT desktop app's chats and automations look like in the index."""
+    return thread_row(thread_id, originator="Codex Desktop", source="vscode")
+
+
+def seed(harness: Harness, session_id: str, origin: str = "terminal") -> SessionEntry:
+    """A Codex session stored before A18, with one event behind it."""
+    entry = harness.hub.register_mirrored(
+        Session(
+            session_id=session_id,
+            device_id="dev-1",
+            agent="codex",
+            cwd="/repo",
+            title="Daily AI news to Notion",
+            state="idle",
+            origin=origin,  # type: ignore[arg-type]
+            control="none",
+        )
+    )
+    entry.channel.start()
+    return entry
+
+
+def test_the_index_keeps_only_the_threads_this_device_may_show() -> None:
+    page = [
+        thread_row("t-ours"),
+        thread_row("t-tui", originator="codex-tui", source="cli"),
+        desktop_row("t-desktop"),
+        thread_row("t-sub", originator="codex-tui", source={"subAgent": {"other": "guardian"}}),
+    ]
+    assert [summary.thread_id for summary in threads.summaries(page)] == ["t-ours", "t-tui"]
+
+
+async def test_a_thread_another_application_owns_is_never_adopted(harness: Harness) -> None:
+    """`thread/read` is the other way in, and it answers to the same rule."""
+    foreign = "01a09321-d428-7742-b144-2e5b90421371"
+    harness.daemon.replies["thread/list"] = {"data": []}
+    harness.daemon.replies["thread/loaded/list"] = {"data": [foreign]}
+    harness.daemon.replies["thread/read"] = {"thread": desktop_row(foreign)}
+    harness.daemon.replies["thread/items/list"] = {"data": []}
+    assert await harness.service.start("/bin/codex") is True
+    assert foreign not in harness.hub.entries
+
+    # A foreign thread that speaks is still foreign, and the answer stands: a
+    # thread being used elsewhere must not cost a `thread/read` per event.
+    await harness.daemon.notify(
+        "item/started", {"threadId": foreign, "item": {"id": "i1", "type": "agentMessage"}}
+    )
+    await asyncio.sleep(0.1)
+    await harness.service.refresh()
+    assert foreign not in harness.hub.entries
+    assert harness.service.knows(foreign) is False
+    assert [method for method, _ in harness.daemon.calls].count("thread/read") == 1
+
+
+async def test_a_thread_another_application_opens_is_not_a_session(harness: Harness) -> None:
+    await started(harness, loaded=[])
+    await harness.daemon.notify("thread/started", {"thread": desktop_row("t-desktop")})
+    await asyncio.sleep(0.1)
+    assert "t-desktop" not in harness.hub.entries
+
+
+async def test_threads_published_before_the_rule_are_withdrawn_at_startup(
+    harness: Harness,
+) -> None:
+    foreign, ours, silent = "t-desktop", "t-remote", "t-silent"
+    for session_id, origin in ((foreign, "terminal"), (ours, "remote"), (silent, "terminal")):
+        entry = seed(harness, session_id, origin)
+        await entry.channel.emit("user_message", block_id="b1", text="x", source="terminal")
+
+    def answer(method: str, params: dict[str, Any]) -> Any:
+        if method != "thread/read":
+            return None
+        # Nothing at all for `t-silent`: a daemon that cannot describe a thread
+        # has said nothing about whose it is.
+        return {"thread": desktop_row(foreign)} if params.get("threadId") == foreign else {}
+
+    harness.daemon.responder = answer
+    harness.daemon.replies["thread/list"] = {"data": []}
+    harness.daemon.replies["thread/loaded/list"] = {"data": []}
+    assert await harness.service.start("/bin/codex") is True
+
+    assert sorted(harness.hub.entries) == [ours, silent]
+    removed = [f["session_id"] for f in harness.frames if f.get("type") == "session.removed"]
+    assert removed == [foreign]
+    assert harness.registry.has_events(foreign) is False
+    assert harness.registry.has_events(silent) is True
+    # A session this device drives is never read about at all.
+    assert [params for method, params in harness.daemon.calls if method == "thread/read"] == [
+        {"threadId": foreign},
+        {"threadId": silent},
+    ]
+
+
+async def test_a_withdrawal_the_link_missed_is_repeated_on_the_next_link(
+    harness: Harness,
+) -> None:
+    """The gateway keeps every session a device announced, so the frame is said again."""
+    foreign = "t-desktop"
+    seed(harness, foreign)
+    harness.daemon.responder = lambda method, params: (
+        {"thread": desktop_row(foreign)} if method == "thread/read" else None
+    )
+    harness.daemon.replies["thread/list"] = {"data": []}
+    harness.daemon.replies["thread/loaded/list"] = {"data": []}
+    harness.hub.link_up = lambda: False
+    assert await harness.service.start("/bin/codex") is True
+
+    def removals() -> list[str]:
+        return [f["session_id"] for f in harness.frames if f.get("type") == "session.removed"]
+
+    assert removals() == [foreign]
+
+    harness.hub.link_up = lambda: True
+    harness.hub.snapshot()  # the `hello` of the link that came back
+    await harness.hub.sweep_ghosts()
+    assert removals() == [foreign, foreign]
 
 
 # ------------------------------------------------------------------- titles

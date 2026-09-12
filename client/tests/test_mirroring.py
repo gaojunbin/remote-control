@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -216,6 +218,57 @@ def test_latest_settings_stops_at_its_cap(tmp_path: Path) -> None:
     write_rows(path, [model_row("claude-fable-5-1")])
     assert latest_settings(path, limit=cap) == {"model": "claude-sonnet-4-5"}
     assert latest_settings(path) == {"model": "claude-fable-5-1"}
+
+
+def write_rollout(root: Path, thread_id: str, originator: str, source: Any) -> Path:
+    """One rollout on disk, opened by the `session_meta` record Codex writes first."""
+    directory = root / "2026" / "09" / "12"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"rollout-2026-09-12T10-00-00-{thread_id}.jsonl"
+    meta = {
+        "type": "session_meta",
+        "payload": {
+            "id": thread_id,
+            "session_id": thread_id,
+            "cwd": "/repo",
+            "originator": originator,
+            "source": source,
+        },
+    }
+    write_rows(path, [meta])
+    return path
+
+
+def test_a_rollout_another_application_owns_is_never_mirrored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Amendment A18: whose thread it is, before anyone asks who holds the file."""
+    root = tmp_path / "sessions"
+    write_rollout(root, "t-tui", "codex-tui", "cli")
+    write_rollout(root, "t-ours", "rc-client", "vscode")
+    write_rollout(root, "t-desktop", "Codex Desktop", "vscode")
+    write_rollout(root, "t-sub", "codex-tui", {"subagent": {"other": "guardian"}})
+    monkeypatch.setattr(codex_rollouts, "SESSIONS_DIR", root)
+
+    found = {info.thread_id for info in codex_rollouts.discover()}
+    assert found == {"t-tui", "t-ours"}
+
+
+def test_the_rollout_limit_counts_what_this_device_may_mirror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A machine whose history is mostly another application's still yields ours."""
+    root = tmp_path / "sessions"
+    now = time.time()
+    for index in range(6):
+        path = write_rollout(root, f"t-desktop-{index}", "Codex Desktop", "vscode")
+        os.utime(path, (now, now - index))
+    # The only thread of ours is the oldest, so a window of two files would hold
+    # nothing but the desktop app's.
+    os.utime(write_rollout(root, "t-tui", "codex-tui", "cli"), (now, now - 60))
+    monkeypatch.setattr(codex_rollouts, "SESSIONS_DIR", root)
+
+    assert [info.thread_id for info in codex_rollouts.discover(limit=2)] == ["t-tui"]
 
 
 def test_rollout_tailer_tracks_turn_boundaries(tmp_path: Path) -> None:

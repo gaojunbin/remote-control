@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ....models import MAX_TITLE, now_ms
+from ..provenance import owned_here
 
 # Every real turn spawns a short-lived thread that only generates a title; those
 # would otherwise flicker into the session list on every message.
@@ -14,6 +15,11 @@ EPHEMERAL = "ephemeral"
 
 def is_ephemeral(thread: dict[str, Any]) -> bool:
     return bool(thread.get(EPHEMERAL))
+
+
+def is_ours(thread: dict[str, Any]) -> bool:
+    """Whether an index entry describes a thread this device may publish (A18)."""
+    return owned_here(thread.get("originator"), thread.get("source"))
 
 
 def is_active(status: Any) -> bool:
@@ -65,6 +71,16 @@ class ThreadSummary:
     created_at: int
     updated_at: int
     active: bool
+    # The client that opened the thread and where it sits, exactly as the index
+    # reports them. A `source` the index gives as an object — a subagent — is
+    # kept as `None`, which reads as foreign like every other unknown shape.
+    originator: str | None
+    source: str | None
+
+    @property
+    def ours(self) -> bool:
+        """Whether this thread is the device's to publish (A18)."""
+        return owned_here(self.originator, self.source)
 
     @classmethod
     def parse(cls, thread: dict[str, Any]) -> ThreadSummary | None:
@@ -88,7 +104,13 @@ class ThreadSummary:
             created_at=created,
             updated_at=updated,
             active=is_active(thread.get("status")),
+            originator=_text(thread.get("originator")),
+            source=_text(thread.get("source")),
         )
+
+
+def _text(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 def is_empty(summary: ThreadSummary) -> bool:
@@ -103,12 +125,18 @@ def is_empty(summary: ThreadSummary) -> bool:
 
 
 def summaries(threads: Any) -> list[ThreadSummary]:
-    """Parse a `thread/list` page, dropping ephemeral and unreadable entries."""
+    """Parse a `thread/list` page.
+
+    Ephemeral and unreadable entries are dropped, and so is every thread
+    another application on this machine owns: the index is the whole machine's
+    history, and only what this device opened or a terminal started is a
+    session here (A18).
+    """
     found: list[ThreadSummary] = []
     for entry in threads if isinstance(threads, list) else []:
         if not isinstance(entry, dict) or is_ephemeral(entry):
             continue
         summary = ThreadSummary.parse(entry)
-        if summary is not None:
+        if summary is not None and summary.ours:
             found.append(summary)
     return found

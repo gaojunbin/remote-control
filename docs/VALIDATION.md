@@ -648,6 +648,53 @@ Not verified: whether `--enable` and `--disable` embed on 0.154 — only `-c` an
 measured, and the scan no longer depends on the answer. Nothing in this pass was run against the
 gateway or the apps.
 
+### Work another application owns is not a session (2026-09-12, A18)
+
+The owner's state DB held twenty-odd Codex sessions with `origin: "terminal"` whose `cwd` was
+`~/Documents/Codex/<date>/<slug>` or `~/Documents/New project`: the ChatGPT desktop app's scheduled
+automations ("Daily AI News to Notion", one per day) and its chats. None was started at a terminal.
+Today's automation thread `01a09321-…` was `control: "terminal"`, `state: "readonly"`, because
+`/Applications/ChatGPT.app/Contents/Resources/codex … app-server` (pid 83448, no tty, child of
+ChatGPT.app) held its rollout open and `file_writers` takes any holder for a terminal.
+
+Read off the live daemon and the rollouts on disk, with `DaemonClient` and the repository's own
+`rollouts._session_meta`:
+
+| Provenance | Where it comes from |
+| --- | --- |
+| `originator: "remote-control"`, `source: "vscode"` | This device's threads on the shared daemon (`DAEMON_CLIENT_NAME`, the name in its handshake) |
+| `originator: "rc-client"`, `source: "vscode"` | This device's threads on the app-server it spawns for itself |
+| `originator: "codex-tui"` (older: `"codex_cli_rs"`), `source: "cli"` | A terminal running its own Codex |
+| `originator: "codex_exec"`, `source: "exec"` | `codex exec` |
+| `originator: "Codex Desktop"` or `"codex_work_desktop"`, `source: "vscode"` | The ChatGPT desktop app |
+| any originator, `source: {"subagent": …}` (`{"subAgent": …}` in the index) | A subagent a thread spawned |
+
+Counts from the predicate over live data, read-only, on 2026-09-12:
+
+| Source | Items | Kept | Dropped |
+| --- | --- | --- | --- |
+| One `thread/list` page, `limit: 100`, `sortDirection: "desc"` | 89 | 57 | 32 (17 `Codex Desktop`, 9 `codex_work_desktop`, 4 `P`, 2 `spike-A`) |
+| Rollouts on disk inside `discover()`'s 14-day window | 116 | 72 | 44 (14 `Codex Desktop`, 9 `codex_work_desktop`, 5 `probe`, 4 `P`, 2 `spike-A`, 10 subagents) |
+
+`P`, `spike-A` and `probe` are earlier spikes of this project that connected under a throwaway
+`clientInfo.name`; they are foreign by the same rule, which is the rule working. The default
+`thread/list` page carries no subagent threads at all — five sampled through
+`sourceKinds: ["subAgent"]`, none of them on the default page — so the index filter mostly meets
+them through `thread/read`, and the rollout filter meets them on disk.
+
+Covered by tests: the predicate over every pair above, including a dict `source`, `None` and both of
+this device's own names (`client/tests/test_codex_provenance.py`); `summaries()` keeping a
+`remote-control` and a `codex-tui`/`cli` thread and dropping a `Codex Desktop` and a subagent one;
+`thread/read` refusing to adopt a foreign thread and refusing again when it speaks; a foreign
+`thread/started` ignored; the startup prune withdrawing a stored foreign session, deleting its
+events and leaving both a `remote`-origin session and one the daemon will not describe alone; the
+withdrawal repeated on the next link when the link was down
+(`client/tests/test_codex_daemon_sessions.py`); and `discover()` skipping a foreign rollout, with
+the rollout cap counting only what this device may mirror (`client/tests/test_mirroring.py`).
+
+Not verified in this pass: the prune against the owner's real daemon and real state DB — both were
+left untouched — and nothing here was run against the gateway or the apps.
+
 ## 8. Restart resilience
 
 | Step | Result |

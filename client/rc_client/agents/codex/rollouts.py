@@ -14,6 +14,7 @@ from typing import Any
 
 from ...tailing import FileTail
 from ..base import Emit
+from .provenance import owned_here
 from .runtime import SESSIONS_DIR
 from .translate import CodexTranslator, _plan_items
 
@@ -47,7 +48,15 @@ def _session_meta(path: str) -> dict[str, Any] | None:
 
 
 def discover(limit: int = MAX_ROLLOUTS, max_age_days: int = MAX_AGE_DAYS) -> list[RolloutInfo]:
-    """The most recent rollouts, bounded the same way as Claude transcripts."""
+    """The most recent rollouts this device may mirror.
+
+    `~/.codex/sessions` holds every Codex thread on the machine, the desktop
+    app's and an IDE extension's beside a terminal's, so the `session_meta` a
+    rollout opens with decides whose it is before anything else looks at it
+    (A18). A foreign rollout is never tailed and its holder is never asked
+    about, which is what keeps an application sitting on its own file from
+    reading as a terminal.
+    """
     root = SESSIONS_DIR
     if not root.is_dir():
         return []
@@ -63,9 +72,14 @@ def discover(limit: int = MAX_ROLLOUTS, max_age_days: int = MAX_AGE_DAYS) -> lis
         candidates.append((stat.st_mtime, str(entry)))
     candidates.sort(reverse=True)
     found: list[RolloutInfo] = []
-    for mtime, path in candidates[:limit]:
+    # `limit` counts rollouts this device may mirror, not files walked past:
+    # a machine where another application writes most of the history would
+    # otherwise fill the whole window with threads nobody here can open.
+    for mtime, path in candidates:
+        if len(found) >= limit:
+            break
         meta = _session_meta(path)
-        if meta is None:
+        if meta is None or not owned_here(meta.get("originator"), meta.get("source")):
             continue
         thread_id = str(meta.get("session_id") or meta.get("id") or "")
         if not thread_id:

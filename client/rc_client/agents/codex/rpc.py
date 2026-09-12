@@ -15,6 +15,7 @@ from typing import Any
 
 from ...errors import RcError
 from ...logging_setup import logger
+from .provenance import DAEMON_CLIENT_NAME, EMBEDDED_CLIENT_NAME
 
 log = logger("rc_client.codex.rpc")
 
@@ -66,7 +67,13 @@ class CodexAppServer:
         self._reader = asyncio.create_task(self._read_loop())
         info = await self.request(
             "initialize",
-            {"clientInfo": {"name": "rc-client", "title": "remote-control", "version": "0.1.0"}},
+            {
+                "clientInfo": {
+                    "name": EMBEDDED_CLIENT_NAME,
+                    "title": DAEMON_CLIENT_NAME,
+                    "version": "0.1.0",
+                }
+            },
             timeout=STARTUP_TIMEOUT,
         )
         await self.notify("initialized", {})

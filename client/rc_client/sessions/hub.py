@@ -81,9 +81,9 @@ class SessionHub:
         self.codex_daemon: CodexDaemonService | None = None
         # The session each terminal CLI last said it was in, by its own pid.
         self._terminals: dict[int, SessionStart] = {}
-        # Ghost removals and the link they were published on. A frame published
-        # while the link is down is dropped, so each one is said again on the
-        # next link.
+        # Removals the device made on its own initiative, and the link each
+        # went out on. A frame published while the link is down is dropped, so
+        # each one is said again on the next link.
         self._removed: list[tuple[int, str]] = []
         self._link = 0
         # Whether the gateway link is up right now; the daemon wires the real
@@ -678,7 +678,7 @@ class SessionHub:
         async with entry.lock:
             await self.shared.closed(entry, attachment, control)
         if control == "none" and self._is_ghost(entry):
-            await self._remove_ghost(entry)
+            await self.withdraw(entry)
 
     # --------------------------------------------------- the session behind it
 
@@ -727,9 +727,9 @@ class SessionHub:
         async with target.lock:
             await self.shared.registered(target, attachment)
         if self._is_ghost(entry):
-            await self._remove_ghost(entry)
+            await self.withdraw(entry)
 
-    # ---------------------------------------------------------------- ghosts
+    # ------------------------------------------------- ghosts and withdrawals
 
     def _is_ghost(self, entry: SessionEntry) -> bool:
         """A session a terminal announced and left without ever using it.
@@ -763,9 +763,16 @@ class SessionHub:
         await self._repeat_removals()
         for entry in list(self.entries.values()):
             if self._is_ghost(entry):
-                await self._remove_ghost(entry)
+                await self.withdraw(entry)
 
-    async def _remove_ghost(self, entry: SessionEntry) -> None:
+    async def withdraw(self, entry: SessionEntry) -> None:
+        """Remove a session nobody asked about, and keep saying so until a link carries it.
+
+        The gateway keeps every session a device has ever announced, so a
+        `session.removed` the device sends of its own accord — a ghost (A16), a
+        thread another application owns (A18) — has to survive a link that was
+        down when it went out.
+        """
         session_id = entry.session.session_id
         await self._remove(entry)
         self._removed.append((self._link, session_id))

@@ -226,7 +226,8 @@ Every ten seconds the daemon scans for agent sessions it did not create:
   days. Growth is detected by file size, never mtime, because `claude --resume` touches mtime
   without appending a byte.
 - **Codex** — rollout files under `~/.codex/sessions`, identified by the `session_meta` record that
-  starts each one.
+  starts each one. That record also says whose thread it is, and only this device's own threads and
+  a terminal's are mirrored: see "Work another application owns" below.
 
 A discovered session is published with `origin: "terminal"` and its rows are mirrored into the same
 block timeline, with `source: "terminal"` on the user messages. A process scan decides who owns the
@@ -485,7 +486,8 @@ One connection for the whole machine, opened at startup, identified as `remote-c
 client to connect names the daemon for every thread, so the name is deliberate). On top of it:
 
 - `thread/list` is the session history and `thread/loaded/list` the live threads. Threads marked
-  `ephemeral` are dropped: Codex spawns one per turn just to generate a title.
+  `ephemeral` are dropped: Codex spawns one per turn just to generate a title, and so is every
+  thread another application on this machine owns (below).
 - A loaded thread is subscribed with `thread/resume {excludeTurns: true}` and backfilled from
   `thread/items/list`, so the block timeline comes from the daemon rather than from a rollout file.
   Rollout mirroring stays only for the threads the daemon does not know about.
@@ -537,6 +539,38 @@ client to connect names the daemon for every thread, so the name is deliberate).
   and our late reply is discarded silently.
 - The connection reconnects with backoff. On every reconnect each followed thread is resumed again
   and backfilled from the last item we published, so a daemon restart loses nothing.
+
+### Work another application owns
+
+Codex keeps one history for the whole machine. The ChatGPT desktop app's chats and its scheduled
+automations, an IDE extension's threads and the subagents a thread spawned all sit in `thread/list`
+and in `~/.codex/sessions` beside what somebody typed at a terminal, and the device published all of
+it: on this Mac on 2026-09-12 that was twenty-odd "Daily AI News to Notion" rows, one of them
+`control: "terminal"` because the desktop app was holding its rollout open and anything holding a
+rollout reads as a terminal.
+
+Two fields say whose a thread is, and both the index entry and the rollout's `session_meta` carry
+them: `originator` is the client that opened it, `source` is where that client sits — `cli` for a
+TUI, `exec` for `codex exec`, `vscode` for an app-server client, an object for a subagent. A thread
+is the device's to publish when its `source` is a plain string **and** either its `originator` is one
+of the names this device connects under (`remote-control` on the shared daemon, `rc-client` on the
+app-server it spawns for itself) or its `source` is `cli` or `exec`, which is a terminal on this
+machine running its own Codex. A subagent carries its parent's `originator`, so the `source` object
+is the only thing that tells the two apart: a thread another thread spawned is never a session, not
+even one spawned by a thread of ours. Everything
+else belongs to the application that started it: never published, never mirrored from its rollout,
+its holder never asked about, and removed with `session.removed` if it was published before the rule
+(amendment A18). The two names live in `agents/codex/provenance.py` beside the predicate and are
+imported by both handshakes, so a rename cannot make this device's own threads look foreign. Provenance that cannot be read — a missing field, an
+unfamiliar name, a `source` object — is foreign, because the cost of guessing wrong is a row nobody
+here can open. Nothing ever changes a thread's provenance, so the answer is remembered: a foreign
+thread being worked on elsewhere costs one `thread/read` for the whole run, not one per event it
+sends.
+
+Removing what was published before the rule needs the daemon, because `thread/read` is where the
+answer comes from: a device on the fallback path (no daemon, rollout mirroring) still shows a
+foreign session it stored earlier, and drops it the first time a daemon answers a handshake. New
+foreign work never appears on either path.
 
 ### When there is no daemon
 

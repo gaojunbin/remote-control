@@ -39,6 +39,9 @@ THREAD_CONFIG_ENV = "RC_CODEX_THREAD_CONFIG"
 # Threads seen opened but still empty. One per TUI that is started and not
 # typed into, so a handful covers a working day and the oldest may be dropped.
 QUIET_THREADS = 64
+# Threads another application owns, remembered so the index stops asking about
+# them. The whole machine's history goes through here, so this is generous.
+FOREIGN_THREADS = 256
 
 
 def thread_config() -> dict[str, Any] | None:
@@ -82,6 +85,10 @@ class CodexDaemonService:
         # Loaded threads with nothing in them: a TUI opens one at startup and
         # may never use it. They become sessions when they first speak.
         self._quiet: deque[str] = deque(maxlen=QUIET_THREADS)
+        # Threads A18 has already settled as somebody else's. Nothing ever
+        # changes a thread's provenance, so one answer stands for the run and
+        # a thread that keeps speaking costs no further `thread/read`.
+        self._foreign: deque[str] = deque(maxlen=FOREIGN_THREADS)
         # When the daemon last saw each thread used. The session record's own
         # `updated_at` is the moment the apps last heard about the session,
         # which a title or a settings change moves for reasons of our own.
@@ -128,6 +135,7 @@ class CodexDaemonService:
                 await client.close()
             return False
         self._client = client
+        await self.prune_foreign()
         await self.refresh()
         return True
 
@@ -243,6 +251,48 @@ class CodexDaemonService:
             log.info("forgetting a codex thread deleted in the agent")
             await self.hub.delete({"session_id": thread_id})
 
+    async def prune_foreign(self) -> None:
+        """Drop sessions published for threads another application owns (A18).
+
+        Everything adopted from now on is filtered as it arrives, so this runs
+        once, on the connection the device starts with, and only over sessions
+        the device is not driving. A thread the daemon cannot describe is left
+        alone: silence is not evidence that it is somebody else's.
+        """
+        if not self.ready:
+            return
+        async with self._lock:
+            dropped = 0
+            for entry in list(self.hub.entries.values()):
+                if not self._prunable(entry):
+                    continue
+                thread_id = entry.session.session_id
+                result = await self._safe_request("thread/read", {"threadId": thread_id})
+                thread = result.get("thread") if isinstance(result.get("thread"), dict) else result
+                if not isinstance(thread, dict) or not thread or threads.is_ours(thread):
+                    continue
+                self._known.discard(thread_id)
+                self._loaded.discard(thread_id)
+                self._used.pop(thread_id, None)
+                self._foreign.append(thread_id)
+                await self.hub.withdraw(entry)
+                dropped += 1
+            if dropped:
+                log.info("dropped codex threads another application owns", count=dropped)
+
+    def _prunable(self, entry: SessionEntry) -> bool:
+        """Whether A18 may still take this session away.
+
+        A session this device created is its own whatever the index says, and
+        one in the middle of a turn is being driven from an app right now.
+        """
+        if entry.session.agent != "codex" or entry.session.origin == "remote":
+            return False
+        runner = entry.runner
+        if runner is None:
+            return True
+        return isinstance(runner, CodexDaemonSession) and not runner.busy
+
     async def _safe_request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         try:
             return await self.client.request(method, params)
@@ -257,12 +307,19 @@ class CodexDaemonService:
         use, whatever the index still says about it, and the client using it
         is not this device, which drives only threads it already holds.
         """
+        if thread_id in self._foreign:
+            return
         result = await self._safe_request("thread/read", {"threadId": thread_id})
         thread = result.get("thread") if isinstance(result.get("thread"), dict) else result
         if not isinstance(thread, dict) or threads.is_ephemeral(thread):
             return
         summary = threads.ThreadSummary.parse(thread)
         if summary is None:
+            return
+        if not summary.ours:
+            # A thread another application owns is foreign however loudly it
+            # speaks: nothing this device can offer would be its to offer.
+            self._foreign.append(summary.thread_id)
             return
         self._known.add(summary.thread_id)
         await self._adopt(summary, loaded=True, terminal=spoke, spoke=spoke)
@@ -483,7 +540,12 @@ class CodexDaemonService:
         if not isinstance(thread, dict) or threads.is_ephemeral(thread):
             return
         summary = threads.ThreadSummary.parse(thread)
-        if summary is None or self._session(summary.thread_id) is not None:
+        if summary is None:
+            return
+        if not summary.ours:
+            self._foreign.append(summary.thread_id)
+            return
+        if self._session(summary.thread_id) is not None:
             return
         async with self._lock:
             self._known.add(summary.thread_id)

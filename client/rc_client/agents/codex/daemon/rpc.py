@@ -20,11 +20,11 @@ from websockets.exceptions import ConnectionClosed
 
 from ....errors import RcError
 from ....logging_setup import logger
+from ..provenance import DAEMON_CLIENT_NAME
 from .transport import open_connection
 
 log = logger("rc_client.codex.daemon")
 
-CLIENT_NAME = "remote-control"
 REQUEST_TIMEOUT = 60.0
 HANDSHAKE_TIMEOUT = 15.0
 RECONNECT_MIN = 1.0
@@ -38,7 +38,11 @@ ConnectedHandler = Callable[[], Awaitable[None]]
 def initialize_params(version: str) -> dict[str, Any]:
     """A deliberate `clientInfo`: the first client to connect names the daemon."""
     return {
-        "clientInfo": {"name": CLIENT_NAME, "title": CLIENT_NAME, "version": version},
+        "clientInfo": {
+            "name": DAEMON_CLIENT_NAME,
+            "title": DAEMON_CLIENT_NAME,
+            "version": version,
+        },
         "capabilities": {"experimentalApi": True},
     }
 
