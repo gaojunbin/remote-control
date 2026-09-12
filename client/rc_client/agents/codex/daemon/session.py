@@ -18,10 +18,10 @@ from typing import Any
 from ....attachments import Attachment, describe, materialise, wire_attachments
 from ....errors import RcError
 from ....logging_setup import logger
-from ....models import now_ms
+from ....models import UNSET, SpeedSetting, now_ms
 from ....sessions.channel import SessionChannel
 from ..echoes import Echo, EchoLog
-from ..models import ModelCatalog
+from ..models import ModelCatalog, tier_id
 from ..translate import CodexTranslator, item_type, normalise, text_of
 from .dialogs import DialogDesk
 from .rpc import DaemonClient
@@ -56,6 +56,7 @@ class CodexDaemonSession:
         model: str | None = None,
         permission_mode: str | None = None,
         effort: str | None = None,
+        speed: str | None = None,
         thread_id: str | None = None,
         thread_config: dict[str, Any] | None = None,
         created_here: bool | None = None,
@@ -70,6 +71,7 @@ class CodexDaemonSession:
         self._model = model
         self._permission_mode = permission_mode or "on-request"
         self._effort = effort
+        self._speed = speed
         self._thread_id = thread_id
         self._thread_config = thread_config
         self._on_turn_end = on_turn_end
@@ -184,6 +186,7 @@ class CodexDaemonSession:
             params["model"] = self._model
         if self._thread_config:
             params["config"] = self._thread_config
+        wanted_speed = self._speed
         result = await self._client.request("thread/start", params)
         thread = result.get("thread") or {}
         thread_id = str(thread.get("id") or "")
@@ -192,6 +195,16 @@ class CodexDaemonSession:
         self._thread_id = thread_id
         self._subscribed = True
         self._adopt_settings(result)
+        if wanted_speed is not None and wanted_speed != self._speed:
+            # `thread/start` accepts `serviceTier` and ignores it: the tier is a
+            # thread setting, so a new session asks for it once the thread is up.
+            self._speed = wanted_speed
+            await self._client.request(
+                "thread/settings/update", {"threadId": thread_id, "serviceTier": wanted_speed}
+            )
+        # A thread whose tier came from the user's own Codex configuration is
+        # already faster than the session says it is.
+        await self.channel.set_meta(speed=self._speed)
         if self._on_thread_id is not None:
             await self._on_thread_id(thread_id)
 
@@ -252,11 +265,22 @@ class CodexDaemonSession:
         policy = result.get("approvalPolicy")
         if isinstance(policy, str) and policy:
             self._permission_mode = policy
+        if "serviceTier" in result:
+            # Null is the standard speed, so the key's absence is the only thing
+            # that leaves the tier alone (amendment A21).
+            self._speed = tier_id(result.get("serviceTier"))
 
     async def publish_settings(self) -> None:
-        await self.channel.set_meta(
-            model=self._model, permission_mode=self._permission_mode, effort=self._effort
-        )
+        """Publish what the thread reports about itself. The tier may be null (A21)."""
+        fields: dict[str, Any] = {"speed": self._speed}
+        for key, value in (
+            ("model", self._model),
+            ("permission_mode", self._permission_mode),
+            ("effort", self._effort),
+        ):
+            if value is not None:
+                fields[key] = value
+        await self.channel.set_meta(**fields)
 
     async def close(self) -> None:
         """Let go of the thread without unloading it: the terminal may still be there."""
@@ -386,6 +410,8 @@ class CodexDaemonSession:
         self._effort = effort if isinstance(effort, str) and effort else self._effort
         if isinstance(policy, str) and policy:
             self._permission_mode = policy
+        if "serviceTier" in settings:
+            self._speed = tier_id(settings.get("serviceTier"))
         await self.publish_settings()
 
     async def _status_changed(self, params: dict[str, Any]) -> None:
@@ -607,7 +633,11 @@ class CodexDaemonSession:
         return True
 
     async def apply_settings(
-        self, model: str | None, permission_mode: str | None, effort: str | None
+        self,
+        model: str | None,
+        permission_mode: str | None,
+        effort: str | None,
+        speed: SpeedSetting = UNSET,
     ) -> None:
         thread_id = self._thread_id
         params: dict[str, Any] = {"threadId": thread_id} if thread_id else {}
@@ -622,6 +652,11 @@ class CodexDaemonSession:
             clamped = self._catalog.clamp_effort(self._model, effort)
             if clamped:
                 params["effort"] = clamped
+        if speed is not UNSET:
+            # Null is what takes the thread back to the standard tier; the
+            # daemon then reports the tier as `default`, which reads as null.
+            self._speed = speed
+            params["serviceTier"] = speed
         if thread_id is None or len(params) < 2:
             return
         await self._client.request("thread/settings/update", params)

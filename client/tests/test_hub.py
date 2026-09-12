@@ -11,7 +11,7 @@ import pytest
 from rc_client.agents.base import SessionRunner
 from rc_client.agents.claude.adapter import ClaudeRunner
 from rc_client.errors import RcError
-from rc_client.models import AgentInfo, Choice, Session
+from rc_client.models import UNSET, AgentInfo, Choice, Session, SpeedSetting
 from rc_client.registry import Registry
 from rc_client.sessions.channel import SessionChannel
 from rc_client.sessions.hub import SessionEntry, SessionHub
@@ -28,7 +28,7 @@ class FakeRunner:
         self.steered: list[str] = []
         self.steer_block_ids: list[str | None] = []
         self.interrupts = 0
-        self.settings: list[tuple[Any, Any, Any]] = []
+        self.settings: list[tuple[Any, Any, Any, Any]] = []
         self.block_ids: list[str | None] = []
         self.closed = False
         self._busy = False
@@ -67,9 +67,13 @@ class FakeRunner:
         return request_id == "known"
 
     async def apply_settings(
-        self, model: str | None, permission_mode: str | None, effort: str | None
+        self,
+        model: str | None,
+        permission_mode: str | None,
+        effort: str | None,
+        speed: SpeedSetting = UNSET,
     ) -> None:
-        self.settings.append((model, permission_mode, effort))
+        self.settings.append((model, permission_mode, effort, speed))
 
     async def close(self) -> None:
         self.closed = True
@@ -277,7 +281,7 @@ async def test_set_options_updates_the_session_and_the_runner(tmp_path: Path) ->
     )
     runner = entry.runner
     assert isinstance(runner, FakeRunner)
-    assert runner.settings == [("opus", "plan", None)]
+    assert runner.settings == [("opus", "plan", None, UNSET)]
     assert result["session"]["model"] == "opus"
     assert result["session"]["title"] == "Renamed"
     registry.close()

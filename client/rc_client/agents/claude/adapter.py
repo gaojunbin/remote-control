@@ -28,7 +28,7 @@ from ...child_env import child_env_tombstones
 from ...config import DEFAULT_CLAUDE_SETTING_SOURCES
 from ...errors import RcError
 from ...logging_setup import logger
-from ...models import now_ms
+from ...models import UNSET, SpeedSetting, now_ms
 from ...sessions.channel import SessionChannel
 from ..base import Emit
 from .questions import QUESTION_TOOL, answers_by_prompt, normalise_questions
@@ -323,8 +323,17 @@ class ClaudeRunner:
         return True
 
     async def apply_settings(
-        self, model: str | None, permission_mode: str | None, effort: str | None
+        self,
+        model: str | None,
+        permission_mode: str | None,
+        effort: str | None,
+        speed: SpeedSetting = UNSET,
     ) -> None:
+        if speed is not UNSET:
+            # Claude advertises no speed tiers, so the hub refuses one long
+            # before it reaches here; anything that arrives is a bug, not a
+            # setting to apply silently.
+            raise RcError("unsupported", "claude has no speed tiers")
         client = self._client
         if model is not None and model != self._model:
             self._model = model

@@ -431,6 +431,7 @@ class CodexDaemonService:
             model=session.model,
             permission_mode=session.permission_mode,
             effort=session.effort,
+            speed=session.speed,
             thread_id=resume,
             thread_config=self._config,
             created_here=session.origin == "remote",

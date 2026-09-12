@@ -7,16 +7,24 @@ terminal. Nothing listens on the machine and no model credential ever leaves it.
 ## What the installer does
 
 The gateway serves the installer at `GET /install.sh`, with its own origin substituted into the
-script, so the command you copy from **Add device** already points at your gateway:
+script, so the command you copy from **Add device** already points at your gateway. There are two
+ways to pair, and they differ only in where the pairing code comes from:
 
 ```sh
-curl -fsSL https://rc.example.com/install.sh | sh -s -- --pair RC-7K42-QX9M
+curl -fsSL https://rc.example.com/install.sh | sh                          # pair by scanning
+curl -fsSL https://rc.example.com/install.sh | sh -s -- --pair RC-7K42-QX9M  # pair with a code
 ```
 
 It installs `uv` into `~/.local/bin` if it is not already there, installs Python 3.12, creates a
 private virtual environment at `~/.rc-client/venv`, downloads the `rc_client` wheel from the
-gateway, enrolls the device with the pairing code, registers the background service, starts it, and
-prints the agents it found. Re-running upgrades in place.
+gateway, records which wheel that was, enrolls the device, registers the background service, starts
+it, and prints the agents it found. Re-running upgrades in place.
+
+With `--pair` the code comes from **Add device** in an app and you type it on the host. Without it
+the host asks the gateway for a claim token, prints it as a QR code with its URL underneath, and
+waits up to ten minutes; scanning the code in the phone app, or opening the link in a signed-in
+browser, mints the pairing code for your account and hands it straight back to the waiting host
+(A23). Nothing is typed either way, and enrolment is the same request in both.
 
 It refuses to run as root on macOS, refuses an unknown operating system or architecture, and refuses
 a plain `http://` gateway unless the host is a literal loopback or private address — the wheel it is
@@ -24,15 +32,17 @@ about to download will run as a service, so the path has to be one nobody can si
 
 | Flag | Effect |
 | --- | --- |
-| `--pair RC-XXXX-XXXX` | The pairing code from the web UI. Required unless uninstalling |
+| `--pair RC-XXXX-XXXX` | The pairing code from an app. Omit it to pair by scanning instead |
 | `--name NAME` | The device name shown in the apps. Defaults to the hostname |
 | `--gateway ORIGIN` | Override the origin baked into the script |
 | `--manual` | Print the steps instead of running them, for a host without `curl` in the pipeline |
+| `--no-shell-rc` | Do not put the shim directory in front of `PATH` in your shell startup file |
 | `--no-codex` | Skip the shared Codex app-server daemon setup |
 | `--uninstall` | Stop and remove the service, keeping `~/.rc-client` |
 | `-h`, `--help` | Usage |
 
-Pairing codes are single use and expire after ten minutes. If enrollment fails, mint a fresh one.
+Pairing codes are single use and expire after ten minutes, and so do claim tokens. If enrollment
+fails, mint a fresh code or run the installer again.
 
 ## Commands
 
@@ -41,8 +51,10 @@ Pairing codes are single use and expire after ten minutes. If enrollment fails, 
 | Command | What it does |
 | --- | --- |
 | `rc-client enroll --gateway URL --pair CODE [--name N]` | Redeem a pairing code and write `config.toml` |
+| `rc-client enroll --gateway URL --scan [--name N]` | Print a QR code, wait for an app to scan it, then enrol with the code it returns |
 | `rc-client run` | Run the daemon in the foreground |
-| `rc-client status` | Print the device identity, paths and service state |
+| `rc-client self-update --build SHA256` | Install the wheel the gateway serves, if it is that build, and restart the service |
+| `rc-client status` | Print the device identity, paths, build and service state |
 | `rc-client agents` | Print the detected agents as JSON |
 | `rc-client service install\|uninstall\|start\|stop\|status` | Manage the background service |
 | `rc-client shim install\|remove\|status [--no-shell-rc]` | Manage the `claude` shim that makes terminal sessions attachable |
@@ -51,7 +63,8 @@ Pairing codes are single use and expire after ten minutes. If enrollment fails, 
 | `rc-client hook session-start\|permission-request` | The hooks Claude Code runs; never run them by hand |
 | `rc-client uninstall [--purge] [--no-shell-rc]` | Remove the service and the shim, and with `--purge` the config, state and logs |
 
-Exit codes: `0` success, `1` runtime failure, `2` usage error, `3` not enrolled.
+Exit codes: `0` success, `1` runtime failure, `2` usage error, `3` refused with nothing done — the
+device is not enrolled, or `self-update` was served a wheel that is not the build it asked for.
 
 After the one-line install, the executable is at `~/.rc-client/venv/bin/rc-client`. Add that
 directory to your `PATH` to call it by name.
@@ -63,6 +76,7 @@ directory to your `PATH` to call it by name.
   config.toml               gateway_origin, device_id, device_token, name   (0600)
   venv/                     the private Python environment the installer creates
   state/rc-client.sqlite3   sessions, events, request idempotency, tail offsets
+  state/client-build        the SHA-256 of the wheel this client was installed from   (0600)
   state/attachments/        files received with a message
   state/claude-mcp.json     the channel server definition the shim passes to Claude Code
   state/claude-settings.json  the two hooks the shim passes to Claude Code
@@ -70,6 +84,7 @@ directory to your `PATH` to call it by name.
   state/link.json           what the gateway link last said about itself
   bin/claude                the shim that starts an attachable Claude session
   logs/                     rc-client.out.log and rc-client.err.log (macOS)
+  logs/update.log           what the last `self-update` did, and why it stopped if it did
 ```
 
 `RC_CLIENT_HOME` moves the whole directory, which is how you run a second daemon against a test
@@ -103,6 +118,40 @@ loginctl enable-linger $USER
 The Linux path has not been exercised: neither `rc-client service install` nor the systemd unit has
 been run on a real machine.
 
+## Updating from an app
+
+Bringing a host to a newer client used to mean going to that machine and re-running the installer.
+An app can now do it instead (A22).
+
+The installer writes the SHA-256 of the wheel it installed to `state/client-build`, and the daemon
+reports it as `client_build` in every `hello`. The gateway reports the wheel *it* serves the same
+way in `GET /api/config`, so an app can see at a glance which devices are behind and offer them an
+**Update**. A client installed from a source checkout has no build file, reports `null`, and is
+never offered one.
+
+`device.update {build}` is answered before anything is installed:
+
+| Answer | When |
+| --- | --- |
+| `unsupported` | there is no build file, so this client was not installed from a wheel |
+| `conflict` "already on this build" | the requested build is the one it is running |
+| `conflict`, counting them | a session it drives is starting, running or waiting on you |
+| `{accepted: true, from}` | otherwise, with the build it is leaving |
+
+Accepting spawns `rc-client self-update --build <sha>` in its own session, so the updater outlives
+the service restart it performs at the end. The updater downloads
+`<gateway>/dist/rc_client-latest.whl` into `state/`, never `/tmp` — the file is about to run as a
+service — and **installs nothing unless its SHA-256 is exactly the build that was asked for**; a
+mismatch exits 3 and leaves the old client in place. On success it installs the wheel with the same
+`uv` the installer used, rewrites `state/client-build`, re-runs `service install` (which restarts
+the daemon on the new code) and `shim install`, keeping whatever `--no-shell-rc` choice your shell
+startup file already reflects.
+
+Everything the updater prints goes to `logs/update.log`, never the gateway token. The daemon watches
+the process it spawned: if it exits non-zero, the daemon is still alive to send `update.failed` with
+the log's last line, and the app shows it on the device row. If the daemon never comes back at all,
+the gateway gives up after five minutes and marks the device failed on its own.
+
 ## Agent discovery
 
 On start, and whenever an app calls `device.agents`, the daemon locates each CLI and probes its
@@ -123,9 +172,10 @@ What each agent advertises:
 
 | | Claude Code | Codex |
 | --- | --- | --- |
-| Models | `default`, `opus`, `sonnet`, `haiku`. `default` means "do not pass a model"; the real id arrives from the SDK and is reported as `meta.model` | Read live from the CLI's `model/list` and cached for ten minutes |
+| Models | `default`, `fable`, `opus`, `sonnet`, `haiku`, most capable first. `default` means "do not pass a model"; the real id arrives from the SDK and is reported as `meta.model` | Read live from the CLI's `model/list` and cached for ten minutes |
 | Permission modes | `default` (Ask before edits), `acceptEdits` (Auto-accept edits), `plan` (Plan mode), `bypassPermissions` (Bypass permissions) | `untrusted` (Ask for everything), `on-request` (Ask when needed), `never` (Never ask) |
 | Efforts | `low`, `medium`, `high`, `xhigh`, `max` | Whatever the catalogue reports, clamped per model, from `minimal` to `ultra` |
+| Speeds | none | The `serviceTiers` the catalogue lists, in catalogue order and with their own labels: `priority` ("Fast") today. `AgentInfo.speeds` is the union over every model; a model that lists none can run at no tier |
 | Capabilities | `takeover`, `interrupt`, `queue`, `attachments`, `effort`, `history`, `worktree` | `interrupt`, `queue`, `steer`, `history`, `worktree`, `attachments`, `effort` |
 | Attachment | `attach: "channel"`, `attach_ready` from the shim, `shared_interrupt`, `shared_settings` and `shared_attachments` all false | `attach: "daemon"`, `attach_ready` from a real handshake on the daemon socket, `shared_interrupt`, `shared_settings` and `shared_attachments` all true |
 
@@ -134,14 +184,17 @@ can say why a device offers only one agent.
 
 `session.set` validates `permission_mode` and `effort` against what the device advertises and
 answers `bad_request` otherwise. `model` stays open, because model ids are the agents' own and a
-cached catalogue can lag a release. A change that the running agent cannot apply live — an effort
+cached catalogue can lag a release. `speed` is validated against the catalogue entry for the model
+the session will run on: an agent with no tiers at all and a model that lists none both answer
+`unsupported`, and a tier the model does not offer answers `bad_request`. A `speed` of null is the
+standard speed, and a request that never mentions the key leaves the tier alone. A change that the running agent cannot apply live — an effort
 change on Claude, sometimes a permission mode — is acknowledged immediately and applied on the next
 turn.
 
 ## Sessions
 
 `session.create` takes a device, an agent, a working directory, and optionally a model, a permission
-mode, an effort, a first message and a title. With `worktree: true` the daemon runs `git worktree
+mode, an effort, a speed tier, a first message and a title. With `worktree: true` the daemon runs `git worktree
 add` on a new branch under `<repo>/.rc-worktrees/<slug>` and uses that as the working directory, so
 an agent can work without touching your checkout.
 
@@ -425,9 +478,28 @@ A shared Codex session can do everything a remote one can, which is more than a 
 | Stop the turn | Yes, `turn/interrupt`, whoever started it |
 | Approve or deny a tool call | Yes, with whatever options the daemon offers for that prompt |
 | Answer a question | Yes |
-| Change model, permission mode or effort | Yes, `thread/settings/update` changes the thread for everyone attached to it |
+| Change model, permission mode, effort or speed | Yes, `thread/settings/update` changes the thread for everyone attached to it |
 | Attachments | Yes. Images become image inputs; other files are written to disk and named in the prompt |
 | Take over | No, `conflict`: the session is already attached |
+
+### The speed tier
+
+Codex offers a faster service tier per model — `priority`, which its own catalogue names "Fast" and
+the TUI toggles with `/fast`. It is thread state, not a per-turn argument, so the device sets it
+with `thread/settings/update {threadId, serviceTier}` and never on `turn/start`: a session created
+at a tier asks for it immediately after `thread/start`, which accepts `serviceTier` and ignores it.
+`serviceTier: null` takes the thread back to the standard speed. A thread that starts at a tier
+because the owner's own Codex configuration puts it there is adopted rather than cleared: the
+session reports the tier the thread actually runs at.
+
+The daemon does not validate the id, so the device does, against the `serviceTiers` of the model the
+session runs on. It reads the tier back from the `thread/start` and `thread/resume` results and from
+the `threadSettings` of every `thread/settings/updated` notification, which is how a `/fast` typed
+in the terminal reaches the apps as `meta.speed` (A17's rule for model and effort, A21's for the
+tier). Codex reports a thread that has never had a tier as `null` and one whose tier was cleared as
+`"default"`; both are the standard speed, which `Session.speed` spells as null. `thread/list` and
+`thread/read` carry no `serviceTier` at all in Codex 0.154, so a mirrored thread reports its tier
+from the moment the device attaches to it, not from the index.
 
 ### Which TUIs the daemon owns
 
@@ -445,8 +517,8 @@ the shared daemon holds no rollout at all, because the daemon holds it. Only the
 out of the count of terminals the device attributes to daemon threads, so it never speaks for a
 thread it cannot be in. It still appears in the apps, mirrored from its rollout file with
 `control: "terminal"`, because the rollout holder scan finds the process holding it. Anything you
-would have set with `-c` can be set from the apps instead, through the model, permission-mode and
-effort pickers.
+would have set with `-c` can be set from the apps instead, through the model, permission-mode,
+effort and speed pickers.
 
 ### Setup
 

@@ -57,6 +57,13 @@ def add(path: Path) -> bool:
     return True
 
 
+def installed(path: Path) -> bool:
+    """True when the startup file already carries our block."""
+    if not path.exists():
+        return False
+    return _split(path.read_text(encoding="utf-8")) is not None
+
+
 def remove(path: Path) -> bool:
     """Strip the block by its markers. True when the file changed."""
     if not path.exists():

@@ -9,6 +9,7 @@ dependencies = [
     "claude-agent-sdk>=0.2.152",
     "websockets>=14.0",
     "httpx>=0.27",
+    "qrcode>=8.0",
     "tomli-w>=1.0",
 ]
 
@@ -49,6 +50,13 @@ files = ["rc_client", "tests"]
 [[tool.mypy.overrides]]
 module = ["claude_agent_sdk.*"]
 follow_untyped_imports = true
+
+# qrcode ships no py.typed and re-exports through its package __init__, so its
+# own annotations are not usable from a strict module.
+[[tool.mypy.overrides]]
+module = ["qrcode", "qrcode.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

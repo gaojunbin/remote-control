@@ -48,6 +48,26 @@ it and `rc-client run` connected. `config.toml` is `0600`; state lands in `state
 
 `rc-client service install` was deliberately never run, so no launchd agent was registered.
 
+### Pairing by scanning, 2026-09-13 (A23)
+
+Driven against a stand-in gateway on `127.0.0.1:8992` that implements only the three A23 routes,
+with `RC_CLIENT_HOME` and `HOME` pointed at a scratch directory. `rc-client enroll --gateway … --scan`
+posted `/api/pairing/requests`, printed the claim URL as a QR code with the URL itself on the line
+below it, said it was waiting, and long-polled `/api/pairing/requests/{token}`. The first poll was
+still open when the stand-in marked the token claimed; the host took the `RC-7K42-QX9M` it returned,
+enrolled with it through the ordinary `/api/devices/enroll` path and exited 0.
+
+**The printed code scans.** The 16 block rows the host wrote were mapped back to pixels the way a
+terminal draws them — a block character is the foreground colour, so light on a dark terminal and
+dark on a light one — and handed to Apple's `VNDetectBarcodesRequest`, the same detector the iOS
+camera uses. It read `http://127.0.0.1:8992/pair#7ZK3M9Q2X5H8B1V4N6P0R2T4W6` from both polarities.
+No phone was pointed at a real screen, so glare, focus and terminal fonts are still unproven.
+
+At error-correction L with a one-module quiet zone the code is 31 columns by 16 rows for a claim URL,
+which fits any terminal without wrapping; `tests/test_pairing.py` pins that size, since a wrapped QR
+code is an unreadable one. The unit tests cover the states the live pass did not reach: a poll that
+waits before it is claimed, `410` and `404`, the rate limit, and giving up at ten minutes.
+
 ## 3. Claude session flows
 
 All against a scratch git repository, `permission_mode: "default"`.
@@ -792,6 +812,38 @@ the rollout cap counting only what this device may mirror (`client/tests/test_mi
 Not verified in this pass: the prune against the owner's real daemon and real state DB — both were
 left untouched — and nothing here was run against the gateway or the apps.
 
+### The speed tier on a real thread (2026-09-13, A21)
+
+Measured against the owner's live shared daemon, Codex 0.154.0, from a scratch thread the probe
+created in a scratch directory of its own. The owner's threads were read but never written.
+
+| Question | Answer |
+| --- | --- |
+| Where does the catalogue name the tiers? | `model/list` items carry `serviceTiers: [{id: "priority", name: "Fast", description: "2x speed, increased usage"}]` and `additionalSpeedTiers: ["fast"]`. `defaultServiceTier` is null |
+| What sets the tier? | `thread/settings/update {threadId, serviceTier: "priority"}`, which answers `{}` |
+| What clears it? | `thread/settings/update {threadId, serviceTier: null}`, which also answers `{}`. An absent key leaves the tier alone; `""` is accepted and reads back as cleared |
+| Does `thread/start` take it? | No. `thread/start {cwd, model, serviceTier: "priority"}` starts the thread, ignores the key and reports `serviceTier: null`; a following `thread/settings/update` is what applies it |
+| Is an unknown id refused? | No. `serviceTier: "bogus-tier"` is accepted, answers `{}` and reads back verbatim, so the device validates the id itself |
+| What reads it back? | The `thread/start` and `thread/resume` results, at the top level beside `model`, `reasoningEffort` and `approvalPolicy`; and `thread/settings/updated`, whose `threadSettings` carries `serviceTier` next to `model`, `effort` and `approvalPolicy` |
+| Do `thread/read` and `thread/list` carry it? | **No.** Neither the scratch thread nor any of the owner's threads has a `serviceTier` key in either result on 0.154, whatever the thread's tier actually is. The brief for this round said they carry `serviceTier: null`; they carry nothing |
+| How is the standard speed spelt? | `null` on a thread that has never had a tier, and `"default"` once a tier has been cleared. Both are the standard speed, and `Session.speed` is null for both |
+| Does a no-op update notify? | No. Setting the tier a thread already runs at produced no `thread/settings/updated`; every real change produced one |
+
+So the device sets and clears the tier with `thread/settings/update`, applies a new session's tier
+immediately after `thread/start`, validates the id against the catalogue entry for the session's
+model, and learns a `/fast` typed in the terminal from `thread/settings/updated` and from the
+`thread/resume` it takes when it attaches. A mirrored thread the device has not attached to reports
+no tier, because the index does not carry one.
+
+The scratch thread ran one turn, so that `thread/resume` could be measured on a thread with a
+rollout, and was deleted afterwards with `thread/delete`. Two earlier scratch threads never ran a
+turn, so they have no rollout, `thread/delete` refuses them, and they were left where they are: the
+daemon never publishes an empty thread and the device never mirrors one.
+
+Covered by tests rather than by this pass: the catalogue parse with and without tiers, the union
+order, the hub's three refusals, the daemon session's requests on start and on set, and the `meta`
+the settings notification produces (`client/tests/test_speed_tiers.py`).
+
 ## 8. Restart resilience
 
 | Step | Result |
@@ -1103,6 +1155,45 @@ above.
 Not verified: none of this was exercised against the VPS, which was not touched. The 20 s period
 and the 25 s / 90 s pings are driven in tests at compressed values (0.2 s), so the constants
 themselves are asserted but not observed at full length.
+
+## 16. Updating a device from an app (A22)
+
+2026-09-13. The installer and `rc-client self-update` were driven for real, end to end, against a
+stand-in gateway on `127.0.0.1:8991` serving two genuine wheels built from this tree:
+`rc_client-0.1.0` (`f27ea071…`) and `rc_client-0.1.1` (`9d97cad7…`).
+
+**The owner's own daemon was never touched.** `HOME` and `RC_CLIENT_HOME` pointed at a scratch
+directory, and a stub `launchctl` was placed first on `PATH` and confirmed to be the one that
+resolves, so every `bootout`, `bootstrap` and `kickstart` the service steps issue was recorded by
+the stub instead of reaching launchd. The label `dev.remote-control.client` is a module constant and
+cannot be pointed elsewhere, which is why the stub exists; after the pass, the real agent was still
+`state = running` against `~/Library/LaunchAgents`. The restart itself is therefore simulated: no
+launchd job was actually torn down and brought back on the new code.
+
+| Step | Result |
+| --- | --- |
+| `install.sh --gateway … --pair …` | installed 0.1.0 and wrote `state/client-build` = `f27ea071…`, mode `0600` |
+| `rc-client status` | `client build   f27ea071…` |
+| `self-update --build cccc…` (not what is served) | exit 3, "not the requested build", nothing installed, build file unchanged |
+| `self-update --build 9d97cad7…` (what is served) | exit 0 |
+
+The accepted pass downloaded the wheel into `state/update-fzcitpzt/`, never `/tmp`; `uv pip install`
+reported `- rc-client==0.1.0` / `+ rc-client==0.1.1`, and `site-packages` afterwards holds
+`rc_client-0.1.1.dist-info`. The build file became `9d97cad7…`. `shim install` ran **without**
+`--no-shell-rc` and answered "already configured", which is the point: the updater reads the shell
+startup file and leaves the installer's choice as it found it. The working directory was gone
+afterwards.
+
+`rc-client --version` still says `0.1.0` after the upgrade — `__version__` is a literal in
+`rc_client/__init__.py` and the second wheel only had its `pyproject.toml` version bumped. That is
+an artefact of how the test wheel was built, not of the update.
+
+Covered by tests rather than by this pass: the daemon's side of it. `tests/test_daemon.py` drives
+`device.update` over a real socket for all four answers (`unsupported` with no build file,
+`conflict` on the running build, `conflict` on a busy session, `{accepted, from}`), and drives the
+watcher that sends `update.failed` with the log's last line when the spawned updater exits non-zero.
+The updater is a fake process there, so the one thing still unproven is a real detached
+`self-update` surviving the restart of the service that spawned it.
 
 ## Smoke procedure
 

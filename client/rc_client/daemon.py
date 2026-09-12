@@ -14,6 +14,7 @@ from . import config as config_module
 from .agents.codex.daemon.service import CodexDaemonService
 from .agents.codex.runtime import resolve_binary as resolve_codex
 from .agents.discovery import detect_agents
+from .build import as_digest, read_build
 from .channel import paths as channel_paths
 from .channel.mcp_config import write_mcp_config
 from .channel.settings import write_settings
@@ -30,10 +31,14 @@ from .registry import Registry
 from .sessions.attach import AttachServer
 from .sessions.hub import SessionHub
 from .sessions.mirror import MirrorService
+from .update import log_tail, spawn_self_update
 
 log = logger("rc_client.daemon")
 
 AGENT_REFRESH_INTERVAL = 900.0
+# A session in one of these states is doing work an update would throw away.
+BUSY_STATES = frozenset({"starting", "running", "needs_approval", "needs_input"})
+FROM_SOURCE = "this client was installed from source; update it on the host"
 
 
 class Daemon:
@@ -56,6 +61,7 @@ class Daemon:
         self.hub.link_up = lambda: self.link.connected
         self._refresh_task: asyncio.Task[None] | None = None
         self._lag_task: asyncio.Task[None] | None = None
+        self._update_task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------- lifecycle
 
@@ -111,7 +117,7 @@ class Daemon:
                     loop.remove_signal_handler(signal_number)
 
     async def shutdown(self) -> None:
-        for name in ("_refresh_task", "_lag_task"):
+        for name in ("_refresh_task", "_lag_task", "_update_task"):
             task: asyncio.Task[None] | None = getattr(self, name)
             if task is not None:
                 task.cancel()
@@ -154,6 +160,7 @@ class Daemon:
 
     async def _hello(self) -> dict[str, Any]:
         return {
+            "client_build": read_build(),
             "name": self.config.name or socket.gethostname(),
             "platform": "macos" if platform.system() == "Darwin" else "linux",
             "hostname": socket.gethostname(),
@@ -181,6 +188,7 @@ class Daemon:
             "device.dirs": self._device_dirs,
             "device.git": self._device_git,
             "device.agents": self._device_agents,
+            "device.update": self._device_update,
         }
 
     async def _device_dirs(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -203,3 +211,43 @@ class Daemon:
     async def _device_agents(self, params: dict[str, Any]) -> dict[str, Any]:
         self.agents = await detect_agents(self.codex.ready)
         return {"agents": [info.to_dict() for info in self.agents]}
+
+    # ----------------------------------------------------------------- update
+
+    async def _device_update(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Accept an app's request to install the build the gateway serves (A22)."""
+        requested = as_digest(str(params.get("build") or ""))
+        if requested is None:
+            raise RcError("bad_request", "build must be a SHA-256 hex digest")
+        current = read_build()
+        if current is None:
+            raise RcError("unsupported", FROM_SOURCE)
+        if current == requested:
+            raise RcError("conflict", "already on this build")
+        if self._update_task is not None and not self._update_task.done():
+            raise RcError("conflict", "an update is already running")
+        busy = self._busy_sessions()
+        if busy:
+            plural = "s are" if busy > 1 else " is"
+            raise RcError("conflict", f"{busy} session{plural} running")
+        self._update_task = asyncio.create_task(self._update(requested), name="self-update")
+        return {"accepted": True, "from": current}
+
+    def _busy_sessions(self) -> int:
+        return sum(
+            1
+            for entry in self.hub.entries.values()
+            if entry.runner is not None and entry.session.state in BUSY_STATES
+        )
+
+    async def _update(self, build: str) -> None:
+        """Watch the detached updater, so a failure is reported before the restart."""
+        try:
+            process = await spawn_self_update(build)
+        except (OSError, RcError) as exc:
+            log.warning("the updater could not start", error=type(exc).__name__)
+            await self._publish({"type": "update.failed", "message": "the updater could not start"})
+            return
+        if await process.wait() == 0:
+            return
+        await self._publish({"type": "update.failed", "message": log_tail()})

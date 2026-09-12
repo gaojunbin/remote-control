@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 import pytest
 
-from rc_client.cli import EXIT_FAILURE, EXIT_NOT_ENROLLED, EXIT_OK, build_parser, main
+from rc_client.cli import EXIT_FAILURE, EXIT_OK, EXIT_REFUSED, build_parser, main
 from rc_client.config import Config, config_path, load_config, save_config
 from rc_client.enroll import device_facts, enroll
 from rc_client.errors import RcError
@@ -38,7 +38,7 @@ def test_an_unknown_command_is_a_usage_error() -> None:
 
 
 def test_status_reports_not_enrolled_with_its_own_exit_code(capsys: Any) -> None:
-    assert main(["status"]) == EXIT_NOT_ENROLLED
+    assert main(["status"]) == EXIT_REFUSED
     output = capsys.readouterr().out
     assert "not enrolled" in output
     assert "rc-client enroll" in output

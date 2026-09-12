@@ -15,7 +15,7 @@ from typing import Any
 
 from ..events import BLOCK_KINDS, DELTA_FLUSH_MS, bound_event, should_store
 from ..ids import block_uuid
-from ..models import Session, SessionState, now_ms
+from ..models import UNSET, Session, SessionState, now_ms
 from ..registry import Registry
 
 Publisher = Callable[[dict[str, Any]], Awaitable[None]]
@@ -161,10 +161,15 @@ class SessionChannel:
         await self.publish_summary()
 
     async def set_meta(self, **fields: Any) -> None:
-        """Apply a partial `Session` update and mirror it as a `meta` event."""
+        """Apply a partial `Session` update and mirror it as a `meta` event.
+
+        A field the caller did not mention is `UNSET`, or simply absent. `None`
+        is a value, which is how a session goes back to its agent's standard
+        speed (amendment A21).
+        """
         changed: dict[str, Any] = {}
         for key, value in fields.items():
-            if value is None:
+            if value is UNSET:
                 continue
             if getattr(self.session, key, None) != value:
                 setattr(self.session, key, value)

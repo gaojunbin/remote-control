@@ -15,6 +15,25 @@ from rc_client.models import AgentInfo, Choice, Session
 from rc_client.registry import Registry
 from tests.helpers import FIXTURE_ROOT, event_validator, load_fixture
 
+# Fields a fixture written before the amendment that added them may omit; a
+# round trip must keep every key the fixture carries and may add only these.
+OPTIONAL_AGENT_FIELDS = {
+    "attach",
+    "attach_ready",
+    "shared_interrupt",
+    "shared_settings",
+    "shared_attachments",
+    "speeds",
+}
+OPTIONAL_SESSION_FIELDS = {"speed"}
+
+
+def assert_round_trip(
+    produced: dict[str, Any], payload: dict[str, Any], optional: set[str]
+) -> None:
+    assert {key: produced[key] for key in payload} == payload
+    assert set(produced) - set(payload) <= optional
+
 
 def fixture_names(subdirectory: str) -> list[str]:
     directory = FIXTURE_ROOT / subdirectory
@@ -35,6 +54,7 @@ def agent_info_from(payload: dict[str, Any]) -> AgentInfo:
         default_permission_mode=payload.get("default_permission_mode"),
         efforts=[Choice(**item) for item in payload.get("efforts") or []],
         default_effort=payload.get("default_effort"),
+        speeds=[Choice(**item) for item in payload.get("speeds") or []],
         capabilities=list(payload.get("capabilities") or []),
         attach=payload.get("attach"),
         attach_ready=bool(payload.get("attach_ready")),
@@ -48,21 +68,10 @@ def test_device_hello_round_trips_through_the_device_types() -> None:
     hello = load_fixture("device/hello.json")
     assert hello["protocol"] == 1
     agents = [agent_info_from(item) for item in hello["agents"]]
-    # The A10 and A11 attachment fields are optional, so a fixture predating
-    # them still round-trips: every key it carries must survive, extras are
-    # additions.
     for info, payload in zip(agents, hello["agents"], strict=True):
-        produced = info.to_dict()
-        assert {key: produced[key] for key in payload} == payload
-        assert set(produced) - set(payload) <= {
-            "attach",
-            "attach_ready",
-            "shared_interrupt",
-            "shared_settings",
-            "shared_attachments",
-        }
-    sessions = [Session.from_dict(item) for item in hello["sessions"]]
-    assert [session.to_dict() for session in sessions] == hello["sessions"]
+        assert_round_trip(info.to_dict(), payload, OPTIONAL_AGENT_FIELDS)
+    for item in hello["sessions"]:
+        assert_round_trip(Session.from_dict(item).to_dict(), item, OPTIONAL_SESSION_FIELDS)
 
 
 def test_hello_ack_carries_the_delta_and_event_limits_this_device_uses() -> None:
@@ -194,11 +203,9 @@ def test_timeline_fixtures_replay_through_the_registry_and_the_bounds(agent: str
 def test_every_object_fixture_decodes_with_the_device_types(name: str) -> None:
     payload = load_fixture(f"objects/{name}")
     if name.startswith("session."):
-        session = Session.from_dict(payload)
-        assert session.to_dict() == payload
+        assert_round_trip(Session.from_dict(payload).to_dict(), payload, OPTIONAL_SESSION_FIELDS)
     elif name.startswith("agent."):
-        info = agent_info_from(payload)
-        assert info.to_dict() == payload
+        assert_round_trip(agent_info_from(payload).to_dict(), payload, OPTIONAL_AGENT_FIELDS)
     else:  # pragma: no cover - a new object family needs a decoder here
         pytest.fail(f"no device decoder for objects/{name}")
 

@@ -2,13 +2,15 @@
 # remote-control device installer.
 #
 # The gateway serves this file at GET /install.sh with the placeholder on the GATEWAY line
-# replaced by its PUBLIC_ORIGIN, so the usual invocation is:
+# replaced by its PUBLIC_ORIGIN, so the usual invocations are:
 #
+#   curl -fsSL https://rc.example.com/install.sh | sh
 #   curl -fsSL https://rc.example.com/install.sh | sh -s -- --pair RC-7K42-QX9M
 #
 # It installs uv and a private Python 3.12 virtual environment under
 # ~/.rc-client, installs the rc_client wheel from the gateway, enrolls the
-# device and registers the background service. Re-running upgrades in place.
+# device and registers the background service. Without --pair the host prints a
+# QR code and waits for an app to scan it. Re-running upgrades in place.
 set -eu
 
 GATEWAY="__GATEWAY_ORIGIN__"
@@ -28,9 +30,12 @@ fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 usage() {
     cat <<'USAGE'
-Usage: install.sh --pair RC-XXXX-XXXX [options]
+Usage: install.sh [--pair RC-XXXX-XXXX] [options]
 
-  --pair CODE        pairing code from the web UI (required unless --uninstall)
+Without --pair this host prints a QR code and waits for you to scan it with the
+Remote Control app, or to open its link in a signed-in browser.
+
+  --pair CODE        pairing code minted in an app; omit it to pair by scanning
   --name NAME        device name shown in the apps (default: this hostname)
   --gateway ORIGIN   override the gateway origin baked into this script
   --no-shell-rc      do not add the shim directory to your shell startup file
@@ -82,7 +87,6 @@ if [ "$UNINSTALL" -eq 1 ]; then
     exit 0
 fi
 
-[ -n "$PAIR" ] || { usage; fail "--pair is required"; }
 # Only the assignment above may carry the placeholder: the gateway replaces every occurrence, so
 # a literal here would turn into the configured origin and reject it. An unsubstituted script has
 # no scheme and falls through to the same error.
@@ -126,18 +130,30 @@ Manual installation on $PLATFORM/$ARCH:
   3. uv venv --python 3.12 "$VENV"
   4. curl -fsSL -O -J "$GATEWAY/dist/rc_client-latest.whl"   # saves the real wheel name
   5. uv pip install --python "$VENV/bin/python" --upgrade ./rc_client-*.whl
-  6. "$VENV/bin/rc-client" enroll --gateway "$GATEWAY" --pair <your pairing code>
-  7. "$VENV/bin/rc-client" service install && "$VENV/bin/rc-client" service start
-  8. "$VENV/bin/rc-client" shim install   # lets the apps drive terminal Claude sessions
-  9. "$VENV/bin/rc-client" codex setup    # lets the apps drive terminal Codex sessions
+  6. mkdir -p "$RC_HOME/state" && shasum -a 256 ./rc_client-*.whl | cut -d' ' -f1 \
+       > "$RC_HOME/state/client-build"
+  7. "$VENV/bin/rc-client" enroll --gateway "$GATEWAY" --pair <your pairing code>
+     or "$VENV/bin/rc-client" enroll --gateway "$GATEWAY" --scan   # prints a QR code
+  8. "$VENV/bin/rc-client" service install && "$VENV/bin/rc-client" service start
+  9. "$VENV/bin/rc-client" shim install   # lets the apps drive terminal Claude sessions
+ 10. "$VENV/bin/rc-client" codex setup    # lets the apps drive terminal Codex sessions
 
-The pairing code is single use and expires after 10 minutes.
+The pairing code is single use and expires after 10 minutes. Step 6 is what lets
+an app update this device later; skip it and the apps report no build for it.
 MANUAL
     exit 0
 fi
 
 mkdir -p "$RC_HOME"
 chmod 700 "$RC_HOME"
+
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | cut -d' ' -f1
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | cut -d' ' -f1
+    fi
+}
 
 find_uv() {
     if command -v uv >/dev/null 2>&1; then
@@ -188,10 +204,28 @@ log "Installing the rc-client package ..."
 RC="$VENV/bin/rc-client"
 [ -x "$RC" ] || fail "rc-client was not installed into $VENV"
 
+# Record which wheel this is, so an app can see whether the device runs the one
+# the gateway serves and can ask it to install that one instead.
+BUILD="$(sha256_of "$WHEEL" || true)"
+if [ -n "$BUILD" ]; then
+    mkdir -p "$RC_HOME/state"
+    chmod 700 "$RC_HOME/state"
+    printf '%s\n' "$BUILD" > "$RC_HOME/state/client-build"
+    chmod 600 "$RC_HOME/state/client-build"
+else
+    log "warning: no sha256 tool on this host; the apps cannot update this device"
+fi
+
 log "Enrolling this device ..."
-set -- enroll --gateway "$GATEWAY" --pair "$PAIR"
+if [ -n "$PAIR" ]; then
+    set -- enroll --gateway "$GATEWAY" --pair "$PAIR"
+    ENROLL_HINT="mint a fresh pairing code and try again"
+else
+    set -- enroll --gateway "$GATEWAY" --scan
+    ENROLL_HINT="run this installer again for a fresh code"
+fi
 [ -n "$NAME" ] && set -- "$@" --name "$NAME"
-"$RC" "$@" || fail "enrollment failed; mint a fresh pairing code and try again"
+"$RC" "$@" || fail "enrollment failed; $ENROLL_HINT"
 
 log "Registering the background service ..."
 "$RC" service install || fail "could not install the service"

@@ -42,8 +42,17 @@ async def test_claude_detection_reads_the_version_and_advertises_capabilities(
     assert info.available is True
     assert info.path == str(binary)
     assert info.version == "2.1.266"
-    assert [choice.id for choice in info.models] == ["default", "opus", "sonnet", "haiku"]
+    # Most capable first, and Claude Code resolves every one of these aliases.
+    assert [choice.id for choice in info.models] == [
+        "default",
+        "fable",
+        "opus",
+        "sonnet",
+        "haiku",
+    ]
+    assert [choice.label for choice in info.models][:2] == ["Default", "Fable"]
     assert info.default_model == "default"
+    assert info.speeds == []
     assert info.default_effort is None
     assert [choice.id for choice in info.permission_modes] == [
         "default",

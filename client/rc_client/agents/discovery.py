@@ -15,6 +15,7 @@ from .codex.models import catalog_cache
 
 CLAUDE_MODELS = [
     Choice("default", "Default"),
+    Choice("fable", "Fable"),
     Choice("opus", "Opus"),
     Choice("sonnet", "Sonnet"),
     Choice("haiku", "Haiku"),
@@ -108,6 +109,7 @@ async def detect_codex(daemon_ready: bool | None = None) -> AgentInfo:
         default_permission_mode="on-request",
         efforts=list(catalog.efforts) if catalog else [],
         default_effort=catalog.default_effort if catalog else None,
+        speeds=list(catalog.speeds) if catalog else [],
         capabilities=list(CODEX_CAPABILITIES),
         attach="daemon",
         attach_ready=ready,

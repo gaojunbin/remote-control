@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from ..models import UNSET, SpeedSetting
+
 TOOL_KINDS = (
     "shell",
     "read",
@@ -69,8 +71,18 @@ class SessionRunner(Protocol):
     async def answer(self, request_id: str, answers: dict[str, Any]) -> bool: ...
 
     async def apply_settings(
-        self, model: str | None, permission_mode: str | None, effort: str | None
-    ) -> None: ...
+        self,
+        model: str | None,
+        permission_mode: str | None,
+        effort: str | None,
+        speed: SpeedSetting = UNSET,
+    ) -> None:
+        """Change what the request named. `None` leaves a setting alone.
+
+        `speed` is the exception: `None` is the agent's standard speed and
+        `UNSET` is a request that never mentioned it (amendment A21).
+        """
+        ...
 
     async def close(self) -> None: ...
 

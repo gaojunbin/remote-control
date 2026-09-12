@@ -25,9 +25,22 @@ EFFORT_LABELS = {
 }
 
 
+# Codex reports a thread with no faster tier as `null` until something sets one
+# and as `"default"` once a tier has been cleared; both are the standard speed,
+# which `Session.speed` spells as null (amendment A21).
+STANDARD_TIERS = frozenset({"default", ""})
+
+
 def _rank(effort: str, default: int = 0) -> int:
     """Position in `EFFORT_ORDER`; ids Codex adds later sort at `default`."""
     return EFFORT_ORDER.index(effort) if effort in EFFORT_ORDER else default
+
+
+def tier_id(value: Any) -> str | None:
+    """One `serviceTier` a thread reports, as a `Session.speed` value."""
+    if not isinstance(value, str) or value in STANDARD_TIERS:
+        return None
+    return value
 
 
 @dataclass(slots=True)
@@ -37,6 +50,14 @@ class ModelCatalog:
     efforts: list[Choice] = field(default_factory=list)
     default_effort: str | None = None
     per_model_efforts: dict[str, list[str]] = field(default_factory=dict)
+    # The service tiers faster than standard, in catalogue order (amendment A21).
+    speeds: list[Choice] = field(default_factory=list)
+    per_model_speeds: dict[str, list[Choice]] = field(default_factory=dict)
+
+    def speeds_for(self, model: str | None) -> list[Choice]:
+        """The tiers this model offers. An unknown model gets the whole union."""
+        known = self.per_model_speeds.get(model or self.default_model or "")
+        return list(known) if known is not None else list(self.speeds)
 
     def clamp_effort(self, model: str | None, effort: str | None) -> str | None:
         """Codex does not validate effort at the RPC layer, so clamp it here."""
@@ -57,6 +78,19 @@ class ModelCatalog:
         return lower[-1] if lower else (ranked[0] if ranked else None)
 
 
+def _service_tiers(raw: Any) -> list[Choice]:
+    """The faster tiers one catalogue entry offers, standard ones left out."""
+    tiers: list[Choice] = []
+    for item in (raw or [])[:16] if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        tier = tier_id(item.get("id"))
+        if tier is None:
+            continue
+        tiers.append(Choice(id=tier, label=str(item.get("name") or tier.title())))
+    return tiers
+
+
 def parse_catalog(data: list[dict[str, Any]]) -> ModelCatalog:
     catalog = ModelCatalog()
     seen_efforts: set[str] = set()
@@ -74,6 +108,11 @@ def parse_catalog(data: list[dict[str, Any]]) -> ModelCatalog:
         ]
         catalog.per_model_efforts[model_id] = efforts
         seen_efforts.update(efforts)
+        tiers = _service_tiers(entry.get("serviceTiers"))
+        catalog.per_model_speeds[model_id] = tiers
+        for tier in tiers:
+            if tier.id not in {known.id for known in catalog.speeds}:
+                catalog.speeds.append(tier)
         if entry.get("isDefault"):
             catalog.default_model = model_id
             default_effort = entry.get("defaultReasoningEffort")

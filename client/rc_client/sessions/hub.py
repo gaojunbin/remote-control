@@ -20,7 +20,7 @@ from ..agents.codex.models import ModelCatalog, catalog_cache
 from ..errors import RcError
 from ..git import create_worktree, session_git, slugify
 from ..logging_setup import logger
-from ..models import AgentInfo, Session, now_ms, title_from_text
+from ..models import UNSET, AgentInfo, Choice, Session, SpeedSetting, now_ms, title_from_text
 from ..registry import Registry
 from . import titles
 from .attach import Attachment, HookQuestion, SessionStart
@@ -169,12 +169,41 @@ class SessionHub:
             if value not in {choice.id for choice in allowed}:
                 raise RcError("bad_request", f"unknown {field_name} for {info.agent}: {value}")
 
+    async def _speeds_for(self, info: AgentInfo, model: str | None) -> list[Choice]:
+        """The tiers one model offers, which `AgentInfo` only carries the union of."""
+        if info.agent != "codex" or not info.path:
+            return list(info.speeds)
+        catalog = await catalog_cache.get(info.path)
+        return catalog.speeds_for(model)
+
+    async def _check_speed(self, info: AgentInfo, speed: SpeedSetting, model: str | None) -> None:
+        """Reject a tier this agent, or this model, cannot run at (amendment A21).
+
+        A request that never mentioned the key asks for nothing; one that sent
+        null asks for the standard speed, which an agent with no tiers refuses
+        along with every other value.
+        """
+        if speed is UNSET:
+            return
+        if not info.speeds:
+            raise RcError("unsupported", f"{info.agent} has no speed tiers")
+        if speed is None:
+            return
+        allowed = await self._speeds_for(info, model)
+        if not allowed:
+            raise RcError("unsupported", "this model has no faster tier")
+        if speed not in {choice.id for choice in allowed}:
+            raise RcError("bad_request", f"unknown speed for {info.agent}: {speed}")
+
     async def create(self, params: dict[str, Any]) -> dict[str, Any]:
         agent = str(params.get("agent") or "")
         info = self.agent_info(agent)
         if not info.available:
             raise RcError("agent_unavailable", f"{agent} is not installed on this device")
         self._check_choices(info, params)
+        model = params.get("model") or info.default_model
+        speed: SpeedSetting = params.get("speed") if "speed" in params else UNSET
+        await self._check_speed(info, speed, model)
         cwd = str(params.get("cwd") or "")
         if not cwd or not Path(cwd).expanduser().is_dir():
             raise RcError("bad_request", f"working directory does not exist: {cwd}")
@@ -196,9 +225,10 @@ class SessionHub:
             state="starting",
             origin="remote",
             control="remote",
-            model=params.get("model") or info.default_model,
+            model=model,
             permission_mode=params.get("permission_mode") or info.default_permission_mode,
             effort=params.get("effort") or info.default_effort,
+            speed=params.get("speed"),
         )
         session.git = await session_git(cwd, worktree=worktree)
         entry = SessionEntry(
@@ -264,6 +294,7 @@ class SessionHub:
                 model=session.model,
                 permission_mode=session.permission_mode,
                 effort=session.effort,
+                speed=session.speed,
                 thread_id=resume,
                 on_turn_end=on_turn_end,
                 on_session_id=on_session_id,
@@ -503,27 +534,39 @@ class SessionHub:
 
     async def set_options(self, params: dict[str, Any]) -> dict[str, Any]:
         entry = self.entry(str(params.get("session_id") or ""))
-        self._check_choices(self.agent_info(entry.session.agent), params)
+        info = self.agent_info(entry.session.agent)
+        self._check_choices(info, params)
         model = params.get("model")
         permission_mode = params.get("permission_mode")
         effort = params.get("effort")
         title = params.get("title")
+        # A `speed` of null is a session going back to the standard tier, so
+        # only the key's absence means "leave it alone" (amendment A21).
+        speed: SpeedSetting = params.get("speed") if "speed" in params else UNSET
+        await self._check_speed(info, speed, model or entry.session.model)
         if (
             self._is_shared(entry)
             and not self._agent_flag(entry, "shared_settings")
-            and any(value is not None for value in (model, permission_mode, effort))
+            and (speed is not UNSET or any(v is not None for v in (model, permission_mode, effort)))
         ):
             raise RcError("unsupported", "change it in the terminal")
         if entry.runner is not None:
-            await entry.runner.apply_settings(model, permission_mode, effort)
+            await entry.runner.apply_settings(model, permission_mode, effort, speed)
         if title is not None:
             title = title_from_text(str(title))
             if title:
                 # A title the user typed outranks anything the agent produces.
                 titles.pin(self.registry, entry.session.session_id)
-        await entry.channel.set_meta(
-            model=model, permission_mode=permission_mode, effort=effort, title=title
-        )
+        meta: dict[str, Any] = {} if speed is UNSET else {"speed": speed}
+        for key, value in (
+            ("model", model),
+            ("permission_mode", permission_mode),
+            ("effort", effort),
+            ("title", title),
+        ):
+            if value is not None:
+                meta[key] = value
+        await entry.channel.set_meta(**meta)
         return {"session": entry.session.to_dict()}
 
     async def history(self, params: dict[str, Any]) -> dict[str, Any]:

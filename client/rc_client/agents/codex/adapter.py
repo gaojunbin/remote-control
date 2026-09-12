@@ -12,11 +12,11 @@ from ...attachments import Attachment, describe, materialise, wire_attachments
 from ...child_env import sanitized_child_env
 from ...errors import RcError
 from ...logging_setup import logger
-from ...models import now_ms
+from ...models import UNSET, SpeedSetting, now_ms
 from ...sessions.channel import SessionChannel
 from ..base import Emit
 from .echoes import Echo, EchoLog
-from .models import ModelCatalog
+from .models import ModelCatalog, tier_id
 from .prompts import answers_payload, question_blocks
 from .rpc import CodexAppServer
 from .translate import CodexTranslator, item_type, text_of
@@ -60,6 +60,7 @@ class CodexRunner:
         model: str | None = None,
         permission_mode: str | None = None,
         effort: str | None = None,
+        speed: str | None = None,
         thread_id: str | None = None,
         on_turn_end: TurnEndCallback | None = None,
         on_session_id: Callable[[str], Awaitable[None]] | None = None,
@@ -71,6 +72,7 @@ class CodexRunner:
         self._model = model
         self._permission_mode = permission_mode or "on-request"
         self._effort = effort
+        self._speed = speed
         self._thread_id = thread_id
         self._on_turn_end = on_turn_end
         self._on_session_id = on_session_id
@@ -111,6 +113,16 @@ class CodexRunner:
         if not thread_id:
             raise RcError("agent_unavailable", "codex did not return a thread id")
         self._thread_id = thread_id
+        wanted_speed = self._speed
+        self._speed = tier_id(result.get("serviceTier"))
+        if wanted_speed is not None and wanted_speed != self._speed:
+            # `thread/start` accepts `serviceTier` and ignores it, so a session
+            # running at a tier asks for it once the thread is up (A21).
+            self._speed = wanted_speed
+            await server.request(
+                "thread/settings/update", {"threadId": thread_id, "serviceTier": wanted_speed}
+            )
+        await self.channel.set_meta(speed=self._speed)
         if self._model is None:
             model = result.get("model")
             if isinstance(model, str) and model:
@@ -328,7 +340,11 @@ class CodexRunner:
         await self.start()
 
     async def apply_settings(
-        self, model: str | None, permission_mode: str | None, effort: str | None
+        self,
+        model: str | None,
+        permission_mode: str | None,
+        effort: str | None,
+        speed: SpeedSetting = UNSET,
     ) -> None:
         if model is not None:
             self._model = model
@@ -336,6 +352,16 @@ class CodexRunner:
             self._permission_mode = permission_mode
         if effort is not None:
             self._effort = effort
+        if speed is UNSET:
+            return
+        self._speed = speed
+        # Model, permission mode and effort ride on the next `turn/start`; the
+        # tier is thread state, so it takes a request of its own (A21).
+        server = self._server
+        if server is not None and self._thread_id:
+            await server.request(
+                "thread/settings/update", {"threadId": self._thread_id, "serviceTier": speed}
+            )
 
     # ------------------------------------------------------- prompts to user
 

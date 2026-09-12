@@ -6,15 +6,21 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
+from rc_client import daemon as daemon_module
+from rc_client.agents.base import SessionRunner
 from rc_client.agents.claude import transcripts
 from rc_client.agents.codex import rollouts
-from rc_client.config import Config
+from rc_client.build import write_build
+from rc_client.config import Config, ensure_dirs
 from rc_client.daemon import Daemon
 from rc_client.models import Session
+from rc_client.sessions.channel import SessionChannel
+from rc_client.sessions.hub import SessionEntry
+from rc_client.update import update_log_path
 from tests.test_gateway_link import FakeGateway
 
 
@@ -229,3 +235,173 @@ async def test_history_and_send_idempotency_survive_over_the_socket(
         },
     )
     assert history["result"] == {"events": [], "has_more": False}
+
+
+# ------------------------------------------------------- amendment A22: update
+
+RUNNING_BUILD = "a" * 64
+SERVED_BUILD = "b" * 64
+
+
+class FakeUpdater:
+    """Stands in for the detached `rc-client self-update` process."""
+
+    def __init__(self, code: int) -> None:
+        self.code = code
+
+    async def wait(self) -> int:
+        return self.code
+
+
+@pytest.fixture
+def recorded_build() -> str:
+    """The build file the installer writes, in place before the daemon starts."""
+    write_build(RUNNING_BUILD)
+    return RUNNING_BUILD
+
+
+async def update_request(server: FakeGateway, build: str, request_id: str) -> dict[str, Any]:
+    return await request(
+        server,
+        {
+            "type": "device.update",
+            "id": request_id,
+            "from": "app-1",
+            "device_id": "dev-1",
+            "build": build,
+        },
+    )
+
+
+async def test_hello_reports_no_build_when_the_client_came_from_source(
+    running_daemon: tuple[Daemon, FakeGateway],
+) -> None:
+    _, server = running_daemon
+    assert server.frames("hello")[0]["client_build"] is None
+
+
+async def test_hello_reports_the_build_the_installer_recorded(
+    recorded_build: str, running_daemon: tuple[Daemon, FakeGateway]
+) -> None:
+    _, server = running_daemon
+    assert server.frames("hello")[0]["client_build"] == recorded_build
+
+
+async def test_an_update_is_unsupported_without_a_recorded_build(
+    running_daemon: tuple[Daemon, FakeGateway],
+) -> None:
+    _, server = running_daemon
+    reply = await update_request(server, SERVED_BUILD, "u1")
+    assert reply["ok"] is False
+    assert reply["error"]["code"] == "unsupported"
+
+
+async def test_an_update_to_the_build_already_running_is_a_conflict(
+    recorded_build: str, running_daemon: tuple[Daemon, FakeGateway]
+) -> None:
+    _, server = running_daemon
+    reply = await update_request(server, recorded_build, "u2")
+    assert reply["ok"] is False
+    assert reply["error"]["code"] == "conflict"
+    assert reply["error"]["message"] == "already on this build"
+
+
+async def test_a_malformed_build_is_a_bad_request(
+    recorded_build: str, running_daemon: tuple[Daemon, FakeGateway]
+) -> None:
+    _, server = running_daemon
+    reply = await update_request(server, "not-a-digest", "u3")
+    assert reply["ok"] is False
+    assert reply["error"]["code"] == "bad_request"
+
+
+async def test_an_update_is_refused_while_a_session_is_working(
+    recorded_build: str, running_daemon: tuple[Daemon, FakeGateway]
+) -> None:
+    daemon, server = running_daemon
+    session = Session(
+        session_id="sess-busy",
+        device_id="dev-1",
+        agent="claude",
+        cwd="/repo",
+        state="running",
+    )
+    daemon.registry.upsert_session(session)
+    entry = SessionEntry(
+        session=session,
+        channel=SessionChannel(daemon.registry, session, daemon.hub.publish),
+    )
+    # Only its presence matters here: the refusal counts entries that have one.
+    entry.runner = cast(SessionRunner, object())
+    daemon.hub.entries[session.session_id] = entry
+
+    reply = await update_request(server, SERVED_BUILD, "u4")
+    assert reply["ok"] is False
+    assert reply["error"]["code"] == "conflict"
+    assert reply["error"]["message"] == "1 session is running"
+
+
+async def test_an_accepted_update_spawns_the_updater(
+    recorded_build: str,
+    running_daemon: tuple[Daemon, FakeGateway],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, server = running_daemon
+    spawned: list[str] = []
+
+    async def spawn(build: str) -> FakeUpdater:
+        spawned.append(build)
+        return FakeUpdater(0)
+
+    monkeypatch.setattr(daemon_module, "spawn_self_update", spawn)
+    reply = await update_request(server, SERVED_BUILD, "u5")
+    assert reply["result"] == {"accepted": True, "from": recorded_build}
+
+    async def settle() -> None:
+        while not spawned:
+            await asyncio.sleep(0.01)
+
+    await asyncio.wait_for(settle(), timeout=5)
+    assert spawned == [SERVED_BUILD]
+    assert server.frames("update.failed") == []
+
+
+async def test_an_updater_that_exits_non_zero_reports_the_last_log_line(
+    recorded_build: str,
+    running_daemon: tuple[Daemon, FakeGateway],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, server = running_daemon
+    ensure_dirs()
+    update_log_path().write_text("downloading\nerror: uv is not installed\n", encoding="utf-8")
+
+    async def spawn(build: str) -> FakeUpdater:
+        return FakeUpdater(1)
+
+    monkeypatch.setattr(daemon_module, "spawn_self_update", spawn)
+    assert (await update_request(server, SERVED_BUILD, "u6"))["ok"] is True
+    failure = await server.wait_for("update.failed")
+    assert failure["message"] == "error: uv is not installed"
+
+
+async def test_a_second_update_while_one_runs_is_a_conflict(
+    recorded_build: str,
+    running_daemon: tuple[Daemon, FakeGateway],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, server = running_daemon
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def spawn(build: str) -> FakeUpdater:
+        started.set()
+        await release.wait()
+        return FakeUpdater(0)
+
+    monkeypatch.setattr(daemon_module, "spawn_self_update", spawn)
+    assert (await update_request(server, SERVED_BUILD, "u7"))["ok"] is True
+    await asyncio.wait_for(started.wait(), timeout=5)
+
+    reply = await update_request(server, "d" * 64, "u8")
+    assert reply["error"]["message"] == "an update is already running"
+    release.set()

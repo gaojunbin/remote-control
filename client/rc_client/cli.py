@@ -1,7 +1,9 @@
 """`rc-client` command line: enroll, run, status, agents, service, uninstall.
 
 Exit codes are stable so the installer and other scripts can branch on them:
-0 success, 1 runtime failure, 2 usage error, 3 not enrolled.
+0 success, 1 runtime failure, 2 usage error, 3 refused with nothing done — the
+device is not enrolled, or `self-update` was served a wheel that is not the
+build it was asked for.
 """
 
 from __future__ import annotations
@@ -14,26 +16,30 @@ import shutil
 import sys
 from typing import Any
 
-from . import __version__, linkstate
+import httpx
+
+from . import __version__, linkstate, pairing, qr
 from . import config as config_module
 from .agents.codex.daemon import setup as codex_setup
 from .agents.discovery import detect_agents
+from .build import read_build
 from .channel import commands as shim_commands
 from .channel.bridge import main as channel_main
 from .channel.hook import EVENTS as hook_events
 from .channel.hook import main as hook_main
-from .config import config_exists, config_path, load_config
+from .config import config_exists, config_path, load_config, normalise_origin
 from .daemon import Daemon
 from .enroll import enroll
 from .errors import RcError
 from .logging_setup import setup_logging
 from .service import codex as codex_supervision
 from .service import manager
+from .update import self_update
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_USAGE = 2
-EXIT_NOT_ENROLLED = 3
+EXIT_REFUSED = 3
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -46,10 +52,19 @@ def build_parser() -> argparse.ArgumentParser:
     enroll_parser.add_argument(
         "--gateway", required=True, help="gateway origin, e.g. https://rc.example.com"
     )
-    enroll_parser.add_argument("--pair", required=True, help="pairing code RC-XXXX-XXXX")
+    source = enroll_parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--pair", default=None, help="pairing code RC-XXXX-XXXX minted in an app")
+    source.add_argument(
+        "--scan", action="store_true", help="print a QR code and wait for an app to scan it"
+    )
     enroll_parser.add_argument("--name", default=None, help="device name shown in the apps")
 
     sub.add_parser("run", help="run the daemon in the foreground")
+
+    update_parser = sub.add_parser(
+        "self-update", help="install the client build the gateway serves and restart"
+    )
+    update_parser.add_argument("--build", required=True, help="SHA-256 of the wheel to install")
     sub.add_parser(
         "channel", help="run the Claude Code channel bridge (started by the CLI, not by hand)"
     )
@@ -89,14 +104,31 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+async def _claim_by_scanning(origin: str) -> str:
+    """Print a claim URL as a QR code and wait for an app to scan it (A23)."""
+    async with httpx.AsyncClient(timeout=pairing.POLL_TIMEOUT, trust_env=False) as client:
+        request = await pairing.create_request(origin, client)
+        print(qr.render(request.claim_url))
+        print(request.claim_url)
+        print("Scan the code with the Remote Control app, or open the link in a signed-in browser.")
+        print("Waiting to be claimed ...")
+        return await pairing.await_code(origin, request.token, client)
+
+
 async def _cmd_enroll(args: argparse.Namespace) -> int:
+    origin = normalise_origin(args.gateway)
+    code = await _claim_by_scanning(origin) if args.scan else str(args.pair)
     agents = await detect_agents()
-    config = await enroll(args.gateway, args.pair, args.name, agents)
+    config = await enroll(origin, code, args.name, agents)
     available = [info.agent for info in agents if info.available]
     print(f"Enrolled as {config.device_id} at {config.gateway_origin}")
     print(f"Configuration written to {config_path()}")
     print("Agents detected: " + (", ".join(available) if available else "none"))
     return EXIT_OK
+
+
+async def _cmd_self_update(args: argparse.Namespace) -> int:
+    return EXIT_OK if await self_update(args.build) else EXIT_REFUSED
 
 
 async def _cmd_run(args: argparse.Namespace) -> int:
@@ -127,11 +159,13 @@ async def _cmd_status(args: argparse.Namespace) -> int:
     if not config_exists():
         print(f"not enrolled (no {config_path()})")
         print("run: rc-client enroll --gateway URL --pair RC-XXXX-XXXX")
-        return EXIT_NOT_ENROLLED
+        return EXIT_REFUSED
     config = load_config()
+    build = read_build()
     print(f"device_id      {config.device_id}")
     print(f"name           {config.name}")
     print(f"gateway        {config.gateway_origin}")
+    print(f"client build   {build or 'unknown (installed from source)'}")
     print(f"config         {config_path()}")
     print(f"state          {config_module.database_path()}")
     print(f"service        {manager.status()}")
@@ -208,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
         "agents": _cmd_agents,
         "codex": _cmd_codex,
         "status": _cmd_status,
+        "self-update": _cmd_self_update,
     }
     try:
         if args.command in handlers:
@@ -224,11 +259,9 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_uninstall(args)
     except RcError as exc:
         print(f"error: {exc.message}", file=sys.stderr)
-        return (
-            EXIT_NOT_ENROLLED
-            if exc.code == "not_found" and args.command != "enroll"
-            else (EXIT_FAILURE)
-        )
+        if exc.code == "not_found" and args.command != "enroll":
+            return EXIT_REFUSED
+        return EXIT_FAILURE
     except KeyboardInterrupt:
         return EXIT_OK
     parser.error(f"unknown command {args.command}")

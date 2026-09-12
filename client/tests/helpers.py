@@ -23,6 +23,17 @@ def _load_schema(name: str) -> Any:
     return json.loads((SCHEMA_ROOT / name).read_text(encoding="utf-8"))
 
 
+def object_validator(name: str) -> Any:
+    """A jsonschema validator for one `$defs` entry of `objects.json`, or None."""
+    path = SCHEMA_ROOT / "objects.json"
+    if not path.exists():
+        return None
+    import jsonschema
+
+    schema = _load_schema("objects.json")
+    return jsonschema.Draft202012Validator({**schema, "$ref": f"#/$defs/{name}"})
+
+
 def event_validator() -> Any:
     """A jsonschema validator for `Event`, or None when the schema is missing."""
     path = SCHEMA_ROOT / "events.json"

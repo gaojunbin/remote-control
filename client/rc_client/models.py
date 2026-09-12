@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Literal
 
 SessionState = Literal[
@@ -13,6 +14,23 @@ Control = Literal["remote", "terminal", "shared", "none"]
 # How a terminal session of this agent can be attached (amendment A10).
 Attach = Literal["channel", "daemon"]
 Origin = Literal["remote", "terminal"]
+
+
+class Unset(Enum):
+    """A field a request never mentioned, which `None` cannot say for a nullable one.
+
+    `Session.speed` is null at the agent's standard speed (amendment A21), so a
+    request that clears the tier and a request that says nothing about it both
+    arrive as `None` unless they are told apart here.
+    """
+
+    TOKEN = "unset"
+
+
+UNSET = Unset.TOKEN
+
+# A speed tier id, `None` for the agent's standard speed, `UNSET` when unmentioned.
+SpeedSetting = str | None | Unset
 
 
 # The longest title the apps are given for a session (PROTOCOL.md section 8).
@@ -46,6 +64,8 @@ class AgentInfo:
     default_permission_mode: str | None = None
     efforts: list[Choice] = field(default_factory=list)
     default_effort: str | None = None
+    # Tiers faster than the agent's standard speed; empty when it has none (A21).
+    speeds: list[Choice] = field(default_factory=list)
     capabilities: list[str] = field(default_factory=list)
     attach: Attach | None = None
     attach_ready: bool = False
@@ -65,6 +85,7 @@ class AgentInfo:
             "default_permission_mode": self.default_permission_mode,
             "efforts": [choice.to_dict() for choice in self.efforts],
             "default_effort": self.default_effort,
+            "speeds": [choice.to_dict() for choice in self.speeds],
             "capabilities": list(self.capabilities),
             "attach": self.attach,
             "attach_ready": self.attach_ready,
@@ -89,6 +110,8 @@ class Session:
     model: str | None = None
     permission_mode: str | None = None
     effort: str | None = None
+    # The tier from `AgentInfo.speeds` in force; null is the standard speed (A21).
+    speed: str | None = None
     created_at: int = field(default_factory=now_ms)
     updated_at: int = field(default_factory=now_ms)
     last_seq: int = 0
@@ -113,6 +136,7 @@ class Session:
             "model": self.model,
             "permission_mode": self.permission_mode,
             "effort": self.effort,
+            "speed": self.speed,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "last_seq": self.last_seq,
@@ -139,6 +163,7 @@ class Session:
             model=data.get("model"),
             permission_mode=data.get("permission_mode"),
             effort=data.get("effort"),
+            speed=data.get("speed"),
             created_at=int(data.get("created_at") or now_ms()),
             updated_at=int(data.get("updated_at") or now_ms()),
             last_seq=int(data.get("last_seq") or 0),
