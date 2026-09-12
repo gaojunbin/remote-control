@@ -332,9 +332,16 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertFalse(app.buttons["composer.attach"].exists,
                        "a channel cannot hand bytes to a live CLI, so there is no attach button")
         XCTAssertFalse(app.buttons["composer.model"].exists,
-                       "and the settings live in the terminal, so there are no settings chips")
+                       "and the settings live in the terminal, so no picker is offered")
         XCTAssertFalse(app.buttons["composer.permissions"].exists)
         XCTAssertTrue(app.buttons["composer.send"].exists, "what is left still sends")
+
+        // Amendment A17: the values themselves are shown where the pickers
+        // would be, so the phone can say which model that terminal is running.
+        for field in ["model", "permissionMode", "effort"] {
+            XCTAssertTrue(app.descendants(matching: .any)["composer.readonly.\(field)"].exists,
+                          "the \(field) the terminal chose is shown")
+        }
 
         attach(name: "06-shared-idle")
 
@@ -382,6 +389,8 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(app.buttons["composer.model"].exists, "and shared_settings keeps the chips")
         XCTAssertTrue(app.buttons["composer.effort"].exists,
                       "effort among them, because the daemon retunes the live thread")
+        XCTAssertFalse(app.descendants(matching: .any)["composer.readonly.model"].exists,
+                       "and A17 shows nothing where the picker is live")
         XCTAssertTrue(app.buttons["chat.stop"].exists, "shared_interrupt offers Stop while it runs")
         XCTAssertEqual(composerField.placeholderValue, "Message · will steer the turn",
                        "a steering agent joins the running turn instead of queueing behind it")

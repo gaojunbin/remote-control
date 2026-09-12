@@ -1087,6 +1087,24 @@
   height: 26px;
 }
 
+/*
+ * A17: the model, permission mode and effort a terminal chose, drawn where its
+ * pickers would be. The shape of the trigger beside it, without the chevron and
+ * without the hover, so it reads as state rather than as something to press.
+ */
+.composer-chip.readonly {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: var(--r-pill);
+  background: var(--surface-muted);
+  color: var(--ink-secondary);
+  font-size: var(--fs-12);
+  white-space: nowrap;
+  cursor: default;
+}
+
 /* voice */
 
 /* The one quiet line above the field while dictation runs. */

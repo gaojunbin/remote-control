@@ -289,8 +289,10 @@ struct CodexDaemonTests {
         }
         let relayed = ChatStore(session: claudeShared, channel: gateway)
         relayed.agent = DemoFixtures.claude
-        await relayed.set(effort: "high")
-        #expect(relayed.session.effort != "high")
+        await relayed.set(effort: "low")
+        // Amendment A17: the channel session has an effort of its own, read
+        // from the transcript, and a refused request leaves it exactly as it was.
+        #expect(relayed.session.effort == claudeShared.effort)
         #expect(relayed.errorMessage != nil)
     }
 

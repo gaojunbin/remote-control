@@ -35,6 +35,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// Amendment A15: the moment the archived demo session is resumed from its
     /// terminal, which is when the device clears `archived` and publishes it.
     private var reviving: Task<Void, Never>?
+    /// Amendment A17: the moment the terminal switches model on the attached
+    /// session, which the device reads from the transcript and publishes.
+    private var retuning: Task<Void, Never>?
 
     /// The default is what a quick local device feels like. A UI test asks for
     /// a longer one so the state a real send passes through can be looked at
@@ -44,6 +47,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// its terminal resumes it. A UI test asks for none, so the list it
     /// measures holds still.
     public static let defaultResumeDelay = Duration.seconds(5)
+    /// Amendment A17: how long after the attached session is opened its
+    /// terminal switches model. Short enough to be seen without waiting for it.
+    private static let retuneDelay = Duration.milliseconds(700)
 
     public init(echoDelay: Duration = DemoGateway.defaultEchoDelay,
                 resumeDelay: Duration? = DemoGateway.defaultResumeDelay) {
@@ -83,6 +89,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         pairing?.cancel(); pairing = nil
         injecting?.cancel(); injecting = nil
         reviving?.cancel(); reviving = nil
+        retuning?.cancel(); retuning = nil
         continuation.yield(.state(.disconnected))
     }
 
@@ -197,6 +204,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         let all: [SessionEvent] = transcripts[id] ?? []
         let events = since.map { cursor in all.filter { $0.seq > cursor } } ?? []
         if id == DemoFixtures.liveSessionID { startLiveScript(sessionID: id) }
+        if id == DemoFixtures.sharedSessionID { startRetuneScript(sessionID: id) }
         return try JSONValue.encode(SubscribeResult(session: session, events: events, resync: false))
     }
 
@@ -490,6 +498,25 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             session.control = .terminal
             session.state = .idle
         }
+    }
+
+    /// Amendment A17: somebody types `/model` in the terminal that owns the
+    /// attached session. The device reads the change out of the transcript and
+    /// publishes it as `meta` and as a session summary; the app has no picker
+    /// to keep in step, only the chip that says what the terminal chose, and it
+    /// follows without a reload.
+    private func startRetuneScript(sessionID: String) {
+        guard retuning == nil else { return }
+        retuning = Task { [weak self] in
+            try? await Task.sleep(for: Self.retuneDelay)
+            guard !Task.isCancelled else { return }
+            await self?.retune(sessionID: sessionID, model: "claude-opus-4-1")
+        }
+    }
+
+    private func retune(sessionID: String, model: String) {
+        emit(sessionID: sessionID, body: .meta(MetaPayload(model: model)))
+        update(sessionID: sessionID) { $0.model = model }
     }
 
     /// The live session keeps producing output, so the demo shows a real turn.

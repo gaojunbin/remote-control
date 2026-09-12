@@ -58,6 +58,9 @@ class MirrorService:
         self._codex: dict[str, CodexMirror] = {}
         # Title-only tails for Claude sessions this device drives itself.
         self._titles: dict[str, transcripts.TitleTail] = {}
+        # Sessions whose transcript has already been read once for the settings
+        # in force (A17); the backfill costs a whole file and is worth doing once.
+        self._settings_read: set[str] = set()
         self._tasks: list[asyncio.Task[None]] = []
 
     def start(self) -> None:
@@ -77,6 +80,12 @@ class MirrorService:
     # ---------------------------------------------------------------- scans
 
     async def _scan_loop(self) -> None:
+        # Before the first scan, and on the same task, so the settings of a
+        # session the hub starts with are read exactly once.
+        try:
+            await self._backfill_known()
+        except Exception:
+            log.exception("terminal session settings backfill failed")
         while True:
             try:
                 await self.scan_once()
@@ -100,7 +109,7 @@ class MirrorService:
         )
         if self.codex_daemon is not None:
             await self.codex_daemon.tick(resolve_codex())
-        self._adopt_claude(found_claude)
+        adopted = self._adopt_claude(found_claude)
         # After the adoption, so a session whose transcript was just found is
         # never mistaken for one that never had one.
         await self.hub.sweep_ghosts()
@@ -108,6 +117,7 @@ class MirrorService:
         await self._watch_titles()
         await self._refresh_claude_control()
         await self._refresh_codex_control()
+        await self._backfill_settings(adopted)
 
     def _driven_claude(self) -> set[str]:
         """Claude sessions this device is running right now.
@@ -165,7 +175,8 @@ class MirrorService:
             return 0
         return max(0, size - BACKFILL_BYTES)
 
-    def _adopt_claude(self, found: list[transcripts.TranscriptInfo]) -> None:
+    def _adopt_claude(self, found: list[transcripts.TranscriptInfo]) -> list[str]:
+        adopted: list[str] = []
         for info in found:
             if info.session_id in self._claude:
                 continue
@@ -193,6 +204,48 @@ class MirrorService:
             entry.transcript = info.path
             entry.channel.start()
             self._claude[info.session_id] = ClaudeMirror(tailer=tailer)
+            adopted.append(info.session_id)
+        return adopted
+
+    # ------------------------------------------------------------- settings
+
+    async def _backfill_known(self) -> None:
+        """Read the settings of every mirrored Claude session the hub starts with.
+
+        A session restored from the registry has no mirror yet, and one whose
+        transcript is too old to be re-discovered never gets one, so this pass is
+        the only place their model, permission mode and effort are read.
+        """
+        await self._backfill_settings(
+            [
+                session_id
+                for session_id, entry in self.hub.entries.items()
+                if entry.session.agent == "claude" and self._adoptable(entry)
+            ]
+        )
+
+    async def _backfill_settings(self, session_ids: list[str]) -> None:
+        """Publish what the terminal chose, from one whole-file read per session."""
+        for session_id in session_ids:
+            entry = self.hub.entries.get(session_id)
+            if entry is None or session_id in self._settings_read:
+                continue
+            if not self._adoptable(entry):
+                continue
+            path = await self._transcript_path(entry, session_id)
+            if path is None:
+                continue
+            self._settings_read.add(session_id)
+            settings = await asyncio.to_thread(transcripts.latest_settings, path)
+            if settings:
+                await entry.channel.set_meta(**settings)
+
+    @staticmethod
+    async def _transcript_path(entry: SessionEntry, session_id: str) -> str | None:
+        if entry.transcript is not None:
+            return entry.transcript
+        found = await asyncio.to_thread(transcripts.find_transcript, session_id)
+        return str(found) if found is not None else None
 
     def _codex_is_daemons(self, thread_id: str) -> bool:
         """A thread the shared daemon knows is read from the daemon, never from disk.
@@ -413,6 +466,11 @@ class MirrorService:
                     by_user=bool(emit.fields.get("by_user")),
                 ),
             )
+            return
+        if emit.kind == transcripts.SESSION_SETTINGS:
+            # Amendment A17: what the terminal chose, from its own records.
+            # `set_meta` publishes only the fields that actually changed.
+            await entry.channel.set_meta(**emit.fields)
             return
         if entry.shared is not None and emit.kind == "tool_call":
             status = str(emit.fields.get("status") or "")

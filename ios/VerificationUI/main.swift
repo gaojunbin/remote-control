@@ -58,6 +58,10 @@ func run() async -> (passed: Int, failures: [String]) {
             expect(chat.rows.contains { $0.userMessage != nil }, "the reader's own message is there")
             expect(chat.rows.contains { $0.assistantText != nil }, "and so is the agent's prose")
             expect(!chat.showsTodos, "and the header carries no todo chip")
+            // Amendment A17: this session is the app's own, so its settings are
+            // offered rather than shown.
+            expect(chat.allowsSettingsChanges, "a session this app drives keeps its pickers")
+            expect(chat.terminalSettings.isEmpty, "and shows no read-only chips beside them")
 
             // Nothing is fetched: the same transcript is filtered, both ways.
             let held = chat.timeline.entries.count
@@ -100,6 +104,18 @@ func run() async -> (passed: Int, failures: [String]) {
               "the takeover line shows while the terminal turn runs")
         equal(locked.attachHint, ChatStore.AttachHint.restartSession,
               "a prepared device says the running process was started without the attachment")
+
+        // Amendment A17: the composer cannot retune this session, so it shows
+        // the three values the device read out of the terminal's transcript
+        // where the pickers would be.
+        expect(locked.isTunedByTerminal, "a terminal session is tuned where this app cannot reach")
+        expect(!locked.allowsSettingsChanges, "so no picker is offered")
+        equal(locked.terminalSettings.map(\.id), ["model", "permissionMode", "effort"],
+              "and the three chips stand in the order the pickers stand in")
+        equal(locked.terminalSettings.map(\.text), ["Sonnet 4.5", "Ask before edits", "High"],
+              "each labelled by the agent's own list")
+        equal(locked.terminalSettings.map(\.field.label), ["Model", "Permissions", "Effort"],
+              "and named for assistive technology by what the picker is called")
     } else {
         expect(false, "the demo has a terminal-controlled session")
     }
@@ -125,6 +141,19 @@ func run() async -> (passed: Int, failures: [String]) {
         equal(shared.statusLabel, "terminal · attached", "the session list names the terminal")
         equal(shared.dotTone(online: true), DotTone.live,
               "with the green of a session that is alive and quiet, not the grey of an exited one")
+
+        // MARK: - Amendment A17: what the terminal chose is shown, not offered
+        //
+        // The hello's own copy of the session, so the reading is of what the
+        // demo delivered rather than of a race with the script below.
+        equal(TerminalSetting.all(for: shared, agent: model.agent(for: shared)).map(\.text),
+              ["Sonnet 4.5", "auto", "High"],
+              "a Claude channel shows the three the device read, and `auto` by its raw id")
+        // Somebody types `/model` in that terminal. There is no picker here to
+        // keep in step, only the chip, and it follows the `meta` in place.
+        await settle { chat.session.model == "claude-opus-4-1" }
+        equal(chat.terminalSettings.map(\.text), ["Opus 4.1", "auto", "High"],
+              "and a model changed in the terminal reaches the chip without a reload")
         await model.closeChat()
     } else {
         expect(false, "the demo has an attached session")
@@ -143,6 +172,8 @@ func run() async -> (passed: Int, failures: [String]) {
         }
         expect(chat.isAttached, "the daemon shares the thread with the terminal")
         expect(chat.allowsSettingsChanges, "shared_settings reopens the model and effort pickers")
+        expect(chat.terminalSettings.isEmpty,
+               "and A17 draws no read-only chips where the pickers are live")
         expect(chat.allowsAttachments, "shared_attachments reopens the attachment button")
         expect(chat.canStop, "shared_interrupt offers Stop while the terminal's turn runs")
         expect(!chat.canTakeover, "a shared thread is never taken over")

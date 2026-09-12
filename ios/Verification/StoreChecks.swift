@@ -22,7 +22,59 @@ enum StoreChecks {
         await optimisticSend(checks)
         await readingPosition(checks)
         timelineDetail(checks)
+        terminalSettings(checks)
         return checks.result()
+    }
+
+    /// Amendment A17: a session a terminal holds shows the model, the
+    /// permission mode and the effort the device read from the transcript,
+    /// where the pickers would be. Nothing here can change them, so the store
+    /// offers text rather than an action, and a `meta` moves it.
+    @MainActor
+    private static func terminalSettings(_ checks: CheckRunner) {
+        func store(control: SessionControl, agent: AgentInfo? = DemoFixtures.claude,
+                   model: String? = "claude-sonnet-4-5", permissionMode: String? = "auto",
+                   effort: String? = "high") -> ChatStore {
+            let session = Session(sessionID: "s", deviceID: "d", agent: "claude", title: "T",
+                                  cwd: "/tmp", state: .idle, control: control, model: model,
+                                  permissionMode: permissionMode, effort: effort)
+            let chat = ChatStore(session: session, channel: ScriptedChannel())
+            chat.agent = agent
+            return chat
+        }
+        func shown(_ chat: ChatStore) -> [String] { chat.terminalSettings.map(\.text) }
+
+        let terminal = store(control: .terminal)
+        checks.expect(terminal.isTunedByTerminal, "a terminal session is tuned where the app cannot reach")
+        checks.expect(!terminal.allowsSettingsChanges, "so the pickers are not offered")
+        checks.equal(terminal.terminalSettings.map(\.id), ["model", "permissionMode", "effort"],
+                     "and the three values stand in the order the pickers stand in")
+        checks.equal(shown(terminal), ["Sonnet 4.5", "auto", "High"],
+                     "labelled by the agent's own lists, and by the raw id where they do not know it")
+
+        checks.equal(shown(store(control: .shared)), ["Sonnet 4.5", "auto", "High"],
+                     "a Claude channel cannot retune the thread either, so it shows the same three")
+        checks.expect(store(control: .shared, agent: DemoFixtures.codex).terminalSettings.isEmpty,
+                      "an attachment that carries settings keeps its pickers and shows nothing")
+        checks.expect(store(control: .remote).terminalSettings.isEmpty,
+                      "and a session this app drives shows nothing")
+
+        checks.equal(shown(store(control: .terminal, effort: nil)), ["Sonnet 4.5", "auto"],
+                     "a value the device has not seen draws nothing at all")
+        checks.expect(store(control: .terminal, model: nil, permissionMode: nil, effort: nil)
+                        .terminalSettings.isEmpty,
+                      "and a session it knows nothing about draws no chips")
+        checks.equal(shown(store(control: .terminal, agent: nil)), ["claude-sonnet-4-5", "auto", "high"],
+                     "an agent this build never heard of shows every id verbatim")
+
+        // The terminal switches model mid-session. The device publishes it as
+        // `meta`; the chip follows without a reload and without a `session.set`.
+        let live = store(control: .shared)
+        let meta = SessionEvent(seq: 9, ts: 1, kind: SessionEvent.metaKind,
+                                body: .meta(MetaPayload(model: "claude-opus-4-1")))
+        live.receive(.sessionEvent(sessionID: "s", deviceID: "d", event: meta))
+        checks.equal(live.session.model, "claude-opus-4-1", "a meta with a model reaches the session")
+        checks.equal(shown(live), ["Opus 4.1", "auto", "High"], "and the chip says what the terminal chose")
     }
 
     /// The two levels of detail in `docs/DESIGN.md`. Simple draws only what is

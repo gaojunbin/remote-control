@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Composer } from '../src/features/chat/Composer';
+import { foldSession } from '../src/stores/chat';
 import { useSettings } from '../src/stores/settings';
+import { strings } from '../src/strings';
 import { claudeAgent, codexAgent } from '../mock/fixtures';
-import type { AgentInfo, Session, SessionState } from '../src/protocol/types';
+import type { AgentInfo, Session, SessionEvent, SessionState } from '../src/protocol/types';
 
 const baseSession: Session = {
   session_id: 'ses-1',
@@ -301,5 +303,113 @@ describe('Composer disabled states', () => {
   it('hides the microphone when the gateway has speech-to-text disabled', () => {
     setup();
     expect(screen.queryByRole('button', { name: 'Start voice input' })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * A17 — what the terminal chose is shown, not offered. `docs/DESIGN.md`
+ * § "The composer": a session a terminal holds draws the model, permission mode
+ * and effort as chips that open nothing.
+ */
+describe('Composer settings a terminal holds', () => {
+  const renderComposer = (session: Partial<Session>, agent: AgentInfo | null = claudeAgent) =>
+    render(
+      <Composer
+        session={{ ...baseSession, ...session }}
+        agent={agent}
+        deviceOnline
+        queue={[]}
+        sttEnabled={false}
+        sttLanguages={['auto']}
+        onSend={vi.fn().mockResolvedValue(undefined)}
+        onSetOption={vi.fn()}
+        onRemoveQueued={vi.fn()}
+        onTakeover={vi.fn()}
+      />,
+    );
+
+  const chip = (name: string, value: string) =>
+    screen.queryByLabelText(strings.composer.setInTerminal(name, value));
+
+  it('shows the three values on a shared Claude session', () => {
+    renderComposer({ control: 'shared' });
+
+    expect(chip(strings.composer.model, 'Sonnet 4.5')).toBeInTheDocument();
+    expect(chip(strings.composer.permissionMode, 'Ask before edits')).toBeInTheDocument();
+    expect(chip(strings.composer.effort, 'High')).toBeInTheDocument();
+    // Chips, not pickers: nothing in the row opens a menu.
+    expect(screen.queryByRole('button', { name: strings.composer.model })).not.toBeInTheDocument();
+    expect(document.querySelectorAll('.composer-chip.readonly')).toHaveLength(3);
+  });
+
+  it('shows them on a terminal session too, whose composer is disabled', () => {
+    renderComposer({ control: 'terminal' });
+
+    expect(chip(strings.composer.model, 'Sonnet 4.5')).toBeInTheDocument();
+    expect(screen.getByLabelText(strings.composer.placeholder)).toBeDisabled();
+  });
+
+  it('draws nothing for a value the device has not seen', () => {
+    renderComposer({ control: 'shared', model: null, effort: null });
+
+    expect(document.querySelectorAll('.composer-chip.readonly')).toHaveLength(1);
+    expect(chip(strings.composer.permissionMode, 'Ask before edits')).toBeInTheDocument();
+  });
+
+  it('shows an id the agent does not advertise by its id', () => {
+    // `auto` is a real Claude permission mode the device does not list.
+    renderComposer({ control: 'shared', permission_mode: 'auto', model: 'claude-opus-5[1m]' });
+
+    expect(chip(strings.composer.permissionMode, 'auto')).toBeInTheDocument();
+    expect(chip(strings.composer.model, 'claude-opus-5[1m]')).toBeInTheDocument();
+  });
+
+  it('shows them with no agent at all, by their ids', () => {
+    renderComposer({ control: 'terminal' }, null);
+
+    expect(chip(strings.composer.model, 'claude-sonnet-4-5')).toBeInTheDocument();
+    expect(chip(strings.composer.effort, 'high')).toBeInTheDocument();
+  });
+
+  it('keeps the pickers on a session the device drives', () => {
+    renderComposer({ control: 'remote' });
+
+    expect(screen.getByRole('button', { name: strings.composer.model })).toBeInTheDocument();
+    expect(document.querySelectorAll('.composer-chip.readonly')).toHaveLength(0);
+  });
+
+  it('keeps the pickers on a shared agent that carries the settings', () => {
+    renderComposer({ control: 'shared', agent: 'codex', model: 'gpt-5.4' }, codexAgent);
+
+    expect(screen.getByRole('button', { name: strings.composer.model })).toBeInTheDocument();
+    expect(document.querySelectorAll('.composer-chip.readonly')).toHaveLength(0);
+  });
+
+  it('follows a meta event that changes the model', () => {
+    const session = { ...baseSession, control: 'shared' as const };
+    const { rerender } = renderComposer(session);
+    expect(chip(strings.composer.model, 'Sonnet 4.5')).toBeInTheDocument();
+
+    // What the socket does with a `/model` typed in the terminal.
+    const next = foldSession(session, [
+      { seq: 9, ts: 9, kind: 'meta', model: 'claude-haiku-4-5' } as SessionEvent,
+    ]);
+    rerender(
+      <Composer
+        session={next}
+        agent={claudeAgent}
+        deviceOnline
+        queue={[]}
+        sttEnabled={false}
+        sttLanguages={['auto']}
+        onSend={vi.fn().mockResolvedValue(undefined)}
+        onSetOption={vi.fn()}
+        onRemoveQueued={vi.fn()}
+        onTakeover={vi.fn()}
+      />,
+    );
+
+    expect(chip(strings.composer.model, 'Haiku 4.5')).toBeInTheDocument();
+    expect(chip(strings.composer.model, 'Sonnet 4.5')).toBeNull();
   });
 });

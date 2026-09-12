@@ -103,6 +103,40 @@ Both refusals above apply to `control: "terminal"`, a CLI the device has no way 
 no longer the only route to a live composer: a session started through the shim reports
 `control: "shared"` and accepts messages and approvals directly.
 
+### What the terminal chose, 2026-09-12 (A17)
+
+A terminal-held session cannot be retuned from an app, so the device reads the settings in force out
+of the transcript and publishes each change as `meta`. Three row shapes carry them, read from Claude
+Code 2.1.268 on this Mac:
+
+| Value | Row | Written |
+| --- | --- | --- |
+| `model` | `{"type":"attachment","attachment":{"type":"model","identity":{"modelId":"claude-fable-5-1",…}}}` | at session start, after a resume and on every `/model` — 7 rows in a 750-turn session |
+| `permission_mode` | `{"type":"permission-mode","permissionMode":"auto"}` | once per turn — 287 rows in the same session, values `auto` and `bypassPermissions` |
+| `effort` | a top-level `"effort"` on an `assistant` row | once per assistant message, values `high`, `xhigh`, `max` |
+
+`{"type":"mode","mode":"normal"}` is the input mode, not the permission mode, and `perTurnEffort` is
+not the effort; neither is read. `auto` is a permission mode the advertised list does not carry, and
+a model id keeps any suffix it has (`claude-opus-5[1m]`), so the apps must show an unknown id as it
+stands.
+
+`tests/test_mirroring.py` covers the three shapes translating to one `session_settings` emit each, a
+row of an unknown or malformed shape translating to nothing, `latest_settings` returning the last
+value of each over a file with several changes and honouring its byte cap, a mirrored session
+publishing one `meta` carrying all three at adoption, no `meta` when a turn repeats the same values,
+one `meta` carrying `model` alone after a `/model`, and a session the device drives being left
+untouched by the scan, the backfill and the tail.
+
+Live check, against the owner's own 32 MiB transcript
+(`~/.claude/projects/-Users-junbingao-github-remote-control/178ad3ef-….jsonl`, read only):
+
+```sh
+cd client && uv run python -c "
+from rc_client.agents.claude.transcripts import latest_settings
+print(latest_settings('$HOME/.claude/projects/-Users-junbingao-github-remote-control/178ad3ef-1cb2-414b-aa89-1e64bbfea82b.jsonl'))"
+# {'permission_mode': 'auto', 'effort': 'xhigh', 'model': 'claude-fable-5-1'} — 0.07 s
+```
+
 ## 6. Attached terminal sessions (A10)
 
 Run on 2026-09-10, after A10 landed. This is the only part of the document driven against a real

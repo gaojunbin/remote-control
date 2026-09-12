@@ -144,13 +144,27 @@ public final class ChatStore {
         return agent?.sharedAttachments == true
     }
 
+    /// Amendment A17: a live CLI chose this session's model, permission mode
+    /// and effort, and no request this app can send would change them — either
+    /// `control` is `terminal`, or the attachment does not carry settings.
+    public var isTunedByTerminal: Bool {
+        if isReadOnly { return true }
+        guard isAttached else { return false }
+        return agent?.sharedSettings != true
+    }
+
     /// Amendment A10: `session.set` is unsupported for model, permission mode
     /// and effort while a live CLI owns the session. Amendment A11: an
     /// attachment that can retune the live thread says so with
     /// `shared_settings`, and the pickers open again.
-    public var allowsSettingsChanges: Bool {
-        guard isAttached else { return true }
-        return agent?.sharedSettings == true
+    public var allowsSettingsChanges: Bool { !isTunedByTerminal }
+
+    /// Amendment A17: what the terminal chose, for the composer to show where
+    /// it cannot offer. Empty on a session this app drives, because there the
+    /// pickers carry the same three values and are live.
+    public var terminalSettings: [TerminalSetting] {
+        guard isTunedByTerminal else { return [] }
+        return TerminalSetting.all(for: session, agent: agent)
     }
 
     /// Amendment A10: `session.answer` is unsupported on an attached session.

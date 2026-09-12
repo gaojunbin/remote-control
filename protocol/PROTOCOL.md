@@ -612,6 +612,17 @@ was started with and then left by `/resume` or by quitting — is not kept: the 
 `session.removed` is therefore not only the answer to a `session.delete`; an app drops the row
 whenever the frame arrives.
 
+#### What a terminal-held session reports about itself
+
+For a Claude session it mirrors from a transcript, the device fills `model`, `permission_mode` and
+`effort` from the transcript's own records — the model row Claude Code writes at start and on every
+change, the permission-mode row it writes each turn, and the effort carried on each assistant
+message — and publishes every change as `meta` (5.11), so an app sees a `/model` typed in the
+terminal within a scan (amendment A17). The values are the agent's own ids and need not appear in
+`AgentInfo`; an app shows an unknown one by its id. Changing them is still `session.set`, which a
+`shared` session refuses with `unsupported` unless `shared_settings` is true (4.2) and a
+`terminal` session refuses outright.
+
 #### `origin` and `control` for Codex threads on the shared daemon
 
 Codex runs every bare `codex` TUI inside one local app-server daemon, and the device attaches to
@@ -2734,10 +2745,14 @@ by `block_id` like any other.
 - [ ] Moves a Claude attachment to the session id the CLI's `SessionStart` hook names, and removes
       a terminal-origin session with no events and no transcript with `session.removed` the moment
       its terminal leaves it (A16).
+- [ ] Reports `model`, `permission_mode` and `effort` for a mirrored Claude session from its
+      transcript and publishes each change as `meta` (A17).
 
 ### 9.3 App
 
 - [ ] Ignores unknown fields, unknown event kinds and unknown agent ids.
+- [ ] Shows `model`, `permission_mode` and `effort` on a terminal-held session as values it cannot
+      change, by label when `AgentInfo` lists the id and by the id otherwise (A17).
 - [ ] Applies events by `block_id` with the replacement and streaming rules of 5.1, orders blocks
       by `first_seq ?? seq`, and drops events whose `seq` is not newer than the last applied one.
 - [ ] Follows the reconnect order of 8.6 and treats 60 s of silence as a dead connection.
@@ -2932,3 +2947,11 @@ attachment to the id the hook names, and removes any terminal-origin session wit
 transcript the moment its terminal leaves it. The device sends `session.removed` on its own
 initiative for those; the gateway and the apps already treat the frame as authoritative. See 4.4
 and 7.
+
+**2026-09-12 A17 — a terminal-held session reports what the terminal chose.** A `shared` Claude
+session cannot take `session.set` (the channel has no such method), so the apps drew nothing where
+the model, permission-mode and effort pickers go, and a person on the phone could not tell which
+model the terminal was running. The device now reads the three values from the transcript Claude
+Code writes for itself and publishes changes as `meta`; apps show them as values that cannot be
+changed from there. Nothing new on the wire: `Session` already carried the fields and `meta` already
+carried the updates. See 4.4, 5.11, 9.2 and 9.3.

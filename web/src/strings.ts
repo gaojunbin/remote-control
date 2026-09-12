@@ -236,6 +236,8 @@ export const strings = {
     model: 'Model',
     permissionMode: 'Permission mode',
     effort: 'Effort',
+    /** A17: what a terminal chose, shown where its picker would be. */
+    setInTerminal: (name: string, value: string) => `${name} · ${value} · set in the terminal`,
     language: 'Voice language',
     sendFailed: 'Could not send the message.',
   },

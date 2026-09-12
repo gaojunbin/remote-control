@@ -221,6 +221,10 @@ export const sessions: Session[] = [
     state: 'idle',
     origin: 'terminal',
     control: 'shared',
+    // A17: read from the transcript, and `auto` is a real Claude permission
+    // mode the device does not advertise, so the app shows it by its id.
+    permission_mode: 'auto',
+    effort: 'xhigh',
     updated_at: minutes(2),
   }),
   session({

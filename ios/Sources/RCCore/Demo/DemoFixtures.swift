@@ -9,6 +9,8 @@ public enum DemoFixtures {
     public static let liveSessionID = "demo-session-auth"
     public static let approvalSessionID = "demo-session-vite"
     public static let doneSessionID = "demo-session-otlp"
+    /// A session a terminal owns outright, which the app can only read.
+    public static let terminalSessionID = "demo-session-push"
     /// Amendment A10: a terminal session this device is attached to.
     public static let sharedSessionID = "demo-session-shared"
     /// Amendment A10: a terminal session on a device whose shim is not
@@ -128,20 +130,26 @@ public enum DemoFixtures {
                     createdAt: now - 1_800_000, updatedAt: now - 60_000, lastSeq: 0),
             // Amendment A7: a terminal session reports `running` while its turn
             // runs and `readonly` only when idle. Both are locked to the app.
-            Session(sessionID: "demo-session-push", deviceID: macDeviceID, agent: "claude",
+            // Amendment A17: the device read all three settings out of the
+            // transcript, so the composer can show what this terminal chose.
+            Session(sessionID: terminalSessionID, deviceID: macDeviceID, agent: "claude",
                     title: "iOS push tokens", cwd: "/Users/me/dev/remote-control/ios",
                     git: GitInfo(branch: "main", dirty: false),
                     state: .running, origin: .terminal, control: .terminal,
-                    model: "claude-sonnet-4-5", permissionMode: "default",
+                    model: "claude-sonnet-4-5", permissionMode: "default", effort: "high",
                     createdAt: now - 10_800_000, updatedAt: now - 120_000, lastSeq: 0,
                     turn: TurnMarker(turnID: "demo-turn-terminal", startedAt: now - 120_000)),
             // Amendment A10: a CLI still owns this session, but the device is
             // attached to it, so the composer and approvals work as usual.
+            // Amendment A17: the channel carries no `session.set`, so the three
+            // settings are shown rather than offered — and `auto` is a
+            // permission mode the transcript has but the agent never lists, so
+            // the chip shows the raw id.
             Session(sessionID: sharedSessionID, deviceID: macDeviceID, agent: "claude",
                     title: "Tidy the release notes", cwd: "/Users/me/dev/remote-control/docs",
                     git: GitInfo(branch: "main", dirty: true),
                     state: .idle, origin: .terminal, control: .shared,
-                    model: "claude-sonnet-4-5", permissionMode: "default",
+                    model: "claude-sonnet-4-5", permissionMode: "auto", effort: "high",
                     createdAt: now - 5_400_000, updatedAt: now - 90_000, lastSeq: 0),
             // Amendment A11: a Codex thread the terminal started, shared through
             // the app-server daemon. The attachment carries an interrupt, the

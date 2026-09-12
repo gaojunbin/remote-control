@@ -344,6 +344,44 @@ Not verified in this pass: a real gateway and device; and the level was switched
 page rather than under an open chat in the browser, because the web app puts Settings on its own
 route — the live re-render of an open timeline rests on `tests/Timeline.test.tsx`.
 
+### Round 11 — what the terminal chose, shown where the pickers would be (A17)
+
+2026-09-12, in the installed Google Chrome driven by `playwright-core` against the bundled mock
+(`npm run dev:mock`) at 1280 px and 400 px. App-side only, nothing on the wire: the composer's
+bottom row draws the session's `model`, `permission_mode` and `effort` as static chips
+(`.composer-chip.readonly`, `role="note"`, no chevron, `cursor: default`) on a session a terminal
+holds — `control: "terminal"`, or `shared` on an agent without `shared_settings` — and keeps the
+pickers everywhere else. The accessible name and the tooltip carry the whole sentence, "Model ·
+Sonnet 4.5 · set in the terminal", because "auto" on its own says nothing about who set it. A value
+the agent's lists do not know is shown by its id, and a null draws no chip. This also fixed a
+`terminal` session, which until now drew live pickers whose `session.set` the device refuses
+outright.
+
+Read off the rendered page: the shared Claude session drew `Sonnet 4.5`, `auto` and `xhigh` (the
+last two are ids the device does not advertise, shown verbatim), the terminal session drew
+`Sonnet 4.5`, `Auto-accept edits` and `High`, and both kept only the voice-language picker beside
+them; the driven session and the shared Codex session, whose daemon carries the settings, drew four
+pickers and no chips. The chips are 26 px tall, the height of the trigger next to them, and the row
+still fits on one line at 400 px. `mock/fixtures.ts` now gives the shared Claude session
+`permission_mode: "auto"` and `effort: "xhigh"` so the unadvertised-id path is on screen.
+
+Eight tests in `tests/Composer.test.tsx`: the three chips on a shared session, the same on a
+terminal session whose field stays disabled, nothing for a null, the raw id for `auto` and for a
+model id carrying a `[1m]` suffix, ids only when the agent is unknown, the pickers kept on a driven
+session and on shared Codex, and a `meta` event folded through `foldSession` moving the chip from
+`Sonnet 4.5` to `Haiku 4.5`. Screenshots under `…/scratchpad/web-jump/`:
+`round11-{shared,terminal,driven,codex-shared}-{1280,400}.png` and `round11-zoom-chips-1280.png`.
+Run artefacts, not checked into the repository.
+
+```
+cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
+→ 25 files / 295 tests passed, tsc clean, eslint clean, built in 1.25 s
+```
+
+Not verified in this pass: a real device filling those fields from a real transcript — every value
+above came from the mock's fixtures, so the app was checked against the shape of `meta`, not against
+what Claude Code writes.
+
 ## 2. iOS, in the simulator, against the same gateway
 
 `ios/UITests/RealGatewaySmokeTests.swift` is new. It skips unless the runner is given a gateway, so
@@ -573,6 +611,40 @@ Not verified in this pass: nothing ran in a simulator or on a device, so the pic
 the redraw was not watched on screen, no row was swiped to see which action appears, and no VoiceOver
 pass was made over a Simple transcript. Every result above is the SwiftUI-free harness driving the
 same stores and pure rules the screens read.
+
+### What the terminal chose is shown, not offered (A17, round 11)
+
+A session a terminal holds now draws its model, permission mode and effort where the pickers would
+be, the rule in `docs/DESIGN.md` § "The composer". `ChatStore.isTunedByTerminal` is `control ==
+.terminal`, or `.shared` on an agent without `shared_settings`; `allowsSettingsChanges` is its
+negation, so the two are exclusive by construction, and `terminalSettings` builds the chips through
+`TerminalSetting.all(for:agent:)` — one per non-nil value, in picker order, labelled by the agent's
+own lists and by the raw id where they do not know it. The composer draws them as `StaticChip`
+(the `ChipPill` the menus wear, no chevron, no action) under `composer.readonly.model` /
+`permissionMode` / `effort`, with the accessible reading "Model, Sonnet 4.5, set in the terminal".
+The demo's terminal session carries all three, its attached Claude session carries `auto` as a
+permission mode Claude never advertises, and the demo gateway publishes a `meta` switching that
+session's model 700 ms after it is opened. `RCVerify` covers the rules and the `meta`, `RCUIVerify`
+watches the demo chip go from Sonnet 4.5 to Opus 4.1 with no reload and asserts nothing is drawn on
+a session the app drives or on the shared Codex thread, and nine tests in `TerminalSettingsTests` pin
+the labelling, the nil cases, the unknown agent and effort without the capability. One existing test
+had to change: `CodexDaemonTests` proved a refused `session.set` by the effort *not* becoming
+`high`, which the new fixture value made vacuous, so it now asserts the value is unchanged. Changed
+files: `ios/Sources/RCCore/State/{TerminalSettings,ChatStore}.swift`,
+`ios/Sources/RCCore/Demo/{DemoFixtures,DemoGateway}.swift`,
+`ios/Sources/RCUI/{Design/Controls,Screens/Composer}.swift`, `ios/Verification/StoreChecks.swift`,
+`ios/VerificationUI/main.swift`, `ios/UITests/RemoteControlUITests.swift` and two test files.
+
+```
+cd ios && export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+swift run RCVerify && swift run RCUIVerify && swift test
+→ RCVerify 962 checks, RCUIVerify 135 checks, 167 tests in 16 suites passed
+```
+
+Not verified in this pass: nothing ran in a simulator, so the chips were not seen beside the live
+pickers, the row was not scrolled at phone width, and no VoiceOver pass read one out. The two
+XCUITest assertions added for them (chips present on the attached session, absent on the shared
+Codex thread) were written but not run.
 
 ## 3. Attached terminal sessions (A10) in the apps
 

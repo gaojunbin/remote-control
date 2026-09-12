@@ -77,6 +77,21 @@ public struct PrimaryButtonStyle: ButtonStyle {
     }
 }
 
+/// The pill itself: the tint, the type ramp and the height every chip shares,
+/// whether it acts when tapped or only shows a value.
+public struct ChipPill: ViewModifier {
+    public init() {}
+
+    public func body(content: Content) -> some View {
+        content
+            .font(Theme.Text.meta)
+            .foregroundStyle(Theme.ink)
+            .padding(.horizontal, Theme.Space.small + 2)
+            .frame(minHeight: 32)
+            .background(Theme.quietFill, in: Capsule())
+    }
+}
+
 /// A quiet pill for secondary actions and chips: tinted, never outlined, so a
 /// screen carries one filled button and nothing else with an edge.
 public struct ChipButtonStyle: ButtonStyle {
@@ -84,15 +99,30 @@ public struct ChipButtonStyle: ButtonStyle {
 
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(Theme.Text.meta)
-            .foregroundStyle(Theme.ink)
-            .padding(.horizontal, Theme.Space.small + 2)
-            .frame(minHeight: 32)
-            .background(Theme.quietFill, in: Capsule())
+            .modifier(ChipPill())
             .opacity(configuration.isPressed ? 0.6 : 1)
             // The pill stays 32 pt tall; the tappable area is 44.
             .frame(minHeight: Theme.Touch.minimum)
             .contentShape(Rectangle())
+    }
+}
+
+/// Amendment A17: a chip that shows rather than offers. It is the same pill as
+/// the menus beside it, and deliberately not a button: there is no request
+/// that would change what it says, and a control that does nothing when tapped
+/// is worse than one that was never offered. The 44 pt row keeps it aligned
+/// with the chips that are tappable.
+public struct StaticChip: View {
+    let text: String
+
+    public init(_ text: String) {
+        self.text = text
+    }
+
+    public var body: some View {
+        Text(text)
+            .modifier(ChipPill())
+            .frame(minHeight: Theme.Touch.minimum)
     }
 }
 

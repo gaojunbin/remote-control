@@ -262,6 +262,24 @@ Two environment notes. A `claude` started from inside another Claude Code sessio
 the mirror can read. And a first run in a new directory shows a project-trust dialog that must be
 answered before anything is written.
 
+### What the terminal chose
+
+A session a terminal holds takes no settings from an app, so the device reports what the terminal
+chose instead and the apps draw the three values where their pickers would be (amendment A17). Every
+Claude session the device mirrors — `terminal` or `shared` — has its `model`, `permission_mode` and
+`effort` read out of the transcript: the model attachment Claude Code writes at start, after a resume
+and on every `/model`; the permission-mode row it writes once per turn; and the effort carried on
+each assistant message. A change is published as a `meta` event and a republished summary, so a
+`/model` typed in the terminal reaches the apps within one tail interval. The model is recorded only
+when it changes, which usually puts the value in force far behind the point a mirror starts reading,
+so the whole transcript is read once — off the event loop, capped at 64 MiB — when the session is
+adopted, and for every mirrored Claude session the daemon starts with. The ids are the agent's own
+and kept verbatim, suffix and all, whether or not they appear in the advertised lists: `auto` is a
+permission mode only the terminal sets, `claude-opus-5[1m]` a model no list carries, and an app shows
+either by its id. All three rows are internal to Claude Code, so one of an unknown shape is read as
+"no settings" rather than as an error, exactly as the title rows are. A session this device drives
+sets these itself and is never read this way.
+
 ## Attached terminal sessions
 
 A terminal session normally has to be *taken over* to be driven from a phone, which means killing
@@ -356,7 +374,7 @@ This table is the Claude channel. Codex on the shared daemon does more; see the 
 | Approve or deny a tool call | Yes, `allow` and `deny` only — the relay offers no session-scoped grant |
 | Answer a question | No, `unsupported`: answer it in the terminal |
 | Stop the turn | No, `unsupported`: a channel cannot interrupt. Codex does |
-| Change model, permission mode or effort | No, `unsupported`: change it in the terminal |
+| Change model, permission mode or effort | No, `unsupported`: change it in the terminal. The values are shown, read from the transcript |
 | Rename | Yes |
 | Take over | No, `conflict`: the session is already attached |
 | Attachments | No, `unsupported`: they cannot be delivered to a terminal session |

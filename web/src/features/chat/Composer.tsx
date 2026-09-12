@@ -86,7 +86,12 @@ export function Composer({
   // terminal unless the device reports that the attachment carries them. A
   // control the attachment cannot drive is hidden, never disabled with a
   // caption, so nothing in the composer explains an absence.
-  const showOptions = !shared || canSetShared(agent);
+  //
+  // A17: where the pickers cannot go — a terminal session, which refuses
+  // `session.set` outright, and a shared one whose agent does not carry the
+  // settings — the values the device read from the transcript are shown
+  // instead, so the person can at least see what the terminal chose.
+  const showOptions = !terminalControlled && (!shared || canSetShared(agent));
   const showAttach = !shared || canAttachShared(agent);
 
   /**
@@ -404,9 +409,10 @@ function ComposerBottomRow({
   agent: AgentInfo | null;
   session: Session;
   /**
-   * A10/A11: false when `session.set` for the model, permission mode and
-   * effort has to happen in the terminal, i.e. a shared session whose agent
-   * does not report `shared_settings`. Those pickers are then not rendered.
+   * A10/A11/A17: false when the model, permission mode and effort belong to a
+   * terminal — a `terminal` session, or a shared one whose agent does not
+   * report `shared_settings`. The pickers are then replaced by what the device
+   * read from the transcript, drawn as chips that open nothing.
    */
   showOptions: boolean;
   language: string;
@@ -423,6 +429,25 @@ function ComposerBottomRow({
 
   return (
     <div className="composer-bottom">
+      {showOptions ? null : (
+        <>
+          <TerminalSetting
+            name={strings.composer.model}
+            value={session.model}
+            options={agent?.models ?? []}
+          />
+          <TerminalSetting
+            name={strings.composer.permissionMode}
+            value={session.permission_mode}
+            options={agent?.permission_modes ?? []}
+          />
+          <TerminalSetting
+            name={strings.composer.effort}
+            value={session.effort}
+            options={agent?.efforts ?? []}
+          />
+        </>
+      )}
       {models.length > 0 ? (
         <Menu
           side="top"
@@ -464,5 +489,32 @@ function ComposerBottomRow({
         />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A17: one value a terminal chose, where its picker would be. It is the shape
+ * of the trigger beside it, opens nothing, and carries the whole sentence for
+ * assistive technology, because on its own "auto" says nothing about who set
+ * it. A value the device has not seen draws no chip at all.
+ */
+function TerminalSetting({
+  name,
+  value,
+  options,
+}: {
+  name: string;
+  value: string | null;
+  options: { id: string; label: string }[];
+}) {
+  if (!value) return null;
+  // The agent's own ids need not appear in its lists: `auto` is a real Claude
+  // permission mode that the device does not advertise, so it is shown as it is.
+  const shown = options.find((option) => option.id === value)?.label ?? value;
+  const sentence = strings.composer.setInTerminal(name, shown);
+  return (
+    <span className="composer-chip readonly" role="note" title={sentence} aria-label={sentence}>
+      {shown}
+    </span>
   );
 }

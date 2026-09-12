@@ -217,10 +217,9 @@ struct Composer: View {
     /// waiting behind the turn. They scroll sideways rather than wrap, so the
     /// row keeps its height however many of them there are.
     ///
-    /// Amendment A11: the session's own settings are shown only where they can
-    /// be changed from here. On a `shared` session whose device did not report
-    /// `shared_settings` they live in the terminal, so the chips are absent
-    /// rather than dimmed.
+    /// Amendment A17: the session's own settings are offered only where they
+    /// can be changed from here. On a session a terminal holds they are shown
+    /// instead, in the same three positions, as chips that open nothing.
     private var chips: some View {
         ScrollView(.horizontal) {
             HStack(spacing: Theme.Space.tight) {
@@ -233,6 +232,8 @@ struct Composer: View {
                         settingsChip(agent?.effortLabel(chat.session.effort) ?? "Effort",
                                      identifier: "composer.effort")
                     }
+                } else {
+                    ForEach(chat.terminalSettings) { setting in terminalChip(setting) }
                 }
 
                 Menu {
@@ -280,6 +281,18 @@ struct Composer: View {
         Button { showsSettings = true } label: { Text(label) }
             .buttonStyle(ChipButtonStyle())
             .accessibilityIdentifier(identifier)
+    }
+
+    /// Amendment A17: what the terminal chose, where its picker would have
+    /// been. It reads as "Model, Sonnet 4.5, set in the terminal" rather than
+    /// as a control, so nobody reaches for something that cannot move.
+    private func terminalChip(_ setting: TerminalSetting) -> some View {
+        StaticChip(setting.text)
+            .accessibilityElement()
+            .accessibilityLabel(setting.field.label)
+            .accessibilityValue(setting.text)
+            .accessibilityHint("Set in the terminal")
+            .accessibilityIdentifier("composer.readonly.\(setting.field.rawValue)")
     }
 
     private var attachmentStrip: some View {

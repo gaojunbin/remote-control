@@ -151,6 +151,13 @@ hidden by either level.
 
 ## The composer
 
+**What the terminal chose is shown, not offered.** On a session a terminal holds — `control:
+"terminal"`, or `shared` on an agent that does not report `shared_settings` — the model, permission
+mode and effort the device read from the agent's own transcript are drawn where the pickers would
+be, as plain chips that open nothing, named "set in the terminal" for assistive technology. A value
+the agent's lists do not know is shown by its raw id; nothing is drawn for a value the device has not
+seen. Sessions the device drives keep the pickers.
+
 The composer never guesses. It always sends `mode: "auto"` and lets the device decide what that
 means, then labels the button with the decision:
 
@@ -180,9 +187,11 @@ booleans on the agent. Nothing in either app asks which agent it is looking at.
 | `shared_attachments` | The attachment button, and pasted files | off | on |
 
 A control the attachment cannot drive is hidden, not disabled with a caption: a Claude channel
-session shows no attachment button and no model, permission or effort chips, and nothing explains
-their absence in the composer. A shared Codex session shows every control, all live. The rule keeps
-the composer to two rows (the field, then one row of controls) on the phone.
+session shows no attachment button, and nothing explains its absence in the composer. Its model,
+permission mode and effort are the one exception, shown rather than offered (A17, above): the
+terminal chose them, and the reader needs to know what it chose. A shared Codex session shows every
+control, all live. The rule keeps the composer to two rows (the field, then one row of controls) on
+the phone.
 
 Steering follows the ordinary rule rather than a shared-session rule. Codex advertises `steer`, so a
 message typed into a running shared Codex turn joins that turn: the status line reads "Codex is

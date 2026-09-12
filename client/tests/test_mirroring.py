@@ -18,7 +18,12 @@ from rc_client.agents.claude.holders import (
     _looks_like_claude,
     _session_from_argv,
 )
-from rc_client.agents.claude.transcripts import TranscriptInfo, TranscriptTailer
+from rc_client.agents.claude.transcripts import (
+    SESSION_SETTINGS,
+    TranscriptInfo,
+    TranscriptTailer,
+    latest_settings,
+)
 from rc_client.agents.codex import rollouts as codex_rollouts
 from rc_client.agents.codex.rollouts import RolloutTailer
 from rc_client.models import AgentInfo, Session
@@ -42,6 +47,19 @@ def user_row(text: str, uuid: str = "u1") -> dict[str, Any]:
 
 def assistant_row(content: list[dict[str, Any]], message_id: str = "msg_1") -> dict[str, Any]:
     return {"type": "assistant", "uuid": "a1", "message": {"id": message_id, "content": content}}
+
+
+def model_row(model_id: str) -> dict[str, Any]:
+    identity = {"modelId": model_id, "marketingName": "Fable 5.1"}
+    return {"type": "attachment", "attachment": {"type": "model", "identity": identity}}
+
+
+def permission_row(mode: str) -> dict[str, Any]:
+    return {"type": "permission-mode", "permissionMode": mode, "sessionId": "live"}
+
+
+def effort_row(effort: str, text: str = "ok") -> dict[str, Any]:
+    return dict(assistant_row([{"type": "text", "text": text}]), effort=effort)
 
 
 def test_tailer_reads_only_appended_bytes(tmp_path: Path) -> None:
@@ -138,6 +156,66 @@ def test_transcript_tool_use_keeps_running_until_the_final_text() -> None:
     )
     assert result[0].fields["status"] == "succeeded"
     assert result[0].fields["output"] == "a\nb"
+
+
+def test_transcript_rows_report_what_the_terminal_chose() -> None:
+    tailer = TranscriptTailer(path="/dev/null", cwd="/repo")
+    model = tailer.translate(model_row("claude-opus-5[1m]"))
+    assert [(emit.kind, emit.fields) for emit in model] == [
+        (SESSION_SETTINGS, {"model": "claude-opus-5[1m]"})
+    ]
+    mode = tailer.translate(permission_row("auto"))
+    assert [(emit.kind, emit.fields) for emit in mode] == [
+        (SESSION_SETTINGS, {"permission_mode": "auto"})
+    ]
+    # The effort rides on an assistant message, which still becomes its own text.
+    effort = tailer.translate(effort_row("max", text="all done"))
+    assert [emit.kind for emit in effort] == [SESSION_SETTINGS, "assistant_text"]
+    assert effort[0].fields == {"effort": "max"}
+
+
+def test_rows_of_an_unknown_settings_shape_report_nothing() -> None:
+    tailer = TranscriptTailer(path="/dev/null", cwd="/repo")
+    # The input mode, which is not the permission mode.
+    assert tailer.translate({"type": "mode", "mode": "normal"}) == []
+    assert tailer.translate({"type": "attachment", "attachment": {"type": "model"}}) == []
+    assert tailer.translate(model_row("")) == []
+    bad_identity = {"type": "attachment", "attachment": {"type": "model", "identity": 7}}
+    assert tailer.translate(bad_identity) == []
+    assert tailer.translate({"type": "permission-mode", "permissionMode": 7}) == []
+    assert tailer.translate(dict(assistant_row([]), effort=None)) == []
+    assert tailer.translate(dict(assistant_row([]), perTurnEffort="high")) == []
+
+
+def test_latest_settings_returns_the_last_value_of_each(tmp_path: Path) -> None:
+    path = tmp_path / "t.jsonl"
+    write_rows(
+        path,
+        [
+            model_row("claude-sonnet-4-5"),
+            permission_row("default"),
+            effort_row("high"),
+            user_row("carry on", uuid="u2"),
+            permission_row("bypassPermissions"),
+            model_row("claude-fable-5-1"),
+            effort_row("max"),
+        ],
+    )
+    assert latest_settings(path) == {
+        "model": "claude-fable-5-1",
+        "permission_mode": "bypassPermissions",
+        "effort": "max",
+    }
+    assert latest_settings(tmp_path / "absent.jsonl") == {}
+
+
+def test_latest_settings_stops_at_its_cap(tmp_path: Path) -> None:
+    path = tmp_path / "t.jsonl"
+    write_rows(path, [model_row("claude-sonnet-4-5")])
+    cap = path.stat().st_size
+    write_rows(path, [model_row("claude-fable-5-1")])
+    assert latest_settings(path, limit=cap) == {"model": "claude-sonnet-4-5"}
+    assert latest_settings(path) == {"model": "claude-fable-5-1"}
 
 
 def test_rollout_tailer_tracks_turn_boundaries(tmp_path: Path) -> None:
@@ -347,6 +425,140 @@ async def test_a_terminal_session_leaves_the_older_ones_in_its_directory_alone(
     assert hub.entry("old-1").session.archived is True
     assert hub.entry("live").session.control == "shared"
 
+    await hub.close()
+    registry.close()
+
+
+def meta_events(frames: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        frame["event"]
+        for frame in frames
+        if frame.get("type") == "session.event" and frame["event"].get("kind") == "meta"
+    ]
+
+
+def no_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_scan() -> HolderScan:
+        return HolderScan(holders=[], complete=True)
+
+    monkeypatch.setattr(mirror_module, "scan_holders", fake_scan)
+
+
+async def test_a_mirrored_session_reports_the_settings_the_terminal_chose(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Amendment A17: the values come from the transcript, changes as `meta`."""
+    cwd = str(tmp_path)
+    root = tmp_path / "projects"
+    root.mkdir()
+    registry = Registry(tmp_path / "state.sqlite3")
+    frames: list[dict[str, Any]] = []
+
+    async def publish(frame: dict[str, Any]) -> None:
+        frames.append(frame)
+
+    hub = SessionHub(registry, publish, "dev-1", lambda: [claude_agent()])
+    hub.load()
+    path = root / "live.jsonl"
+    write_rows(path, [model_row("claude-fable-5-1"), permission_row("auto"), effort_row("high")])
+    stat = path.stat()
+    found = [
+        TranscriptInfo(
+            session_id="live", path=str(path), cwd=cwd, size=stat.st_size, mtime=stat.st_mtime
+        )
+    ]
+    monkeypatch.setattr(claude_transcripts, "discover", lambda *args: found)
+    monkeypatch.setattr(codex_rollouts, "discover", lambda *args: [])
+    no_terminal(monkeypatch)
+
+    mirror = MirrorService(hub)
+    # The mirror starts at the end of the file, so only the backfill can know
+    # what was chosen before it was adopted.
+    registry.set_kv(mirror._offset_key("live"), str(stat.st_size))
+    await mirror.scan_once()
+    assert [dict(event, seq=0, ts=0) for event in meta_events(frames)] == [
+        {
+            "seq": 0,
+            "ts": 0,
+            "kind": "meta",
+            "model": "claude-fable-5-1",
+            "permission_mode": "auto",
+            "effort": "high",
+        }
+    ]
+    session = hub.entry("live").session
+    assert (session.model, session.permission_mode, session.effort) == (
+        "claude-fable-5-1",
+        "auto",
+        "high",
+    )
+
+    # A turn that repeats the same permission mode changes nothing.
+    frames.clear()
+    write_rows(path, [permission_row("auto"), effort_row("high", text="still here")])
+    await mirror.tail_once()
+    assert meta_events(frames) == []
+
+    # `/model` in the terminal: one `meta`, carrying that field alone.
+    frames.clear()
+    write_rows(path, [model_row("claude-opus-5[1m]")])
+    await mirror.tail_once()
+    assert [event["kind"] for event in meta_events(frames)] == ["meta"]
+    assert meta_events(frames)[0].get("model") == "claude-opus-5[1m]"
+    assert "permission_mode" not in meta_events(frames)[0]
+    assert hub.entry("live").session.model == "claude-opus-5[1m]"
+
+    await hub.close()
+    registry.close()
+
+
+async def test_a_session_this_device_drives_keeps_its_own_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The device set them over the SDK; its transcript must not re-report them."""
+    cwd = str(tmp_path)
+    root = tmp_path / "projects"
+    root.mkdir()
+    registry = Registry(tmp_path / "state.sqlite3")
+    frames: list[dict[str, Any]] = []
+
+    async def publish(frame: dict[str, Any]) -> None:
+        frames.append(frame)
+
+    hub = SessionHub(registry, publish, "dev-1", lambda: [claude_agent()])
+    session = Session(
+        session_id="driven",
+        device_id="dev-1",
+        agent="claude",
+        cwd=cwd,
+        state="idle",
+        origin="remote",
+        control="remote",
+        model="opus",
+    )
+    entry = hub.register_mirrored(session)
+    entry.runner = object()  # type: ignore[assignment]
+    path = root / "driven.jsonl"
+    write_rows(path, [model_row("claude-fable-5-1"), permission_row("auto")])
+    stat = path.stat()
+    found = [
+        TranscriptInfo(
+            session_id="driven", path=str(path), cwd=cwd, size=stat.st_size, mtime=stat.st_mtime
+        )
+    ]
+    monkeypatch.setattr(claude_transcripts, "discover", lambda *args: found)
+    monkeypatch.setattr(codex_rollouts, "discover", lambda *args: [])
+    no_terminal(monkeypatch)
+
+    mirror = MirrorService(hub)
+    await mirror._backfill_known()
+    await mirror.scan_once()
+    await mirror.tail_once()
+    assert meta_events(frames) == []
+    assert hub.entry("driven").session.model == "opus"
+    assert hub.entry("driven").session.permission_mode is None
+
+    entry.runner = None
     await hub.close()
     registry.close()
 

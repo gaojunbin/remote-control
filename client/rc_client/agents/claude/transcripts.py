@@ -46,6 +46,20 @@ TITLE = "session_title"
 _TITLE_ROWS = {AI_TITLE_ROW: ("aiTitle", False), CUSTOM_TITLE_ROW: ("customTitle", True)}
 _SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,80}")
 
+# Amendment A17: a session the terminal holds takes no settings from an app, so
+# the device reads what the terminal chose out of the transcript and publishes
+# it as `meta`. Claude Code writes the model as an attachment at session start,
+# after a resume and on every `/model`; the permission mode as a row of its own
+# once per turn; and the effort on each assistant message. All three are
+# internal to Claude Code, so an unknown or malformed row reads as "no
+# settings" rather than as an error, exactly as the title rows do.
+SESSION_SETTINGS = "session_settings"
+PERMISSION_MODE_ROW = "permission-mode"
+MODEL_ATTACHMENT = "model"
+# One bounded pass over a transcript is enough to find the values in force; the
+# cap keeps a runaway file from holding the thread it runs on.
+SETTINGS_SCAN_BYTES = 64 * 1024 * 1024
+
 
 def channel_message_id(text: str, server: str = CHANNEL_SERVER) -> str | None:
     """The `message_id` of a channel tag this device wrote, if that is what it is."""
@@ -189,6 +203,65 @@ class TitleTail:
         return [title for title in found if title is not None]
 
 
+def _setting(name: str, value: Any) -> dict[str, str]:
+    text = value.strip() if isinstance(value, str) else ""
+    return {name: text} if text else {}
+
+
+def _model_setting(row: dict[str, Any]) -> dict[str, str]:
+    attachment = row.get("attachment")
+    if not isinstance(attachment, dict) or attachment.get("type") != MODEL_ATTACHMENT:
+        return {}
+    identity = attachment.get("identity")
+    if not isinstance(identity, dict):
+        return {}
+    # The id is kept verbatim, suffix and all: `claude-opus-5[1m]` is a model an
+    # app must be able to show even though no agent list carries it.
+    return _setting("model", identity.get("modelId"))
+
+
+def read_settings(row: dict[str, Any]) -> dict[str, str]:
+    """The session settings a transcript row carries, empty when it carries none."""
+    row_type = row.get("type")
+    if row_type == "attachment":
+        return _model_setting(row)
+    if row_type == PERMISSION_MODE_ROW:
+        return _setting("permission_mode", row.get("permissionMode"))
+    if row_type == "assistant":
+        # `perTurnEffort` is a different field on other rows and is not this one.
+        return _setting("effort", row.get("effort"))
+    return {}
+
+
+def latest_settings(path: str | Path, limit: int = SETTINGS_SCAN_BYTES) -> dict[str, str]:
+    """The settings in force at the end of a transcript, in one streaming pass.
+
+    A mirror starts reading at a stored offset or near the end of the file, and
+    the model is recorded only when it changes, so the value in force usually
+    lies far behind that point. Reading the whole file once, when the session is
+    adopted, is what lets an app show the right values from the first frame.
+    """
+    found: dict[str, str] = {}
+    read = 0
+    try:
+        with open(path, "rb") as handle:
+            for line in handle:
+                read += len(line)
+                if read > limit:
+                    break
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(row, dict):
+                    found.update(read_settings(row))
+    except OSError:
+        return found
+    return found
+
+
 def _text_of(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -244,6 +317,11 @@ class TranscriptTailer:
         return self.tail.read_new()
 
     def translate(self, row: dict[str, Any]) -> list[Emit]:
+        settings = read_settings(row)
+        emits: list[Emit] = [Emit(SESSION_SETTINGS, dict(settings))] if settings else []
+        return emits + self._content(row)
+
+    def _content(self, row: dict[str, Any]) -> list[Emit]:
         row_type = row.get("type")
         if row_type in _TITLE_ROWS:
             title = read_title(row)
