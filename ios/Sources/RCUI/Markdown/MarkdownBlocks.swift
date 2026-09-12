@@ -32,7 +32,7 @@ struct MarkdownBlockView: View {
                                 .foregroundStyle(checked ? Theme.accent : Color.secondary)
                                 .accessibilityLabel(checked ? "Completed" : "Not completed")
                         } else {
-                            Text(ordered ? "\(item.number ?? 1)." : "•")
+                            Text(verbatim: ordered ? "\(item.number ?? 1)." : "•")
                                 .monospacedDigit().foregroundStyle(.secondary)
                                 .frame(minWidth: ordered ? 22 : 10, alignment: .trailing).accessibilityHidden(true)
                         }
@@ -117,17 +117,20 @@ struct MarkdownCodeCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 3) {
-                Text(kind == .diagram ? "Diagram" : kind == .math ? "Formula" : language.isEmpty ? "Code" : language)
+                Text(kind == .diagram ? L10n.string("Diagram")
+                     : kind == .math ? L10n.string("Formula")
+                     : language.isEmpty ? L10n.string("Code") : language)
                     .font(.caption.weight(.medium)).foregroundStyle(.secondary)
                 if !closed { Text("Still writing").font(.caption2).foregroundStyle(.secondary) }
                 Spacer(minLength: 0)
                 if kind != nil && closed {
                     Button { sourceVisible.toggle() } label: { Image(systemName: sourceVisible ? "chart.xyaxis.line" : "chevron.left.forwardslash.chevron.right").frame(width: 40, height: 44) }
-                        .accessibilityLabel(sourceVisible ? "Show the rendered version" : "Show the source")
+                        .accessibilityLabel(L10n.string(sourceVisible ? "Show the rendered version"
+                                                                      : "Show the source"))
                     Button { expanded = true } label: { Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 40, height: 44) }.accessibilityLabel("Open full screen")
                 }
                 Button { copy() } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc").frame(width: 40, height: 44) }
-                    .accessibilityLabel(copied ? "Copied" : "Copy the whole block")
+                    .accessibilityLabel(L10n.string(copied ? "Copied" : "Copy the whole block"))
                 ShareLink(item: source) { Image(systemName: "square.and.arrow.up").frame(width: 40, height: 44) }.accessibilityLabel("Share this block")
             }.buttonStyle(.plain).foregroundStyle(Theme.accent)
             if rendered, let kind { MarkdownVisualView(kind: kind, source: source) }
@@ -140,7 +143,7 @@ struct MarkdownCodeCard: View {
                         if let kind { MarkdownVisualView(kind: kind, source: source, maximumHeight: 1600) }
                         codeText
                     }.padding(20) }
-                    .navigationTitle(kind == .diagram ? "Diagram" : "Formula")
+                    .navigationTitle(L10n.string(kind == .diagram ? "Diagram" : "Formula"))
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { expanded = false } } }
                 }.sheetSize()
             }

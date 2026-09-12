@@ -20,9 +20,11 @@ struct ChatView: View {
             if let chat = model.chat, chat.key == sessionKey {
                 content(chat)
             } else if session == nil {
-                EmptyStateView(symbol: "bubble.left.and.exclamationmark.bubble.right",
-                               title: "This session is gone",
-                               message: "The gateway no longer lists it. It may have been deleted on the device.")
+                EmptyStateView(
+                    symbol: "bubble.left.and.exclamationmark.bubble.right",
+                    title: L10n.string("This session is gone"),
+                    message: L10n.string(
+                        "The gateway no longer lists it. It may have been deleted on the device."))
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -47,7 +49,7 @@ struct ChatView: View {
 
     private var title: String {
         let name = model.chat?.session.title ?? session?.title ?? ""
-        return name.isEmpty ? "Session" : name
+        return name.isEmpty ? L10n.string("Session") : name
     }
 
     private func content(_ chat: ChatStore) -> some View {
@@ -56,9 +58,9 @@ struct ChatView: View {
                         elapsed: elapsed, todos: chat.timeline.todos,
                         drawsTodos: chat.showsTodos, showsTodos: $showsTodos)
             if let pending = chat.unconfirmedSend {
-                NoticeBanner(text: "Delivery unconfirmed. Nothing was resent automatically.",
+                NoticeBanner(text: L10n.string("Delivery unconfirmed. Nothing was resent automatically."),
                              tint: Theme.attention,
-                             actionTitle: "Retry",
+                             actionTitle: L10n.string("Retry"),
                              action: { Task { await chat.retry(pending) } },
                              dismiss: { chat.dismiss(pending) })
             }
@@ -149,7 +151,7 @@ private struct SubtitleBar: View {
                         Text(metrics(usage))
                             .font(Theme.Text.caption)
                             .foregroundStyle(Theme.inkSecondary)
-                            .accessibilityLabel("\(usage.totalTokens) tokens used")
+                            .accessibilityLabel(L10n.string("%lld tokens used", usage.totalTokens))
                             .accessibilityIdentifier("chat.usage")
                     }
                     Spacer(minLength: 0)

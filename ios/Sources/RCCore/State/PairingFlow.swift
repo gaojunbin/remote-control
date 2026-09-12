@@ -41,10 +41,13 @@ public final class PairingFlow {
 
     public var steps: [Step] {
         [
-            Step(id: .waiting, title: "Gateway ready", done: true),
-            Step(id: .enrolled, title: "Device handshake", done: reached.order >= PairingStep.enrolled.order),
-            Step(id: .online, title: "Device online", done: reached.order >= PairingStep.online.order),
-            Step(id: .agents, title: "Detect installed agents", done: reached.order >= PairingStep.agents.order)
+            Step(id: .waiting, title: L10n.string("Gateway ready"), done: true),
+            Step(id: .enrolled, title: L10n.string("Device handshake"),
+                 done: reached.order >= PairingStep.enrolled.order),
+            Step(id: .online, title: L10n.string("Device online"),
+                 done: reached.order >= PairingStep.online.order),
+            Step(id: .agents, title: L10n.string("Detect installed agents"),
+                 done: reached.order >= PairingStep.agents.order)
         ]
     }
 

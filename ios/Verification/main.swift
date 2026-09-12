@@ -11,6 +11,7 @@ let results = [
     await STTChecks.run(),
     await PersistenceChecks.run(),
     MarkdownChecks.run(),
+    LocalizationChecks.run(),
     await StoreChecks.run()
 ]
 

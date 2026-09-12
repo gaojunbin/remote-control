@@ -110,6 +110,9 @@ public struct Session: Codable, Sendable, Hashable, Identifiable {
     public var model: String?
     public var permissionMode: String?
     public var effort: String?
+    /// Amendment A21: the tier from `AgentInfo.speeds` this session runs at.
+    /// Nil is the agent's standard speed.
+    public var speed: String?
     public var createdAt: Int64
     public var updatedAt: Int64
     public var lastSeq: Int
@@ -141,7 +144,8 @@ public struct Session: Codable, Sendable, Hashable, Identifiable {
                 git: GitInfo? = nil, state: SessionState = .idle, stateDetail: String? = nil,
                 origin: EventSource = .remote, control: SessionControl = .none,
                 model: String? = nil, permissionMode: String? = nil, effort: String? = nil,
-                createdAt: Int64 = 0, updatedAt: Int64 = 0, lastSeq: Int = 0, archived: Bool = false,
+                speed: String? = nil, createdAt: Int64 = 0, updatedAt: Int64 = 0,
+                lastSeq: Int = 0, archived: Bool = false,
                 turn: TurnMarker? = nil, todos: TodoCounts? = nil, usage: SessionUsage? = nil,
                 queued: Int = 0) {
         self.sessionID = sessionID
@@ -157,6 +161,7 @@ public struct Session: Codable, Sendable, Hashable, Identifiable {
         self.model = model
         self.permissionMode = permissionMode
         self.effort = effort
+        self.speed = speed
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.lastSeq = lastSeq
@@ -168,7 +173,7 @@ public struct Session: Codable, Sendable, Hashable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case agent, title, cwd, git, state, origin, control, model, effort, archived, turn, todos, usage, queued
+        case agent, title, cwd, git, state, origin, control, model, effort, speed, archived, turn, todos, usage, queued
         case sessionID = "session_id"
         case deviceID = "device_id"
         case stateDetail = "state_detail"
@@ -193,6 +198,7 @@ public struct Session: Codable, Sendable, Hashable, Identifiable {
         model = try values.decodeIfPresent(String.self, forKey: .model)
         permissionMode = try values.decodeIfPresent(String.self, forKey: .permissionMode)
         effort = try values.decodeIfPresent(String.self, forKey: .effort)
+        speed = try values.decodeIfPresent(String.self, forKey: .speed)
         createdAt = try values.decodeIfPresent(Int64.self, forKey: .createdAt) ?? 0
         updatedAt = try values.decodeIfPresent(Int64.self, forKey: .updatedAt) ?? 0
         lastSeq = try values.decodeIfPresent(Int.self, forKey: .lastSeq) ?? 0

@@ -76,6 +76,7 @@ public enum DemoFixtures {
                       AgentOption(id: "medium", label: "Medium"),
                       AgentOption(id: "high", label: "High")],
             defaultEffort: "medium",
+            speeds: [AgentOption(id: "priority", label: "Fast")],
             capabilities: [.worktree, .interrupt, .queue, .steer, .attachments, .effort, .history],
             attach: .daemon, attachReady: true, sharedInterrupt: true,
             sharedSettings: true, sharedAttachments: true)
@@ -88,7 +89,7 @@ public enum DemoFixtures {
             agent: "codex", available: true, version: codex.version, path: codex.path,
             models: codex.models, defaultModel: codex.defaultModel,
             permissionModes: codex.permissionModes, defaultPermissionMode: codex.defaultPermissionMode,
-            efforts: codex.efforts, defaultEffort: codex.defaultEffort,
+            efforts: codex.efforts, defaultEffort: codex.defaultEffort, speeds: codex.speeds,
             capabilities: codex.capabilities,
             attach: .daemon, attachReady: false)
     }

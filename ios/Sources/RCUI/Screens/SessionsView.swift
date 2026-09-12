@@ -88,7 +88,7 @@ struct SessionsView: View {
         let options = model.sessions.agentOptions(model.connection.sessions)
         if !options.isEmpty {
             Menu {
-                filterChoice(nil, label: "All")
+                filterChoice(nil, label: L10n.string("All"))
                 ForEach(options, id: \.self) { agent in
                     filterChoice(agent, label: AgentLabel.name(agent))
                 }
@@ -103,7 +103,7 @@ struct SessionsView: View {
                 .frame(minHeight: Theme.Touch.minimum)
             }
             .accessibilityLabel("Filter by agent")
-            .accessibilityValue(model.sessions.agentFilter.map(AgentLabel.name) ?? "All")
+            .accessibilityValue(model.sessions.agentFilter.map(AgentLabel.name) ?? L10n.string("All"))
             .accessibilityIdentifier("sessions.agentFilter")
         }
     }
@@ -170,7 +170,8 @@ struct SessionsView: View {
         .buttonStyle(.plain)
         .textCase(nil)
         .accessibilityIdentifier("sessions.device.\(group.id)")
-        .accessibilityLabel("\(group.name), \(group.online ? "online" : "offline")")
+        .accessibilityLabel(L10n.string("%@, %@", group.name,
+                                        L10n.string(group.online ? "online" : "offline")))
         .accessibilityHint(group.collapsed ? "Expands this device" : "Collapses this device")
     }
 
@@ -182,7 +183,7 @@ struct SessionsView: View {
             model.sessions.toggleArchive(group.id)
         } label: {
             HStack(spacing: Theme.Space.tight) {
-                Text("Archive · \(group.archive.count)")
+                Text(L10n.string("Archive · %lld", group.archive.count))
                     .font(Theme.Text.meta)
                     .foregroundStyle(Theme.inkSecondary)
                 Spacer(minLength: Theme.Space.tight)
@@ -196,7 +197,8 @@ struct SessionsView: View {
         .listRowInsets(EdgeInsets(top: 9, leading: Theme.Space.medium,
                                   bottom: 9, trailing: Theme.Space.medium))
         .accessibilityIdentifier("sessions.archive.\(group.id)")
-        .accessibilityLabel("Archive, \(group.archive.count) sessions on \(group.name)")
+        .accessibilityLabel(L10n.string("Archive, %lld sessions on %@",
+                                        group.archive.count, group.name))
         .accessibilityHint(group.archiveExpanded ? "Collapses the archive" : "Expands the archive")
     }
 
@@ -208,19 +210,19 @@ struct SessionsView: View {
     }
 
     private var emptyTitle: String {
-        model.sessions.searchText.trimmed.isEmpty ? "No sessions yet" : "Nothing matches"
+        L10n.string(model.sessions.searchText.trimmed.isEmpty ? "No sessions yet" : "Nothing matches")
     }
 
     private var emptyMessage: String {
         if !model.sessions.searchText.trimmed.isEmpty {
-            return "No session title, folder or agent matches that."
+            return L10n.string("No session title, folder or agent matches that.")
         }
         if let agent = model.sessions.agentFilter {
-            return "No session on any device is running \(AgentLabel.name(agent))."
+            return L10n.string("No session on any device is running %@.", AgentLabel.name(agent))
         }
-        return model.connection.devices.isEmpty
-            ? "Add a device first, then start a session on it."
-            : "Start a session to drive an agent from here."
+        return L10n.string(model.connection.devices.isEmpty
+                           ? "Add a device first, then start a session on it."
+                           : "Start a session to drive an agent from here.")
     }
 }
 
@@ -236,7 +238,7 @@ struct SessionRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.small) {
-                Text(session.title.isEmpty ? "Untitled session" : session.title)
+                Text(session.title.isEmpty ? L10n.string("Untitled session") : session.title)
                     .font(Theme.Text.title)
                     .foregroundStyle(Theme.ink)
                     .lineLimit(1)

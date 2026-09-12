@@ -31,7 +31,7 @@ public protocol NotificationPlatform: AnyObject {
 @Observable
 public final class PushController {
     public private(set) var authorization: PushAuthorization = .notDetermined
-    public private(set) var statusText = "Off"
+    public private(set) var statusText = L10n.string("Off")
     public private(set) var errorMessage: String?
 
     @ObservationIgnored private let platform: any NotificationPlatform
@@ -86,7 +86,7 @@ public final class PushController {
             self.registeredToken = nil
             try? await api.unregisterPush(token: token)
             self.platform.unregister()
-            self.statusText = "Off"
+            self.statusText = L10n.string("Off")
         }
     }
 
@@ -97,7 +97,7 @@ public final class PushController {
     private func apply() async {
         guard platform.supported else {
             authorization = .unsupported
-            statusText = "Not available on this device"
+            statusText = L10n.string("Not available on this device")
             return
         }
         authorization = await platform.authorization()
@@ -107,26 +107,26 @@ public final class PushController {
                 try? await api.unregisterPush(token: token)
             }
             platform.unregister()
-            statusText = "Off"
+            statusText = L10n.string("Off")
             return
         }
         switch authorization {
         case .denied:
-            statusText = "Blocked in iOS Settings"
+            statusText = L10n.string("Blocked in iOS Settings")
             return
         case .notDetermined:
-            statusText = "Waiting for permission"
+            statusText = L10n.string("Waiting for permission")
             return
         default:
             break
         }
         platform.register()
         guard let token = platform.token else {
-            statusText = "Registering with Apple"
+            statusText = L10n.string("Registering with Apple")
             return
         }
         guard let api, let environment = platform.environment else {
-            statusText = "Waiting for the gateway"
+            statusText = L10n.string("Waiting for the gateway")
             return
         }
         guard token != registeredToken else { return }
@@ -135,9 +135,9 @@ public final class PushController {
                                                         bundleID: bundleID))
             registeredToken = token
             errorMessage = nil
-            statusText = "On"
+            statusText = L10n.string("On")
         } catch {
-            statusText = "The gateway refused the registration"
+            statusText = L10n.string("The gateway refused the registration")
             errorMessage = (error as? TransportError)?.errorDescription ?? error.localizedDescription
         }
     }

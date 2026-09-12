@@ -159,9 +159,21 @@ public final class ChatStore {
     /// `shared_settings`, and the pickers open again.
     public var allowsSettingsChanges: Bool { !isTunedByTerminal }
 
+    /// Amendment A21: where one tap on the speed control moves this session —
+    /// standard, then each tier the agent lists, then standard again. Nil when
+    /// the agent lists no tier, which is when the control is not drawn at all.
+    public var nextSpeed: SpeedChange? {
+        let tiers = agent?.speeds.map(\.id) ?? []
+        guard !tiers.isEmpty else { return nil }
+        guard let current = session.speed, let index = tiers.firstIndex(of: current) else {
+            return SpeedChange(id: tiers.first)
+        }
+        return index + 1 < tiers.count ? .tier(tiers[index + 1]) : .standard
+    }
+
     /// Amendment A17: what the terminal chose, for the composer to show where
     /// it cannot offer. Empty on a session this app drives, because there the
-    /// pickers carry the same three values and are live.
+    /// controls carry the same values and are live.
     public var terminalSettings: [TerminalSetting] {
         guard isTunedByTerminal else { return [] }
         return TerminalSetting.all(for: session, agent: agent)
@@ -237,10 +249,10 @@ public final class ChatStore {
     /// Why the composer cannot send right now, in the words the user sees.
     /// Reconnecting is not among them: that request waits for the socket.
     public var sendBlockReason: String? {
-        if isReadOnly { return "Controlled by the terminal" }
-        if !deviceOnline { return "That device is offline" }
-        if !canReachGateway { return "Offline · your draft is saved" }
-        if unconfirmedSend != nil { return "Delivery unconfirmed · retry or dismiss first" }
+        if isReadOnly { return L10n.string("Controlled by the terminal") }
+        if !deviceOnline { return L10n.string("That device is offline") }
+        if !canReachGateway { return L10n.string("Offline · your draft is saved") }
+        if unconfirmedSend != nil { return L10n.string("Delivery unconfirmed · retry or dismiss first") }
         return nil
     }
     public var unconfirmedSend: PendingSend? { pendingSends.first(where: \.isUnconfirmed) }
@@ -255,21 +267,23 @@ public final class ChatStore {
     /// typing here needs a takeover, what will become of a message typed into a
     /// running turn, and what the agent said when it failed.
     public var statusLine: String? {
-        if !deviceOnline { return "Device offline" }
+        if !deviceOnline { return L10n.string("Device offline") }
         if isReadOnly {
-            return canTakeover ? "Controlled by the terminal · Take over to send" : "Controlled by the terminal"
+            return L10n.string(canTakeover ? "Controlled by the terminal · Take over to send"
+                                           : "Controlled by the terminal")
         }
         // Amendment A20: a question outranks the turn it interrupted. Nothing
         // is queued behind it, so what a message would become is not the news.
-        if pendingQuestion != nil { return "Waiting for your answer" }
+        if pendingQuestion != nil { return L10n.string("Waiting for your answer") }
         switch session.state {
         case .running:
             if session.queued > 0 {
-                return "Working · \(session.queued) message\(session.queued == 1 ? "" : "s") queued"
+                return L10n.string(session.queued == 1 ? "Working · %lld message queued"
+                                                       : "Working · %lld messages queued",
+                                   session.queued)
             }
-            return steersRunningTurn
-                ? "Working · your message will steer the turn"
-                : "Working · your message will be queued"
+            return L10n.string(steersRunningTurn ? "Working · your message will steer the turn"
+                                                 : "Working · your message will be queued")
         // The word "error" is in the header; what the agent said about it is not.
         case .error: return session.stateDetail
         default: return nil
@@ -411,6 +425,7 @@ public final class ChatStore {
         if let model = payload.model { session.model = model }
         if let mode = payload.permissionMode { session.permissionMode = mode }
         if let effort = payload.effort { session.effort = effort }
+        if let speed = payload.speed { session.speed = speed.id }
         if let cwd = payload.cwd { session.cwd = cwd }
         if let git = payload.git { session.git = git }
         if let control = payload.control { session.control = control }
@@ -590,11 +605,12 @@ public final class ChatStore {
     }
 
     public func set(model: String? = nil, permissionMode: String? = nil,
-                    effort: String? = nil, title: String? = nil) async {
+                    effort: String? = nil, speed: SpeedChange? = nil,
+                    title: String? = nil) async {
         do {
             let result = try await channel.request(
                 .set(sessionID: sessionID, model: model, permissionMode: permissionMode,
-                     effort: effort, title: title),
+                     effort: effort, speed: speed, title: title),
                 as: SessionResult.self)
             update(session: result.session)
         } catch {

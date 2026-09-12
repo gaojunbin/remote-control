@@ -65,7 +65,7 @@ struct VoiceListeningControls: View {
                 .font(Theme.mono)
                 .foregroundStyle(Theme.inkSecondary)
                 .monospacedDigit()
-                .accessibilityLabel("Listening for \(elapsed)")
+                .accessibilityLabel(L10n.string("Listening for %@", elapsed))
                 .accessibilityIdentifier("voice.elapsed")
             Spacer(minLength: Theme.Space.small)
             Button("Done", action: done)
@@ -100,12 +100,12 @@ struct VoiceStatusLine: View {
     private var text: String {
         if let failure = session.voice.failure { return message(failure) }
         switch session.voice.phase {
-        case .requestingPermission: return "Getting the microphone ready"
-        case .finishing: return "Finishing the transcript"
+        case .requestingPermission: return L10n.string("Getting the microphone ready")
+        case .finishing: return L10n.string("Finishing the transcript")
         default:
-            return usesGateway
-                ? "Transcribing on your gateway · edit before sending"
-                : "Transcribing live · edit before sending"
+            return L10n.string(usesGateway
+                               ? "Transcribing on your gateway · edit before sending"
+                               : "Transcribing live · edit before sending")
         }
     }
 
@@ -113,12 +113,18 @@ struct VoiceStatusLine: View {
     /// to do next rather than with the loss.
     private func message(_ failure: SpeechInputFailure) -> String {
         switch failure {
-        case .speechPermission: "Allow speech recognition in Settings, or keep typing."
-        case .microphonePermission: "Allow microphone access in Settings, or keep typing."
-        case .unsupported: "No on-device model for this language. Switch to gateway transcription in Settings."
-        case .unavailable: "Transcription is unavailable right now. Keep typing instead."
-        case .recording: "The microphone is unavailable. Try again, or keep typing."
-        case .recognition, .interrupted: "Dictation stopped. What was recognised is in your draft."
+        case .speechPermission:
+            L10n.string("Allow speech recognition in Settings, or keep typing.")
+        case .microphonePermission:
+            L10n.string("Allow microphone access in Settings, or keep typing.")
+        case .unsupported:
+            L10n.string("No on-device model for this language. Switch to gateway transcription in Settings.")
+        case .unavailable:
+            L10n.string("Transcription is unavailable right now. Keep typing instead.")
+        case .recording:
+            L10n.string("The microphone is unavailable. Try again, or keep typing.")
+        case .recognition, .interrupted:
+            L10n.string("Dictation stopped. What was recognised is in your draft.")
         }
     }
 }

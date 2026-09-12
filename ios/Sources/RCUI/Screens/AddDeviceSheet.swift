@@ -93,7 +93,7 @@ struct AddDeviceSheet: View {
                 Button {
                     copy(flow.command)
                 } label: {
-                    Text(copied ? "Copied" : "Copy")
+                    Text(L10n.string(copied ? "Copied" : "Copy"))
                         .frame(minWidth: 54)
                 }
                 .buttonStyle(ChipButtonStyle())
@@ -104,7 +104,8 @@ struct AddDeviceSheet: View {
                 Text(flow.code).font(Theme.mono).foregroundStyle(Theme.ink)
                 Text("single use").font(.caption).foregroundStyle(Theme.inkSecondary)
                 Spacer()
-                Text(flow.hasExpired(now: now) ? "expired" : "expires in \(flow.expiry(now: now))")
+                Text(flow.hasExpired(now: now) ? L10n.string("expired")
+                                               : L10n.string("expires in %@", flow.expiry(now: now)))
                     .font(.caption)
                     .foregroundStyle(flow.hasExpired(now: now) ? Theme.danger : Theme.inkSecondary)
                     .accessibilityIdentifier("pairing.expiry")
@@ -173,7 +174,8 @@ private struct ManualInstallView: View {
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                         .card()
-                    Text("The code \(code) can be used once and expires ten minutes after it was issued.")
+                    Text(L10n.string("The code %@ can be used once and expires ten minutes after it was issued.",
+                                 code))
                         .font(.footnote)
                         .foregroundStyle(Theme.inkSecondary)
                 }

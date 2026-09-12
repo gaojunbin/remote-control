@@ -86,10 +86,9 @@ public final class ConnectionStore {
     /// "2 devices · 1 waiting" for the sessions footer.
     public var inventorySummary: String {
         let waiting = sessions.filter { $0.state.isBlockedOnUser }.count
-        let deviceWord = devices.count == 1 ? "device" : "devices"
-        return waiting == 0
-            ? "\(devices.count) \(deviceWord)"
-            : "\(devices.count) \(deviceWord) · \(waiting) waiting"
+        let devices = L10n.string(self.devices.count == 1 ? "%lld device" : "%lld devices",
+                                  self.devices.count)
+        return waiting == 0 ? devices : L10n.string("%@ · %lld waiting", devices, waiting)
     }
 
     // MARK: - Authentication
@@ -110,18 +109,34 @@ public final class ConnectionStore {
     }
 
     /// Reconnect on launch when a keychain token is still valid.
+    ///
+    /// The account is adopted the moment the keychain answers, so the app draws
+    /// its own screens in their connecting state rather than a sign-in form for
+    /// the length of a round trip. The token is checked behind them: only a
+    /// refusal ends the session, because a gateway that cannot be reached is a
+    /// link problem and the socket is already reconnecting through it.
     public func restore(origin: String, username: String) async -> Bool {
         guard let endpoint = try? GatewayEndpoint(origin) else { return false }
         let api = makeAPI(endpoint)
         guard await api.restoreToken(username: username) else { return false }
+        adopt(api: api, endpoint: endpoint, username: username)
+        await start()
+        Task { [weak self] in await self?.confirmStoredAccount(api: api) }
+        return true
+    }
+
+    /// The stored token against `/api/session`, behind the screens it already
+    /// unlocked. A 401 is the one answer that sends the user back to the form.
+    private func confirmStoredAccount(api: any GatewayAPI) async {
         do {
             let info = try await api.session()
-            guard !Task.isCancelled else { return false }
-            adopt(api: api, endpoint: endpoint, username: info.user.username)
-            await start()
-            return true
+            guard !Task.isCancelled, !info.user.username.isEmpty else { return }
+            username = info.user.username
+        } catch TransportError.unauthorized {
+            phase = .expired
+            await endSession(message: L10n.string("Your session expired. Sign in again."))
         } catch {
-            return false
+            // A gateway that did not answer has said nothing about the token.
         }
     }
 
@@ -271,12 +286,13 @@ public final class ConnectionStore {
     private func handle(close reason: SocketCloseReason) async {
         switch reason {
         case .unauthorized:
-            await endSession(message: "Your session expired. Sign in again.")
+            await endSession(message: L10n.string("Your session expired. Sign in again."))
         case .forbidden:
-            await endSession(message: "This gateway refused the connection. Ask whoever runs it for access.")
+            await endSession(message: L10n.string(
+                "This gateway refused the connection. Ask whoever runs it for access."))
         case .replaced:
             phase = .superseded
-            errorMessage = "Another app took over this connection."
+            errorMessage = L10n.string("Another app took over this connection.")
         case .transient:
             break
         }

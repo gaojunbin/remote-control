@@ -470,18 +470,24 @@ public struct MetaPayload: Codable, Sendable, Hashable {
     public let model: String?
     public let permissionMode: String?
     public let effort: String?
+    /// Amendment A21: what the session's speed became. Nil means the frame said
+    /// nothing about it; `.standard` means the tier was turned off, which is
+    /// `speed: null` on the wire and is a change like any other.
+    public let speed: SpeedChange?
     public let cwd: String?
     public let git: GitInfo?
     public let control: SessionControl?
     public let agentVersion: String?
 
     public init(title: String? = nil, model: String? = nil, permissionMode: String? = nil,
-                effort: String? = nil, cwd: String? = nil, git: GitInfo? = nil,
-                control: SessionControl? = nil, agentVersion: String? = nil) {
+                effort: String? = nil, speed: SpeedChange? = nil, cwd: String? = nil,
+                git: GitInfo? = nil, control: SessionControl? = nil,
+                agentVersion: String? = nil) {
         self.title = title
         self.model = model
         self.permissionMode = permissionMode
         self.effort = effort
+        self.speed = speed
         self.cwd = cwd
         self.git = git
         self.control = control
@@ -489,9 +495,26 @@ public struct MetaPayload: Codable, Sendable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case title, model, effort, cwd, git, control
+        case title, model, effort, speed, cwd, git, control
         case permissionMode = "permission_mode"
         case agentVersion = "agent_version"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        title = try values.decodeIfPresent(String.self, forKey: .title)
+        model = try values.decodeIfPresent(String.self, forKey: .model)
+        permissionMode = try values.decodeIfPresent(String.self, forKey: .permissionMode)
+        effort = try values.decodeIfPresent(String.self, forKey: .effort)
+        // `decodeIfPresent` reads an explicit null as nothing at all, and A21
+        // needs the difference: a key that is there and null turned the tier off.
+        speed = values.contains(.speed)
+            ? SpeedChange(id: try values.decodeIfPresent(String.self, forKey: .speed))
+            : nil
+        cwd = try values.decodeIfPresent(String.self, forKey: .cwd)
+        git = try values.decodeIfPresent(GitInfo.self, forKey: .git)
+        control = try values.decodeIfPresent(SessionControl.self, forKey: .control)
+        agentVersion = try values.decodeIfPresent(String.self, forKey: .agentVersion)
     }
 }
 

@@ -28,7 +28,8 @@ Bundle id `com.junbingao.remotecontrol`, display name "Remote Control", URL sche
 ```sh
 cd ios
 
-swift run RCVerify        # protocol fixtures and reducer rules; Command Line Tools are enough
+swift run RCVerify        # protocol fixtures, reducer rules and the string catalogue;
+                          # Command Line Tools are enough
 
 export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
 swift run RCUIVerify
@@ -148,9 +149,11 @@ once.
 
 ## New session
 
-Device, agent, working directory and git, and nothing else: the sheet does not ask for a first
-message, so `session.create` goes out without `first_message`. The protocol keeps the field.
-Its section headers use `FieldLabel`, the one label every form section in the app is headed with.
+Device, agent, model, effort, permissions, speed, working directory and git. The sheet does not ask
+for a first message, so `session.create` goes out without `first_message`; the protocol keeps the
+field. The four agent settings start at the agent's own defaults and change with the agent picker,
+so choosing Codex where Claude was selected re-reads every list. Its section headers use
+`FieldLabel`, the one label every form section in the app is headed with.
 
 ## Surfaces and type
 
@@ -297,9 +300,11 @@ back `queued` with the message held, and `interrupt` ends the turn and starts a 
 included, is `bad_request`; the app never renders `elsewhere` as a choice.
 
 The demo carries `demo-session-typecheck` on `mac-studio-office`: a Codex thread the terminal
-started and the daemon shares, running, with Stop in the navigation bar, all three chips live and a
-four-option request in the transcript. Changing the effort there goes through `session.set` and is
-applied; the same request on the attached Claude session is still refused. `ci-runner-01` keeps a
+started and the daemon shares, running, with Stop in the navigation bar, a live model card and
+permission chip, and a four-option request in the transcript. Changing the effort there goes
+through `session.set` and is applied; the same request on the attached Claude session is still
+refused. That agent is also the one with a speed tier (A21), so the card's lightning toggle has a
+home in the demo. `ci-runner-01` keeps a
 Codex with no daemon running, so the daemon hint has a home too.
 
 ## Reading position
@@ -353,13 +358,44 @@ them — it stays in the navigation bar, so no one ends a turn while reaching fo
 
 | Chip | Shown when | Identifier |
 | --- | --- | --- |
-| Model | `ChatStore.allowsSettingsChanges` | `composer.model` |
+| Model card | `ChatStore.allowsSettingsChanges` | `composer.modelCard` |
 | Permission mode | the same | `composer.permissions` |
-| Effort | the same, and the agent lists capability `effort` with efforts to offer | `composer.effort` |
 | Dictation language | always; it belongs to the microphone beside it | `composer.language` |
 | Up next · N | `session.queued > 0` | `composer.queue` |
 
 While dictation runs the level meter, the elapsed time and Done replace that whole row.
+
+**The model card: model, effort and speed are one control (A21).** The row does not spend three
+chips on what runs and how hard. One chip reads the model label with the effort word after it
+("Opus 4.1 High"), with a small `bolt.fill` before them while `session.speed` is set; a tap opens a
+popover anchored above it — `.presentationCompactAdaptation(.popover)`, so it is a card on the
+phone and not a sheet — with two rows:
+
+- a `bolt` toggle at the leading edge, drawn only when `AgentInfo.speeds` is non-empty, filled and
+  tinted while a tier is on, cycling standard → each tier → standard through `ChatStore.nextSpeed`
+  and one `session.set {speed}`; then the model name with the effort word after it and a chevron
+  that discloses the model list, one row per `AgentInfo.models` entry with the current one ticked;
+- the effort slider, one stop per `AgentInfo.efforts` entry, the track tinted to the thumb in
+  `Theme.accent` and nothing else on it. The word in the first row follows the thumb and
+  `session.set {effort}` is sent on release, so dragging across four levels is one request rather
+  than four. `.sensoryFeedback(.selection, trigger:)` on the stop index gives one selection haptic
+  per stop the thumb crosses, which is what lets the levels be counted without looking. An agent
+  with one effort level or none draws no slider: there is nothing to slide.
+
+The accessible names are "Model", "Effort" and "Speed", with the value on each; the identifiers are
+`composer.modelCard`, `composer.model`, `composer.effort` and `composer.speed`. A terminal-held
+session shows the same words as one static chip, `composer.readonly.modelCard`, that opens nothing,
+with the tier's glyph on it and the tier's name spelled out in its accessibility value — the glyph
+says "faster tier" to the eye and nothing at all to a screen reader. The permission-mode chip
+follows the card in the row. `ModelCard.swift` holds all of it; `TerminalSetting.modelCardText`
+words the session once, so the live chip and the read-only chip can never disagree.
+
+Forms keep list pickers. The session settings sheet and the new-session sheet both list Model,
+Effort, Permissions in that order, with a Speed picker after them where the agent offers a tier;
+the new-session sheet sends `model`, `permission_mode`, `effort` and `speed` in `session.create`,
+starting from the agent's own defaults so a sheet sent untouched asks for what the device would
+have chosen anyway.
+
 
 Amendment A20: while the transcript holds a question nobody has answered yet, the one primary in the
 row answers it instead of sending. Its glyph does not change — it is still the button that takes
@@ -554,6 +590,18 @@ is doing, because every path through it either extends, replaces or appends, and
 
 ## Connection lifecycle
 
+**Launch shows the app, never the sign-in form, when there is an account.** `AppModel.isResuming` is
+true from the first frame whenever a gateway is stored (the demo counts as one), and `RootView`
+draws the page colour and nothing else while it holds — never the form, which is an answer and not
+a waiting room. `ConnectionStore.restore` adopts the endpoint and the user the moment the keychain
+answers and opens the socket behind them, so the main screens appear in their connecting state
+rather than a gateway form for the length of a round trip. `/api/session` then runs behind the
+screens it already unlocked: a 401 is the one answer that ends the session and brings the form back,
+saying "Your session expired. Sign in again."; anything else is a link problem the socket is
+already reconnecting through, and nothing signs the user out over it.
+`testLaunchWithAnAccountNeverShowsTheSignInForm` and `testLaunchWithNothingStoredShowsTheSignInForm`
+hold both halves of the rule.
+
 | Close code | What the app does |
 | --- | --- |
 | 4401 | Forgets the keychain token, keeps the cached lists, returns to login with "Your session expired" |
@@ -604,6 +652,49 @@ Required repository secrets:
 
 Variables: `APPLE_TEAM_ID`, and optionally `BUNDLE_ID`.
 
+## Language
+
+**English is the default whatever the phone is set to**, and Settings offers English and 中文 as a
+segmented control under a **Language** caption above Timeline (`settings.language`). The Voice
+group's own picker is called "Dictation language", because two rows one screen apart both reading
+"Language" is a riddle rather than a preference. `InterfaceLanguage` in `RCCore` holds the two
+cases, persisted as `preference.language`; the choice applies at once on every open screen, because
+there is nothing to reload — it changes where words are read from, not what is on screen.
+
+Words reach the reader two ways, and both are one setting.
+
+- **Inside a view.** `RootView` sets `.environment(\.locale, settings.language.locale)` on the
+  whole shell, so every `Text(LocalizedStringKey)`, `Button`, `Label`, `Picker` and
+  `navigationTitle` literal resolves through `App/Localizable.xcstrings` in that language. Nothing
+  at a call site changes. Two components had to stop taking `String`: `FieldLabel` and
+  `SettingsRow` now take a `LocalizedStringKey`, because `Text(someString)` is verbatim and a
+  caption typed as a `String` would have been the one word on the screen that never moved.
+- **Outside a view.** A status line in `ChatStore`, a `ConnectionStore` phase message, a
+  `TransportError`, a push status, the state word beside a dot, a relative time — none of them has
+  an environment to read. They go through `L10n.string(_:)`, which looks the key up in the chosen
+  language's `.lproj` table. `SettingsStore` points it at that table on launch and on every change,
+  so the two paths can never disagree.
+
+The keys are the English text, so a key with no translation reads as English rather than as a
+placeholder. Relative times and durations carry words ("12m" → "12 分钟前", "yesterday" → "昨天")
+and are formatted through the same table. Never translated: what the agent wrote, what the device
+reported (a device name, a path, a branch, a model, permission or effort id), anything the reader
+typed, the product name "Remote Control", "Claude Code", "Codex", and the two language names, which
+are always shown in their own script.
+
+`RCCore` keeps no catalogue of its own. `Bundle.module` would give the package target its own
+table and a second place for a word to live, so `L10n` reads the app's, and a process with no
+catalogue at all — a check runner, a unit test — reads every key as the English it is written in.
+There is therefore one file of strings, `App/Localizable.xcstrings`, whatever target wrote the word.
+
+`Verification/LocalizationChecks.swift` is the gate. It reads the catalogue and fails on any key
+with no `zh-Hans` translation, on any translation whose `%@`/`%lld` placeholders do not match the
+key's — reordering them without numbering (`%2$@`) hands an integer to `%@` and crashes the app the
+first time the line is drawn — and then walks `Sources/` and fails on any word a view writes, a
+literal in a `Text`, `Button`, `Label`, `navigationTitle` or any other `LocalizedStringKey`
+position, or a key handed to `L10n.string`, that the catalogue does not hold, naming the file that
+writes it. It runs inside `swift run RCVerify`.
+
 ## Validation
 
 `UITests/RealGatewaySmokeTests.swift` drives the app in a simulator against a real gateway, device
@@ -622,6 +713,11 @@ neither Apple's own limit nor the gateway's has been reached in practice. APNs d
 exercised, the app has never run on a physical device, and dark mode and VoiceOver have not been
 reviewed — the palette defines dark values, but v1 is designed light. CI, signing and TestFlight
 upload have never run.
+
+The selection haptic on the effort slider cannot be asserted from a UI test — nothing in XCTest
+observes `UIFeedbackGenerator` — so the test drags the thumb one stop and asserts the word that
+follows it instead, and the haptic itself has been read only from the code. The launch rule is
+proved against the demo account rather than against a stored keychain token, for the reason below.
 
 Keychain restore is a harness limitation rather than an open question about the code.
 `CODE_SIGNING_ALLOWED=NO` produces an ad-hoc, linker-signed app with no `application-identifier`

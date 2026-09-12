@@ -15,31 +15,32 @@ public enum TransportError: Error, LocalizedError, Sendable, Equatable {
     public var errorDescription: String? {
         switch self {
         case .invalidEndpoint:
-            "Enter the full gateway address, for example https://rc.example.com."
+            L10n.string("Enter the full gateway address, for example https://rc.example.com.")
         case .invalidResponse:
-            "The gateway sent a response this app could not read."
+            L10n.string("The gateway sent a response this app could not read.")
         case .responseTooLarge:
-            "That response was too large to load."
+            L10n.string("That response was too large to load.")
         case .unauthorized:
-            "Your session expired. Sign in again."
+            L10n.string("Your session expired. Sign in again.")
         case .http(let status, _):
             switch status {
-            case 403: "The gateway refused this request."
-            case 404: "That device or session no longer exists."
-            case 429: "Too many attempts. Wait a moment and try again."
-            case 503: "The gateway does not have this feature enabled."
-            default: "The gateway request failed (\(status))."
+            case 403: L10n.string("The gateway refused this request.")
+            case 404: L10n.string("That device or session no longer exists.")
+            case 429: L10n.string("Too many attempts. Wait a moment and try again.")
+            case 503: L10n.string("The gateway does not have this feature enabled.")
+            default: L10n.string("The gateway request failed (%lld).", status)
             }
         case .notConnected:
-            "Not connected to the gateway."
+            L10n.string("Not connected to the gateway.")
         case .deliveryUncertain:
-            "Delivery unconfirmed. Check the session before sending again."
+            L10n.string("Delivery unconfirmed. Check the session before sending again.")
         case .requestTimedOut:
-            "The gateway did not answer in time."
+            L10n.string("The gateway did not answer in time.")
         case .protocolMismatch(let version):
-            "This app speaks protocol \(RemoteProtocol.version); the gateway speaks \(version). Update both sides."
+            L10n.string("This app speaks protocol %lld; the gateway speaks %lld. Update both sides.",
+                        RemoteProtocol.version, version)
         case .secureStorageUnavailable:
-            "Could not reach the keychain. Unlock this device and try again."
+            L10n.string("Could not reach the keychain. Unlock this device and try again.")
         }
     }
 }

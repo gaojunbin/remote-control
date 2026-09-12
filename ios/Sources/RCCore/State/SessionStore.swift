@@ -73,20 +73,19 @@ public enum RelativeTime {
     public static func short(since milliseconds: Int64, now: Date = Date()) -> String {
         guard milliseconds > 0 else { return "" }
         let seconds = now.timeIntervalSince1970 - Double(milliseconds) / 1000
-        if seconds < 45 { return "now" }
-        if seconds < 3600 { return "\(Int(seconds / 60))m" }
-        if seconds < 86_400 { return "\(Int(seconds / 3600))h" }
-        if seconds < 172_800 { return "yesterday" }
-        return "\(Int(seconds / 86_400))d"
+        if seconds < 45 { return L10n.string("now") }
+        if seconds < 3600 { return L10n.string("%lldm", Int(seconds / 60)) }
+        if seconds < 86_400 { return L10n.string("%lldh", Int(seconds / 3600)) }
+        if seconds < 172_800 { return L10n.string("yesterday") }
+        return L10n.string("%lldd", Int(seconds / 86_400))
     }
 
     /// "6.4s", "1m 12s" for durations reported in milliseconds.
     public static func duration(milliseconds: Int) -> String {
         let seconds = Double(milliseconds) / 1000
-        if seconds < 10 { return String(format: "%.1fs", seconds) }
-        if seconds < 60 { return "\(Int(seconds.rounded()))s" }
-        let minutes = Int(seconds) / 60
-        return "\(minutes)m \(Int(seconds) % 60)s"
+        if seconds < 10 { return L10n.string("%.1fs", seconds) }
+        if seconds < 60 { return L10n.string("%llds", Int(seconds.rounded())) }
+        return L10n.string("%lldm %llds", Int(seconds) / 60, Int(seconds) % 60)
     }
 
     /// "48.2k" for a token count.

@@ -589,6 +589,15 @@ enum ProtocolChecks {
                     throw ProtocolFailure.malformed("agents")
                 }
             }
+            // Amendment A21: only the agent that offers a tier carries one, and
+            // the other reads as an empty list rather than as a missing field.
+            let agents = (try? result.decode(AgentsResult.self).agents) ?? []
+            checks.equal(agents.first { $0.agent == "codex" }?.speeds.map(\.id), ["priority"],
+                         "Codex advertises its faster tier")
+            checks.equal(agents.first { $0.agent == "codex" }?.speedLabel("priority"), "Fast",
+                         "with the name the agent gave it")
+            checks.equal(agents.first { $0.agent == "claude" }?.speeds.isEmpty, true,
+                         "and an agent that has none lists none")
         }
     }
 
@@ -703,6 +712,7 @@ enum ProtocolChecks {
                 deviceID: create.string("device_id") ?? "", agent: create.string("agent") ?? "",
                 cwd: create.string("cwd") ?? "", model: create.string("model"),
                 permissionMode: create.string("permission_mode"), effort: create.string("effort"),
+                speed: create["speed"].map { SpeedChange(id: $0.stringValue) },
                 worktree: create.bool("worktree"), firstMessage: create.string("first_message"),
                 title: create.string("title")), with: "app/session.create.json")
         }
@@ -725,8 +735,33 @@ enum ProtocolChecks {
         if let set = FixtureSource.json("app/session.set.json")?.objectValue {
             compare(GatewayRequest.set(sessionID: set.string("session_id") ?? "", model: set.string("model"),
                                        permissionMode: set.string("permission_mode"),
-                                       effort: set.string("effort"), title: set.string("title")),
+                                       effort: set.string("effort"),
+                                       speed: set["speed"].map { SpeedChange(id: $0.stringValue) },
+                                       title: set.string("title")),
                     with: "app/session.set.json")
+        }
+        // Amendment A21: going back to the standard speed is `speed: null`, and
+        // saying nothing about the tier is the key not being there at all.
+        checks.equal(GatewayRequest.set(sessionID: "s", speed: .standard).json["speed"], JSONValue.null,
+                     "session.set puts a session back to the standard speed with a null")
+        checks.equal(GatewayRequest.set(sessionID: "s").json["speed"], nil,
+                     "and leaves the tier alone by not naming it")
+        // 5.11 the same way round: a `meta` that names the key with a null put
+        // the session back to the standard speed, and one that omits it said
+        // nothing about the speed at all.
+        checks.noThrow("a meta tells a cleared tier from an unmentioned one") {
+            let cleared: JSONValue = ["seq": 1, "ts": 1, "kind": "meta", "speed": .null]
+            guard try cleared.decode(SessionEvent.self).meta?.speed == SpeedChange.standard else {
+                throw ProtocolFailure.malformed("meta speed null")
+            }
+            let raised: JSONValue = ["seq": 2, "ts": 2, "kind": "meta", "speed": "priority"]
+            guard try raised.decode(SessionEvent.self).meta?.speed == SpeedChange.tier("priority") else {
+                throw ProtocolFailure.malformed("meta speed tier")
+            }
+            let silent: JSONValue = ["seq": 3, "ts": 3, "kind": "meta", "model": "gpt-5.4-codex"]
+            guard try silent.decode(SessionEvent.self).meta?.speed == nil else {
+                throw ProtocolFailure.malformed("meta speed absent")
+            }
         }
         if let history = FixtureSource.json("app/session.history.json")?.objectValue {
             compare(GatewayRequest.history(sessionID: history.string("session_id") ?? "",

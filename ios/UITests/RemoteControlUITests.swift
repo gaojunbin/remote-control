@@ -103,7 +103,7 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 15), "the message field is on screen")
         let attachments = app.buttons["composer.attach"]
         let voice = app.buttons["composer.voice"]
-        let model = app.buttons["composer.model"]
+        let model = app.buttons["composer.modelCard"]
         let send = app.buttons["composer.send"]
         XCTAssertTrue(attachments.exists, "attachments are on the row below the field")
         XCTAssertTrue(voice.exists, "and so is dictation")
@@ -176,7 +176,7 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertFalse(send.exists, "Send is not offered while listening")
         XCTAssertFalse(app.buttons["composer.attach"].exists, "and neither is anything else")
         XCTAssertFalse(app.buttons["composer.voice"].exists)
-        XCTAssertFalse(app.buttons["composer.model"].exists,
+        XCTAssertFalse(app.buttons["composer.modelCard"].exists,
                        "the chips go with the row dictation replaced")
         XCTAssertTrue(app.descendants(matching: .any)["voice.status"].exists,
                       "one quiet line says what dictation is doing")
@@ -385,17 +385,24 @@ final class RemoteControlUITests: XCTestCase {
                        "nothing is printed above the field")
         XCTAssertFalse(app.buttons["composer.attach"].exists,
                        "a channel cannot hand bytes to a live CLI, so there is no attach button")
-        XCTAssertFalse(app.buttons["composer.model"].exists,
-                       "and the settings live in the terminal, so no picker is offered")
+        XCTAssertFalse(app.buttons["composer.modelCard"].exists,
+                       "and the settings live in the terminal, so no control is offered")
         XCTAssertFalse(app.buttons["composer.permissions"].exists)
         XCTAssertTrue(app.buttons["composer.send"].exists, "what is left still sends")
 
-        // Amendment A17: the values themselves are shown where the pickers
+        // Amendment A17: the values themselves are shown where the controls
         // would be, so the phone can say which model that terminal is running.
-        for field in ["model", "permissionMode", "effort"] {
+        // Amendment A21: model and effort are one control, so one chip.
+        for field in ["modelCard", "permissionMode"] {
             XCTAssertTrue(app.descendants(matching: .any)["composer.readonly.\(field)"].exists,
                           "the \(field) the terminal chose is shown")
         }
+        // The terminal switches model on this session a moment after it opens
+        // (A17), so the assertion is on the shape of the value rather than on
+        // which model happened to be current when it was read.
+        let shown = app.descendants(matching: .any)["composer.readonly.modelCard"].value as? String ?? ""
+        XCTAssertTrue(shown.hasSuffix(" High"),
+                      "the model and the effort read as one value, not as two chips")
 
         attach(name: "06-shared-idle")
 
@@ -506,11 +513,9 @@ final class RemoteControlUITests: XCTestCase {
                        "the header names the attachment; the composer repeats nothing")
         XCTAssertTrue(app.buttons["composer.attach"].exists,
                       "shared_attachments keeps the attach button")
-        XCTAssertTrue(app.buttons["composer.model"].exists, "and shared_settings keeps the chips")
-        XCTAssertTrue(app.buttons["composer.effort"].exists,
-                      "effort among them, because the daemon retunes the live thread")
-        XCTAssertFalse(app.descendants(matching: .any)["composer.readonly.model"].exists,
-                       "and A17 shows nothing where the picker is live")
+        XCTAssertTrue(app.buttons["composer.modelCard"].exists, "and shared_settings keeps the chips")
+        XCTAssertFalse(app.descendants(matching: .any)["composer.readonly.modelCard"].exists,
+                       "and A17 shows nothing where the control is live")
         XCTAssertTrue(app.buttons["chat.stop"].exists, "shared_interrupt offers Stop while it runs")
         // The field's placeholder is its accessibility name: UIKit has no
         // placeholder on a text view for the runner to read as one.
@@ -527,10 +532,19 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "12-codex-shared")
 
         // The settings sheet opens, because the daemon retunes the live thread.
-        app.buttons["composer.model"].tap()
+        app.buttons["composer.permissions"].tap()
         let picker = app.descendants(matching: .any)["session.model"]
         XCTAssertTrue(picker.waitForExistence(timeout: 10),
                       "shared_settings reopens the session settings sheet")
+        let speed = app.descendants(matching: .any)["session.speed"]
+        XCTAssertTrue(speed.exists, "with the speed tier after the three list pickers (A21)")
+        for (above, below) in [("session.model", "session.effort"),
+                               ("session.effort", "session.permissions"),
+                               ("session.permissions", "session.speed")] {
+            XCTAssertLessThan(app.descendants(matching: .any)[above].frame.minY,
+                              app.descendants(matching: .any)[below].frame.minY,
+                              "\(above) stands above \(below)")
+        }
         attach(name: "13-codex-settings")
         app.buttons["Done"].firstMatch.tap()
 
@@ -740,6 +754,31 @@ final class RemoteControlUITests: XCTestCase {
                       "an agent picker is present")
         XCTAssertFalse(app.textViews["newsession.prompt"].exists,
                        "and the sheet no longer asks for a first message")
+
+        // `docs/DESIGN.md` § "The composer": forms list Model, Effort,
+        // Permissions in that order, with the speed switch after the three.
+        // The sheet opens on Claude, which lists no tier, so the agent that has
+        // one is chosen first — the lists all follow the agent picker.
+        app.buttons["Codex"].firstMatch.tap()
+        let rows = ["newsession.model", "newsession.effort",
+                    "newsession.permissions", "newsession.speed"]
+        for row in rows {
+            XCTAssertTrue(scrollDown(to: app.descendants(matching: .any)[row]),
+                          "the sheet offers \(row)")
+        }
+        attach(name: "52-new-session-settings")
+        // Read the order from the accessibility hierarchy rather than from
+        // coordinates: the rows were scrolled to one at a time, so their frames
+        // belong to different scroll positions and cannot be compared.
+        var seen: [String] = []
+        for element in app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier IN %@", rows))
+            .allElementsBoundByIndex where !seen.contains(element.identifier) {
+            seen.append(element.identifier)
+        }
+        XCTAssertEqual(seen, rows.filter(seen.contains),
+                       "and lists them in the order Model, Effort, Permissions, Speed")
+        app.swipeDown(velocity: .fast)
         attach(name: "04-new-session")
     }
 
@@ -772,8 +811,10 @@ final class RemoteControlUITests: XCTestCase {
                       "the account rows are drawn")
         attach(name: "30-settings-headers")
 
-        for header in ["Account", "Notifications", "Voice", "Timeline"] {
-            XCTAssertTrue(app.staticTexts[header].exists, "the section is headed \(header)")
+        // Language sits between Voice and Timeline, so the last headers are
+        // below the fold on a phone and are scrolled to rather than assumed.
+        for header in ["Account", "Notifications", "Voice", "Language", "Timeline"] {
+            XCTAssertTrue(scrollDown(to: app.staticTexts[header]), "the section is headed \(header)")
             XCTAssertFalse(app.staticTexts[header.uppercased()].exists,
                            "and not \(header.uppercased())")
         }
@@ -808,6 +849,128 @@ final class RemoteControlUITests: XCTestCase {
         let strip = CGRect(x: edge.maxX - 12, y: edge.minY + 4, width: 11, height: edge.height - 8)
         XCTAssertLessThan(darkest(in: strip, of: shot), 0.9,
                           "the scroll indicator runs down the field's trailing edge")
+    }
+
+    /// `docs/DESIGN.md`: "Launch shows the app, never the sign-in form, when
+    /// there is an account." The demo is an account, so the first screen is the
+    /// sessions list and the gateway form is never drawn on the way to it.
+    func testLaunchWithAnAccountNeverShowsTheSignInForm() {
+        app.launch()
+        XCTAssertFalse(app.buttons["login.connect"].exists,
+                       "the form is not what a launch with an account draws first")
+        let sessions = app.staticTexts["Sessions"]
+        XCTAssertTrue(sessions.waitForExistence(timeout: 20), "the sessions screen is the first screen")
+        XCTAssertFalse(app.buttons["login.connect"].exists, "and the form never appeared on the way")
+        attach(name: "42-launch-with-account")
+    }
+
+    /// And the other half of the rule: with nothing stored the form is the
+    /// answer, so it is what a fresh install opens on.
+    func testLaunchWithNothingStoredShowsTheSignInForm() {
+        app.launchArguments = ["--ui-testing", "--reset-state"]
+        app.launch()
+        XCTAssertTrue(app.buttons["login.connect"].waitForExistence(timeout: 20),
+                      "a fresh install asks for a gateway")
+        XCTAssertTrue(app.textFields["login.gateway"].exists)
+        attach(name: "43-launch-without-account")
+    }
+
+    /// Amendment A21 and `docs/DESIGN.md` § "The composer": one chip for the
+    /// model, the effort and the speed, opening a card that holds all three.
+    /// The selection haptic on each stop the thumb crosses cannot be asserted
+    /// from a UI test; the effort word following the thumb can.
+    func testModelCardCarriesModelEffortAndSpeed() {
+        app.launch()
+
+        let row = app.buttons["session.demo-session-typecheck"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the shared Codex thread is listed")
+        row.tap()
+
+        let chip = app.buttons["composer.modelCard"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 15), "the composer spends one chip on what runs")
+        XCTAssertEqual(chip.value as? String, "GPT-5.4 Codex Medium",
+                       "reading the model with the effort word after it")
+        XCTAssertFalse(app.buttons["composer.effort"].exists,
+                       "and the effort is no longer a chip of its own")
+        chip.tap()
+
+        let speed = app.buttons["composer.speed"]
+        XCTAssertTrue(speed.waitForExistence(timeout: 10), "the card opens on the speed toggle")
+        XCTAssertEqual(speed.value as? String, "Standard", "which starts at the standard speed")
+        let slider = app.sliders["composer.effort"]
+        XCTAssertTrue(slider.exists, "with the effort slider under it")
+        attach(name: "44-model-card")
+
+        slider.adjust(toNormalizedSliderPosition: 1)
+        XCTAssertTrue(waitFor { (slider.value as? String) == "High" },
+                      "the slider snaps to the agent's own levels")
+        XCTAssertTrue(app.staticTexts["High"].waitForExistence(timeout: 10),
+                      "and the word in the first row follows the thumb")
+
+        speed.tap()
+        XCTAssertTrue(waitFor { (speed.value as? String) == "Fast" },
+                      "one tap raises the tier the agent named")
+        attach(name: "45-model-card-fast")
+    }
+
+    /// An agent that lists no tier draws no speed control at all, rather than a
+    /// disabled one with a caption explaining itself.
+    func testModelCardHasNoSpeedToggleForClaude() {
+        app.launch()
+        openLiveSession()
+
+        let chip = app.buttons["composer.modelCard"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 15))
+        chip.tap()
+
+        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 10),
+                      "the card opens")
+        XCTAssertFalse(app.buttons["composer.speed"].exists,
+                       "and Claude, which has no faster tier, is offered none")
+        attach(name: "46-model-card-no-speed")
+    }
+
+    /// `docs/DESIGN.md` § "The three screens", Settings: English is the default
+    /// whatever the phone is set to, so a Chinese system language changes
+    /// nothing until the setting is changed.
+    func testInterfaceLanguageDefaultsToEnglishOnAChinesePhone() {
+        app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20),
+                      "the list is headed in English on a phone set to Chinese")
+        XCTAssertFalse(app.staticTexts["会话"].exists, "and not in the system language")
+        attach(name: "47-default-english-on-chinese-phone")
+    }
+
+    /// The whole interface in Chinese: the list, the settings, the composer.
+    /// Nothing the device reported is translated with it.
+    func testChineseInterfaceIsUsedEverywhere() {
+        app.launchArguments += ["--language=zh-Hans"]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["会话"].waitForExistence(timeout: 20), "the list is headed 会话")
+        XCTAssertFalse(app.staticTexts["Sessions"].exists, "and no longer in English")
+        attach(name: "48-sessions-chinese")
+
+        app.tabBars.buttons["设置"].tap()
+        XCTAssertTrue(app.staticTexts["账户"].waitForExistence(timeout: 15), "Settings is headed 账户")
+        attach(name: "49-settings-chinese")
+        for header in ["通知", "语音", "语言", "时间线"] {
+            XCTAssertTrue(scrollDown(to: app.staticTexts[header]), "the section is headed \(header)")
+        }
+        attach(name: "50-settings-language-chinese")
+
+        app.tabBars.buttons["会话"].tap()
+        openLiveSession()
+        let field = promptField()
+        XCTAssertTrue(field.waitForExistence(timeout: 15), "the composer is on screen")
+        XCTAssertTrue(app.buttons["发送"].exists || app.buttons["composer.send"].label == "发送",
+                      "the send button names itself in Chinese")
+        XCTAssertTrue(app.buttons["composer.modelCard"].exists, "the model card is still a chip")
+        XCTAssertEqual(app.buttons["composer.modelCard"].value as? String, "Sonnet 4.5 High",
+                       "and the device's own model and effort labels are not translated")
+        attach(name: "51-chat-chinese")
     }
 
     private func attach(name: String, screenshot: XCUIScreenshot? = nil) {

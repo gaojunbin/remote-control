@@ -32,7 +32,7 @@ struct TimelineRow: View {
         case .turnStarted, .todos, .status, .meta, .queue:
             EmptyView()
         case .unknown(let kind, _):
-            Text("This device sent a \(kind) block that this app version cannot show yet.")
+            Text(L10n.string("This device sent a %@ block that this app version cannot show yet.", kind))
                 .font(.footnote)
                 .foregroundStyle(Theme.inkSecondary)
         }
@@ -107,20 +107,22 @@ private struct UserMessageRow: View {
     /// Amendment A14: a steered message is on the device already; what it is
     /// waiting for is the agent, which reads it at its next step.
     private static func pendingLabel(_ pending: OptimisticMessage, isUnconfirmed: Bool) -> String {
-        if pending.isSteering { return "the agent will read it at its next step" }
-        return isUnconfirmed ? "Delivery unconfirmed" : "Sending…"
+        if pending.isSteering { return L10n.string("the agent will read it at its next step") }
+        return L10n.string(isUnconfirmed ? "Delivery unconfirmed" : "Sending…")
     }
 
     /// The chip is inside a combined element, so its words have to reach
     /// VoiceOver through the bubble's own label.
     private var spokenLabel: Text {
-        let said = Text("You said: \(payload.text)")
+        let said = Text(L10n.string("You said: %@", payload.text))
         switch payload.delivery {
-        case .some(.absorbed): return said + Text(", will be re-sent")
+        case .some(.absorbed): return said + Text(L10n.string(", will be re-sent"))
         default:
             guard let pending else { return said }
-            if pending.isSteering { return said + Text(", the agent will read it at its next step") }
-            return said + Text(isUnconfirmed ? ", delivery unconfirmed" : ", sending")
+            if pending.isSteering {
+                return said + Text(L10n.string(", the agent will read it at its next step"))
+            }
+            return said + Text(L10n.string(isUnconfirmed ? ", delivery unconfirmed" : ", sending"))
         }
     }
 
@@ -159,9 +161,9 @@ private struct ThinkingRow: View {
     @State private var expanded = false
 
     private var title: String {
-        guard done else { return "Thinking" }
-        guard let durationMS, durationMS > 0 else { return "Thought about it" }
-        return "Thought for \(RelativeTime.duration(milliseconds: durationMS))"
+        guard done else { return L10n.string("Thinking") }
+        guard let durationMS, durationMS > 0 else { return L10n.string("Thought about it") }
+        return L10n.string("Thought for %@", RelativeTime.duration(milliseconds: durationMS))
     }
 
     var body: some View {
@@ -323,7 +325,8 @@ private struct DiffSummary: View {
         }
         .padding(.leading, Theme.Space.medium)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(diff.path), \(diff.additions) added, \(diff.deletions) removed")
+        .accessibilityLabel(L10n.string("%@, %lld added, %lld removed",
+                                        diff.path, diff.additions, diff.deletions))
     }
 }
 
@@ -378,9 +381,9 @@ private struct TurnFooter: View {
     private var text: String {
         let duration = RelativeTime.duration(milliseconds: payload.durationMS)
         return switch payload.stopReason {
-        case .interrupted: "Stopped after \(duration)"
-        case .error: "Ended with an error after \(duration)"
-        default: "Finished in \(duration)"
+        case .interrupted: L10n.string("Stopped after %@", duration)
+        case .error: L10n.string("Ended with an error after %@", duration)
+        default: L10n.string("Finished in %@", duration)
         }
     }
 

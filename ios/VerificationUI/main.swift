@@ -23,6 +23,9 @@ func run() async -> (passed: Int, failures: [String]) {
     // MARK: - The demo app model
 
     let model = AppModel(arguments: ["--demo"])
+    expect(model.isResuming, "the demo is an account, so the first frame is the app and not the form")
+    await model.restoreOrPrompt()
+    expect(!model.isResuming, "and the wait ends once the account is up")
     await settle { model.connection.hasSnapshot }
     // The list exactly as the hello delivered it. The scripted device keeps
     // changing sessions after this point — a turn runs, and the archived
@@ -109,13 +112,13 @@ func run() async -> (passed: Int, failures: [String]) {
         // the three values the device read out of the terminal's transcript
         // where the pickers would be.
         expect(locked.isTunedByTerminal, "a terminal session is tuned where this app cannot reach")
-        expect(!locked.allowsSettingsChanges, "so no picker is offered")
-        equal(locked.terminalSettings.map(\.id), ["model", "permissionMode", "effort"],
-              "and the three chips stand in the order the pickers stand in")
-        equal(locked.terminalSettings.map(\.text), ["Sonnet 4.5", "Ask before edits", "High"],
-              "each labelled by the agent's own list")
-        equal(locked.terminalSettings.map(\.field.label), ["Model", "Permissions", "Effort"],
-              "and named for assistive technology by what the picker is called")
+        expect(!locked.allowsSettingsChanges, "so no control is offered")
+        equal(locked.terminalSettings.map(\.id), ["modelCard", "permissionMode"],
+              "and the chips stand in the order the live controls stand in (A21)")
+        equal(locked.terminalSettings.map(\.text), ["Sonnet 4.5 High", "Ask before edits"],
+              "model and effort on one chip, each labelled by the agent's own list")
+        equal(locked.terminalSettings.map(\.field.label), ["Model", "Permissions"],
+              "and named for assistive technology by what the control is called")
     } else {
         expect(false, "the demo has a terminal-controlled session")
     }
@@ -147,12 +150,12 @@ func run() async -> (passed: Int, failures: [String]) {
         // The hello's own copy of the session, so the reading is of what the
         // demo delivered rather than of a race with the script below.
         equal(TerminalSetting.all(for: shared, agent: model.agent(for: shared)).map(\.text),
-              ["Sonnet 4.5", "auto", "High"],
-              "a Claude channel shows the three the device read, and `auto` by its raw id")
+              ["Sonnet 4.5 High", "auto"],
+              "a Claude channel shows what the device read, and `auto` by its raw id")
         // Somebody types `/model` in that terminal. There is no picker here to
         // keep in step, only the chip, and it follows the `meta` in place.
         await settle { chat.session.model == "claude-opus-4-1" }
-        equal(chat.terminalSettings.map(\.text), ["Opus 4.1", "auto", "High"],
+        equal(chat.terminalSettings.map(\.text), ["Opus 4.1 High", "auto"],
               "and a model changed in the terminal reaches the chip without a reload")
         await model.closeChat()
     } else {
@@ -480,6 +483,60 @@ func run() async -> (passed: Int, failures: [String]) {
         expect(fonts.count >= 20, "the KaTeX fonts ship with the bundle")
     }
 
+    // MARK: - The interface language
+
+    let languageDefaults = UserDefaults(suiteName: "rc-ui-verify-\(UUID().uuidString)")!
+    let languageSettings = SettingsStore(defaults: languageDefaults)
+    equal(languageSettings.language, .en, "English is the default whatever the phone is set to")
+    equal(InterfaceLanguage.allCases.map(\.title), ["English", "中文"],
+          "and each language names itself in its own script")
+    languageSettings.language = .zhHans
+    equal(SettingsStore(defaults: languageDefaults).language, .zhHans,
+          "the choice outlives the launch that made it")
+    equal(AppModel(settings: SettingsStore(defaults: languageDefaults),
+                   arguments: ["--reset-state"]).settings.language, .en,
+          "a reset returns the app to English")
+    equal(AppModel(settings: SettingsStore(defaults: languageDefaults),
+                   arguments: ["--reset-state", "--language=zh-Hans"]).settings.language, .zhHans,
+          "and a test can launch straight into the language it is about to read")
+    equal(InterfaceLanguage.zhHans.locale.identifier, "zh-Hans",
+          "the locale the root hands SwiftUI is the catalogue's own name")
+
+    // MARK: - Launch shows the app, never the sign-in form, when there is an account
+
+    let storedSettings = SettingsStore(defaults: UserDefaults(suiteName: "rc-ui-verify-\(UUID().uuidString)")!)
+    storedSettings.remember(origin: "https://rc.example.com", username: "me")
+    let resuming = AppModel(settings: storedSettings, arguments: [])
+    expect(resuming.isResuming, "a stored gateway means the app has something to come back to")
+    expect(!resuming.isSignedIn, "and nothing is signed in until the keychain answers")
+
+    let fresh = AppModel(settings: SettingsStore(defaults: UserDefaults(suiteName: "rc-ui-verify-\(UUID().uuidString)")!),
+                         arguments: [])
+    expect(!fresh.isResuming, "a fresh install resumes nothing, so the form is the first screen")
+    await fresh.restoreOrPrompt()
+    expect(!fresh.isSignedIn, "and nothing signs it in")
+
+    // The keychain is what unlocks the screens; the gateway is asked behind them.
+    let held = StoredAccountGateway(answer: .success(SessionInfoResponse(user: UserIdentity(username: "me"), exp: 0)))
+    let launching = ConnectionStore(makeAPI: { _ in held }, makeChannel: { _ in held })
+    let adopted = await launching.restore(origin: "https://rc.example.com", username: "me")
+    expect(adopted, "a keychain token is enough to adopt the account")
+    expect(launching.isSignedIn, "the app is signed in before the gateway has answered")
+    equal(launching.phase.canReachGateway, true, "and its screens draw in a connecting state")
+    await held.answerAccountCheck()
+    await settle { launching.username == "me" }
+    equal(launching.username, "me", "the round trip only confirms what was already on screen")
+
+    // A refused token is the one answer that brings the form back, and it says so.
+    let refused = StoredAccountGateway(answer: .failure(.unauthorized))
+    let expiring = ConnectionStore(makeAPI: { _ in refused }, makeChannel: { _ in refused })
+    _ = await expiring.restore(origin: "https://rc.example.com", username: "me")
+    expect(expiring.isSignedIn, "the shell is drawn while the stored token is being checked")
+    await refused.answerAccountCheck()
+    await settle { !expiring.isSignedIn }
+    expect(!expiring.isSignedIn, "a gateway that refuses the token sends the user back to the form")
+    equal(expiring.errorMessage, "Your session expired. Sign in again.", "which says why it asked")
+
     // MARK: - Sign out
 
     await model.signOut()
@@ -553,6 +610,62 @@ final class SlowSpeechInput: SpeechInputPlatform {
     func finish() {}
     func cancel() { onEvent = nil }
     func deliverFinal(_ text: String) { onEvent?(.transcript(text, isFinal: true)) }
+}
+
+/// A gateway that holds its `/api/session` answer until it is released, so the
+/// launch moment — the keychain has answered, the gateway has not — can be
+/// looked at rather than raced. Nothing else on it is exercised.
+actor StoredAccountGateway: GatewayAPI, GatewayChannel {
+    nonisolated let endpoint = GatewayEndpoint.placeholder
+    nonisolated let events: AsyncStream<GatewayEvent>
+
+    private let continuation: AsyncStream<GatewayEvent>.Continuation
+    private let answer: Result<SessionInfoResponse, TransportError>
+    private var waiting: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    init(answer: Result<SessionInfoResponse, TransportError>) {
+        self.answer = answer
+        let stream = AsyncStream<GatewayEvent>.makeStream()
+        events = stream.stream
+        continuation = stream.continuation
+    }
+
+    func session() async throws -> SessionInfoResponse {
+        if !released { await withCheckedContinuation { waiting = $0 } }
+        return try answer.get()
+    }
+
+    /// Let the held account check finish.
+    func answerAccountCheck() {
+        released = true
+        waiting?.resume()
+        waiting = nil
+    }
+
+    func connect() async { continuation.yield(.state(.connecting)) }
+    func disconnect() async { continuation.yield(.state(.disconnected)) }
+    @discardableResult
+    func request(_ request: GatewayRequest) async throws -> JSONValue { .object([:]) }
+
+    func login(password: String, username: String?) async throws -> LoginResponse {
+        throw TransportError.notConnected
+    }
+    func logout() async throws {}
+    func config() async throws -> GatewayConfig { throw TransportError.notConnected }
+    func devices() async throws -> [Device] { throw TransportError.notConnected }
+    func renameDevice(_ deviceID: String, name: String) async throws -> Device {
+        throw TransportError.notConnected
+    }
+    func revokeDevice(_ deviceID: String) async throws { throw TransportError.notConnected }
+    func beginPairing() async throws -> PairingGrant { throw TransportError.notConnected }
+    func cancelPairing(code: String) async throws {}
+    func sessions(deviceID: String?, archived: Bool?) async throws -> [Session] { [] }
+    func registerPush(_ registration: APNSRegistration) async throws {}
+    func unregisterPush(token: String) async throws {}
+    func restoreToken(username: String) async -> Bool { true }
+    func bearerToken() async -> String? { "stored" }
+    func forgetToken(username: String) async {}
 }
 
 /// A notification platform with no UserNotifications behind it.

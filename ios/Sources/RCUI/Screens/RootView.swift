@@ -20,6 +20,10 @@ public struct RootView: View {
                     .environment(model)
                     .disabled(model.isLocked)
                     .accessibilityHidden(model.isLocked)
+            } else if model.isResuming {
+                // The launch background and nothing else while the keychain is
+                // being read. The form is an answer, not a waiting room.
+                Color.clear.accessibilityHidden(true)
             } else {
                 LoginView()
                     .environment(model)
@@ -41,6 +45,9 @@ public struct RootView: View {
         }
         #endif
         .tint(Theme.accent)
+        // Every `Text` in the app resolves through this, so the interface
+        // language reaches every open screen the moment it is chosen.
+        .environment(\.locale, model.settings.language.locale)
         .pageBackground()
         .task { await model.restoreOrPrompt() }
         .onOpenURL { model.handle(url: $0) }
@@ -147,18 +154,19 @@ public struct ConnectionSummary: View {
     }
 
     private var text: String? {
-        if isDemo { return "Demo · nothing leaves this device" }
+        if isDemo { return L10n.string("Demo · nothing leaves this device") }
         switch phase {
         case .signedOut: return nil
-        case .connecting: return "Connecting"
-        case .syncing: return "Syncing"
+        case .connecting: return L10n.string("Connecting")
+        case .syncing: return L10n.string("Syncing")
         case .connected: return nil
-        case .reconnecting: return "Reconnecting"
-        case .expired: return "Your session expired. Sign in again."
-        case .forbidden: return "This gateway refused the connection."
-        case .superseded: return "Another app took over this connection."
+        case .reconnecting: return L10n.string("Reconnecting")
+        case .expired: return L10n.string("Your session expired. Sign in again.")
+        case .forbidden: return L10n.string("This gateway refused the connection.")
+        case .superseded: return L10n.string("Another app took over this connection.")
         case .incompatible(let version):
-            return "The gateway speaks protocol \(version); this app speaks \(RemoteProtocol.version). Update both."
+            return L10n.string("The gateway speaks protocol %lld; this app speaks %lld. Update both.",
+                               version, RemoteProtocol.version)
         }
     }
 }

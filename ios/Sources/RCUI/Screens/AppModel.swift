@@ -22,10 +22,18 @@ public final class AppModel {
     public var isLocked = false
     public var toast: String?
     public let push: PushController
+    /// Whether there is an account to come back to, from launch until the
+    /// keychain has answered. The root draws the page colour and nothing else
+    /// while it holds: a sign-in form that flashes for the length of a restore
+    /// on every launch reads as a broken app.
+    public private(set) var isResuming: Bool
 
     @ObservationIgnored private let drafts = DraftStore()
     @ObservationIgnored private let isUITesting: Bool
     @ObservationIgnored private var pendingLink: SessionLink?
+    /// The demo, when the launch arguments asked for one. `restoreOrPrompt`
+    /// waits on it rather than racing it, so nothing draws the form in between.
+    @ObservationIgnored private var launch: Task<Void, Never>?
 
     public init(connection: ConnectionStore = ConnectionStore(),
                 settings: SettingsStore = SettingsStore(),
@@ -38,10 +46,21 @@ public final class AppModel {
         if arguments.contains("--reset-state") {
             self.settings.remember(origin: "", username: "")
             self.settings.timelineDetail = .simple
+            self.settings.language = .en
             self.sessions.forgetListState()
         }
-        if arguments.contains("--demo") {
-            Task { await self.enterDemo() }
+        // After the reset, so a test can launch straight into the language it
+        // is about to read: `--reset-state --language=zh-Hans`.
+        if let argument = arguments.first(where: { $0.hasPrefix("--language=") }),
+           let language = InterfaceLanguage(rawValue: String(argument.dropFirst("--language=".count))) {
+            self.settings.language = language
+        }
+        let entersDemo = arguments.contains("--demo")
+        // The demo is an account like any other: the app is coming back to
+        // something, so the first frame belongs to the main screens.
+        isResuming = entersDemo || !self.settings.lastOrigin.isEmpty
+        if entersDemo {
+            launch = Task { await self.enterDemo() }
         }
     }
 
@@ -58,12 +77,17 @@ public final class AppModel {
         attachPush()
     }
 
+    /// Launch. Nothing is drawn over the launch background until this returns
+    /// one way or the other, so the form appears only where it is the answer.
     public func restoreOrPrompt() async {
+        await launch?.value
         guard !connection.isSignedIn, !settings.lastOrigin.isEmpty else {
+            isResuming = false
             attachPush()
             return
         }
         _ = await connection.restore(origin: settings.lastOrigin, username: settings.lastUsername)
+        isResuming = false
         attachPush()
         applyPendingLink()
     }

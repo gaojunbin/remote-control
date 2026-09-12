@@ -880,6 +880,45 @@ open, and the test then tapped it shut. `--reset-state` now also forgets the lis
 timeline detail level, which is what "start as a fresh install" has to mean if the suite is to be
 deterministic in any order.
 
+**Round 14 — the launch, the model card and the interface language** (iPhone 17 on iOS 27.0, the
+offline demo, 2026-09-13). `RemoteControlUITests` runs 29 tests, 4 skipped (the real-gateway smoke
+tests, which stay skipped without env) and 0 failures; `swift run RCVerify` 1015 checks,
+`swift run RCUIVerify` 153, `swift test` 184. Three rules landed and each is held by a test rather
+than by a picture. **Launch shows the app, never the sign-in form, when there is an account**:
+`ConnectionStore.restore` now adopts the endpoint and the user the moment the keychain answers and
+checks the token behind the screens it has already unlocked, so
+`testLaunchWithAnAccountNeverShowsTheSignInForm` asserts the gateway form does not exist at the
+instant the app is up and still does not exist once the list has painted
+(`42-launch-with-account.png`), while `testLaunchWithNothingStoredShowsTheSignInForm` holds the
+other half (`43-launch-without-account.png`). **The model card** replaces the model and effort chips
+with one chip that opens a card over the keyboard: `testModelCardCarriesModelEffortAndSpeed` reads
+the chip as "GPT-5.4 Codex Medium", opens the card, drags the effort slider one stop and watches the
+word follow the thumb, then taps the lightning and watches the tier become Fast (`44-model-card.png`,
+`45-model-card-fast.png`); the same card on a Claude session draws no lightning at all, because that
+agent lists no tier (`46-model-card-no-speed.png`). The session settings sheet gained a Speed picker
+after Model, Effort and Permissions, and the new-session sheet gained all four
+(`13-codex-settings.png`, `52-new-session-settings.png`); both tests assert the order by comparing
+the rows' vertical positions rather than by reading the source. The selection haptic on each slider
+stop is the one part nothing in XCTest can observe; it was read from the code and not measured.
+**The interface language** defaults to English on a phone set to Chinese
+(`testInterfaceLanguageDefaultsToEnglishOnAChinesePhone`, `47-default-english-on-chinese-phone.png`)
+and turns the whole app over when it is changed: `testChineseInterfaceIsUsedEverywhere` launches
+with the preference set and reads the sessions list, every Settings group header and the composer
+back in Chinese (`48-sessions-chinese.png`, `49-settings-chinese.png`,
+`50-settings-language-chinese.png`, `51-chat-chinese.png`), while the model card still reads
+"Sonnet 4.5 High", because the device's own labels are never translated.
+
+Two defects came out of that round rather than out of reading. A translation that reordered `%lld`
+and `%@` without numbering them crashed the app on the sessions list the first time a Chinese screen
+was drawn — `String(format:)` handed an integer to `%@` — and `Verification/LocalizationChecks.swift`
+now fails on any translation whose placeholders do not match the key's, in order or positionally.
+And Settings had two rows a screen apart both reading "Language", the dictation language and the
+interface language: the Voice one is now "Dictation language", the wording the composer and the
+session settings sheet already used, and the interface one is a segmented control under its own
+caption, so the word appears once. Adding a group also pushed Timeline below the fold, which is why
+`testSettingsSectionHeadersAreSentenceCase` now scrolls to each header instead of assuming they all
+fit on one screen.
+
 ## 3. Attached terminal sessions (A10) in the apps
 
 Amendment A10 landed after the run above. This section records what each app does with

@@ -24,8 +24,9 @@ struct DevicesView: View {
 
             if model.connection.devices.isEmpty {
                 EmptyStateView(symbol: "desktopcomputer",
-                               title: "No devices yet",
-                               message: "Run one command on the machine where your agents live. It dials out to the gateway; nothing is exposed on the host.")
+                               title: L10n.string("No devices yet"),
+                               message: L10n.string(
+                                "Run one command on the machine where your agents live. It dials out to the gateway; nothing is exposed on the host."))
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
@@ -66,7 +67,9 @@ struct DevicesView: View {
             Button("Cancel", role: .cancel) { revoking = nil }
             Button("Remove", role: .destructive) { Task { await revoke() } }
         } message: {
-            Text("\(revoking?.name ?? "This device") loses its access token and its sessions disappear from this gateway. Agent transcripts on the machine are untouched.")
+            Text(L10n.string(
+                "%@ loses its access token and its sessions disappear from this gateway. Agent transcripts on the machine are untouched.",
+                revoking?.name ?? L10n.string("This device")))
         }
     }
 

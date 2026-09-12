@@ -182,4 +182,7 @@ extension SessionEvent {
     public var todos: TodosPayload? {
         if case .todos(let payload) = body { payload } else { nil }
     }
+    public var meta: MetaPayload? {
+        if case .meta(let payload) = body { payload } else { nil }
+    }
 }

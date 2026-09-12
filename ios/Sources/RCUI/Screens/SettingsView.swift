@@ -41,7 +41,7 @@ struct SettingsView: View {
             } header: {
                 FieldLabel("Notifications")
             } footer: {
-                SettingsFooter("A notification says which device and session needs you, and nothing else. No prompt text, output or file contents leave the gateway.")
+                SettingsFooter(L10n.string("A notification says which device and session needs you, and nothing else. No prompt text, output or file contents leave the gateway."))
             }
 
             Section {
@@ -54,7 +54,10 @@ struct SettingsView: View {
                 .settingsRowLayout()
                 .accessibilityIdentifier("settings.voiceBackend")
                 .disabled(!model.connection.stt.enabled && settings.voiceBackend == .onDevice)
-                Picker("Language", selection: $settings.voiceLanguage) {
+                // Named for what it is: the interface language is a setting of
+                // its own two groups below, and two rows called "Language" on
+                // one screen is a riddle rather than a preference.
+                Picker("Dictation language", selection: $settings.voiceLanguage) {
                     Text("Automatic").tag("auto")
                     ForEach(languageCodes, id: \.self) { code in
                         Text(languageName(code)).tag(code)
@@ -66,6 +69,24 @@ struct SettingsView: View {
                 FieldLabel("Voice")
             } footer: {
                 SettingsFooter(voiceFooter)
+            }
+
+            Section {
+                Picker("Language", selection: $settings.language) {
+                    ForEach(InterfaceLanguage.allCases, id: \.self) { language in
+                        // Each name in its own script, so the one you want is
+                        // recognisable from inside the language you cannot read.
+                        Text(verbatim: language.title).tag(language)
+                    }
+                }
+                // Two options, both one word: the group's own caption names the
+                // setting, so a second "Language" on the row would say it twice.
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .settingsRowLayout()
+                .accessibilityIdentifier("settings.language")
+            } header: {
+                FieldLabel("Language")
             }
 
             Section {
@@ -91,7 +112,7 @@ struct SettingsView: View {
             } header: {
                 FieldLabel("App lock")
             } footer: {
-                SettingsFooter("Unlock with Face ID, Touch ID or your passcode when the app returns from the background.")
+                SettingsFooter(L10n.string("Unlock with Face ID, Touch ID or your passcode when the app returns from the background."))
             }
 
             Section {
@@ -135,7 +156,8 @@ struct SettingsView: View {
 
     private var voiceFooter: String {
         if model.settings.voiceBackend == .gateway && !model.connection.stt.enabled {
-            return "This gateway has no transcription service configured, so dictation falls back to on-device recognition."
+            return L10n.string(
+                "This gateway has no transcription service configured, so dictation falls back to on-device recognition.")
         }
         return model.settings.voiceBackend.explanation
     }
@@ -165,11 +187,11 @@ struct SettingsView: View {
 /// Label left, value right, one line each. The value is quiet: a settings
 /// screen is a list of labels, not a table of two columns.
 struct SettingsRow: View {
-    let label: String
+    let label: LocalizedStringKey
     let value: String
     var mono = false
 
-    init(_ label: String, value: String, mono: Bool = false) {
+    init(_ label: LocalizedStringKey, value: String, mono: Bool = false) {
         self.label = label
         self.value = value
         self.mono = mono

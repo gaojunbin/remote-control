@@ -41,14 +41,14 @@ extension SessionState {
     /// The words shown beside the dot.
     public var label: String {
         switch self {
-        case .starting: "starting"
-        case .running: "running"
-        case .needsApproval: "needs approval"
-        case .needsInput: "needs input"
-        case .error: "error"
-        case .stopped: "stopped"
-        case .readonly: "terminal"
-        case .idle: "done"
+        case .starting: L10n.string("starting")
+        case .running: L10n.string("running")
+        case .needsApproval: L10n.string("needs approval")
+        case .needsInput: L10n.string("needs input")
+        case .error: L10n.string("error")
+        case .stopped: L10n.string("stopped")
+        case .readonly: L10n.string("terminal")
+        case .idle: L10n.string("done")
         default: rawValue
         }
     }
@@ -57,7 +57,9 @@ extension SessionState {
 extension Session {
     /// What the session list and the chat header say beside the dot.
     /// Amendment A10: an attached session names the terminal that owns it.
-    public var statusLabel: String { isAttached ? "terminal · attached" : state.label }
+    public var statusLabel: String {
+        isAttached ? L10n.string("terminal · attached") : state.label
+    }
 }
 
 /// The black pill used for the one primary action on a screen.
@@ -112,15 +114,15 @@ public struct ChipButtonStyle: ButtonStyle {
 /// that would change what it says, and a control that does nothing when tapped
 /// is worse than one that was never offered. The 44 pt row keeps it aligned
 /// with the chips that are tappable.
-public struct StaticChip: View {
-    let text: String
+public struct StaticChip<Content: View>: View {
+    private let content: Content
 
-    public init(_ text: String) {
-        self.text = text
+    public init(@ViewBuilder content: () -> Content) {
+        self.content = content()
     }
 
     public var body: some View {
-        Text(text)
+        content
             .modifier(ChipPill())
             .frame(minHeight: Theme.Touch.minimum)
     }
@@ -176,22 +178,25 @@ public struct AgentChip: View {
 /// the view the `Section` is handed — turns that off for every call site at
 /// once. `docs/DESIGN.md` § "Surfaces, rows and controls": nothing is re-cased.
 public struct FieldLabel: View {
-    let text: String
+    // A key rather than a string: `Text(someString)` is verbatim, so a caption
+    // typed as a `String` would be the one word on the screen that never
+    // followed the interface language.
+    let key: LocalizedStringKey
     var trailing: AnyView?
 
-    public init(_ text: String) {
-        self.text = text
+    public init(_ key: LocalizedStringKey) {
+        self.key = key
         trailing = nil
     }
 
-    public init<Trailing: View>(_ text: String, @ViewBuilder trailing: () -> Trailing) {
-        self.text = text
+    public init<Trailing: View>(_ key: LocalizedStringKey, @ViewBuilder trailing: () -> Trailing) {
+        self.key = key
         self.trailing = AnyView(trailing())
     }
 
     public var body: some View {
         HStack {
-            Text(text)
+            Text(key)
                 .font(Theme.Text.meta)
                 .foregroundStyle(Theme.inkSecondary)
             Spacer(minLength: Theme.Space.small)

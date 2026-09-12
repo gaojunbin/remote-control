@@ -89,7 +89,7 @@ public actor STTSocket {
 
     private func giveUpWaiting() async {
         guard !receivedFinal else { return }
-        await fail("The gateway did not return a transcript.")
+        await fail(L10n.string("The gateway did not return a transcript."))
     }
 
     /// Discard the utterance. The gateway drops the audio and closes.
@@ -136,8 +136,8 @@ public actor STTSocket {
                 // A close without a final is the end of the utterance: whatever
                 // the last partial produced is what the user gets.
                 await fail(finished
-                    ? "The transcript did not finish. What was recognised is in your draft."
-                    : "The transcription connection dropped.")
+                    ? L10n.string("The transcript did not finish. What was recognised is in your draft.")
+                    : L10n.string("The transcription connection dropped."))
                 return
             }
         }

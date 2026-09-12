@@ -496,17 +496,31 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         // session, unless amendment A11's `shared_settings` says the
         // attachment retunes the live thread.
         let existing = try session(id)
+        let speed = request.body["speed"]
         let retunes = request.body["model"] != nil || request.body["permission_mode"] != nil
-            || request.body["effort"] != nil
+            || request.body["effort"] != nil || speed != nil
         if existing.isAttached, retunes, agent(for: existing)?.sharedSettings != true {
             throw GatewayErrorBody(code: .unsupported, message: "Change it in the terminal.")
+        }
+        // Amendment A21: an agent with no faster tier has nothing to set.
+        if speed != nil, agent(for: existing)?.speeds.isEmpty != false {
+            throw GatewayErrorBody(code: .unsupported, message: "This model has no faster tier.")
         }
         update(sessionID: id) { session in
             if let model = request.body["model"]?.stringValue { session.model = model }
             if let mode = request.body["permission_mode"]?.stringValue { session.permissionMode = mode }
             if let effort = request.body["effort"]?.stringValue { session.effort = effort }
+            if let speed { session.speed = speed.stringValue }
             if let title = request.body["title"]?.stringValue { session.title = title }
         }
+        // A real device reports what it applied rather than leaving the app to
+        // trust its own optimism, so the demo publishes the same `meta` (5.11).
+        emit(sessionID: id, body: .meta(MetaPayload(
+            title: request.body["title"]?.stringValue,
+            model: request.body["model"]?.stringValue,
+            permissionMode: request.body["permission_mode"]?.stringValue,
+            effort: request.body["effort"]?.stringValue,
+            speed: speed.map { SpeedChange(id: $0.stringValue) })))
         return try JSONValue.encode(SessionResult(session: try session(id)))
     }
 
@@ -539,6 +553,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             model: request.body["model"]?.stringValue,
             permissionMode: request.body["permission_mode"]?.stringValue,
             effort: request.body["effort"]?.stringValue,
+            speed: request.body["speed"]?.stringValue,
             createdAt: DemoFixtures.now, updatedAt: DemoFixtures.now)
         sessionList.insert(session, at: 0)
         transcripts[session.sessionID] = []

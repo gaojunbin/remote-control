@@ -19,7 +19,7 @@ struct ApprovalCard: View {
         VStack(alignment: .leading, spacing: Theme.Space.small) {
             HStack(spacing: Theme.Space.tight) {
                 Image(systemName: "hand.raised").font(.footnote)
-                Text(payload.status.isActionable ? "Approval needed" : statusText)
+                Text(payload.status.isActionable ? L10n.string("Approval needed") : statusText)
                     .font(.footnote.weight(.medium))
                     .accessibilityIdentifier("chat.approval")
                 Spacer()
@@ -92,21 +92,21 @@ struct ApprovalCard: View {
     }
 
     private var statusText: String {
-        payload.status == .expired ? "This request expired" : "Answered"
+        L10n.string(payload.status == .expired ? "This request expired" : "Answered")
     }
 
     /// Amendment A11: a request the device did not answer resolves with an
     /// option id it was never offered, so the line is the source alone.
     private func resolution(_ decision: ApprovalDecision) -> Text {
         guard let chosen = payload.resolvedOptionLabel else { return source(decision.by) }
-        return Text("\(chosen) · ") + source(decision.by)
+        return Text(verbatim: "\(chosen) · ") + source(decision.by)
     }
 
     private func source(_ by: EventSource) -> Text {
         switch by {
-        case .terminal: Text("answered in the terminal")
-        case .policy: Text("answered by a rule")
-        default: Text("answered here")
+        case .terminal: Text(L10n.string("answered in the terminal"))
+        case .policy: Text(L10n.string("answered by a rule"))
+        default: Text(L10n.string("answered here"))
         }
     }
 
@@ -141,7 +141,7 @@ struct QuestionCard: View {
         VStack(alignment: .leading, spacing: Theme.Space.medium) {
             HStack(spacing: Theme.Space.tight) {
                 Image(systemName: "questionmark.circle").font(.footnote)
-                Text(payload.status.isActionable ? "The agent has a question" : "Answered")
+                Text(L10n.string(payload.status.isActionable ? "The agent has a question" : "Answered"))
                     .font(.footnote.weight(.medium))
                     .accessibilityIdentifier("chat.question")
                 Spacer()
@@ -212,8 +212,8 @@ struct QuestionCard: View {
     /// same fact — somebody else got there first.
     private func source(_ by: EventSource) -> Text {
         switch by {
-        case .terminal: Text("answered in the terminal")
-        default: Text("answered here")
+        case .terminal: Text(L10n.string("answered in the terminal"))
+        default: Text(L10n.string("answered here"))
         }
     }
 

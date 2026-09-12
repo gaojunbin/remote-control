@@ -23,21 +23,23 @@ enum StoreChecks {
         await readingPosition(checks)
         timelineDetail(checks)
         terminalSettings(checks)
+        await speedTier(checks)
         return checks.result()
     }
 
-    /// Amendment A17: a session a terminal holds shows the model, the
-    /// permission mode and the effort the device read from the transcript,
-    /// where the pickers would be. Nothing here can change them, so the store
-    /// offers text rather than an action, and a `meta` moves it.
+    /// Amendment A17: a session a terminal holds shows what the device read from
+    /// the transcript where the live controls would be. Nothing here can change
+    /// them, so the store offers text rather than an action, and a `meta` moves
+    /// it. Amendment A21: model, effort and speed are one control, so they are
+    /// one chip, and the tier rides on it.
     @MainActor
     private static func terminalSettings(_ checks: CheckRunner) {
         func store(control: SessionControl, agent: AgentInfo? = DemoFixtures.claude,
                    model: String? = "claude-sonnet-4-5", permissionMode: String? = "auto",
-                   effort: String? = "high") -> ChatStore {
+                   effort: String? = "high", speed: String? = nil) -> ChatStore {
             let session = Session(sessionID: "s", deviceID: "d", agent: "claude", title: "T",
                                   cwd: "/tmp", state: .idle, control: control, model: model,
-                                  permissionMode: permissionMode, effort: effort)
+                                  permissionMode: permissionMode, effort: effort, speed: speed)
             let chat = ChatStore(session: session, channel: ScriptedChannel())
             chat.agent = agent
             return chat
@@ -46,16 +48,16 @@ enum StoreChecks {
 
         let terminal = store(control: .terminal)
         checks.expect(terminal.isTunedByTerminal, "a terminal session is tuned where the app cannot reach")
-        checks.expect(!terminal.allowsSettingsChanges, "so the pickers are not offered")
-        checks.equal(terminal.terminalSettings.map(\.id), ["model", "permissionMode", "effort"],
-                     "and the three values stand in the order the pickers stand in")
-        checks.equal(shown(terminal), ["Sonnet 4.5", "auto", "High"],
+        checks.expect(!terminal.allowsSettingsChanges, "so the controls are not offered")
+        checks.equal(terminal.terminalSettings.map(\.id), ["modelCard", "permissionMode"],
+                     "and the values stand in the order the live controls stand in")
+        checks.equal(shown(terminal), ["Sonnet 4.5 High", "auto"],
                      "labelled by the agent's own lists, and by the raw id where they do not know it")
 
-        checks.equal(shown(store(control: .shared)), ["Sonnet 4.5", "auto", "High"],
-                     "a Claude channel cannot retune the thread either, so it shows the same three")
+        checks.equal(shown(store(control: .shared)), ["Sonnet 4.5 High", "auto"],
+                     "a Claude channel cannot retune the thread either, so it shows the same two")
         checks.expect(store(control: .shared, agent: DemoFixtures.codex).terminalSettings.isEmpty,
-                      "an attachment that carries settings keeps its pickers and shows nothing")
+                      "an attachment that carries settings keeps its controls and shows nothing")
         checks.expect(store(control: .remote).terminalSettings.isEmpty,
                       "and a session this app drives shows nothing")
 
@@ -64,8 +66,20 @@ enum StoreChecks {
         checks.expect(store(control: .terminal, model: nil, permissionMode: nil, effort: nil)
                         .terminalSettings.isEmpty,
                       "and a session it knows nothing about draws no chips")
-        checks.equal(shown(store(control: .terminal, agent: nil)), ["claude-sonnet-4-5", "auto", "high"],
+        checks.equal(shown(store(control: .terminal, agent: nil)), ["claude-sonnet-4-5 high", "auto"],
                      "an agent this build never heard of shows every id verbatim")
+
+        // Amendment A21: a terminal-held Codex thread reports its tier like
+        // anything else, and the one chip carries it.
+        let fast = store(control: .terminal, agent: DemoFixtures.codex,
+                         model: "gpt-5.4-codex", permissionMode: "on-request",
+                         effort: "high", speed: "priority")
+        checks.equal(fast.terminalSettings.first?.speed, "Fast",
+                     "a tier the terminal turned on rides on the one chip")
+        checks.equal(fast.terminalSettings.first?.spokenValue, "GPT-5.4 Codex High, Fast",
+                     "and is spelled out for assistive technology, which cannot see the glyph")
+        checks.equal(store(control: .terminal, agent: DemoFixtures.codex).terminalSettings.first?.speed,
+                     nil, "the standard speed adds nothing to it")
 
         // The terminal switches model mid-session. The device publishes it as
         // `meta`; the chip follows without a reload and without a `session.set`.
@@ -74,7 +88,59 @@ enum StoreChecks {
                                 body: .meta(MetaPayload(model: "claude-opus-4-1")))
         live.receive(.sessionEvent(sessionID: "s", deviceID: "d", event: meta))
         checks.equal(live.session.model, "claude-opus-4-1", "a meta with a model reaches the session")
-        checks.equal(shown(live), ["Opus 4.1", "auto", "High"], "and the chip says what the terminal chose")
+        checks.equal(shown(live), ["Opus 4.1 High", "auto"], "and the chip says what the terminal chose")
+    }
+
+    /// Amendment A21: a speed tier beside the model and the effort. One control
+    /// cycles standard through every tier the agent lists and back, `session.set`
+    /// carries a null to put it back, and a `meta` moves it either way.
+    @MainActor
+    private static func speedTier(_ checks: CheckRunner) async {
+        func store(agent: AgentInfo?, speed: String? = nil) -> (ChatStore, ScriptedChannel) {
+            let session = Session(sessionID: "s", deviceID: "d", agent: agent?.agent ?? "codex",
+                                  title: "T", cwd: "/tmp", state: .idle, control: .remote,
+                                  model: agent?.defaultModel, effort: agent?.defaultEffort,
+                                  speed: speed)
+            let channel = ScriptedChannel()
+            let chat = ChatStore(session: session, channel: channel)
+            chat.agent = agent
+            return (chat, channel)
+        }
+
+        let (claude, _) = store(agent: DemoFixtures.claude)
+        checks.equal(claude.nextSpeed, nil, "an agent with no tier offers no speed control at all")
+
+        let (standard, channel) = store(agent: DemoFixtures.codex)
+        checks.equal(standard.nextSpeed, SpeedChange.tier("priority"),
+                     "the first tap on a standard session raises the first tier")
+        await standard.set(speed: .tier("priority"))
+        checks.equal(channel.requests(ofType: "session.set").first?.json["speed"],
+                     JSONValue.string("priority"), "and sends the tier id the agent named")
+
+        let (fast, back) = store(agent: DemoFixtures.codex, speed: "priority")
+        checks.equal(fast.nextSpeed, SpeedChange.standard,
+                     "the tap after the last tier goes back to the standard speed")
+        await fast.set(speed: .standard)
+        checks.equal(back.requests(ofType: "session.set").first?.json["speed"], JSONValue.null,
+                     "which is a null on the wire, not an absent key")
+
+        // A tier the agent has since stopped offering still cycles forwards.
+        let (stale, _) = store(agent: DemoFixtures.codex, speed: "turbo")
+        checks.equal(stale.nextSpeed, SpeedChange.tier("priority"),
+                     "an id the agent no longer lists starts the cycle again")
+
+        // The terminal types `/fast`, then types it again. Both reach the app
+        // through `meta`, and the second one has to clear what the first set.
+        let (live, _) = store(agent: DemoFixtures.codex)
+        func meta(_ seq: Int, _ speed: SpeedChange) -> AppFrame {
+            .sessionEvent(sessionID: "s", deviceID: "d",
+                          event: SessionEvent(seq: seq, ts: Int64(seq), kind: SessionEvent.metaKind,
+                                              body: .meta(MetaPayload(speed: speed))))
+        }
+        live.receive(meta(1, .tier("priority")))
+        checks.equal(live.session.speed, "priority", "a meta raises the tier")
+        live.receive(meta(2, .standard))
+        checks.equal(live.session.speed, nil, "and a meta with a null puts it back")
     }
 
     /// The two levels of detail in `docs/DESIGN.md`. Simple draws only what is

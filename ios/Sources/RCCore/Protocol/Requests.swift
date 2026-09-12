@@ -39,9 +39,9 @@ public enum AttachmentError: Error, Equatable, Sendable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .tooMany(let limit): "Attach at most \(limit) files to one message."
-        case .tooLarge(let name): "\(name) is larger than 6 MB. Attach a smaller file."
-        case .textTooLong: "That message is longer than 64 KB. Shorten it or attach a file."
+        case .tooMany(let limit): L10n.string("Attach at most %lld files to one message.", limit)
+        case .tooLarge(let name): L10n.string("%@ is larger than 6 MB. Attach a smaller file.", name)
+        case .textTooLong: L10n.string("That message is longer than 64 KB. Shorten it or attach a file.")
         }
     }
 }
@@ -74,6 +74,37 @@ public struct GatewayRequest: Sendable, Hashable {
     public func encoded() throws -> Data { try JSONEncoder().encode(json) }
 }
 
+/// Amendment A21: what a request asks of a session's speed. An optional cannot
+/// say it, because "leave the tier alone" and "put it back to standard" are
+/// different requests and the second one is `speed: null` on the wire.
+public enum SpeedChange: Codable, Sendable, Hashable {
+    case tier(String)
+    case standard
+
+    /// The tier id, or nil for the standard speed.
+    public init(id: String?) { self = id.map(SpeedChange.tier) ?? .standard }
+
+    public var id: String? {
+        if case .tier(let value) = self { return value }
+        return nil
+    }
+
+    var json: JSONValue { id.map(JSONValue.string) ?? .null }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = container.decodeNil() ? .standard : .tier(try container.decode(String.self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .tier(let id): try container.encode(id)
+        case .standard: try container.encodeNil()
+        }
+    }
+}
+
 extension GatewayRequest {
     public static func pong() -> GatewayRequest {
         GatewayRequest(type: "pong", expectsReply: false)
@@ -91,7 +122,8 @@ extension GatewayRequest {
 
     public static func createSession(deviceID: String, agent: String, cwd: String,
                                      model: String? = nil, permissionMode: String? = nil,
-                                     effort: String? = nil, worktree: Bool? = nil,
+                                     effort: String? = nil, speed: SpeedChange? = nil,
+                                     worktree: Bool? = nil,
                                      firstMessage: String? = nil, title: String? = nil) -> GatewayRequest {
         var body: [String: JSONValue] = [
             "device_id": .string(deviceID), "agent": .string(agent), "cwd": .string(cwd)
@@ -99,6 +131,7 @@ extension GatewayRequest {
         if let model { body["model"] = .string(model) }
         if let permissionMode { body["permission_mode"] = .string(permissionMode) }
         if let effort { body["effort"] = .string(effort) }
+        if let speed { body["speed"] = speed.json }
         if let worktree { body["worktree"] = .bool(worktree) }
         if let firstMessage, !firstMessage.isEmpty { body["first_message"] = .string(firstMessage) }
         if let title, !title.isEmpty { body["title"] = .string(title) }
@@ -145,11 +178,13 @@ extension GatewayRequest {
     }
 
     public static func set(sessionID: String, model: String? = nil, permissionMode: String? = nil,
-                           effort: String? = nil, title: String? = nil) -> GatewayRequest {
+                           effort: String? = nil, speed: SpeedChange? = nil,
+                           title: String? = nil) -> GatewayRequest {
         var body: [String: JSONValue] = ["session_id": .string(sessionID)]
         if let model { body["model"] = .string(model) }
         if let permissionMode { body["permission_mode"] = .string(permissionMode) }
         if let effort { body["effort"] = .string(effort) }
+        if let speed { body["speed"] = speed.json }
         if let title { body["title"] = .string(title) }
         return GatewayRequest(type: "session.set", body: body)
     }

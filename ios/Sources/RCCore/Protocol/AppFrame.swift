@@ -196,9 +196,11 @@ public enum ProtocolFailure: Error, Equatable, Sendable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .malformed(let detail): "The gateway sent a frame this app could not read (\(detail))."
+        case .malformed(let detail):
+            L10n.string("The gateway sent a frame this app could not read (%@).", detail)
         case .unsupportedVersion(let version):
-            "This app speaks protocol \(RemoteProtocol.version); the gateway speaks \(version). Update both sides."
+            L10n.string("This app speaks protocol %lld; the gateway speaks %lld. Update both sides.",
+                        RemoteProtocol.version, version)
         }
     }
 }

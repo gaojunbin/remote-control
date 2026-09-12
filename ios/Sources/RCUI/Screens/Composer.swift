@@ -165,7 +165,7 @@ struct Composer: View {
         .disabled(!chat.canSend)
         .opacity(chat.canSend ? 1 : 0.4)
         .contextMenu { sendMenu }
-        .accessibilityLabel(chat.pendingQuestion != nil ? "Answer" : "Send")
+        .accessibilityLabel(L10n.string(chat.pendingQuestion != nil ? "Answer" : "Send"))
         .accessibilityIdentifier("composer.send")
     }
 
@@ -222,14 +222,10 @@ struct Composer: View {
         ScrollView(.horizontal) {
             HStack(spacing: Theme.Space.tight) {
                 if chat.allowsSettingsChanges {
-                    settingsChip(agent?.modelLabel(chat.session.model) ?? chat.session.agent,
-                                 identifier: "composer.model")
-                    settingsChip(agent?.permissionModeLabel(chat.session.permissionMode) ?? "Permissions",
+                    ModelCardChip(chat: chat, agent: agent)
+                    settingsChip(agent?.permissionModeLabel(chat.session.permissionMode)
+                                 ?? L10n.string("Permissions"),
                                  identifier: "composer.permissions")
-                    if agent?.supports(.effort) == true, let efforts = agent?.efforts, !efforts.isEmpty {
-                        settingsChip(agent?.effortLabel(chat.session.effort) ?? "Effort",
-                                     identifier: "composer.effort")
-                    }
                 } else {
                     ForEach(chat.terminalSettings) { setting in terminalChip(setting) }
                 }
@@ -243,7 +239,7 @@ struct Composer: View {
                     }
                 } label: {
                     Text(model.settings.voiceLanguage == "auto"
-                         ? "Auto" : languageName(model.settings.voiceLanguage))
+                         ? L10n.string("Auto") : languageName(model.settings.voiceLanguage))
                 }
                 .menuStyle(.button)
                 .buttonStyle(ChipButtonStyle())
@@ -281,14 +277,15 @@ struct Composer: View {
             .accessibilityIdentifier(identifier)
     }
 
-    /// Amendment A17: what the terminal chose, where its picker would have
-    /// been. It reads as "Model, Sonnet 4.5, set in the terminal" rather than
-    /// as a control, so nobody reaches for something that cannot move.
+    /// Amendment A17: what the terminal chose, where its control would have
+    /// been. It reads as "Model, Sonnet 4.5 High, set in the terminal" rather
+    /// than as a control, so nobody reaches for something that cannot move.
+    /// Amendment A21: the tier it is running at rides on the same chip.
     private func terminalChip(_ setting: TerminalSetting) -> some View {
-        StaticChip(setting.text)
+        StaticChip { ModelCardLabel(text: setting.text, isFast: setting.speed != nil) }
             .accessibilityElement()
             .accessibilityLabel(setting.field.label)
-            .accessibilityValue(setting.text)
+            .accessibilityValue(setting.spokenValue)
             .accessibilityHint("Set in the terminal")
             .accessibilityIdentifier("composer.readonly.\(setting.field.rawValue)")
     }
@@ -336,12 +333,13 @@ struct Composer: View {
         if let reason = chat.sendBlockReason { return reason }
         // Amendment A20: the field is the free-text answer while a question is
         // open, and nothing typed here is queued behind it.
-        if chat.pendingQuestion != nil { return "Your answer" }
-        guard chat.isRunning else { return "Message" }
+        if chat.pendingQuestion != nil { return L10n.string("Your answer") }
+        guard chat.isRunning else { return L10n.string("Message") }
         // An agent that steers joins the running turn, whoever started it, so
         // it never says the message is waiting for anything.
-        if chat.steersRunningTurn { return "Message · will steer the turn" }
-        return chat.isAttached ? "Message · sent when the terminal is idle" : "Message · will be queued"
+        if chat.steersRunningTurn { return L10n.string("Message · will steer the turn") }
+        return L10n.string(chat.isAttached ? "Message · sent when the terminal is idle"
+                                           : "Message · will be queued")
     }
 
     private func send(mode: SendMode) {
@@ -409,7 +407,8 @@ struct Composer: View {
         do {
             add(data: try PhotoPreparation.jpeg(from: data), name: name, mime: "image/jpeg")
         } catch {
-            attachmentError = (error as? LocalizedError)?.errorDescription ?? "That image could not be attached."
+            attachmentError = (error as? LocalizedError)?.errorDescription
+                ?? L10n.string("That image could not be attached.")
         }
     }
 
@@ -422,7 +421,7 @@ struct Composer: View {
             // and could be jetsammed before the guard below ever ran.
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             guard size <= RequestLimits.maxAttachmentBytes else {
-                attachmentError = "\(url.lastPathComponent) is larger than 6 MB."
+                attachmentError = L10n.string("%@ is larger than 6 MB.", url.lastPathComponent)
                 continue
             }
             guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { continue }
@@ -434,11 +433,12 @@ struct Composer: View {
     /// The limits are checked here so a rejected message never costs a draft.
     private func add(data: Data, name: String, mime: String) {
         guard attachments.count < RequestLimits.maxAttachments else {
-            attachmentError = "You can attach at most \(RequestLimits.maxAttachments) files to one message."
+            attachmentError = L10n.string("You can attach at most %lld files to one message.",
+                                          RequestLimits.maxAttachments)
             return
         }
         guard data.count <= RequestLimits.maxAttachmentBytes else {
-            attachmentError = "\(name) is larger than 6 MB."
+            attachmentError = L10n.string("%@ is larger than 6 MB.", name)
             return
         }
         attachmentError = nil
@@ -485,6 +485,14 @@ struct SessionSettingsSheet: View {
                         .accessibilityIdentifier("session.model")
                     } header: { FieldLabel("Model") }
                 }
+                if let agent, agent.supports(.effort), !agent.efforts.isEmpty {
+                    Section {
+                        Picker("Effort", selection: effortBinding) {
+                            ForEach(agent.efforts) { option in Text(option.label).tag(option.id) }
+                        }
+                        .accessibilityIdentifier("session.effort")
+                    } header: { FieldLabel("Effort") }
+                }
                 if let agent, !agent.permissionModes.isEmpty {
                     Section {
                         Picker("Permissions", selection: permissionBinding) {
@@ -493,12 +501,11 @@ struct SessionSettingsSheet: View {
                         .accessibilityIdentifier("session.permissions")
                     } header: { FieldLabel("Permissions") }
                 }
-                if let agent, agent.supports(.effort), !agent.efforts.isEmpty {
+                if let agent, !agent.speeds.isEmpty {
                     Section {
-                        Picker("Effort", selection: effortBinding) {
-                            ForEach(agent.efforts) { option in Text(option.label).tag(option.id) }
-                        }
-                    } header: { FieldLabel("Effort") }
+                        SpeedPicker(speeds: agent.speeds, selection: speedBinding)
+                            .accessibilityIdentifier("session.speed")
+                    } header: { FieldLabel("Speed") }
                 }
                 Section {
                     Picker("Dictation language", selection: $settings.voiceLanguage) {
@@ -544,6 +551,25 @@ struct SessionSettingsSheet: View {
     private var effortBinding: Binding<String> {
         Binding(get: { chat.session.effort ?? agent?.defaultEffort ?? "" },
                 set: { value in Task { await chat.set(effort: value) } })
+    }
+
+    private var speedBinding: Binding<SpeedChange> {
+        Binding(get: { SpeedChange(id: chat.session.speed) },
+                set: { value in Task { await chat.set(speed: value) } })
+    }
+}
+
+/// Amendment A21: the standard speed and every tier the agent lists, as one
+/// list picker. Forms use it; the composer's card uses the lightning toggle.
+struct SpeedPicker: View {
+    let speeds: [AgentOption]
+    @Binding var selection: SpeedChange
+
+    var body: some View {
+        Picker("Speed", selection: $selection) {
+            Text("Standard").tag(SpeedChange.standard)
+            ForEach(speeds) { option in Text(option.label).tag(SpeedChange.tier(option.id)) }
+        }
     }
 }
 

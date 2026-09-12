@@ -75,7 +75,8 @@ public struct PatchView: View {
                 .fixedSize(horizontal: true, vertical: false)
             }
             if lines.count > foldedLineLimit {
-                Button(expanded ? "Show less" : "Show all \(lines.count) lines") { expanded.toggle() }
+                Button(expanded ? L10n.string("Show less")
+                                : L10n.string("Show all %lld lines", lines.count)) { expanded.toggle() }
                     .font(.footnote)
                     .buttonStyle(.plain)
                     .foregroundStyle(Theme.inkSecondary)
@@ -128,7 +129,8 @@ public struct OutputBlock: View {
             }
             HStack(spacing: Theme.Space.medium) {
                 if lines.count > foldedLineLimit {
-                    Button(expanded ? "Fold" : "Show all \(lines.count) lines") { expanded.toggle() }
+                    Button(expanded ? L10n.string("Fold")
+                                    : L10n.string("Show all %lld lines", lines.count)) { expanded.toggle() }
                 }
                 if isTruncated, let onOpenFull {
                     Button("Open full output", action: onOpenFull)

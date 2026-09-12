@@ -10,15 +10,17 @@ public enum VoiceBackend: String, Sendable, Codable, CaseIterable {
 
     public var title: String {
         switch self {
-        case .onDevice: "On this iPhone"
-        case .gateway: "Gateway"
+        case .onDevice: L10n.string("On this iPhone")
+        case .gateway: L10n.string("Gateway")
         }
     }
 
     public var explanation: String {
         switch self {
-        case .onDevice: "Audio stays on this device. Needs an on-device model for the language you pick."
-        case .gateway: "Audio is streamed to your gateway for transcription."
+        case .onDevice:
+            L10n.string("Audio stays on this device. Needs an on-device model for the language you pick.")
+        case .gateway:
+            L10n.string("Audio is streamed to your gateway for transcription.")
         }
     }
 }
@@ -34,15 +36,15 @@ public enum TimelineDetail: String, Sendable, Codable, CaseIterable {
 
     public var title: String {
         switch self {
-        case .simple: "Simple"
-        case .detailed: "Detailed"
+        case .simple: L10n.string("Simple")
+        case .detailed: L10n.string("Detailed")
         }
     }
 
     public var explanation: String {
         switch self {
-        case .simple: "Simple shows only what is written to you."
-        case .detailed: "Detailed adds thinking, tool calls and the task list."
+        case .simple: L10n.string("Simple shows only what is written to you.")
+        case .detailed: L10n.string("Detailed adds thinking, tool calls and the task list.")
         }
     }
 
@@ -66,6 +68,7 @@ public final class SettingsStore {
         static let voiceBackend = "preference.voiceBackend"
         static let voiceLanguage = "preference.voiceLanguage"
         static let timelineDetail = "preference.timelineDetail"
+        static let language = "preference.language"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -82,6 +85,15 @@ public final class SettingsStore {
     public var timelineDetail: TimelineDetail {
         didSet { defaults.set(timelineDetail.rawValue, forKey: Key.timelineDetail) }
     }
+    /// Which language the app writes its own words in. Changing it moves the
+    /// table every string outside a `Text` is looked up in, so the whole app
+    /// follows the next time it draws, which is at once.
+    public var language: InterfaceLanguage {
+        didSet {
+            defaults.set(language.rawValue, forKey: Key.language)
+            L10n.use(language)
+        }
+    }
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -92,6 +104,10 @@ public final class SettingsStore {
         voiceBackend = VoiceBackend(rawValue: defaults.string(forKey: Key.voiceBackend) ?? "") ?? .onDevice
         voiceLanguage = defaults.string(forKey: Key.voiceLanguage) ?? "auto"
         timelineDetail = TimelineDetail(rawValue: defaults.string(forKey: Key.timelineDetail) ?? "") ?? .simple
+        // English whatever the phone is set to: the default is the product's
+        // own language and not a guess from `Locale.preferredLanguages`.
+        language = InterfaceLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .en
+        L10n.use(language)
     }
 
     /// The locale handed to `SFSpeechRecognizer`, resolved from the preference.
@@ -136,6 +152,7 @@ public final class SettingsStore {
         Gateway transcription: \(sttEnabled ? "available" : "unavailable")
         Voice backend: \(voiceBackend.rawValue)
         Timeline detail: \(timelineDetail.rawValue)
+        Interface language: \(language.rawValue)
         Notifications: \(notificationsEnabled ? "on" : "off")
         App lock: \(appLockEnabled ? "on" : "off")
 

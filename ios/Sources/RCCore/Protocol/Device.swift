@@ -24,6 +24,10 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
     public let defaultPermissionMode: String?
     public let efforts: [AgentOption]
     public let defaultEffort: String?
+    /// Amendment A21: the tiers this agent can run a session at beyond its
+    /// standard speed, such as Codex's `priority`. Empty when it has none, and
+    /// an agent with an empty list draws no speed control at all.
+    public let speeds: [AgentOption]
     public let capabilities: [AgentCapability]
     /// Amendment A10: how this agent's terminal sessions can be attached, or
     /// nil when they can only be taken over or resumed.
@@ -64,11 +68,17 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
         return efforts.first { $0.id == id }?.label ?? id
     }
 
+    /// The label for a tier, or nil for the standard speed.
+    public func speedLabel(_ id: String?) -> String? {
+        guard let id else { return nil }
+        return speeds.first { $0.id == id }?.label ?? id
+    }
+
     public init(agent: String, available: Bool, version: String? = nil, path: String? = nil,
                 models: [AgentOption] = [], defaultModel: String? = nil,
                 permissionModes: [AgentOption] = [], defaultPermissionMode: String? = nil,
                 efforts: [AgentOption] = [], defaultEffort: String? = nil,
-                capabilities: [AgentCapability] = [],
+                speeds: [AgentOption] = [], capabilities: [AgentCapability] = [],
                 attach: AgentAttach? = nil, attachReady: Bool = false,
                 sharedInterrupt: Bool = false, sharedSettings: Bool = false,
                 sharedAttachments: Bool = false) {
@@ -82,6 +92,7 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
         self.defaultPermissionMode = defaultPermissionMode
         self.efforts = efforts
         self.defaultEffort = defaultEffort
+        self.speeds = speeds
         self.capabilities = capabilities
         self.attach = attach
         self.attachReady = attachReady
@@ -91,7 +102,7 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case agent, available, version, path, models, efforts, capabilities, attach
+        case agent, available, version, path, models, efforts, speeds, capabilities, attach
         case defaultModel = "default_model"
         case permissionModes = "permission_modes"
         case defaultPermissionMode = "default_permission_mode"
@@ -114,6 +125,7 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
         defaultPermissionMode = try values.decodeIfPresent(String.self, forKey: .defaultPermissionMode)
         efforts = try values.decodeIfPresent([AgentOption].self, forKey: .efforts) ?? []
         defaultEffort = try values.decodeIfPresent(String.self, forKey: .defaultEffort)
+        speeds = try values.decodeIfPresent([AgentOption].self, forKey: .speeds) ?? []
         capabilities = try values.decodeIfPresent([AgentCapability].self, forKey: .capabilities) ?? []
         attach = try values.decodeIfPresent(AgentAttach.self, forKey: .attach)
         attachReady = try values.decodeIfPresent(Bool.self, forKey: .attachReady) ?? false
