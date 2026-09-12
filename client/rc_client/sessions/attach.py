@@ -1,9 +1,11 @@
 """The daemon end of the channel: a Unix socket the `rc-client channel` bridges dial.
 
-A connection is either one attached CLI session, held open for as long as that
-session lives, or a single `session_start` frame from the hook Claude Code runs
-when a terminal enters a session. The socket lives inside the device home with
-owner-only permissions, because anything that can write to it can inject
+A connection is one of three things: an attached CLI session, held open for as
+long as that session lives; a single `session_start` frame from the hook Claude
+Code runs when a terminal enters a session; or a `question` frame from the hook
+it runs beside an `AskUserQuestion` dialog, which stays open until the question
+is answered somewhere (amendment A20). The socket lives inside the device home
+with owner-only permissions, because anything that can write to it can inject
 prompts into a live agent and approve its tool calls.
 """
 
@@ -38,6 +40,41 @@ class SessionStart:
     transcript_path: str
 
 
+@dataclass(slots=True)
+class HookQuestion:
+    """A question the CLI is asking in its own dialog, and the hook waiting on it.
+
+    The hook process holds this connection open for as long as Claude Code lets
+    it, so the daemon can answer at any point up to a day later. Answering once
+    is the whole contract: the reply closes the connection either way.
+    """
+
+    session_id: str
+    cwd: str
+    tool: str
+    input: dict[str, Any]
+    writer: asyncio.StreamWriter | None = field(default=None, repr=False)
+
+    async def answer(self, answers: dict[str, Any] | None) -> bool:
+        """Tell the hook what to print, `None` when it should print nothing."""
+        writer, self.writer = self.writer, None
+        if writer is None:
+            return False
+        try:
+            writer.write(wire.encode(wire.answers(answers)))
+            await writer.drain()
+        except (OSError, RuntimeError):
+            return False
+        finally:
+            writer.close()
+        return True
+
+    def close(self) -> None:
+        writer, self.writer = self.writer, None
+        if writer is not None:
+            writer.close()
+
+
 class AttachSink(Protocol):
     """What the hub has to provide for an attachment to be useful."""
 
@@ -50,6 +87,10 @@ class AttachSink(Protocol):
     async def attach_closed(self, attachment: Attachment) -> None: ...
 
     async def attach_session_started(self, start: SessionStart) -> None: ...
+
+    async def attach_question(self, question: HookQuestion) -> None: ...
+
+    async def attach_question_closed(self, question: HookQuestion) -> None: ...
 
 
 @dataclass(slots=True)
@@ -161,6 +202,9 @@ class AttachServer:
             if start is not None:
                 await self._sink.attach_session_started(start)
             return
+        if message.get("type") == wire.QUESTION:
+            await self._question(message, reader, writer)
+            return
         attachment = await self._register(message, writer)
         if attachment is None:
             return
@@ -177,6 +221,25 @@ class AttachServer:
         finally:
             attachment.detach()
             await self._sink.attach_closed(attachment)
+
+    async def _question(
+        self, message: dict[str, Any], reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        """Hold a question hook open until it is answered or its CLI gives up.
+
+        Reading to end-of-file is the only way to hear that Claude Code stopped
+        the hook, which is how the daemon learns that the question was answered
+        in the terminal or that the session is gone.
+        """
+        question = _hook_question(message, writer)
+        if question is None:
+            return
+        await self._sink.attach_question(question)
+        try:
+            await reader.read()
+        finally:
+            question.close()
+            await self._sink.attach_question_closed(question)
 
     @staticmethod
     async def _opening_frame(reader: asyncio.StreamReader) -> dict[str, Any] | None:
@@ -205,6 +268,21 @@ class AttachServer:
             claude_version=str(raw_version) if raw_version else None,
             writer=writer,
         )
+
+
+def _hook_question(message: dict[str, Any], writer: asyncio.StreamWriter) -> HookQuestion | None:
+    """Read a `question` frame, or None when it names no session or no question."""
+    session_id = str(message.get("session_id") or "")
+    tool_input = message.get("input")
+    if not _SESSION_ID.fullmatch(session_id) or not isinstance(tool_input, dict):
+        return None
+    return HookQuestion(
+        session_id=session_id,
+        cwd=str(message.get("cwd") or ""),
+        tool=str(message.get("tool") or ""),
+        input=tool_input,
+        writer=writer,
+    )
 
 
 def _session_start(message: dict[str, Any]) -> SessionStart | None:

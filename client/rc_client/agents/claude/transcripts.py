@@ -17,6 +17,7 @@ from ...diffs import from_tool_input
 from ...models import now_ms
 from ...tailing import FileTail
 from ..base import Emit
+from .questions import QUESTION_TOOL
 from .runtime import PROJECTS_DIR
 from .tools import todos_from_input, tool_kind, tool_title
 
@@ -32,6 +33,11 @@ CHANNEL_SERVER = "rc"
 _MESSAGE_ID_RE = re.compile(r'message_id="([^"]{1,64})"')
 CHANNEL_DELIVERED = "channel_delivered"
 CHANNEL_ABSORBED = "channel_absorbed"
+
+# Amendment A20: the result row of an `AskUserQuestion` is how the device hears
+# that the person answered the CLI's own dialog. `toolUseResult` carries what
+# they chose, under the question's own prompt.
+QUESTION_ANSWERED = "question_answered"
 
 # Claude Code names a session after its own reading of the conversation and
 # writes the result into the transcript as a row of its own. It may do so more
@@ -490,7 +496,19 @@ class TranscriptTailer:
             diff = from_tool_input(name, tool_input)
             if diff:
                 fields["diff"] = diff
-        return [Emit("tool_call", fields)]
+        emits = [Emit("tool_call", fields)]
+        if name == QUESTION_TOOL:
+            emits.append(Emit(QUESTION_ANSWERED, {"answers": _question_answers(row)}))
+        return emits
+
+
+def _question_answers(row: dict[str, Any]) -> dict[str, Any]:
+    """What an `AskUserQuestion` result says was chosen, keyed by the prompt."""
+    result = row.get("toolUseResult")
+    if not isinstance(result, dict):
+        return {}
+    answers = result.get("answers")
+    return answers if isinstance(answers, dict) else {}
 
 
 def _result_output(block: dict[str, Any], row: dict[str, Any]) -> str:

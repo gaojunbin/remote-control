@@ -65,9 +65,7 @@ private struct UserMessageRow: View {
                 }
                 .foregroundStyle(Theme.inkSecondary)
             }
-            if payload.delivery == .pending {
-                DeliveryChip(label: Text("waiting for the terminal"))
-            } else if payload.delivery == .absorbed {
+            if payload.delivery == .absorbed {
                 DeliveryChip(label: Text("will be re-sent"))
             } else if let pending {
                 // A word, not a spinner: the message is already on screen, and
@@ -118,7 +116,6 @@ private struct UserMessageRow: View {
     private var spokenLabel: Text {
         let said = Text("You said: \(payload.text)")
         switch payload.delivery {
-        case .some(.pending): return said + Text(", waiting for the terminal")
         case .some(.absorbed): return said + Text(", will be re-sent")
         default:
             guard let pending else { return said }
@@ -137,8 +134,8 @@ private struct UserMessageRow: View {
     }
 }
 
-/// Amendment A10: the small grey pill under a message the device is still
-/// holding for the terminal, or has to inject again.
+/// Amendment A10: the small grey pill under a message the CLI read as mid-turn
+/// data, which the device has to inject again.
 private struct DeliveryChip: View {
     let label: Text
 

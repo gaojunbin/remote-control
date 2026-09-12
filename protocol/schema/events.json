@@ -149,9 +149,8 @@
       ]
     },
     "Delivery": {
-      "description": "What happened to a user message injected into an attached CLI. Set only on sessions whose control is \"shared\".",
+      "description": "What happened to a user message injected into an attached CLI. Set only on sessions whose control is \"shared\". A held message is a queue entry, not a block, until it is injected (A19).",
       "enum": [
-        "pending",
         "delivered",
         "absorbed"
       ]
@@ -721,6 +720,13 @@
         },
         "answers": {
           "$ref": "#/$defs/Answers"
+        },
+        "by": {
+          "enum": [
+            "remote",
+            "terminal"
+          ],
+          "description": "Who answered a resolved question: an app through session.answer, or the person at the terminal (A20)."
         }
       },
       "required": [

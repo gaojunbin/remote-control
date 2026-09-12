@@ -541,30 +541,71 @@ enum StoreChecks {
         checks.expect(!chat.isReadOnly, "an attached session is not read-only")
         checks.expect(chat.isAttached, "and reports itself as attached")
         checks.expect(!chat.canTakeover, "takeover is never offered on an attached session")
-        checks.equal(chat.statusLine, nil,
-                     "an idle attached session prints nothing the header has not already said")
         checks.expect(!chat.allowsSettingsChanges,
                       "model, permission mode and effort belong to the terminal")
         checks.expect(!chat.allowsAttachments, "and attachments cannot reach a live CLI")
 
-        chat.draft = "also mention the iOS app in the notes"
-        await chat.send()
-        // The demo holds the message for a couple of seconds before injecting
-        // it, so these waits have to outlast that on a loaded machine.
-        await settle(timeout: 10) { chat.timeline.queue.count == 1 }
-        guard let held = chat.timeline.entries.last(where: { $0.userMessage?.delivery != nil }) else {
-            checks.expect(false, "the held message is in the transcript")
+        // Amendment A20: an earlier question the person at the terminal answered
+        // in their own dialog is in the transcript, saying so.
+        if let past = chat.timeline.entries.compactMap(\.question).first(where: { $0.by != nil }) {
+            checks.equal(past.by, .terminal, "a question answered in the terminal says where")
+            checks.expect(!past.status.isActionable, "and is no longer answerable from here")
+        } else {
+            checks.expect(false, "the attached session carries a question the terminal answered")
+        }
+
+        // Amendment A20: the attached CLI asks, the terminal shows its own
+        // dialog for the same question, and this app may answer it.
+        await settle(timeout: 10) { chat.pendingQuestion != nil }
+        guard let question = chat.pendingQuestion else {
+            checks.expect(false, "the attached session raises a question this app can answer")
             return
         }
-        checks.equal(held.userMessage?.delivery, .pending, "a held message says it is waiting")
-        checks.equal(chat.timeline.queue.count, 1, "and it is listed in the queue")
+        checks.expect(chat.allowsAnswers, "an attached session takes an answer")
+        checks.equal(chat.statusLine, "Waiting for your answer",
+                     "and the composer says what it is waiting for")
+        chat.draft = "Remote control for your terminal agents"
+        await chat.answerDraft()
+        await settle(timeout: 10) { chat.pendingQuestion == nil }
+        checks.equal(chat.draft, "", "the draft went with the answer")
+        checks.expect(chat.timeline.roots.allSatisfy { $0.pending == nil },
+                      "and nothing optimistic was drawn for it: an answer is not a message")
+        if let resolved = chat.timeline.entry(id: "q-shared")?.question {
+            checks.equal(resolved.by, .remote, "the resolved question says the answer came from here")
+            checks.equal(resolved.answers?["q1"], .text("Remote control for your terminal agents"),
+                         "carrying the draft as the free-text answer")
+        } else {
+            checks.expect(false, "the question block resolves in place")
+        }
+        checks.equal(question.requestID, "demo-question-shared", "under the id it was raised with")
+
+        await settle(timeout: 10) { chat.statusLine == nil }
+        checks.equal(chat.statusLine, nil,
+                     "an idle attached session prints nothing the header has not already said")
+
+        chat.draft = "also mention the iOS app in the notes"
+        await chat.send()
+        // Amendment A19: while the device holds the message it is a queue entry
+        // and nothing else — no bubble, optimistic or otherwise.
+        await settle(timeout: 10) { chat.timeline.queue.count == 1 }
+        checks.equal(chat.timeline.queue.count, 1, "a held message is listed in the queue")
+        checks.expect(chat.timeline.roots.allSatisfy { $0.pending == nil },
+                      "and the optimistic row moved into it rather than staying in the transcript")
+        checks.expect(!chat.timeline.entries.contains { $0.userMessage?.source == .remote },
+                      "the device published no block for a message it has not injected")
         checks.equal(chat.lastAcceptance, .queued,
                      "a held send is accepted with the ordinary queued acceptance")
 
-        await settle(timeout: 10) { chat.timeline.entry(id: held.id)?.userMessage?.delivery == .delivered }
-        checks.equal(chat.timeline.entry(id: held.id)?.userMessage?.delivery, .delivered,
-                     "the replacement event marks the same block delivered")
-        checks.expect(chat.timeline.queue.isEmpty, "and clears the queue")
+        await settle(timeout: 10) {
+            chat.timeline.entries.contains { $0.userMessage?.delivery == .delivered }
+        }
+        guard let landed = chat.timeline.entries.last(where: { $0.userMessage?.delivery != nil }) else {
+            checks.expect(false, "the injected message reaches the transcript")
+            return
+        }
+        checks.equal(landed.userMessage?.delivery, .delivered,
+                     "the block appears when the CLI takes it, saying it went in")
+        checks.expect(chat.timeline.queue.isEmpty, "and leaves the queue")
 
         await settle(timeout: 10) { chat.timeline.pendingRequest != nil }
         guard let approval = chat.timeline.pendingRequest?.approval else {

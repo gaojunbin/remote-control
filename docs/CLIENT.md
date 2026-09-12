@@ -48,7 +48,7 @@ Pairing codes are single use and expire after ten minutes. If enrollment fails, 
 | `rc-client shim install\|remove\|status [--no-shell-rc]` | Manage the `claude` shim that makes terminal sessions attachable |
 | `rc-client codex setup\|status [--no-install]` | Bring up and check the shared Codex app-server daemon that makes terminal Codex sessions attachable |
 | `rc-client channel` | The channel bridge Claude Code spawns; never run it by hand |
-| `rc-client hook session-start` | The `SessionStart` hook Claude Code runs; never run it by hand |
+| `rc-client hook session-start\|permission-request` | The hooks Claude Code runs; never run them by hand |
 | `rc-client uninstall [--purge] [--no-shell-rc]` | Remove the service and the shim, and with `--purge` the config, state and logs |
 
 Exit codes: `0` success, `1` runtime failure, `2` usage error, `3` not enrolled.
@@ -65,7 +65,7 @@ directory to your `PATH` to call it by name.
   state/rc-client.sqlite3   sessions, events, request idempotency, tail offsets
   state/attachments/        files received with a message
   state/claude-mcp.json     the channel server definition the shim passes to Claude Code
-  state/claude-settings.json  the SessionStart hook the shim passes to Claude Code
+  state/claude-settings.json  the two hooks the shim passes to Claude Code
   state/channel.sock        where channel bridges register (see below)
   state/link.json           what the gateway link last said about itself
   bin/claude                the shim that starts an attachable Claude session
@@ -305,11 +305,12 @@ text of a message.
 
 The daemon injects a message **only when the session is idle**. A message injected during a turn is
 handed to the model as untrusted external data it is told not to obey, which is why anything sent
-mid-turn is held on the device, shown as `delivery: "pending"` with a `queue` entry, and injected at
-the next idle point — the same bubble then becomes `delivery: "delivered"`. If the CLI absorbs an
-injection anyway the bubble becomes `delivery: "absorbed"` and the device re-sends it once. Turn
-state comes from the transcript, which the daemon already tails, so it lags reality by up to two
-seconds.
+mid-turn is held on the device as a `queue` entry and injected at the next idle point. Until then it
+is not a message in the conversation at all: the bubble appears when the CLI takes it, with
+`delivery: "delivered"`, so it lands after the output of the turn it waited for — where the terminal
+shows it too. If the CLI absorbs an injection anyway the bubble becomes `delivery: "absorbed"` and
+the device re-sends it once. Turn state comes from the transcript, which the daemon already tails, so
+it lags reality by up to two seconds.
 
 ### The shim
 
@@ -341,7 +342,7 @@ confirmation per session** warning about development channels; choose "I am usin
 development" and the device attaches within a second. `rc-client shim status` prints where the shim
 is, whether it is first on `PATH`, which executable it wraps, and the two files it passes.
 
-### The hook that follows `/resume` and `/clear`
+### The two hooks the settings file carries
 
 An MCP server keeps the environment it was spawned with for as long as it lives, so the channel
 bridge can only ever report the session id Claude Code picked when the terminal started. That is
@@ -350,19 +351,34 @@ the terminal is somewhere else and the device is still pointing at the id it was
 The session you are actually typing into then shows as `control: "none"` and a message sent from a
 phone cannot reach it, while the session nobody is in claims to be attached.
 
-So the wrapper also passes `--settings ~/.rc-client/state/claude-settings.json`, whose only content
-is a `SessionStart` hook: `rc-client hook session-start`. Claude Code runs it on startup and again
-on every `/resume`, `/clear` and compaction. The hook reads the session id from the hook payload,
-walks up to find the `claude` process that ran it, writes one line to the channel socket and exits;
-the daemon then moves the live attachment to that session. It prints nothing on stdout, because
-anything a `SessionStart` hook prints there is appended to the model's context, and it always exits
-0, because a failing hook would interrupt your session over a feature you did not ask for. If you
-pass a `--settings` file of your own the wrapper leaves it alone: the session still attaches, it
-just carries no hook, and `/resume` inside it goes unnoticed again.
+So the wrapper also passes `--settings ~/.rc-client/state/claude-settings.json`. Its first hook is a
+`SessionStart` hook: `rc-client hook session-start`. Claude Code runs it on startup and again on
+every `/resume`, `/clear` and compaction. The hook reads the session id from the hook payload, walks
+up to find the `claude` process that ran it, writes one line to the channel socket and exits; the
+daemon then moves the live attachment to that session. It prints nothing on stdout, because anything
+a `SessionStart` hook prints there is appended to the model's context, and it always exits 0, because
+a failing hook would interrupt your session over a feature you did not ask for.
 
-The hook file is written by `rc-client shim install` and again by the daemon at startup, so it names
-whichever installation ran most recently. **A `claude` that was already running when the shim was
-installed or re-installed keeps the wrapper it started with** — the command line and the settings
+Its second hook is what lets a question be answered from a phone. Claude Code never relays
+`AskUserQuestion` through a channel — the CLI relays only tools that need no person — but it does
+run `PermissionRequest` hooks beside its own dialog and takes whichever answers first. So the
+settings file carries `rc-client hook permission-request`, matched to `AskUserQuestion`, with a
+timeout of a day. That hook sends the tool's questions to the daemon and then **waits** on the
+socket: the daemon raises a `question` block the apps can answer, and the first answer to arrive
+wins. An answer from an app comes back down the socket, the hook prints it as the tool's own
+decision, and the CLI's dialog closes with it. An answer given in the terminal reaches the device
+through the transcript instead, and the device then tells the hook to stand down; the hook prints
+nothing, exits 0, and what the person typed in the terminal stands. Claude Code does not stop the
+hook when its dialog is answered, so that release is the device's job, and a hook whose CLI exits
+first sees its socket close and expires the block.
+
+If you pass a `--settings` file of your own the wrapper leaves it alone: the session still attaches,
+it just carries no hooks, `/resume` inside it goes unnoticed, and its questions can only be answered
+in the terminal.
+
+The settings file is written by `rc-client shim install` and again by the daemon at startup, so it
+names whichever installation ran most recently. **A `claude` that was already running when the shim
+was installed or re-installed keeps the wrapper it started with** — the command line and the settings
 file are both read once, at startup — so quit and start it again to pick up a change.
 
 ### What works and what does not
@@ -373,7 +389,7 @@ This table is the Claude channel. Codex on the shared daemon does more; see the 
 | --- | --- |
 | Send a message | Yes, injected at the next idle point |
 | Approve or deny a tool call | Yes, `allow` and `deny` only — the relay offers no session-scoped grant |
-| Answer a question | No, `unsupported`: answer it in the terminal |
+| Answer a question | Yes, through the `PermissionRequest` hook; the terminal's dialog and the card are one question |
 | Stop the turn | No, `unsupported`: a channel cannot interrupt. Codex does |
 | Change model, permission mode or effort | No, `unsupported`: change it in the terminal. The values are shown, read from the transcript |
 | Rename | Yes |
@@ -382,9 +398,16 @@ This table is the Claude channel. Codex on the shared daemon does more; see the 
 
 Whoever answers a permission prompt first wins. When the terminal answers, the device sees the tool
 run or be refused in the transcript and closes the block with `decision.by: "terminal"`; a later
-reply from an app is a no-op. When the attachment drops, pending approvals become `expired`, and the
-session moves to `terminal` if the CLI process is still alive or to `none` if it exited. Messages
-still held in the queue stay there and go out through the ordinary resume path.
+reply from an app is a no-op. A question works the same way and says so on the block: `by: "remote"`
+when an app answered, `by: "terminal"` when the dialog did, with the terminal's own answer mapped
+back from the tool result to the option ids the card offered. Only one question is open at a time;
+a second one expires the first. While one is open the session reports `needs_input` — an approval
+still outranks it, because an approval blocks the very work the question was asked about — and a
+message an older app sends is queued rather than injected, because the dialog owns the prompt. When
+the attachment drops, pending approvals and a pending question
+become `expired`, and the session moves to `terminal` if the CLI process is still alive or to `none`
+if it exited. Messages still held in the queue stay there and go out through the ordinary resume
+path.
 
 ## Codex on the shared daemon
 

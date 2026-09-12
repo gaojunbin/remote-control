@@ -375,17 +375,22 @@ public struct QuestionPayload: Codable, Sendable, Hashable {
     public let questions: [QuestionItem]
     public let status: RequestStatus
     public let answers: [String: QuestionAnswer]?
+    /// Amendment A20: on a resolved question, who answered it. An attached
+    /// Claude Code session shows its own dialog beside this card and whichever
+    /// is answered first wins, so the other side has to be told which that was.
+    public let by: EventSource?
 
     public init(requestID: String, questions: [QuestionItem], status: RequestStatus = .pending,
-                answers: [String: QuestionAnswer]? = nil) {
+                answers: [String: QuestionAnswer]? = nil, by: EventSource? = nil) {
         self.requestID = requestID
         self.questions = questions
         self.status = status
         self.answers = answers
+        self.by = by
     }
 
     enum CodingKeys: String, CodingKey {
-        case questions, status, answers
+        case questions, status, answers, by
         case requestID = "request_id"
     }
 
@@ -395,6 +400,7 @@ public struct QuestionPayload: Codable, Sendable, Hashable {
         questions = try values.decodeIfPresent([QuestionItem].self, forKey: .questions) ?? []
         status = try values.decodeIfPresent(RequestStatus.self, forKey: .status) ?? .pending
         answers = try values.decodeIfPresent([String: QuestionAnswer].self, forKey: .answers)
+        by = try values.decodeIfPresent(EventSource.self, forKey: .by)
     }
 }
 

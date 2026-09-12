@@ -1,8 +1,8 @@
 /**
  * Dictation into the composer's own field.
  *
- * The mic button starts listening; listening ends only when the user taps
- * Cancel or Done, or when the microphone fails. There is no time limit here:
+ * The mic button starts listening; listening ends only when the user taps Done,
+ * types into the field, or the microphone fails. There is no time limit here:
  * one gateway socket carries at most 120 s of audio, so a long dictation is cut
  * into segments whose transcripts are joined in order, and the replacement
  * socket is taking audio before the outgoing one is told to stop, so the seam
@@ -59,6 +59,7 @@ export interface VoiceController {
   start: () => void;
   /** Stop listening and keep the transcript. Sending stays a separate click. */
   done: () => void;
+  /** Drop the run without publishing: a keystroke takes the field back. */
   cancel: () => void;
   dismissError: () => void;
 }

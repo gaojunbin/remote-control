@@ -8,7 +8,7 @@ import { useConnection } from '../../stores/connection';
 import { useDevices } from '../../stores/devices';
 import { useOutbox } from '../../stores/outbox';
 import { sessionKey, useSessions } from '../../stores/sessions';
-import { emptyTimeline } from '../../stores/timeline';
+import { emptyTimeline, selectPendingQuestion } from '../../stores/timeline';
 import type { SendMode } from '../../protocol/frames';
 import type { QuestionAnswers } from '../../protocol/types';
 import { NewSessionDrawer } from '../sessions/NewSessionDrawer';
@@ -73,6 +73,10 @@ export function ChatPage() {
     [pending, key],
   );
 
+  // A20: the composer answers the question the timeline is waiting on.
+  const timeline = chat?.timeline ?? NO_TIMELINE;
+  const question = useMemo(() => selectPendingQuestion(timeline), [timeline]);
+
   const onSend = useCallback(
     async (text: string, attachments: AttachmentDraft[], mode: SendMode) => {
       await sendMessage(key, {
@@ -124,6 +128,10 @@ export function ChatPage() {
     [approveRequest, key],
   );
 
+  /**
+   * The banner reports the failure; the rejection travels on so the card and
+   * the composer keep what was filled in rather than clearing it (A20).
+   */
   const onAnswer = useCallback(
     async (requestId: string, answers: QuestionAnswers) => {
       setActionError(null);
@@ -131,6 +139,7 @@ export function ChatPage() {
         await answerQuestion(key, requestId, answers);
       } catch (err) {
         setActionError(errorText(err, strings.errors.answerFailed));
+        throw err;
       }
     },
     [answerQuestion, key],
@@ -191,7 +200,7 @@ export function ChatPage() {
         />
 
         <Timeline
-          timeline={chat?.timeline ?? NO_TIMELINE}
+          timeline={timeline}
           historyLoading={chat?.historyLoading ?? false}
           historyHasMore={chat?.historyHasMore ?? false}
           onOpenFull={onOpenFull}
@@ -253,9 +262,11 @@ export function ChatPage() {
           agent={agent}
           deviceOnline={device?.online ?? false}
           queue={chat?.queue ?? []}
+          question={question}
           sttEnabled={stt.enabled}
           sttLanguages={stt.languages}
           onSend={onSend}
+          onAnswer={onAnswer}
           onSetOption={onSetOption}
           onRemoveQueued={onRemoveQueued}
           onTakeover={onTakeover}

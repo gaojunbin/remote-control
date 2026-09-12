@@ -308,3 +308,49 @@ describe('the archive action', () => {
     expect(calls).toEqual([['ses-push', true]]);
   });
 });
+
+/**
+ * `docs/DESIGN.md` § "Session lists": a thread the agent has not named yet
+ * arrives with an empty `title`, and the row still carries a name in the
+ * title's own type — including under a search for those words.
+ */
+describe('a session with no title', () => {
+  const untitled: Session = {
+    ...sessions[0]!,
+    session_id: 'ses-untitled',
+    device_id: 'dev-mac',
+    title: '',
+    cwd: '/Users/me/dev/remote-control/web',
+    state: 'idle',
+    turn: null,
+    todos: null,
+    usage: null,
+  };
+
+  const withUntitled = () =>
+    useSessions.setState({ sessions: index([...sessions, untitled]) });
+
+  it('names the row "Untitled session"', () => {
+    withUntitled();
+    renderPage();
+
+    expect(activeTitles()).toContain(strings.sessions.untitled);
+  });
+
+  it('leaves every titled row as the device reported it', () => {
+    withUntitled();
+    renderPage();
+
+    expect(activeTitles()).toContain('Fix flaky auth test');
+    expect(rowTitles().filter((t) => t === strings.sessions.untitled)).toHaveLength(1);
+  });
+
+  it('is found by a search for those words', async () => {
+    withUntitled();
+    renderPage();
+
+    await userEvent.type(screen.getByLabelText(strings.sessions.searchPlaceholder), 'untitled');
+
+    expect(rowTitles()).toEqual([strings.sessions.untitled]);
+  });
+});

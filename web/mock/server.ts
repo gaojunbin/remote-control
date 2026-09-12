@@ -653,13 +653,19 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
         .reverse()
         .find((e) => e.kind === 'question' && e.request_id === requestId);
       if (question && question.kind === 'question') {
+        // A20: the block resolves naming whoever answered it, and the session
+        // stops waiting.
         emit(sessionId, {
           ...question,
           seq: nextSeq(sessionId),
           ts: Date.now(),
           status: 'resolved',
           answers: frame.answers as Record<string, string[] | string>,
+          by: 'remote',
         });
+        if (findSession(sessionId)?.state === 'needs_input') {
+          emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'status', state: 'idle' });
+        }
       }
       reply(conn, id, {});
       if (sessionId === 'ses-flaky') play(sessionId, afterAnswer());
@@ -872,7 +878,7 @@ function sharedSend(
   if (!busy) {
     reply(conn, id, { accepted: 'sent' });
     afterEcho(() => {
-      emitUserMessage(sessionId, blockId, text, 'delivered');
+      emitUserMessage(sessionId, blockId, text);
       playShared(sessionId, text, false);
     });
     return;
@@ -882,7 +888,7 @@ function sharedSend(
   if (mode === 'auto' && agent?.capabilities.includes('steer')) {
     reply(conn, id, { accepted: 'steered' });
     afterEcho(() => {
-      emitUserMessage(sessionId, blockId, text, 'delivered');
+      emitUserMessage(sessionId, blockId, text);
       playShared(sessionId, text, true);
     });
     return;
@@ -896,7 +902,7 @@ function sharedSend(
     interruptTurn(sessionId);
     reply(conn, id, { accepted: 'sent' });
     afterEcho(() => {
-      emitUserMessage(sessionId, blockId, text, 'delivered');
+      emitUserMessage(sessionId, blockId, text);
       playShared(sessionId, text, false);
     });
     return;
@@ -908,8 +914,9 @@ function sharedSend(
     { block_id: blockId, text, queued_id: queuedId },
   ]);
   reply(conn, id, { accepted: 'queued', queued_id: queuedId });
+  // A19: a held message is a queue entry and nothing else. Its block appears
+  // when the CLI takes it, after the output of the turn it waited for.
   afterEcho(() => {
-    emitUserMessage(sessionId, blockId, text, 'pending');
     const pending = [...(state.queues.get(sessionId) ?? []), { id: queuedId, text, ts: Date.now() }];
     emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending });
   });
@@ -920,12 +927,8 @@ function afterEcho(run: () => void): void {
   setTimeout(run, ECHO_DELAY_MS);
 }
 
-function emitUserMessage(
-  sessionId: string,
-  blockId: string,
-  text: string,
-  delivery: 'pending' | 'delivered',
-): void {
+/** A19: a message an app sent into a shared session, once the CLI took it. */
+function emitUserMessage(sessionId: string, blockId: string, text: string): void {
   emit(sessionId, {
     seq: nextSeq(sessionId),
     ts: Date.now(),
@@ -933,7 +936,7 @@ function emitUserMessage(
     block_id: blockId,
     source: 'remote',
     text,
-    delivery,
+    delivery: 'delivered',
   });
 }
 
@@ -961,7 +964,7 @@ function flushHeld(sessionId: string): void {
   const items = state.held.get(sessionId) ?? [];
   if (items.length === 0) return;
   state.held.set(sessionId, []);
-  for (const item of items) emitUserMessage(sessionId, item.block_id, item.text, 'delivered');
+  for (const item of items) emitUserMessage(sessionId, item.block_id, item.text);
   emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending: [] });
   const last = items[items.length - 1];
   if (last) setTimeout(() => playShared(sessionId, last.text, false), 500);

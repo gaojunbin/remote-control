@@ -36,12 +36,6 @@ import RCCore
 
     public func finish() { voice.finish() }
 
-    public func cancel(currentDraft: String, currentTarget: VoiceDraftTarget) -> String? {
-        let restored = target?.matches(currentTarget) == true && currentDraft == appliedDraft ? originalDraft : nil
-        reset()
-        return restored
-    }
-
     public func reset() {
         target = nil
         originalDraft = ""

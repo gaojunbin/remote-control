@@ -57,9 +57,12 @@ export function attachHint(agent: AgentInfo | null): string | null {
   return null;
 }
 
-/** The chip on a user bubble that says where the message got to. */
+/**
+ * The chip on a user bubble that says where the message got to. A19 leaves one
+ * case: a message the CLI read as mid-turn data, which the device will send
+ * again. A message the device is still holding is a queue entry, not a bubble.
+ */
 export function deliveryLabel(delivery: string | undefined): string | null {
-  if (delivery === 'pending') return strings.chat.deliveryPending;
   if (delivery === 'absorbed') return strings.chat.deliveryAbsorbed;
   return null;
 }

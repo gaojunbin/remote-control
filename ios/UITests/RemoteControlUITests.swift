@@ -155,26 +155,38 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "24-composer-capped")
     }
 
-    /// Dictation offers exactly Cancel and Done, fills the message field, and
-    /// leaves sending to the ordinary Send button.
-    func testDictationOffersCancelAndDoneAndFillsTheField() {
+    /// `docs/DESIGN.md` § "The composer": dictation offers one button, Done. It
+    /// stands where Send stands, keeps the transcript in the message field, and
+    /// leaves sending to the ordinary Send button. There is no Cancel: a
+    /// dictation nobody wants is edited or cleared like any other draft.
+    func testDictationOffersOnlyDoneAndFillsTheField() {
         app.launch()
         openLiveSession()
         XCTAssertTrue(promptField().waitForExistence(timeout: 15))
 
+        let send = app.buttons["composer.send"]
+        let sendFrame = send.frame
         app.buttons["composer.voice"].tap()
 
         let done = app.buttons["voice.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 15), "Done stops listening")
-        XCTAssertTrue(app.buttons["voice.cancel"].exists, "Cancel is the other way out")
+        XCTAssertTrue(waitFor { done.isEnabled }, "and is live once the microphone is")
+        XCTAssertFalse(app.buttons["voice.cancel"].exists, "and it is the only way out")
         XCTAssertFalse(app.buttons["voice.stop"].exists, "nothing stops and sends in one tap")
-        XCTAssertFalse(app.buttons["composer.send"].exists, "Send is not offered while listening")
+        XCTAssertFalse(send.exists, "Send is not offered while listening")
         XCTAssertFalse(app.buttons["composer.attach"].exists, "and neither is anything else")
         XCTAssertFalse(app.buttons["composer.voice"].exists)
         XCTAssertFalse(app.buttons["composer.model"].exists,
                        "the chips go with the row dictation replaced")
         XCTAssertTrue(app.descendants(matching: .any)["voice.status"].exists,
                       "one quiet line says what dictation is doing")
+
+        // Done takes the slot and the height Send had: it is the one primary in
+        // the row while listening.
+        XCTAssertLessThan(abs(done.frame.maxX - sendFrame.maxX), 2,
+                          "Done stands where Send stands, against the trailing edge")
+        XCTAssertLessThan(abs(done.frame.midY - sendFrame.midY), 12, "on the same row")
+        XCTAssertEqual(done.frame.height, sendFrame.height, accuracy: 2, "at Send's size")
         attach(name: "22-voice-listening")
 
         done.tap()
@@ -187,15 +199,17 @@ final class RemoteControlUITests: XCTestCase {
                       "and sending it is the ordinary, separate tap")
         attach(name: "23-voice-done")
 
-        // A second dictation, cancelled, leaves the first one exactly as it was.
+        // A second dictation adds to the draft rather than replacing it, and
+        // ending it is the same one button.
         app.buttons["composer.voice"].tap()
-        let cancel = app.buttons["voice.cancel"]
-        XCTAssertTrue(cancel.waitForExistence(timeout: 15))
-        cancel.tap()
-        let restored = promptField()
-        XCTAssertTrue(restored.waitForExistence(timeout: 15))
-        XCTAssertEqual(restored.value as? String, dictated,
-                       "Cancel discards what that dictation added and restores the draft")
+        let again = app.buttons["voice.done"]
+        XCTAssertTrue(again.waitForExistence(timeout: 15))
+        XCTAssertTrue(waitFor { again.isEnabled })
+        again.tap()
+        let kept = promptField()
+        XCTAssertTrue(kept.waitForExistence(timeout: 15))
+        XCTAssertTrue((kept.value as? String ?? "").hasPrefix(dictated),
+                      "the draft the second dictation started from is still there")
     }
 
     // MARK: - Reading position and the keyboard
@@ -225,6 +239,9 @@ final class RemoteControlUITests: XCTestCase {
     /// gesture that dismisses the keyboard cancels no touches.
     func testToolCardOpensOnTheFirstTapWhileTheKeyboardIsUp() {
         app.launch()
+        // Simple is the reading default and draws no tool call at all, so the
+        // card this is about exists only at Detailed.
+        chooseDetailedTranscript()
         openLiveSession()
         XCTAssertTrue(promptField().waitForExistence(timeout: 15))
         XCTAssertTrue(waitForLiveTurn(), "the scripted turn finishes and the transcript settles")
@@ -244,6 +261,9 @@ final class RemoteControlUITests: XCTestCase {
     /// and taking it returns to the newest message.
     func testJumpToLatestAppearsWhenTheReaderLeavesTheBottom() {
         app.launch()
+        // At Simple the demo transcript is shorter than the screen and there is
+        // nowhere to scroll away to; Detailed is the level with a tail.
+        chooseDetailedTranscript()
         openLiveSession()
         XCTAssertTrue(promptField().waitForExistence(timeout: 15))
         XCTAssertTrue(waitForLiveTurn(), "the scripted turn finishes and the transcript settles")
@@ -301,6 +321,38 @@ final class RemoteControlUITests: XCTestCase {
         row.tap()
     }
 
+    /// Thinking, tool calls and the task list are drawn at Detailed and nowhere
+    /// else, and Simple is what a fresh install reads at. A test about any of
+    /// them changes the preference through the control that owns it.
+    private func chooseDetailedTranscript() {
+        let settings = app.tabBars.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 20), "the Settings tab is there")
+        settings.tap()
+
+        let picker = app.descendants(matching: .any)["settings.timelineDetail"]
+        XCTAssertTrue(scrollDown(to: picker), "the timeline detail preference is in Settings")
+        picker.tap()
+        let detailed = app.buttons["Detailed"].exists
+            ? app.buttons["Detailed"] : app.staticTexts["Detailed"]
+        XCTAssertTrue(detailed.waitForExistence(timeout: 10), "and offers Detailed")
+        detailed.tap()
+
+        app.tabBars.buttons["Sessions"].tap()
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 15),
+                      "and the list is back")
+    }
+
+    /// Polls a condition the runner has no expectation for, such as a control
+    /// becoming enabled without its identifier or label changing.
+    private func waitFor(timeout: TimeInterval = 10, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            usleep(200_000)
+        }
+        return condition()
+    }
+
     /// SwiftUI renders a growing field as a text view once it wraps, so the
     /// identifier is looked up in both collections.
     private func promptField() -> XCUIElement {
@@ -308,18 +360,19 @@ final class RemoteControlUITests: XCTestCase {
         return view.exists ? view : app.textFields["composer.prompt"].firstMatch
     }
 
-    /// Amendment A10: an attached terminal session takes a message from here,
-    /// says it is waiting for the terminal, then says it went in, and its
-    /// relayed permission request is answered from the app.
+    /// Amendment A10: an attached terminal session takes a message from here and
+    /// its relayed permission request is answered from the app. Amendment A19:
+    /// while the device holds the message it is a queue entry and nothing else,
+    /// and the bubble appears when the CLI takes it.
     func testSharedSessionDeliversAndApproves() {
         app.launch()
+        openSharedSession()
 
-        let row = app.buttons["session.demo-session-shared"]
-        XCTAssertTrue(row.waitForExistence(timeout: 20), "the attached demo session is listed")
-        row.tap()
+        // Amendment A20: the attached CLI asks a question the moment this opens,
+        // and the composer answers it rather than sending anything.
+        answerTheSharedQuestion(with: "Remote control for your terminal agents")
 
-        let composer = app.textViews["composer.prompt"].firstMatch
-        let composerField = composer.exists ? composer : app.textFields["composer.prompt"].firstMatch
+        let composerField = promptField()
         XCTAssertTrue(composerField.waitForExistence(timeout: 15),
                       "the composer is enabled on an attached session")
         XCTAssertFalse(app.buttons["chat.takeover"].exists,
@@ -350,15 +403,20 @@ final class RemoteControlUITests: XCTestCase {
         composerField.typeText("mention the iOS app too")
         app.buttons["composer.send"].tap()
 
-        let pending = app.descendants(matching: .any)["chat.message.pending"]
-        XCTAssertTrue(pending.waitForExistence(timeout: 10), "the held message is in the transcript")
-        XCTAssertTrue(pending.label.contains("waiting for the terminal"),
-                      "and its chip says it is waiting for the terminal")
-        attach(name: "07-shared-pending")
+        // Amendment A19: nothing is drawn for a message the device is only
+        // holding. It is one entry in the queue until the CLI takes it.
+        let queue = app.buttons["composer.queue"]
+        XCTAssertTrue(queue.waitForExistence(timeout: 10), "the held message is in the queue")
+        XCTAssertTrue(queue.label.contains("1"), "exactly one of them")
+        XCTAssertFalse(app.descendants(matching: .any)["chat.message.sending"].exists,
+                       "and no bubble claims it reached the terminal")
+        attach(name: "07-shared-queued")
 
         let delivered = app.descendants(matching: .any)["chat.message.delivered"]
         XCTAssertTrue(delivered.waitForExistence(timeout: 15),
-                      "the replacement event marks the same message delivered")
+                      "the block arrives when the CLI takes the message")
+        XCTAssertTrue(delivered.label.contains("mention the iOS app too"), "with what was typed")
+        XCTAssertTrue(queue.waitForNonExistence(timeout: 10), "and leaves the queue")
         attach(name: "08-shared-delivered")
 
         let approval = app.buttons["approval.primary"]
@@ -367,6 +425,67 @@ final class RemoteControlUITests: XCTestCase {
         approval.tap()
         XCTAssertTrue(approval.waitForNonExistence(timeout: 15), "answering resolves the request")
         attach(name: "10-shared-answered")
+    }
+
+    /// Amendment A20: the terminal shows Claude's own dialog and this card at
+    /// the same moment, and whichever is answered first wins. The message field
+    /// is the free-text answer, the button reads Answer, and an earlier question
+    /// the terminal answered says so.
+    func testQuestionIsAnsweredFromTheComposer() {
+        app.launch()
+        openSharedSession()
+
+        // The question the person at the terminal got to first is in the
+        // transcript, naming where its answer came from.
+        let resolved = app.descendants(matching: .any)["question.resolution"]
+        XCTAssertTrue(resolved.waitForExistence(timeout: 15),
+                      "a question answered elsewhere says so")
+        XCTAssertEqual(resolved.label, "answered in the terminal")
+        attach(name: "32-question-answered-in-terminal")
+
+        // The live one turns the composer into an answer.
+        let card = app.descendants(matching: .any)["chat.question"]
+        XCTAssertTrue(card.waitForExistence(timeout: 15), "the attached CLI asks its question here too")
+        let send = app.buttons["composer.send"]
+        XCTAssertTrue(waitFor { send.label == "Answer" },
+                      "and the one primary in the row answers it rather than sending")
+        XCTAssertEqual(app.descendants(matching: .any)["chat.status"].label,
+                       "Waiting for your answer",
+                       "with the status line saying what is expected")
+
+        let field = promptField()
+        field.tap()
+        field.typeText("Remote control for your terminal agents")
+        attach(name: "33-composer-answer")
+        send.tap()
+
+        XCTAssertTrue(waitFor(timeout: 15) { send.label == "Send" },
+                      "answering gives the composer back")
+        XCTAssertEqual(promptField().value as? String ?? "", "",
+                       "and the draft went with the answer")
+        XCTAssertTrue(app.buttons["question.submit"].waitForNonExistence(timeout: 10),
+                      "the card is no longer answerable")
+        attach(name: "34-question-answered-here")
+    }
+
+    private func openSharedSession() {
+        let row = app.buttons["session.demo-session-shared"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the attached demo session is listed")
+        row.tap()
+    }
+
+    /// The demo's attached session asks a question shortly after it opens, and
+    /// the composer is an answer until it is dealt with.
+    private func answerTheSharedQuestion(with text: String) {
+        let send = app.buttons["composer.send"]
+        XCTAssertTrue(waitFor(timeout: 20) { send.label == "Answer" },
+                      "the attached CLI asks a question when the session opens")
+        let field = promptField()
+        field.tap()
+        field.typeText(text)
+        send.tap()
+        XCTAssertTrue(waitFor(timeout: 15) { send.label == "Send" },
+                      "and answering it gives the composer back")
     }
 
     /// Amendment A11: a Codex thread shared through the app-server daemon. The
@@ -476,25 +595,26 @@ final class RemoteControlUITests: XCTestCase {
                           "the list carries \(what)")
         }
 
-        // One measured drag, far enough to lift the first row to the top of the
-        // list and no further, so all five tones are in frame together rather
-        // than a fling landing wherever it lands.
+        // One measured drag to lift the first row towards the top of the list,
+        // then short ones until every row is reachable. The five rows and the
+        // two strips above and below them — the connection banner and the
+        // device summary — are together taller than this screen, so the old pair
+        // of pixel margins could not both hold once the rows grew; what "in
+        // frame together" means is that the reader can see and reach all five,
+        // and a fling would land anywhere.
         let list = sessionList()
-        let first = app.buttons["session.demo-session-vite"]
-        // The list runs under the navigation bar and the connection strip, so the
-        // drag stops with the first row's title line behind them and its own
-        // status line just clear: the five rows are two taller than the screen.
-        let distance = first.frame.minY - list.frame.minY - 94
-        let origin = list.coordinate(withNormalizedOffset: .zero)
-        let start = origin.withOffset(CGVector(dx: list.frame.width / 2,
-                                               dy: list.frame.height * 0.6))
-        start.press(forDuration: 0.2, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -distance)),
-                    withVelocity: .slow, thenHoldForDuration: 0.4)
+        let tones = [("demo-session-vite", "amber, waiting on the user"),
+                     ("demo-session-auth", "blue, a turn running"),
+                     ("demo-session-shared", "quiet, attached to a terminal"),
+                     ("demo-session-toolchain", "red, stopped on an error"),
+                     ("demo-session-otlp", "grey, owned by nothing")]
+        let rows = tones.map { app.buttons["session.\($0.0)"] }
+        drag(list, by: rows[0].frame.minY - list.frame.minY - 94)
+        for _ in 0..<6 where !rows.allSatisfy({ $0.isHittable }) { drag(list, by: 24) }
 
-        XCTAssertGreaterThan(first.frame.maxY, 160,
-                             "the amber row's own status line clears the header strip")
-        XCTAssertLessThan(archived.frame.maxY, app.frame.height - 85,
-                          "and the grey one clears the tab bar, so all five are in frame")
+        for (row, tone) in zip(rows, tones) {
+            XCTAssertTrue(row.isHittable, "the \(tone.1) row is in frame with the rest")
+        }
         attach(name: "30-status-tones")
 
         XCTAssertTrue(scrollDown(to: middle), "the folded machine is still there")
@@ -586,6 +706,16 @@ final class RemoteControlUITests: XCTestCase {
         app.buttons["sessions.agentFilter"].tap()
         app.buttons["sessions.agentFilter.all"].tap()
         XCTAssertTrue(claudeRow.waitForExistence(timeout: 10), "All brings the rest back")
+    }
+
+    /// Moves a scrolling view up by a measured distance, slowly enough that it
+    /// stops where it was put rather than carrying on under its own momentum.
+    private func drag(_ view: XCUIElement, by distance: CGFloat) {
+        guard distance > 0 else { return }
+        let start = view.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: view.frame.width / 2, dy: view.frame.height * 0.6))
+        start.press(forDuration: 0.2, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -distance)),
+                    withVelocity: .slow, thenHoldForDuration: 0.4)
     }
 
     /// Scrolls the list until the element is on screen and can be tapped, so a

@@ -472,6 +472,11 @@ class MirrorService:
             # `set_meta` publishes only the fields that actually changed.
             await entry.channel.set_meta(**emit.fields)
             return
+        if emit.kind == transcripts.QUESTION_ANSWERED:
+            # Amendment A20: the terminal answered its own dialog first.
+            if entry.shared is not None:
+                await self.hub.shared.question_answered(entry, emit.fields.get("answers"))
+            return
         if entry.shared is not None and emit.kind == "tool_call":
             status = str(emit.fields.get("status") or "")
             if status in {"succeeded", "failed"}:

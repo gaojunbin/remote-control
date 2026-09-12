@@ -20,6 +20,7 @@ from .agents.codex.daemon import setup as codex_setup
 from .agents.discovery import detect_agents
 from .channel import commands as shim_commands
 from .channel.bridge import main as channel_main
+from .channel.hook import EVENTS as hook_events
 from .channel.hook import main as hook_main
 from .config import config_exists, config_path, load_config
 from .daemon import Daemon
@@ -55,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     hook_parser = sub.add_parser(
         "hook", help="run a Claude Code hook (started by Claude Code, not by hand)"
     )
-    hook_parser.add_argument("event", choices=["session-start"])
+    hook_parser.add_argument("event", choices=list(hook_events))
 
     shim_parser = sub.add_parser("shim", help="manage the claude shim used to attach sessions")
     shim_parser.add_argument("action", choices=["install", "remove", "status"])
@@ -218,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "channel":
             return int(channel_main())
         if args.command == "hook":
-            return int(hook_main())
+            return int(hook_main(args.event))
         if args.command == "uninstall":
             return _cmd_uninstall(args)
     except RcError as exc:

@@ -6,7 +6,7 @@ import { ArchiveGroupHeader, DeviceGroupHeader } from '../../components/GroupHea
 import { StatusDot } from '../../components/StatusDot';
 import { cx } from '../../lib/cx';
 import { baseName, relativeTime } from '../../lib/format';
-import { sessionStateLabel, strings } from '../../strings';
+import { sessionStateLabel, sessionTitle, strings } from '../../strings';
 import { useDevices } from '../../stores/devices';
 import { countWaiting, selectSessionLayout, selectSessionList, useSessions } from '../../stores/sessions';
 import { useSettings } from '../../stores/settings';
@@ -59,7 +59,7 @@ export function Sidebar({ activeKey, onNewSession }: Props) {
         >
           <StatusDot state={session.state} control={session.control} online={online} />
           <span className="sidebar-item-text">
-            <span className="sidebar-title">{session.title}</span>
+            <span className="sidebar-title">{sessionTitle(session)}</span>
             <span className={cx('sidebar-sub', attention && 'attention')}>
               {attention || terminal
                 ? sessionStateLabel(session)

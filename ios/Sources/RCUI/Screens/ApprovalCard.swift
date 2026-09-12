@@ -123,14 +123,19 @@ struct ApprovalCard: View {
 /// One or more questions from the agent. Nothing is sent until Submit, a
 /// multi-select needs an explicit choice, and a secret answer uses a secure
 /// field and never enters the ordinary draft.
+///
+/// Amendment A20: on an attached session the terminal shows its own dialog at
+/// the same moment and whichever is answered first wins, so the card is live
+/// here too and a resolved one says where the answer came from. What is chosen
+/// on the card lives in the store rather than in this view, because the
+/// composer submits the same answers with the draft added to them.
 struct QuestionCard: View {
     let payload: QuestionPayload
     let chat: ChatStore
-    @State private var selections: [String: Set<String>] = [:]
-    @State private var freeText: [String: String] = [:]
     @State private var isSending = false
 
     private var isActive: Bool { payload.status.isActionable && chat.allowsAnswers }
+    private var draft: QuestionDraft { chat.draft(for: payload) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.medium) {
@@ -185,33 +190,35 @@ struct QuestionCard: View {
                 }
             }
 
-            if payload.status.isActionable, chat.isAttached {
-                // Amendment A10: the relay carries approvals, not answers.
-                Text("Answer this in the terminal")
-                    .font(.footnote)
-                    .foregroundStyle(Theme.inkSecondary)
-                    .accessibilityIdentifier("question.terminalOnly")
-            } else if payload.status.isActionable {
+            if payload.status.isActionable {
                 Button("Submit") { submit() }
                     .buttonStyle(PrimaryButtonStyle())
-                    .disabled(isSending || !isActive || !hasAnswerForEveryQuestion)
+                    .disabled(isSending || !isActive || !draft.answersEveryQuestion(in: payload.questions))
                     .accessibilityIdentifier("question.submit")
             } else if payload.status == .expired {
                 Text("This question expired before it was answered.")
                     .font(.footnote).foregroundStyle(Theme.inkSecondary)
+            } else if let by = payload.by {
+                source(by)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.inkSecondary)
+                    .accessibilityIdentifier("question.resolution")
             }
         }
         .card()
     }
 
-    private var hasAnswerForEveryQuestion: Bool {
-        payload.questions.allSatisfy { question in
-            !(selections[question.id]?.isEmpty ?? true) || !(freeText[question.id] ?? "").trimmed.isEmpty
+    /// Amendment A20: the same wording the approval card uses, because it is the
+    /// same fact — somebody else got there first.
+    private func source(_ by: EventSource) -> Text {
+        switch by {
+        case .terminal: Text("answered in the terminal")
+        default: Text("answered here")
         }
     }
 
     private func isChosen(_ questionID: String, _ optionID: String) -> Bool {
-        selections[questionID]?.contains(optionID) ?? false
+        draft.isChosen(optionID, for: questionID)
     }
 
     private func symbol(question: QuestionItem, option: String) -> String {
@@ -220,33 +227,19 @@ struct QuestionCard: View {
     }
 
     private func toggle(question: QuestionItem, option: String) {
-        var chosen = selections[question.id] ?? []
-        if question.multi {
-            if chosen.contains(option) { chosen.remove(option) } else { chosen.insert(option) }
-        } else {
-            chosen = chosen.contains(option) ? [] : [option]
-        }
-        selections[question.id] = chosen
+        chat.choose(option, of: question, in: payload)
     }
 
     private func binding(_ questionID: String) -> Binding<String> {
-        Binding(get: { freeText[questionID] ?? "" }, set: { freeText[questionID] = $0 })
+        Binding(get: { draft.text(for: questionID) },
+                set: { chat.write($0, for: questionID, in: payload) })
     }
 
     private func submit() {
         guard !isSending else { return }
         isSending = true
-        var answers: [String: QuestionAnswer] = [:]
-        for question in payload.questions {
-            if let chosen = selections[question.id], !chosen.isEmpty {
-                answers[question.id] = .options(question.options.map(\.id).filter(chosen.contains))
-            } else if let text = freeText[question.id]?.trimmed, !text.isEmpty {
-                answers[question.id] = .text(text)
-            }
-        }
         Task {
-            await chat.answer(requestID: payload.requestID, answers: answers)
-            freeText.removeAll()
+            await chat.submitAnswer(for: payload)
             isSending = false
         }
     }

@@ -68,6 +68,11 @@ def hook_command() -> list[str]:
     return [*entrypoint(), "hook", "session-start"]
 
 
+def question_hook_command() -> list[str]:
+    """The `PermissionRequest` hook Claude Code runs beside its question dialog."""
+    return [*entrypoint(), "hook", "permission-request"]
+
+
 def path_with_shim(base: str | None = None) -> str:
     """`base` with the shim directory in front, added at most once.
 

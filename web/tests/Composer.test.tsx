@@ -53,7 +53,9 @@ function setup(
     queue: [],
     sttEnabled: false,
     sttLanguages: ['auto'],
+    question: null,
     onSend,
+    onAnswer: vi.fn().mockResolvedValue(undefined),
     onSetOption: vi.fn(),
     onRemoveQueued: vi.fn(),
     onTakeover: vi.fn(),
@@ -150,6 +152,8 @@ describe('Composer send mode', () => {
         queue={[]}
         sttEnabled={false}
         sttLanguages={['auto']}
+        question={null}
+        onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={onSend}
         onSetOption={vi.fn()}
         onRemoveQueued={vi.fn()}
@@ -181,6 +185,8 @@ describe('Composer send mode', () => {
         queue={[]}
         sttEnabled={false}
         sttLanguages={['auto']}
+        question={null}
+        onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={onSend}
         onSetOption={vi.fn()}
         onRemoveQueued={vi.fn()}
@@ -207,6 +213,8 @@ describe('Composer send mode', () => {
         queue={[]}
         sttEnabled={false}
         sttLanguages={['auto']}
+        question={null}
+        onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={onSend}
         onSetOption={vi.fn()}
         onRemoveQueued={vi.fn()}
@@ -238,6 +246,8 @@ describe('Composer disabled states', () => {
         queue={[]}
         sttEnabled={false}
         sttLanguages={['auto']}
+        question={null}
+        onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={vi.fn()}
         onSetOption={vi.fn()}
         onRemoveQueued={vi.fn()}
@@ -259,6 +269,8 @@ describe('Composer disabled states', () => {
         queue={[]}
         sttEnabled={false}
         sttLanguages={['auto']}
+        question={null}
+        onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={vi.fn()}
         onSetOption={vi.fn()}
         onRemoveQueued={vi.fn()}
@@ -289,6 +301,8 @@ describe('Composer disabled states', () => {
         queue={[{ id: 'q1', text: 'also update the changelog', ts: 1 }]}
         sttEnabled={false}
         sttLanguages={['auto']}
+        question={null}
+        onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={vi.fn()}
         onSetOption={vi.fn()}
         onRemoveQueued={onRemoveQueued}
@@ -321,6 +335,8 @@ describe('Composer settings a terminal holds', () => {
         queue={[]}
         sttEnabled={false}
         sttLanguages={['auto']}
+        question={null}
+        onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={vi.fn().mockResolvedValue(undefined)}
         onSetOption={vi.fn()}
         onRemoveQueued={vi.fn()}
@@ -402,6 +418,8 @@ describe('Composer settings a terminal holds', () => {
         queue={[]}
         sttEnabled={false}
         sttLanguages={['auto']}
+        question={null}
+        onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={vi.fn().mockResolvedValue(undefined)}
         onSetOption={vi.fn()}
         onRemoveQueued={vi.fn()}

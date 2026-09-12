@@ -45,8 +45,10 @@ Opening the running session plays a scripted turn: streamed thinking, streamed M
 with a live output box, a failing shell run, two diffs, an approval and a question. Both drive the
 turn to completion. The shared session plays the A10 path end to end: a send while the terminal is
 idle is injected at once and answers with a relayed Allow/Deny approval, a send during that turn is
-held and shows the "waiting for the terminal" chip until the turn ends, and `session.set`,
-`session.stop` and `session.takeover` answer with the errors the contract specifies. The shared
+held as a queue entry and becomes a bubble only when the turn ends and the CLI takes it (A19), and
+`session.set`, `session.stop` and `session.takeover` answer with the errors the contract specifies.
+Its history also carries a question the terminal answered first, so the card reads "Answered in the
+terminal" (A20). The shared
 Codex session plays the A11 path: it opens on a turn the terminal started, a send steers that turn
 (`accepted: "steered"`), `session.set` applies, Stop interrupts, and a command approval offers all
 four daemon decisions. Its history carries a request the TUI answered first, so the card reads
@@ -87,11 +89,16 @@ SVG and re-render all three together.
 
 ## Voice
 
-Holding <kbd>⌥</kbd>+<kbd>Space</kbd>, or tapping the mic, opens `WS /ws/stt`, captures the
-microphone through an AudioWorklet with a ScriptProcessor fallback, downsamples to 16 kHz mono
-PCM16LE, and sends roughly 120 ms binary frames. Partial transcripts stream into an editable field.
-"Stop & send" sends `stt.stop`, waits for `stt.final`, and submits. The mic is hidden entirely when
-the gateway reports `stt.enabled: false`.
+Tapping the mic opens `WS /ws/stt`, captures the microphone through an AudioWorklet with a
+ScriptProcessor fallback, downsamples to 16 kHz mono PCM16LE, and sends roughly 120 ms binary
+frames. Partial transcripts stream into the composer's own field. The control row then holds a
+waveform, an elapsed timer and exactly one button, **Done**, which stands where Send stands, at
+Send's size, and stays disabled until the socket is listening. Done sends `stt.stop`, waits for
+`stt.final` and leaves the transcript in the field: nothing is ever sent by the act of stopping the
+recording. There is no Cancel — a dictation you do not want is Done and then edited or cleared like
+any draft — and no time limit; a long dictation is cut into segments whose transcripts are joined in
+order. Typing takes the field back and stops listening, keeping the words recognised so far. The mic
+is hidden entirely when the gateway reports `stt.enabled: false`.
 
 ## Push and the service worker
 
@@ -109,6 +116,10 @@ focuses an open tab or opens `/sessions/<device_id>/<session_id>`.
   its own Archive and whether that Archive is open. Both the Sessions page and the chat sidebar
   render its result, so the two lists cannot drift; `tests/sessionLayout.test.ts` owns the rule.
   `docs/DESIGN.md` states it in full.
+- **A session with no title still has a name.** `sessionTitle` in `src/strings.ts` turns an empty
+  or blank `title` into "Untitled session", and the session row, the chat header, the chat sidebar
+  and the search text `selectSessionLayout` matches on all read it, so an unnamed thread never
+  draws a blank line above its meta and is still found by those words.
 - **Collapse state** is two arrays of device ids in the settings store, `collapsedDevices` and
   `archiveExpanded`, persisted with the rest of the preferences under `rc.settings`. Device groups
   are open by default, Archives shut. A non-empty search overrides both — it opens every device
@@ -147,6 +158,16 @@ focuses an open tab or opens `/sessions/<device_id>/<session_id>`.
   draft back if nothing was typed since; a minute with no device event turns the chip into
   "Delivery unconfirmed". A device that still mints its own block id is reconciled by `text` and
   `source: "remote"` instead, one row per event.
+- **While a question is pending the button reads Answer** (A20). The composer finds the pending
+  `question` block with `selectPendingQuestion`, the status line stays "Waiting for your answer",
+  and submitting sends `session.answer` rather than `session.send`: the draft becomes the free-text
+  answer of the first question with no option selected, beside whatever the card holds for the
+  others. Nothing is queued behind a question and no optimistic row is drawn, because an answer is
+  not a message. The card's own working state lives in `src/stores/answers.ts`, keyed by
+  `request_id`, so the card and the composer submit the same thing; the rules are pure in
+  `src/features/chat/answering.ts`. Answer is disabled when the draft has nowhere to go — the first
+  unanswered question refuses free text, or every question is already answered on the card, which is
+  submitted from the card.
 - **Uncertain delivery** is never resent automatically. The composer offers a Retry that reuses the
   original request id.
 - **The composer is gated on `control`**, never on `state`.
@@ -188,6 +209,7 @@ over to send" and "Device offline".
 | Attached bar | None. The header's "terminal · attached" is the only place the attachment is named |
 | Status label | "terminal · attached" in the sidebar and the Sessions list; the dot tones `shared` exactly like `remote` |
 | Approvals | Whatever `options` the block carries. A Claude relay sends Allow and Deny; the Codex daemon sends up to four decisions |
+| Questions | Answerable, exactly as for `remote` (A20). The composer's button reads Answer while one is pending, and a question the terminal answered first reads "Answered in the terminal" |
 
 The three booleans are independent and read straight off `AgentInfo`, so no surface needs
 agent-specific logic:
@@ -217,10 +239,24 @@ the terminal answered, the block resolves with the reserved decision `{option_id
 the terminal" rather than falling back to the raw option id. Every other resolved card still names
 the option and who decided it.
 
-A message sent into a shared session carries a `delivery` field. The bubble shows a quiet chip for
-the two states that are not yet final: "waiting for the terminal" while the device holds the message
-until the running turn ends, and "will be re-sent" when the CLI read it as mid-turn data. The device
-replaces the block under its original `block_id` once the message lands, and the chip disappears.
+### Questions answered elsewhere
+
+A question an attached Claude Code session asks exists twice at the same moment: as the CLI's own
+dialog in the terminal, and as a card here (A20). Either can answer it and the first one wins. The
+card is answerable on a `shared` session exactly as on a driven one, and a question the terminal
+answered first resolves with `by: "terminal"`, which the card reads as "Answered in the terminal" —
+the same wording an approval answered there uses. A resolved card shows what was answered: the
+options that were picked, and the free text that was typed, unless the question was `secret`.
+
+### A held message is a queue entry
+
+A message sent into a shared session while its terminal turn is running is not a block at all
+(A19). The device holds it, answers `accepted: "queued"`, and publishes a `queue` event naming it,
+so the row from sending moves into "Up next" the way any queued message does. The `user_message`
+appears only when the CLI takes it, with a `first_seq` after the output of the turn it waited for —
+where the terminal draws it too. One `delivery` state is left on a bubble: "will be re-sent", for a
+message the CLI read as mid-turn data. The device replaces the block under its original `block_id`
+once the message lands, and the chip disappears.
 
 A `terminal` session whose agent reports `attach` adds one secondary line under "Controlled by the
 terminal", saying why this session cannot be driven from here:

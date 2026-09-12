@@ -76,11 +76,12 @@ public struct AgentAttach: WireEnum {
 }
 
 /// Amendment A10: what became of a message sent into a `shared` session.
+///
+/// Amendment A19: a message the device is still holding is not a block at all,
+/// only a queue entry, so there is no state here for one.
 public struct MessageDelivery: WireEnum {
     public let rawValue: String
     public init(rawValue: String) { self.rawValue = rawValue }
-    /// Held by the device until the terminal-driven turn ends.
-    public static let pending = MessageDelivery(rawValue: "pending")
     /// Injected into the live CLI session.
     public static let delivered = MessageDelivery(rawValue: "delivered")
     /// Taken by the CLI as mid-turn data; the device will inject it again.

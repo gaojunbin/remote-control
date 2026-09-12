@@ -3,9 +3,16 @@
 The one rule the whole file exists for: a message injected while a turn is
 running is reframed by the CLI as untrusted external data the model is told not
 to obey, so the device injects only at an idle point and holds everything else
-in its own queue. Turn state comes from the transcript, which lags reality by up
-to one tail interval, so an injection also marks itself in flight until its own
-row appears.
+in its own queue. A held message is a queue entry and nothing else until it is
+injected (amendment A19): the block appears where the terminal shows it, at the
+end of the turn it waited for. Turn state comes from the transcript, which lags
+reality by up to one tail interval, so an injection also marks itself in flight
+until its own row appears.
+
+A question the CLI asks is the one thing here that both sides can answer at the
+same moment (amendment A20). The terminal's dialog and the block raised from the
+`PermissionRequest` hook are one question; whichever answers first wins, and the
+other side is told what happened.
 """
 
 from __future__ import annotations
@@ -16,12 +23,17 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from ..agents.claude.questions import (
+    answers_for_tool,
+    answers_from_tool,
+    normalise_questions,
+)
 from ..agents.claude.tools import tool_kind, tool_title
 from ..errors import RcError
 from ..logging_setup import logger
 from ..models import now_ms
 from . import titles
-from .attach import Attachment
+from .attach import Attachment, HookQuestion
 
 if TYPE_CHECKING:  # pragma: no cover - imported for types only
     from .hub import SessionEntry, SessionHub
@@ -58,6 +70,16 @@ class SharedApproval:
 
 
 @dataclass(slots=True)
+class SharedQuestion:
+    """A question the CLI is asking, as both a block and a waiting hook."""
+
+    request_id: str
+    block_id: str
+    questions: list[dict[str, Any]]
+    hook: HookQuestion
+
+
+@dataclass(slots=True)
 class SharedState:
     """Everything the device tracks about one attached CLI session."""
 
@@ -69,6 +91,8 @@ class SharedState:
     sent: dict[str, dict[str, Any]] = field(default_factory=dict)
     approvals: dict[str, SharedApproval] = field(default_factory=dict)
     by_channel: dict[str, str] = field(default_factory=dict)
+    # One question at a time: the CLI asks the person one thing and waits.
+    question: SharedQuestion | None = None
 
     def remember(self, item: dict[str, Any]) -> None:
         self.sent[str(item["message_id"])] = item
@@ -85,6 +109,15 @@ class SharedState:
         if self.inflight is None:
             return False
         return (time.monotonic() - self.inflight_at) < INFLIGHT_TIMEOUT
+
+    @property
+    def injectable(self) -> bool:
+        """Whether a message can go into the CLI right now.
+
+        A question on screen is not an idle CLI: its dialog owns the prompt, and
+        an injection would be read as an answer to it.
+        """
+        return not self.running and not self.waiting and self.question is None
 
 
 def pending_item(text: str, request_id: str) -> dict[str, Any]:
@@ -160,6 +193,7 @@ class SharedControl:
             await self._emit_approval(entry, approval, status="expired")
         state.approvals.clear()
         state.by_channel.clear()
+        await self._expire_question(entry, state)
         entry.session.control = control  # type: ignore[assignment]
         await entry.channel.emit("meta", control=control)
         if entry.session.turn is not None:
@@ -170,6 +204,21 @@ class SharedControl:
             # ordinary resume path the next time the session is sent to.
             await entry.channel.publish_queue(self.hub.queue_snapshot(entry))
         await entry.channel.publish_summary()
+
+    async def forget(self, entry: SessionEntry) -> None:
+        """Drop the attachment without publishing: the session itself is going.
+
+        A hook waiting on a question would otherwise sit there until Claude Code
+        times it out, a day later, holding a process for a session nobody can
+        see any more.
+        """
+        state, entry.shared = entry.shared, None
+        if state is None:
+            return
+        if state.question is not None:
+            await state.question.hook.answer(None)
+            state.question = None
+        state.attachment.detach()
 
     # ------------------------------------------------------------ transcript
 
@@ -186,10 +235,12 @@ class SharedControl:
             await self.drain(entry)
 
     async def _settle(self, entry: SessionEntry) -> None:
-        """Reconcile turn, state and approvals with what the transcript says.
+        """Reconcile turn, state and prompts with what the transcript says.
 
         An injection counts as busy before its row appears, so the apps see the
-        turn start at once instead of at the next transcript read.
+        turn start at once instead of at the next transcript read. Something
+        waiting on the person outranks a running turn, and an approval outranks
+        a question: it blocks the work the question was asked about.
         """
         state = entry.shared
         if state is None:
@@ -199,6 +250,8 @@ class SharedControl:
             await entry.channel.begin_turn(state.trigger)
         if state.approvals:
             await entry.channel.set_state("needs_approval")
+        elif state.question is not None:
+            await entry.channel.set_state("needs_input")
         elif busy:
             await entry.channel.set_state("running")
         else:
@@ -268,17 +321,19 @@ class SharedControl:
         await entry.channel.revive()
         await titles.from_prompt(entry.channel, text)
         item = pending_item(text, request_id)
-        if not state.running and not state.waiting and await self._inject(entry, item):
+        if state.injectable and await self._inject(entry, item):
             return {"accepted": "sent"}
+        # Amendment A19: held is not delivered, and not a block either. The
+        # bubble is drawn when the CLI takes the message, which is where the
+        # terminal shows it too.
         entry.queue.append(item)
-        await self._emit_message(entry, item, "pending")
         await entry.channel.publish_queue(self.hub.queue_snapshot(entry))
         return {"accepted": "queued", "queued_id": str(item["id"])}
 
     async def drain(self, entry: SessionEntry) -> None:
         """Release the oldest held message once the transcript says the turn ended."""
         state = entry.shared
-        if state is None or state.running or state.waiting or not entry.queue:
+        if state is None or not state.injectable or not entry.queue:
             return
         state.inflight = None
         item = entry.queue.pop(0)
@@ -364,6 +419,90 @@ class SharedControl:
             entry, approval, status="resolved", decision={"option_id": option_id, "by": by}
         )
         await self._settle(entry)
+
+    # ------------------------------------------------------------- questions
+
+    async def question(self, entry: SessionEntry, hook: HookQuestion) -> None:
+        """Raise the CLI's own question as a block an app can answer (A20)."""
+        state = entry.shared
+        if state is None:
+            await hook.answer(None)
+            return
+        try:
+            questions = normalise_questions(hook.input)
+        except ValueError as exc:
+            log.warning("unusable question from the hook", reason=str(exc))
+            await hook.answer(None)
+            return
+        # A second question while one is open means the first will never be
+        # answered: the CLI has moved on, whatever its hook is still waiting for.
+        await self._expire_question(entry, state)
+        request_id = str(uuid.uuid4())
+        state.question = SharedQuestion(
+            request_id=request_id,
+            block_id=f"question:{request_id}",
+            questions=questions,
+            hook=hook,
+        )
+        await self._emit_question(entry, state.question, status="pending")
+        await self._settle(entry)
+
+    async def answer(
+        self, entry: SessionEntry, request_id: str, answers: dict[str, Any]
+    ) -> dict[str, Any]:
+        state = entry.shared
+        if state is None:
+            raise RcError("conflict", "the session is no longer attached")
+        question = state.question
+        if question is None or question.request_id != request_id:
+            # Answered in the terminal, or from another app first; either way
+            # the CLI has what it needs and this reply changes nothing.
+            return {}
+        state.question = None
+        await question.hook.answer(answers_for_tool(question.questions, answers))
+        await self._emit_question(entry, question, status="resolved", answers=answers, by="remote")
+        await self._settle(entry)
+        return {}
+
+    async def question_answered(self, entry: SessionEntry, result: Any) -> None:
+        """The transcript shows the tool ran: the terminal answered first."""
+        state = entry.shared
+        if state is None or state.question is None:
+            return
+        question, state.question = state.question, None
+        await question.hook.answer(None)
+        answers = answers_from_tool(question.questions, result)
+        fields: dict[str, Any] = {"answers": answers} if answers else {}
+        await self._emit_question(entry, question, status="resolved", by="terminal", **fields)
+        await self._settle(entry)
+
+    async def question_closed(self, entry: SessionEntry, hook: HookQuestion) -> None:
+        """Claude Code stopped the hook, so nobody can answer this block now."""
+        state = entry.shared
+        if state is None or state.question is None or state.question.hook is not hook:
+            return
+        await self._expire_question(entry, state)
+        await self._settle(entry)
+
+    async def _expire_question(self, entry: SessionEntry, state: SharedState) -> None:
+        question, state.question = state.question, None
+        if question is None:
+            return
+        await question.hook.answer(None)
+        await self._emit_question(entry, question, status="expired")
+
+    @staticmethod
+    async def _emit_question(
+        entry: SessionEntry, question: SharedQuestion, *, status: str, **fields: Any
+    ) -> None:
+        await entry.channel.emit(
+            "question",
+            block_id=question.block_id,
+            request_id=question.request_id,
+            questions=[dict(item) for item in question.questions],
+            status=status,
+            **fields,
+        )
 
     async def _emit_approval(
         self,

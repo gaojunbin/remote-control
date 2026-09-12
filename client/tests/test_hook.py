@@ -1,4 +1,4 @@
-"""The `SessionStart` hook: what it sends, what it never prints, and when it gives up."""
+"""The hooks: what each sends, what neither ever prints, and when they give up."""
 
 from __future__ import annotations
 
@@ -6,13 +6,14 @@ import io
 import json
 import os
 import socket
+import threading
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
 
 from rc_client.channel import hook, paths, wire
-from rc_client.channel.settings import hook_line, settings
+from rc_client.channel.settings import QUESTION_TIMEOUT, START_TIMEOUT, hook_line, settings
 
 CLAUDE = "/Users/me/.local/bin/claude --dangerously-load-development-channels server:rc"
 HOOK_SHELL = "/bin/sh -c RC_CLIENT_HOME=/home/me/.rc-client rc-client hook session-start"
@@ -25,6 +26,26 @@ PAYLOAD = {
     "source": "resume",
     "seconds_since_last_response": 5,
 }
+
+QUESTION_INPUT = {
+    "questions": [
+        {
+            "header": "Skew",
+            "question": "How should the refresh window treat skew?",
+            "options": [{"label": "Clamp it"}, {"label": "Go monotonic"}],
+            "multiSelect": False,
+        }
+    ]
+}
+QUESTION_PAYLOAD = {
+    "session_id": PAYLOAD["session_id"],
+    "transcript_path": PAYLOAD["transcript_path"],
+    "cwd": "/tmp/proj",
+    "hook_event_name": "PermissionRequest",
+    "tool_name": "AskUserQuestion",
+    "tool_input": QUESTION_INPUT,
+}
+ANSWERS = {"How should the refresh window treat skew?": "Go monotonic"}
 
 
 @pytest.fixture
@@ -57,12 +78,34 @@ def received(server: socket.socket, timeout: float = 1.0) -> dict[str, Any] | No
         return wire.decode(connection.recv(wire.MAX_LINE_BYTES))
 
 
-def run_hook(payload: Any, monkeypatch: pytest.MonkeyPatch) -> int:
+def run_hook(payload: Any, monkeypatch: pytest.MonkeyPatch, event: str = hook.SESSION_START) -> int:
     """`main()` with `payload` on stdin and a pid resolution that needs no `ps`."""
     raw = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
     monkeypatch.setattr(hook, "claude_pid", lambda *args: 4242)
     monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(raw)))
-    return hook.main()
+    return hook.main(event)
+
+
+def serve_once(
+    server: socket.socket, reply: dict[str, Any] | None
+) -> tuple[threading.Thread, list[dict[str, Any] | None]]:
+    """Answer one waiting hook from another thread; the hook blocks on `recv`."""
+    seen: list[dict[str, Any] | None] = []
+
+    def run() -> None:
+        server.settimeout(2.0)
+        try:
+            connection, _ = server.accept()
+        except OSError:
+            return
+        with connection:
+            seen.append(wire.decode(connection.recv(wire.MAX_LINE_BYTES)))
+            if reply is not None:
+                connection.sendall(wire.encode(reply))
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    return thread, seen
 
 
 def test_the_hook_sends_one_frame_and_says_nothing(
@@ -201,5 +244,92 @@ def test_the_hook_entry_is_one_command_with_a_timeout() -> None:
     assert "matcher" not in entries[0]
     entry = entries[0]["hooks"][0]
     assert entry["type"] == "command"
-    assert entry["timeout"] == 5
+    assert entry["timeout"] == START_TIMEOUT == 5
     assert entry["command"].endswith("hook session-start")
+
+
+def test_the_question_hook_is_matched_to_the_tool_and_waits_a_day() -> None:
+    entries = settings()["hooks"]["PermissionRequest"]
+    assert len(entries) == 1
+    assert entries[0]["matcher"] == "AskUserQuestion"
+    entry = entries[0]["hooks"][0]
+    assert entry["type"] == "command"
+    assert entry["timeout"] == QUESTION_TIMEOUT == 86400
+    assert entry["command"].endswith("hook permission-request")
+
+
+# ------------------------------------------- the question hook (amendment A20)
+
+
+def test_the_question_hook_prints_the_decision_an_app_answered(
+    listener: socket.socket, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    thread, seen = serve_once(listener, wire.answers(ANSWERS))
+    assert run_hook(QUESTION_PAYLOAD, monkeypatch, hook.PERMISSION_REQUEST) == 0
+    thread.join(timeout=2)
+
+    assert seen == [
+        {
+            "type": "question",
+            "session_id": PAYLOAD["session_id"],
+            "cwd": "/tmp/proj",
+            "tool": "AskUserQuestion",
+            "input": QUESTION_INPUT,
+        }
+    ]
+    printed = json.loads(capsys.readouterr().out)
+    output = printed["hookSpecificOutput"]
+    assert output["hookEventName"] == "PermissionRequest"
+    assert output["decision"]["behavior"] == "allow"
+    assert output["decision"]["updatedInput"] == {**QUESTION_INPUT, "answers": ANSWERS}
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [wire.answers(None), {"type": "answers"}, None],
+    ids=["answered-elsewhere", "nothing-to-say", "hung-up"],
+)
+def test_a_question_nobody_answered_remotely_prints_nothing(
+    reply: dict[str, Any] | None,
+    listener: socket.socket,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The terminal's own dialog stands, so the hook must not decide anything."""
+    thread, _ = serve_once(listener, reply)
+    assert run_hook(QUESTION_PAYLOAD, monkeypatch, hook.PERMISSION_REQUEST) == 0
+    thread.join(timeout=2)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+def test_a_question_hook_with_no_daemon_prints_nothing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert not paths.socket_path().exists()
+    assert run_hook(QUESTION_PAYLOAD, monkeypatch, hook.PERMISSION_REQUEST) == 0
+    captured = capsys.readouterr()
+    assert (captured.out, captured.err) == ("", "")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"not json",
+        {"tool_name": "AskUserQuestion", "tool_input": QUESTION_INPUT},
+        {"session_id": "has space", "tool_name": "AskUserQuestion", "tool_input": QUESTION_INPUT},
+        {"session_id": "s1", "tool_name": "Bash", "tool_input": {"command": "ls"}},
+        {"session_id": "s1", "tool_name": "AskUserQuestion", "tool_input": "not an object"},
+    ],
+    ids=["malformed", "no-id", "bad-id", "another-tool", "no-input"],
+)
+def test_a_question_payload_this_device_cannot_raise_sends_nothing(
+    payload: Any,
+    listener: socket.socket,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert run_hook(payload, monkeypatch, hook.PERMISSION_REQUEST) == 0
+    assert received(listener, timeout=0.2) is None
+    assert capsys.readouterr().out == ""

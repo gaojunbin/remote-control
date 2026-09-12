@@ -55,6 +55,17 @@ public final class SessionStore {
         expandedArchives.formSymmetricDifference([deviceID])
         defaults.set(expandedArchives.sorted(), forKey: Key.archiveExpanded)
     }
+
+    /// Put every machine and every Archive back the way a fresh install draws
+    /// them. What the reader folded away outlives a launch, so a run that asks
+    /// for a clean slate has to say so about this too, or it inherits the shape
+    /// of the list somebody else left behind.
+    public func forgetListState() {
+        collapsedDevices = []
+        expandedArchives = []
+        defaults.removeObject(forKey: Key.collapsedDevices)
+        defaults.removeObject(forKey: Key.archiveExpanded)
+    }
 }
 
 /// Compact relative time for list rows: "4m", "3h", "yesterday".

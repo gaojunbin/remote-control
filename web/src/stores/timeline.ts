@@ -17,7 +17,7 @@
  * move the replay cursor, and always sort after everything the device sent.
  */
 import { eventKey } from '../lib/ids';
-import type { Attachment, SessionEvent } from '../protocol/types';
+import type { Attachment, QuestionEvent, SessionEvent } from '../protocol/types';
 
 export interface TimelineItem {
   key: string;
@@ -311,6 +311,19 @@ export function replaceBlock(state: TimelineState, event: SessionEvent): Timelin
     ...state,
     items: { ...state.items, [key]: { ...previous, ts: event.ts, event } },
   };
+}
+
+/**
+ * The question the session is waiting on, if any (amendment A20). The composer
+ * reads it to become an Answer button, so the newest one wins: a second
+ * question can only arrive once the first was resolved or expired.
+ */
+export function selectPendingQuestion(state: TimelineState): QuestionEvent | null {
+  for (let i = state.order.length - 1; i >= 0; i -= 1) {
+    const event = state.items[state.order[i] as string]?.event;
+    if (event?.kind === 'question' && event.status === 'pending') return event;
+  }
+  return null;
 }
 
 export interface TimelineView {

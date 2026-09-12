@@ -213,10 +213,25 @@ transcript a row on every attached session.
 Whether either is reachable is the device's call, not the app's — see the two booleans below.
 
 A message sent into a `shared` session may be held by the device until the terminal-driven turn
-ends. `user_message` then carries `delivery`, and the bubble shows a chip: `pending` reads "waiting
-for the terminal" and `absorbed` reads "will be re-sent". The device replaces the same `block_id`
-when the message goes in, so the chip disappears on its own. The chip lives inside a combined
-accessibility element, so its words are appended to the bubble's label as well.
+ends. Amendment A19: while it waits it is **a queue entry and nothing else**. The device answers
+`queued`, publishes the queue, and emits no block at all, so the optimistic row from sending retires
+into "Up next · N" exactly as it does on a session this app drives. The bubble appears only when the
+CLI takes the message, with `delivery: "delivered"` and a `first_seq` that places it after the
+output of the turn it waited for — which is where the terminal draws it too. A bubble pinned at the
+moment of sending sat in the middle of an answer that was still arriving, before the words it was
+replying to.
+
+One delivery chip is left: `absorbed` reads "will be re-sent", for a message the CLI took as
+mid-turn data rather than as a prompt. The device replaces the same `block_id` when it goes in
+again, so the chip disappears on its own. The chip lives inside a combined accessibility element,
+so its words are appended to the bubble's label as well.
+
+Amendment A20: a question the attached Claude Code asks is answered here or in the terminal,
+whichever comes first. The device raises the `question` block from a `PermissionRequest` hook it
+runs beside the CLI's own dialog, so the card is live on a `shared` session — `ChatStore.allowsAnswers`
+now follows `control != "terminal"` alone. A question resolved elsewhere carries `by`, and the card
+prints the same words the approval card does: "answered in the terminal". Nothing is queued behind
+a question; see "The composer" for what the message field becomes while one is open.
 
 A `terminal` session whose agent reports an `attach` method gets one line under the takeover bar,
 driven by `ChatStore.attachHint`:
@@ -238,8 +253,9 @@ so the list shows all five dot tones at once rather than four.
 
 The demo carries both cases: `demo-session-shared` on `mac-studio-office`, whose Claude reports
 `attach: "channel"`, `attach_ready: true`, `shared_interrupt: false`, and `demo-session-rename` on
-`macbook-air`, whose Claude has no shim installed. Sending into the shared session shows the message
-held, then delivered, then a relayed permission request with exactly Allow and Deny.
+`macbook-air`, whose Claude has no shim installed. Opening the shared session shows a question its
+terminal answered earlier and a live one this phone can answer; sending into it afterwards shows the
+message queued, then delivered, then a relayed permission request with exactly Allow and Deny.
 
 ## What a shared attachment carries
 
@@ -343,7 +359,22 @@ them — it stays in the navigation bar, so no one ends a turn while reaching fo
 | Dictation language | always; it belongs to the microphone beside it | `composer.language` |
 | Up next · N | `session.queued > 0` | `composer.queue` |
 
-While dictation runs the level meter, the elapsed time, Cancel and Done replace that whole row.
+While dictation runs the level meter, the elapsed time and Done replace that whole row.
+
+Amendment A20: while the transcript holds a question nobody has answered yet, the one primary in the
+row answers it instead of sending. Its glyph does not change — it is still the button that takes
+what was typed — but it names itself "Answer" to assistive technology, the field's placeholder reads
+"Your answer", and the status line reads "Waiting for your answer". Submitting sends `session.answer`
+for that block with whatever was chosen on the card, plus the draft as the free-text answer to the
+first question on it that nothing has been chosen or typed for. A draft with nowhere to go — every
+question already answered on the card, or the one still waiting takes options and no words — is left
+in the field: the card's own Submit is the way to send that. A **secret** question is never answered
+from the message field either, however it is configured: the composer's draft is written to disk and
+restored on the next launch, and the card promises a secret value is neither stored nor logged, so
+its own masked field is the only way in. Nothing is queued while a question is
+open, and no optimistic row is drawn for an answer, because an answer is not a message and the card
+resolving is what says it arrived. The card and the composer read one copy of the choices, a
+`QuestionDraft` in `ChatStore`, so the two can never submit different things.
 
 The field grows with the draft from one line to eight, then stops growing and scrolls inside
 itself. `ComposerLayout` in `Sources/RCUI/Design/ComposerLayout.swift` holds that range, and the
@@ -382,12 +413,16 @@ one control row, with a strip of attachment pills between them while a message c
 One line between the transcript and the composer, and it is drawn only when it says something the
 header does not. The header already carries the dot and the state word, so `ChatStore.statusLine`
 returns nil for every state the header names — `idle`, `starting`, `stopped`, `needs_approval`,
-`needs_input` — and nil for an attached session that is simply sitting there.
+`needs_input` — and nil for an attached session that is simply sitting there. The one exception is a
+question in the transcript: the line then says what the composer has become, which is a fact about
+the message field rather than a repeat of the header (A20). It keys off the block, never off
+`needs_input`, so a device that reports the state without raising a block changes nothing here.
 
 | When | What it says |
 | --- | --- |
 | The device is offline | "Device offline" |
 | `control: "terminal"` | "Controlled by the terminal", plus "· Take over to send" where the agent lists `takeover` |
+| A question is pending | "Waiting for your answer" (A20), which outranks the turn it interrupted because nothing is queued behind it |
 | A turn is running | "Working · your message will steer the turn", or "· will be queued", or "· N messages queued" |
 | `state: "error"` | Whatever the device put in `state_detail`, which the header has no room for |
 
@@ -444,17 +479,16 @@ The transcript arrives in the composer's own field, not in a panel of its own, a
 editable once dictation ends. Reaching for the field while it runs is a request to take over: the
 tap ends the dictation, keeps every word and puts the cursor in the field.
 
-The control row holds the level meter and the elapsed time on the left, and exactly two controls on
-the right:
+The control row holds the level meter and the elapsed time on the left, and one control on the
+right: **Done**, which stops listening and keeps the transcript in the field. It stands where Send
+stands, at Send's size and in Send's style, because while listening it is the one primary action in
+the row. There is no Cancel — a dictation nobody wants is Done and then edited or cleared like any
+other draft, and a second button of a different size beside the primary only made the row look
+unfinished.
 
-| Control | What it does |
-| --- | --- |
-| Cancel | Discards what this dictation added and restores the draft it started from |
-| Done | Stops listening and keeps the transcript in the field |
-
-There is no "stop and send". Sending a dictated message is the ordinary Send button, afterwards.
-One quiet line above the field says what dictation is doing — "Transcribing live · edit before
-sending", or the gateway wording when the gateway is transcribing — and it is where a failure
+There is no "stop and send" either. Sending a dictated message is the ordinary Send button,
+afterwards. One quiet line above the field says what dictation is doing — "Transcribing live · edit
+before sending", or the gateway wording when the gateway is transcribing — and it is where a failure
 reports itself. A failed run keeps whatever was recognised; the message clears itself after six
 seconds.
 
@@ -468,9 +502,9 @@ with a slow opacity pulse and nothing driven by the voice.
 
 ### No maximum duration
 
-Listening ends when the user taps Cancel or Done, when the app is backgrounded, or when the
-recognizer fails. `VoiceInputController` arms no deadline at all; the only timer it owns is how long
-a backend may take to answer `finish()`, and `isAwaitingFinalTranscript` says when that one is up.
+Listening ends when the user taps Done, when the app is backgrounded, or when the recognizer fails.
+`VoiceInputController` arms no deadline at all; the only timer it owns is how long a backend may take
+to answer `finish()`, and `isAwaitingFinalTranscript` says when that one is up.
 
 Neither backend can hold one request open indefinitely, so both roll over underneath while the
 audio engine and its tap keep running. Each request owns one slot in `TranscriptSegments`
@@ -487,6 +521,36 @@ A recognition request that ends mid-session is a restart, never a stop. An error
 request failed within five seconds of starting three times running, which is a broken recognizer
 rather than a stretch of silence. A segment that already handed the microphone on keeps whatever it
 transcribed even if it later fails; only the live segment can end the dictation.
+
+**A slot is not one sentence.** A recognizer may also start its transcription over *inside* one
+request: the speaker paused, and the next partial is a new sentence rather than a longer version of
+the old one. Replacing the slot's text then threw away everything said before the pause, which is
+what the phone was doing. So `TranscriptSegments.update` takes a result as a **fresh start** —
+settling what the slot held as a finished sub-segment and carrying on in a new one — when all three
+of these hold, and as an ordinary replacement otherwise:
+
+1. The slot already holds at least twelve letters or digits, so the first few words of an utterance
+   are never settled behind a correction to them.
+2. The result is shorter than what the slot holds. A recognizer extending or revising an utterance
+   keeps roughly what it had; the first partial after a restart is a word or two.
+3. The two share no real beginning: the run of characters they agree on, ignoring case, spacing and
+   punctuation, covers less than half the new result.
+
+Rule 3 is what keeps a revision a revision. The recognizer rewriting its last few words produces a
+result that agrees with the old one for almost all of its length, so it replaces, as it always did.
+The three together can never lose a word; the worst they can do to an unusually heavy revision of a
+whole sentence is keep both versions. `TranscriptSegmentsTests` covers the restart, the revision and
+the correction of a first word.
+
+This is a fix from the symptom, not from a measurement: the diagnosis is that Apple's on-device
+recognizer restarts `bestTranscription` after a silence within one request, and the experiment that
+would have shown it — feeding two `say` clips joined by three seconds of silence to
+`SFSpeechURLRecognitionRequest` with `requiresOnDeviceRecognition` — could not run here.
+`SFSpeechRecognizer.requestAuthorization` answers `.notDetermined` for a process nobody is sitting
+in front of, from a plain command-line tool and from a signed bundle carrying
+`NSSpeechRecognitionUsageDescription` alike, and the permission cannot be granted without somebody
+at the machine. The rule is written so that it holds the transcript together whatever the recognizer
+is doing, because every path through it either extends, replaces or appends, and none discards.
 
 ## Connection lifecycle
 

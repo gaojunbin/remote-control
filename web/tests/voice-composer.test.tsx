@@ -1,8 +1,8 @@
 /**
  * How dictation meets the message field. The controller itself is tested in
  * voice.test.ts; what matters here is the wiring: the mic button starts it,
- * Cancel hands the draft back, Done leaves the transcript to be edited, and
- * nothing reaches the agent until Send is clicked.
+ * Done leaves the transcript to be edited, a keystroke takes the field back,
+ * and nothing reaches the agent until Send is clicked.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
@@ -72,7 +72,9 @@ function setup() {
       queue={[]}
       sttEnabled
       sttLanguages={['auto']}
+      question={null}
       onSend={onSend}
+      onAnswer={vi.fn().mockResolvedValue(undefined)}
       onSetOption={vi.fn()}
       onRemoveQueued={vi.fn()}
       onTakeover={vi.fn()}
@@ -104,12 +106,14 @@ describe('dictation in the composer', () => {
     expect(screen.getByText(strings.voice.transcribing)).toBeInTheDocument();
   });
 
-  it('offers exactly Cancel and Done, and an elapsed timer, while listening', async () => {
+  it('offers Done alone, in Send\'s place, and an elapsed timer while listening', async () => {
     const user = userEvent.setup();
     setup();
     await user.click(screen.getByRole('button', { name: strings.composer.micStart }));
 
-    expect(controlRowButtons()).toEqual([strings.voice.cancel, strings.voice.done]);
+    expect(controlRowButtons()).toEqual([strings.voice.done]);
+    // Done takes Send's slot, at Send's size: the one primary in the row.
+    expect(screen.getByRole('button', { name: strings.voice.done }).className).toContain('send-btn');
     expect(screen.getByLabelText(strings.voice.listeningFor('0:12'))).toHaveTextContent('0:12');
     // The send button and the mic itself are not part of the listening row.
     expect(screen.queryByRole('button', { name: strings.composer.send })).toBeNull();
@@ -127,21 +131,6 @@ describe('dictation in the composer', () => {
     say('run the auth suite');
 
     expect(field()).toHaveValue('after lunch run the auth suite');
-  });
-
-  it('hands the draft back exactly as it was on Cancel', async () => {
-    const user = userEvent.setup();
-    const { field, onSend } = setup();
-    await user.click(field());
-    await user.keyboard('after lunch');
-    await user.click(screen.getByRole('button', { name: strings.composer.micStart }));
-    say('run the auth suite');
-
-    await user.click(screen.getByRole('button', { name: strings.voice.cancel }));
-
-    expect(field()).toHaveValue('after lunch');
-    expect(onSend).not.toHaveBeenCalled();
-    expect(document.querySelector('.voice-controls')).toBeNull();
   });
 
   it('leaves the transcript in the field on Done and sends nothing', async () => {
@@ -184,7 +173,9 @@ describe('dictation in the composer', () => {
         queue={[]}
         sttEnabled={false}
         sttLanguages={['auto']}
+        question={null}
         onSend={vi.fn()}
+        onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSetOption={vi.fn()}
         onRemoveQueued={vi.fn()}
         onTakeover={vi.fn()}

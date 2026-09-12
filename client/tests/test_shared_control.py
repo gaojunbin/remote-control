@@ -11,9 +11,36 @@ from rc_client.agents.claude import transcripts
 from rc_client.errors import RcError
 from rc_client.models import AgentInfo, Choice
 from rc_client.registry import Registry
-from rc_client.sessions.attach import Attachment
+from rc_client.sessions.attach import Attachment, HookQuestion
 from rc_client.sessions.hub import SessionEntry, SessionHub
 from rc_client.sessions.shared import SharedState
+
+QUESTION_TOOL = "AskUserQuestion"
+QUESTION_INPUT = {
+    "questions": [
+        {
+            "header": "Skew",
+            "question": "How should the refresh window treat skew?",
+            "options": [{"label": "Clamp it"}, {"label": "Go monotonic"}],
+            "multiSelect": False,
+        }
+    ]
+}
+PROMPT = "How should the refresh window treat skew?"
+
+
+class FakeHookQuestion(HookQuestion):
+    """A question hook that records the single reply it is given."""
+
+    def __init__(self, session_id: str = "sess-1") -> None:
+        super().__init__(
+            session_id=session_id, cwd="/repo", tool=QUESTION_TOOL, input=dict(QUESTION_INPUT)
+        )
+        self.replies: list[dict[str, Any] | None] = []
+
+    async def answer(self, answers: dict[str, Any] | None) -> bool:
+        self.replies.append(answers)
+        return True
 
 
 class FakeAttachment(Attachment):
@@ -141,7 +168,8 @@ async def test_sending_mid_turn_holds_the_message_until_the_transcript_goes_idle
     result = await harness.hub.send({"id": "req-2", "session_id": "sess-1", "text": "later"})
     assert result == {"accepted": "queued", "queued_id": "req-2"}
     assert harness.attachment.injected == []
-    assert harness.events("user_message")[-1]["delivery"] == "pending"
+    # Amendment A19: a held message is a queue entry and nothing more.
+    assert harness.events("user_message") == []
     assert harness.events("queue")[-1]["pending"] == [
         {"id": "req-2", "text": "later", "ts": entry.queue[0]["ts"]}
     ]
@@ -149,8 +177,8 @@ async def test_sending_mid_turn_holds_the_message_until_the_transcript_goes_idle
     await harness.hub.shared.tick(entry, running=False)
     assert [text for _, text in harness.attachment.injected] == ["later"]
     bubbles = harness.events("user_message")
+    assert len(bubbles) == 1
     assert bubbles[-1]["delivery"] == "delivered"
-    assert bubbles[-1]["block_id"] == bubbles[-2]["block_id"], "the pending bubble is replaced"
     assert harness.events("queue")[-1]["pending"] == []
 
 
@@ -363,13 +391,9 @@ async def test_messages_still_pending_survive_the_detachment(harness: Harness) -
 
 async def test_the_requests_a_shared_session_refuses(harness: Harness) -> None:
     await harness.attach()
-    for params, code in (
-        ({"session_id": "sess-1"}, "unsupported"),
-        ({"session_id": "sess-1", "request_id": "x", "answers": {}}, "unsupported"),
-    ):
-        with pytest.raises(RcError) as raised:
-            await (harness.hub.stop if "answers" not in params else harness.hub.answer)(params)
-        assert raised.value.code == code
+    with pytest.raises(RcError) as raised:
+        await harness.hub.stop({"session_id": "sess-1"})
+    assert raised.value.code == "unsupported"
 
     with pytest.raises(RcError) as raised:
         await harness.hub.set_options({"session_id": "sess-1", "model": "opus"})
@@ -488,5 +512,252 @@ async def test_a_held_message_is_queued_and_delivered_under_the_request_id(
     assert harness.events("queue")[-1]["pending"][0]["id"] == SEND_REQUEST
     await harness.hub.shared.tick(entry, running=False)
     bubbles = harness.events("user_message")
-    assert [bubble["block_id"] for bubble in bubbles] == [SEND_REQUEST, SEND_REQUEST]
-    assert [bubble["delivery"] for bubble in bubbles] == ["pending", "delivered"]
+    assert [bubble["block_id"] for bubble in bubbles] == [SEND_REQUEST]
+    assert [bubble["delivery"] for bubble in bubbles] == ["delivered"]
+
+
+# ------------------------------------------- A19: a held message is a queue entry
+
+
+async def test_a_held_message_is_issued_after_the_turn_it_waited_for(
+    harness: Harness,
+) -> None:
+    """Its `first_seq` comes from the injection, so it lands where the terminal shows it."""
+    entry = await harness.attach()
+    await harness.hub.shared.tick(entry, running=True)
+    await harness.hub.send({"id": "req-19", "session_id": "sess-1", "text": "later"})
+    await entry.channel.emit("assistant_text", block_id="msg-1", text="working", done=True)
+
+    await harness.hub.shared.tick(entry, running=False)
+    bubble = harness.events("user_message")[-1]
+    said = harness.events("assistant_text")[-1]
+    assert bubble["first_seq"] == bubble["seq"], "the block exists from the injection, not before"
+    assert bubble["first_seq"] > said["seq"]
+
+
+async def test_a_message_held_across_a_detachment_is_never_shown_twice(
+    harness: Harness,
+) -> None:
+    """No block was published while it waited, so the resume path publishes the first."""
+    entry = await harness.attach()
+    await harness.hub.shared.tick(entry, running=True)
+    await harness.hub.send({"id": SEND_REQUEST, "session_id": "sess-1", "text": "afterwards"})
+    await harness.hub.shared.closed(entry, harness.attachment, "none")
+
+    assert harness.events("user_message") == []
+    # The resume path emits the block under the item's own id, which is the
+    # request id, so the one bubble it draws is this message's.
+    assert [item["block_id"] for item in entry.queue] == [SEND_REQUEST]
+
+
+# --------------------------------------- A20: a question is answered where you are
+
+
+async def test_a_question_from_the_hook_is_raised_as_a_block_and_answered_remotely(
+    harness: Harness,
+) -> None:
+    entry = await harness.attach()
+    await harness.hub.shared.tick(entry, running=True)
+    hook = FakeHookQuestion()
+    await harness.hub.attach_question(hook)
+
+    pending = harness.events("question")[-1]
+    assert pending["status"] == "pending"
+    assert [question["id"] for question in pending["questions"]] == ["q0"]
+    assert [option["id"] for option in pending["questions"][0]["options"]] == ["o0", "o1"]
+    assert entry.session.state == "needs_input"
+
+    assert (
+        await harness.hub.answer(
+            {
+                "session_id": "sess-1",
+                "request_id": pending["request_id"],
+                "answers": {"q0": ["o1"]},
+            }
+        )
+        == {}
+    )
+    assert hook.replies == [{PROMPT: "Go monotonic"}]
+    resolved = harness.events("question")[-1]
+    assert resolved["status"] == "resolved"
+    assert resolved["by"] == "remote"
+    assert resolved["answers"] == {"q0": ["o1"]}
+    assert resolved["block_id"] == pending["block_id"]
+    assert harness.events("status")[-1]["state"] == "running", "back to the turn it interrupted"
+
+
+async def test_the_draft_is_passed_to_the_tool_as_free_text(harness: Harness) -> None:
+    await harness.attach()
+    hook = FakeHookQuestion()
+    await harness.hub.attach_question(hook)
+    request_id = harness.events("question")[-1]["request_id"]
+
+    await harness.hub.answer(
+        {"session_id": "sess-1", "request_id": request_id, "answers": {"q0": "neither, widen it"}}
+    )
+    assert hook.replies == [{PROMPT: "neither, widen it"}]
+    assert harness.events("question")[-1]["answers"] == {"q0": "neither, widen it"}
+
+
+async def test_a_question_answered_in_the_terminal_resolves_by_terminal(
+    harness: Harness,
+) -> None:
+    entry = await harness.attach()
+    hook = FakeHookQuestion()
+    await harness.hub.attach_question(hook)
+
+    await harness.hub.shared.question_answered(entry, {PROMPT: "Clamp it"})
+    assert hook.replies == [None], "the hook steps aside so the dialog's own answer stands"
+    resolved = harness.events("question")[-1]
+    assert resolved["status"] == "resolved"
+    assert resolved["by"] == "terminal"
+    assert resolved["answers"] == {"q0": ["o0"]}
+    assert entry.session.state != "needs_input"
+
+
+async def test_an_answer_the_terminal_typed_is_carried_as_free_text(
+    harness: Harness,
+) -> None:
+    entry = await harness.attach()
+    await harness.hub.attach_question(FakeHookQuestion())
+    await harness.hub.shared.question_answered(entry, {PROMPT: "something else entirely"})
+    assert harness.events("question")[-1]["answers"] == {"q0": "something else entirely"}
+
+
+async def test_a_terminal_answer_that_says_nothing_usable_resolves_without_answers(
+    harness: Harness,
+) -> None:
+    entry = await harness.attach()
+    await harness.hub.attach_question(FakeHookQuestion())
+    await harness.hub.shared.question_answered(entry, "not a map")
+    resolved = harness.events("question")[-1]
+    assert resolved["status"] == "resolved"
+    assert resolved["by"] == "terminal"
+    assert "answers" not in resolved
+
+
+async def test_answering_a_question_that_is_no_longer_open_is_a_no_op(
+    harness: Harness,
+) -> None:
+    entry = await harness.attach()
+    hook = FakeHookQuestion()
+    await harness.hub.attach_question(hook)
+    await harness.hub.shared.question_answered(entry, {PROMPT: "Clamp it"})
+
+    before = len(harness.events("question"))
+    assert (
+        await harness.hub.answer(
+            {"session_id": "sess-1", "request_id": "gone", "answers": {"q0": ["o0"]}}
+        )
+        == {}
+    )
+    assert len(harness.events("question")) == before
+    assert hook.replies == [None]
+
+
+async def test_the_hook_going_away_expires_the_question(harness: Harness) -> None:
+    entry = await harness.attach()
+    hook = FakeHookQuestion()
+    await harness.hub.attach_question(hook)
+    await harness.hub.attach_question_closed(hook)
+
+    assert harness.events("question")[-1]["status"] == "expired"
+    assert entry.session.state != "needs_input"
+    state = entry.shared
+    assert isinstance(state, SharedState)
+    assert state.question is None
+
+
+async def test_a_second_question_expires_the_one_still_open(harness: Harness) -> None:
+    await harness.attach()
+    first = FakeHookQuestion()
+    await harness.hub.attach_question(first)
+    await harness.hub.attach_question(FakeHookQuestion())
+
+    statuses = [event["status"] for event in harness.events("question")]
+    assert statuses == ["pending", "expired", "pending"]
+    assert first.replies == [None]
+
+
+async def test_a_question_on_a_session_nothing_is_attached_to_is_declined_at_once(
+    harness: Harness,
+) -> None:
+    entry = await harness.attach()
+    await harness.hub.shared.closed(entry, harness.attachment, "terminal")
+
+    hook = FakeHookQuestion()
+    await harness.hub.attach_question(hook)
+    assert hook.replies == [None]
+    assert harness.events("question") == []
+
+    unknown = FakeHookQuestion(session_id="sess-unknown")
+    await harness.hub.attach_question(unknown)
+    assert unknown.replies == [None]
+
+
+async def test_a_detachment_expires_the_question_and_releases_its_hook(
+    harness: Harness,
+) -> None:
+    entry = await harness.attach()
+    hook = FakeHookQuestion()
+    await harness.hub.attach_question(hook)
+    await harness.hub.shared.closed(entry, harness.attachment, "none")
+
+    assert harness.events("question")[-1]["status"] == "expired"
+    assert hook.replies == [None]
+
+
+async def test_a_message_sent_while_a_question_is_open_is_queued_not_injected(
+    harness: Harness,
+) -> None:
+    """An older app still sends; the dialog owns the prompt until it is answered."""
+    entry = await harness.attach()
+    hook = FakeHookQuestion()
+    await harness.hub.attach_question(hook)
+
+    result = await harness.hub.send({"id": "req-20", "session_id": "sess-1", "text": "and then"})
+    assert result == {"accepted": "queued", "queued_id": "req-20"}
+    assert harness.attachment.injected == []
+
+    await harness.hub.answer(
+        {
+            "session_id": "sess-1",
+            "request_id": harness.events("question")[0]["request_id"],
+            "answers": {"q0": ["o0"]},
+        }
+    )
+    await harness.hub.shared.tick(entry, running=False)
+    assert [text for _, text in harness.attachment.injected] == ["and then"]
+
+
+async def test_a_question_the_hook_describes_badly_is_declined(harness: Harness) -> None:
+    await harness.attach()
+    hook = FakeHookQuestion()
+    hook.input = {"questions": []}
+    await harness.hub.attach_question(hook)
+    assert hook.replies == [None]
+    assert harness.events("question") == []
+
+
+async def test_the_answer_row_in_the_transcript_is_recognised() -> None:
+    """The tool result is the only account of an answer given in the terminal."""
+    tailer = transcripts.TranscriptTailer(path="/nonexistent", cwd="/repo")
+    tailer.translate(
+        {
+            "type": "assistant",
+            "message": {
+                "id": "m1",
+                "content": [{"type": "tool_use", "id": "t1", "name": QUESTION_TOOL, "input": {}}],
+            },
+        }
+    )
+    emits = tailer.translate(
+        {
+            "type": "user",
+            "uuid": "row-3",
+            "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]},
+            "toolUseResult": {"questions": [], "answers": {PROMPT: "Clamp it"}},
+        }
+    )
+    assert [emit.kind for emit in emits] == ["tool_call", transcripts.QUESTION_ANSWERED]
+    assert emits[1].fields == {"answers": {PROMPT: "Clamp it"}}

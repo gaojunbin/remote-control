@@ -364,6 +364,50 @@ describe('sending', () => {
     expect(chat()?.timeline.optimistic).toEqual([]);
   });
 
+  /**
+   * A19: on a shared session a message sent into a running terminal turn is a
+   * queue entry and nothing else. The block arrives when the CLI takes it, with
+   * a `first_seq` after the output of the turn it waited for.
+   */
+  it('holds a message sent into a running terminal turn in the queue alone', async () => {
+    useSessions.setState({
+      sessions: { [KEY]: { ...session, control: 'shared', origin: 'terminal' } },
+      loaded: true,
+    });
+    const handlers = openSession();
+    handlers.onResult({ session, resync: false, events: [] });
+    useChat.getState().ingestEvent(SESSION, textEvent(10, 'Working on the refactor.'), DEVICE);
+
+    rpc.mockResolvedValueOnce({ accepted: 'queued', queued_id: 'q-held' });
+    await useChat.getState().send(KEY, { text: 'and then lint', mode: 'auto' });
+    const id = (rpc.mock.calls.at(-1)?.[2] as { id: string }).id;
+
+    useChat.getState().ingestEvent(SESSION, queueEvent(11, [id]), DEVICE);
+    expect(chat()?.queue.map((q) => q.id)).toEqual([id]);
+    // No bubble anywhere: not optimistic, not a block.
+    expect(chat()?.timeline.optimistic).toEqual([]);
+    expect(chat()?.timeline.order).toEqual(['b10']);
+
+    // The CLI took it when the turn ended.
+    useChat.getState().ingestEvent(SESSION, queueEvent(12, []), DEVICE);
+    useChat.getState().ingestEvent(
+      SESSION,
+      {
+        seq: 14,
+        ts: 1_014,
+        kind: 'user_message',
+        first_seq: 13,
+        block_id: id,
+        text: 'and then lint',
+        source: 'remote',
+        delivery: 'delivered',
+      } as SessionEvent,
+      DEVICE,
+    );
+    expect(chat()?.queue).toEqual([]);
+    expect(chat()?.timeline.order).toEqual(['b10', id]);
+  });
+
   it('gives the row up to a queue snapshot that names it, after an uncertain send', async () => {
     const handlers = openSession();
     handlers.onResult({ session, resync: false, events: [] });

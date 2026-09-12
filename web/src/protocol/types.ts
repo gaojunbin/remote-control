@@ -212,11 +212,12 @@ interface EventBase {
 }
 
 /**
- * Amendment A10, `shared` sessions only. `pending`: held by the device until
- * the terminal turn ends; `delivered`: injected into the CLI; `absorbed`: the
- * CLI read it as mid-turn data and the device will re-inject it.
+ * Amendment A10, `shared` sessions only. `delivered`: injected into the CLI;
+ * `absorbed`: the CLI read it as mid-turn data and the device will re-inject
+ * it. A message the device is still holding is a queue entry rather than a
+ * block, so it has no delivery state at all (amendment A19).
  */
-export type MessageDelivery = 'pending' | 'delivered' | 'absorbed';
+export type MessageDelivery = 'delivered' | 'absorbed';
 
 export interface UserMessageEvent extends EventBase {
   kind: 'user_message';
@@ -319,6 +320,8 @@ export interface QuestionEvent extends EventBase {
   questions: QuestionSpec[];
   status: 'pending' | 'resolved' | 'expired';
   answers?: QuestionAnswers;
+  /** A20: who answered a resolved question, when the device knows. */
+  by?: 'remote' | 'terminal';
 }
 
 export interface TurnStartedEvent extends EventBase {

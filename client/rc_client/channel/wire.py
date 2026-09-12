@@ -19,10 +19,13 @@ CLOSED = "closed"
 # session-start hook -> daemon: one frame on its own connection, then EOF
 SESSION_START = "session_start"
 SESSION_START_SOURCES = ("startup", "resume", "clear", "compact")
+# permission-request hook -> daemon: one frame, then the hook waits for `ANSWERS`
+QUESTION = "question"
 # daemon -> bridge
 INJECT = "inject"
 PERMISSION = "permission"
 REGISTERED = "registered"
+ANSWERS = "answers"
 
 
 def encode(message: dict[str, Any]) -> bytes:
@@ -68,6 +71,26 @@ def session_start(
         "source": source,
         "transcript_path": transcript_path,
     }
+
+
+def question(session_id: str, cwd: str, tool: str, tool_input: dict[str, Any]) -> dict[str, Any]:
+    """What the `PermissionRequest` hook asks the daemon: raise this question.
+
+    The hook then waits on the same connection for one `answers` frame, which
+    is the only reply the daemon ever sends to a hook.
+    """
+    return {
+        "type": QUESTION,
+        "session_id": session_id,
+        "cwd": cwd,
+        "tool": tool,
+        "input": tool_input,
+    }
+
+
+def answers(values: dict[str, Any] | None) -> dict[str, Any]:
+    """The answer to a hook's question, or `None` when nobody remote gave one."""
+    return {"type": ANSWERS, "answers": values}
 
 
 def permission_request(payload: dict[str, Any]) -> dict[str, Any]:

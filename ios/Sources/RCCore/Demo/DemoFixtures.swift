@@ -326,10 +326,35 @@ public enum DemoFixtures {
                             Drafted `docs/RELEASE-NOTES.md` from the 14 merged pull requests, grouped by \
                             gateway, device client and apps.
                             """, done: true))),
-            SessionEvent(seq: 3, ts: base + 1_400, kind: SessionEvent.turnCompletedKind,
+            // Amendment A20: an earlier question the person at the terminal
+            // answered in their own dialog before this phone got to it.
+            SessionEvent(seq: 3, ts: base + 1_200, kind: SessionEvent.questionKind, blockID: "q-shared-past",
+                         body: .question(QuestionPayload(
+                            requestID: "demo-question-shared-past",
+                            questions: [QuestionItem(
+                                id: "q1",
+                                prompt: "Should the notes name every contributor, or only the changes?",
+                                options: [QuestionOption(id: "changes", label: "Only the changes"),
+                                          QuestionOption(id: "everyone", label: "Name every contributor")],
+                                allowText: true)],
+                            status: .resolved, answers: ["q1": .options(["changes"])], by: .terminal))),
+            SessionEvent(seq: 4, ts: base + 1_400, kind: SessionEvent.turnCompletedKind,
                          body: .turnCompleted(TurnCompletedPayload(turnID: "demo-turn-shared",
                                                                    stopReason: .completed, durationMS: 31_000)))
         ]
+    }
+
+    /// Amendment A20: the question the attached Claude asks while this phone is
+    /// looking at it. The terminal is showing its own dialog for the same one.
+    public static var sharedQuestion: QuestionPayload {
+        QuestionPayload(
+            requestID: "demo-question-shared",
+            questions: [QuestionItem(
+                id: "q1",
+                prompt: "The 0.1.0 notes still have no headline. What should it say?",
+                options: [QuestionOption(id: "remote", label: "Remote control for your terminal agents"),
+                          QuestionOption(id: "phone", label: "Your coding agent, from your phone")],
+                allowText: true)])
     }
 
     /// The transcript of the shared Codex thread: typed in the terminal, and

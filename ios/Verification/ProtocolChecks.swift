@@ -172,8 +172,7 @@ enum ProtocolChecks {
             checks.expect(!claude.sharedAttachments, "nor shared attachments")
         }
 
-        for (file, expected) in [("events/user_message.pending.json", MessageDelivery.pending),
-                                 ("events/user_message.delivered.json", .delivered),
+        for (file, expected) in [("events/user_message.delivered.json", MessageDelivery.delivered),
                                  ("events/user_message.absorbed.json", .absorbed)] {
             guard let json = FixtureSource.json(file), let event = try? json.decode(SessionEvent.self),
                   let message = event.userMessage else {
@@ -189,11 +188,15 @@ enum ProtocolChecks {
             }
         }
 
-        // The replacement event names the block it supersedes.
-        if let pending = FixtureSource.json("events/user_message.pending.json"),
-           let delivered = FixtureSource.json("events/user_message.delivered.json") {
-            checks.equal(delivered["block_id"]?.stringValue, pending["block_id"]?.stringValue,
-                         "a delivered message replaces the block it was held as")
+        // Amendment A19: a message the device is still holding is a queue entry
+        // and no block at all, so `pending` is not a delivery state any more and
+        // the block that does appear is placed after the turn it waited for.
+        checks.expect(MessageDelivery(rawValue: "pending") != .delivered,
+                      "a device that still says pending is not mistaken for a delivered message")
+        if let json = FixtureSource.json("events/user_message.delivered.json"),
+           let event = try? json.decode(SessionEvent.self) {
+            checks.equal(event.orderSeq, event.firstSeq,
+                         "an injected message is drawn where its block started, not where it landed")
         }
 
         // An ordinary prompt says nothing about delivery.
@@ -227,8 +230,7 @@ enum ProtocolChecks {
         checks.expect(unknownControl != .shared && unknownControl != .terminal,
                       "an unrecognised control is not mistaken for a known one")
         let unknownDelivery = MessageDelivery(rawValue: "queued")
-        checks.expect(unknownDelivery != .pending && unknownDelivery != .delivered
-                        && unknownDelivery != .absorbed,
+        checks.expect(unknownDelivery != .delivered && unknownDelivery != .absorbed,
                       "an unrecognised delivery is not mistaken for a known one")
     }
 
@@ -393,8 +395,25 @@ enum ProtocolChecks {
         if let json = FixtureSource.json("events/question.resolved.json"),
            let event = try? json.decode(SessionEvent.self), let question = event.question {
             checks.expect(question.answers?.isEmpty == false, "a resolved question carries answers")
+            checks.expect(question.by == nil, "a question answered here names no other source")
         } else {
             checks.expect(false, "events/question.resolved.json decodes")
+        }
+
+        // Amendment A20: the person at the terminal answered their own dialog
+        // first, so the card here says where the answer came from.
+        if let json = FixtureSource.json("events/question.resolved.terminal.json"),
+           let event = try? json.decode(SessionEvent.self), let question = event.question {
+            checks.equal(question.status, .resolved, "a question answered in the terminal resolves")
+            checks.equal(question.by, .terminal, "and is attributed to the terminal")
+            checks.expect(question.answers?.isEmpty == false, "with the answers it was given there")
+            checks.noThrow("the attribution survives a re-encode") {
+                guard try JSONValue.encode(event)["by"]?.stringValue == "terminal" else {
+                    throw ProtocolFailure.malformed("question.by was lost")
+                }
+            }
+        } else {
+            checks.expect(false, "events/question.resolved.terminal.json decodes")
         }
 
         if let json = FixtureSource.json("events/assistant_text.delta.json"),

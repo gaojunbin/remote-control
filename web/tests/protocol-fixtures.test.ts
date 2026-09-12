@@ -132,16 +132,24 @@ function assertEvent(event: SessionEvent): void {
       break;
     case 'question':
       expect(event.questions.length).toBeGreaterThan(0);
+      expect(['pending', 'resolved', 'expired']).toContain(event.status);
       for (const question of event.questions) {
         expect(typeof question.multi).toBe('boolean');
         expect(typeof question.allow_text).toBe('boolean');
       }
+      // Amendment A20: a resolved question may name who answered it, and only
+      // the two sides that can — never a policy.
+      if (event.by !== undefined) {
+        expect(['remote', 'terminal']).toContain(event.by);
+        expect(event.status).not.toBe('pending');
+      }
       break;
     case 'user_message':
       expect(['remote', 'terminal', 'queue']).toContain(event.source);
-      // Amendment A10: delivery is present on shared sessions only.
+      // A10: delivery is present on shared sessions only. A19 took `pending`
+      // away: a message the device still holds is a queue entry, not a block.
       if (event.delivery !== undefined) {
-        expect(['pending', 'delivered', 'absorbed']).toContain(event.delivery);
+        expect(['delivered', 'absorbed']).toContain(event.delivery);
       }
       // Amendment A3: inbound attachments describe size, never bytes.
       for (const attachment of event.attachments ?? []) {

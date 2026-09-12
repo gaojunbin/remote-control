@@ -37,6 +37,8 @@ public final class AppModel {
         isUITesting = arguments.contains("--ui-testing")
         if arguments.contains("--reset-state") {
             self.settings.remember(origin: "", username: "")
+            self.settings.timelineDetail = .simple
+            self.sessions.forgetListState()
         }
         if arguments.contains("--demo") {
             Task { await self.enterDemo() }

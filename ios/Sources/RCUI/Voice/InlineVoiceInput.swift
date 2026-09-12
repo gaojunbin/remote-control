@@ -41,13 +41,15 @@ struct VoiceButton: View {
 }
 
 /// What the control row holds while dictation runs: how loud it is, how long it
-/// has been listening, and the only two ways out.
+/// has been listening, and the one way out.
 ///
 /// There is no "stop and send". Done keeps the transcript in the message field
-/// and Send stays the separate, explicit tap it is for anything typed.
+/// and Send stays the separate, explicit tap it is for anything typed. There is
+/// no Cancel either: a dictation nobody wants is Done and then edited or
+/// cleared like any other draft, and Done stands where Send stands, at Send's
+/// size, because while listening it is the one primary action in the row.
 struct VoiceListeningControls: View {
     let session: InlineVoiceDraftSession
-    let cancel: () -> Void
     let done: () -> Void
     @State private var started = Date()
     @State private var elapsed = "0:00"
@@ -66,11 +68,9 @@ struct VoiceListeningControls: View {
                 .accessibilityLabel("Listening for \(elapsed)")
                 .accessibilityIdentifier("voice.elapsed")
             Spacer(minLength: Theme.Space.small)
-            Button("Cancel", action: cancel)
-                .buttonStyle(ChipButtonStyle())
-                .accessibilityIdentifier("voice.cancel")
             Button("Done", action: done)
                 .buttonStyle(PrimaryButtonStyle(fullWidth: false))
+                .disabled(session.voice.phase != .listening)
                 .accessibilityIdentifier("voice.done")
         }
         .frame(minHeight: Theme.Touch.primary)

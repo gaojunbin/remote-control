@@ -23,7 +23,7 @@ from ..logging_setup import logger
 from ..models import AgentInfo, Session, now_ms, title_from_text
 from ..registry import Registry
 from . import titles
-from .attach import Attachment, SessionStart
+from .attach import Attachment, HookQuestion, SessionStart
 from .channel import SessionChannel
 from .shared import EXIT_SETTLE, SharedControl, SharedState
 
@@ -488,14 +488,14 @@ class SessionHub:
 
     async def answer(self, params: dict[str, Any]) -> dict[str, Any]:
         entry = self.entry(str(params.get("session_id") or ""))
-        if entry.shared is not None:
-            raise RcError("unsupported", "answer the question in the terminal")
-
-        if entry.runner is None:
-            raise RcError("conflict", "the session is not running")
         answers = params.get("answers")
         if not isinstance(answers, dict):
             raise RcError("bad_request", "answers must be an object")
+        if entry.shared is not None:
+            # Amendment A20: the question the CLI's own dialog is showing.
+            return await self.shared.answer(entry, str(params.get("request_id") or ""), answers)
+        if entry.runner is None:
+            raise RcError("conflict", "the session is not running")
         ok = await entry.runner.answer(str(params.get("request_id") or ""), answers)
         if not ok:
             raise RcError("not_found", "that question is no longer pending")
@@ -572,9 +572,7 @@ class SessionHub:
     async def _remove(self, entry: SessionEntry) -> None:
         """Forget a session here and everywhere: nothing of it is kept."""
         session_id = entry.session.session_id
-        if entry.shared is not None:
-            entry.shared.attachment.detach()
-            entry.shared = None
+        await self.shared.forget(entry)
         if entry.runner is not None:
             await entry.runner.close()
         await entry.channel.close()
@@ -666,6 +664,24 @@ class SessionHub:
             return
         async with entry.lock:
             await self.shared.permission_request(entry, payload)
+
+    async def attach_question(self, question: HookQuestion) -> None:
+        """A `PermissionRequest` hook: the CLI is asking its person something (A20)."""
+        entry = self.entries.get(question.session_id)
+        if entry is None or entry.shared is None:
+            # Nothing is attached to this session, so there is nobody to ask;
+            # the CLI's own dialog is the whole of it.
+            await question.answer(None)
+            return
+        async with entry.lock:
+            await self.shared.question(entry, question)
+
+    async def attach_question_closed(self, question: HookQuestion) -> None:
+        entry = self.entries.get(question.session_id)
+        if entry is None or entry.shared is None:
+            return
+        async with entry.lock:
+            await self.shared.question_closed(entry, question)
 
     async def attach_closed(self, attachment: Attachment) -> None:
         """The bridge went away: back to the terminal if the CLI is still alive."""

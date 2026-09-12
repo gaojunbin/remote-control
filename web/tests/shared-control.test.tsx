@@ -1,8 +1,9 @@
 /**
- * Amendments A10 and A11 — `control: "shared"`, a terminal session the device
- * is attached to. Covers the composer state, the Stop and takeover rules, the
- * delivery chip, the three `shared_*` agent booleans and the fixtures the
- * contract describes.
+ * Amendments A10, A11, A19 and A20 — `control: "shared"`, a terminal session
+ * the device is attached to. Covers the composer state, the Stop and takeover
+ * rules, the delivery chip, the three `shared_*` agent booleans, a held message
+ * that is a queue entry rather than a block, a question answered from here, and
+ * the fixtures the contract describes.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -13,14 +14,17 @@ import { Composer } from '../src/features/chat/Composer';
 import { StatusLine } from '../src/features/chat/StatusLine';
 import { UserMessageRow } from '../src/features/chat/blocks/UserMessageRow';
 import { ApprovalCard } from '../src/features/chat/blocks/ApprovalCard';
+import { QuestionCard } from '../src/features/chat/blocks/QuestionCard';
+import { composeAnswer } from '../src/features/chat/answering';
 import {
   attachHint,
   canAttachShared,
   canInterruptShared,
   canSetShared,
 } from '../src/features/chat/attach';
-import { applyEvent, emptyTimeline } from '../src/stores/timeline';
-import { foldSession } from '../src/stores/chat';
+import { addOptimistic, applyEvent, emptyTimeline, selectView } from '../src/stores/timeline';
+import { foldChat, foldSession, type ChatSession } from '../src/stores/chat';
+import { emptyDraft, useAnswers } from '../src/stores/answers';
 import { sessionStateLabel } from '../src/strings';
 import { useSettings } from '../src/stores/settings';
 import { claudeAgent, claudeNoShim, codexAgent, codexNoDaemon } from '../mock/fixtures';
@@ -29,17 +33,19 @@ import type {
   AgentInfo,
   ApprovalEvent,
   MetaEvent,
+  QuestionEvent,
+  QuestionSpec,
   Session,
+  SessionEvent,
   UserMessageEvent,
 } from '../src/protocol/types';
 
 const CONTROLS = ['remote', 'terminal', 'shared', 'none'];
-const DELIVERIES = ['pending', 'delivered', 'absorbed'];
+const DELIVERIES = ['delivered', 'absorbed'];
 
 const sharedIdle = fixtureOrEmpty<Session>('objects/session.shared-idle.json');
 const sharedRunning = fixtureOrEmpty<Session>('objects/session.shared-running.json');
 const attachAgent = fixtureOrEmpty<AgentInfo>('objects/agent.claude-attach.json');
-const pendingMessage = fixtureOrEmpty<UserMessageEvent>('events/user_message.pending.json');
 const deliveredMessage = fixtureOrEmpty<UserMessageEvent>('events/user_message.delivered.json');
 const absorbedMessage = fixtureOrEmpty<UserMessageEvent>('events/user_message.absorbed.json');
 const sharedApproval = fixtureOrEmpty<ApprovalEvent>('events/approval.shared-pending.json');
@@ -48,15 +54,19 @@ const daemonAgent = fixtureOrEmpty<AgentInfo>('objects/agent.codex-daemon.json')
 const codexShared = fixtureOrEmpty<Session>('objects/session.codex-shared-running.json');
 const codexApproval = fixtureOrEmpty<ApprovalEvent>('events/approval.codex-shared-pending.json');
 const codexElsewhere = fixtureOrEmpty<ApprovalEvent>('events/approval.codex-elsewhere.json');
+const pendingQuestion = fixtureOrEmpty<QuestionEvent>('events/question.pending.json');
+const terminalQuestion = fixtureOrEmpty<QuestionEvent>('events/question.resolved.terminal.json');
 
 const composerProps = (session: Session, agent: AgentInfo | null) => ({
   session,
   agent,
   deviceOnline: true,
   queue: [],
+  question: null,
   sttEnabled: false,
   sttLanguages: ['auto'],
   onSend: vi.fn().mockResolvedValue(undefined),
+  onAnswer: vi.fn().mockResolvedValue(undefined),
   onSetOption: vi.fn(),
   onRemoveQueued: vi.fn(),
   onTakeover: vi.fn(),
@@ -94,19 +104,17 @@ describe.runIf(fixturesAvailable())('A10 fixtures', () => {
     expect(agent.capabilities).toContain('takeover');
   });
 
-  it('decodes the three delivery states', () => {
-    expect(pendingMessage.delivery).toBe('pending');
+  it('decodes the two delivery states A19 leaves', () => {
     expect(deliveredMessage.delivery).toBe('delivered');
     expect(absorbedMessage.delivery).toBe('absorbed');
-    for (const value of [pendingMessage, deliveredMessage, absorbedMessage]) {
+    for (const value of [deliveredMessage, absorbedMessage]) {
       expect(DELIVERIES).toContain(value.delivery);
       // §5.2: `source` stays `remote` for anything an app sent.
       expect(value.source).toBe('remote');
     }
-    // The delivered copy replaces the pending block: same id, later seq.
-    expect(deliveredMessage.block_id).toBe(pendingMessage.block_id);
-    expect(deliveredMessage.first_seq).toBe(pendingMessage.seq);
-    expect(deliveredMessage.seq).toBeGreaterThan(pendingMessage.seq);
+    // A19: the block appears when the CLI takes the message, so `first_seq`
+    // places it after the output of the turn it waited for.
+    expect(deliveredMessage.first_seq).toBeLessThan(deliveredMessage.seq);
   });
 
   it('decodes a relayed approval with allow and deny only', () => {
@@ -126,6 +134,8 @@ describe.runIf(fixturesAvailable())('A10 fixtures', () => {
   it('rejects the values the contract calls out as invalid', () => {
     expect(CONTROLS).not.toContain('attached');
     expect(DELIVERIES).not.toContain('queued');
+    // A19 took `pending` out of the protocol along with its fixture.
+    expect(DELIVERIES).not.toContain('pending');
   });
 });
 
@@ -299,10 +309,6 @@ describe.runIf(fixturesAvailable())('A10 delivery chip', () => {
     return document.querySelector('.delivery-chip')?.textContent ?? null;
   };
 
-  it('says a held message is waiting for the terminal', () => {
-    expect(chip(pendingMessage)).toBe('waiting for the terminal');
-  });
-
   it('says an absorbed message will be re-sent', () => {
     expect(chip(absorbedMessage)).toBe('will be re-sent');
   });
@@ -311,25 +317,9 @@ describe.runIf(fixturesAvailable())('A10 delivery chip', () => {
     const { unmount } = render(<UserMessageRow event={deliveredMessage} />);
     expect(document.querySelector('.delivery-chip')).toBeNull();
     unmount();
-    const plain: UserMessageEvent = { ...pendingMessage };
+    const plain: UserMessageEvent = { ...deliveredMessage };
     delete plain.delivery;
     expect(chip(plain)).toBeNull();
-  });
-
-  it('updates the chip when the block is replaced by its delivered copy', () => {
-    let timeline = applyEvent(emptyTimeline(), pendingMessage);
-    const blockId = pendingMessage.block_id;
-    expect((timeline.items[blockId]?.event as UserMessageEvent).delivery).toBe('pending');
-
-    timeline = applyEvent(timeline, deliveredMessage);
-    const item = timeline.items[blockId];
-    expect((item?.event as UserMessageEvent).delivery).toBe('delivered');
-    // One row throughout, held at the seq where the block first appeared.
-    expect(timeline.order).toEqual([blockId]);
-    expect(item?.seq).toBe(pendingMessage.seq);
-
-    render(<UserMessageRow event={item?.event as UserMessageEvent} />);
-    expect(document.querySelector('.delivery-chip')).toBeNull();
   });
 
   it('clears the "will be re-sent" chip when the device re-injects', () => {
@@ -578,5 +568,213 @@ describe.runIf(fixturesAvailable())('A11 approval cards', () => {
   it('still names the option for a decision the app made', () => {
     render(<ApprovalCard event={terminalApproval} onDecide={decide} />);
     expect(screen.getByText('Allow · decided by terminal')).toBeInTheDocument();
+  });
+});
+
+/**
+ * A19 — a message sent into a running attached turn is a queue entry until the
+ * CLI takes it. No bubble waits in the middle of the turn; the block arrives
+ * where the terminal draws it.
+ */
+describe.runIf(fixturesAvailable())('A19 a held message is a queue entry', () => {
+  const queueEvent = (seq: number, ids: string[]): SessionEvent => ({
+    seq,
+    ts: 1788946148000 + seq,
+    kind: 'queue',
+    pending: ids.map((id) => ({ id, text: 'and then lint', ts: 1788946148000 })),
+  });
+
+  it('leaves no bubble in the timeline and one entry in the queue', () => {
+    const id = 'req-held-1';
+    let chat: ChatSession = {
+      key: 'dev/ses',
+      deviceId: 'dev',
+      sessionId: 'ses',
+      timeline: addOptimistic(emptyTimeline(), {
+        id,
+        text: 'and then lint',
+        attachments: [],
+        at: 1788946148000,
+      }),
+      todos: [],
+      queue: [],
+      usage: null,
+      ready: true,
+      historyLoading: false,
+      historyHasMore: false,
+      error: null,
+    };
+    // `accepted: "queued"` retires the row; the device's snapshot names it too.
+    chat = foldChat(chat, queueEvent(12, [id]));
+
+    expect(chat.queue.map((q) => q.id)).toEqual([id]);
+    expect(chat.timeline.optimistic).toEqual([]);
+    expect(selectView(chat.timeline, 'detailed').roots).toEqual([]);
+  });
+
+  it('draws the bubble where the CLI took it, after the turn it waited for', () => {
+    const id = 'req-held-1';
+    let timeline = applyEvent(emptyTimeline(), {
+      seq: 20,
+      ts: 1788946148200,
+      kind: 'assistant_text',
+      block_id: 'a1',
+      text: 'Done with the refactor.',
+      done: true,
+    });
+    // A19: the device emits the block at injection, with `first_seq` after the
+    // last block of the turn, and never a `pending` one before it.
+    timeline = applyEvent(timeline, {
+      seq: 22,
+      ts: 1788946148400,
+      kind: 'user_message',
+      first_seq: 21,
+      block_id: id,
+      text: 'and then lint',
+      source: 'remote',
+      delivery: 'delivered',
+    });
+
+    expect(timeline.order).toEqual(['a1', id]);
+    const message = timeline.items[id]?.event as UserMessageEvent;
+    expect(message.delivery).toBe('delivered');
+    render(<UserMessageRow event={message} />);
+    expect(document.querySelector('.delivery-chip')).toBeNull();
+  });
+});
+
+/**
+ * A20 — a question is answered where you are. The card works on a shared
+ * session, the composer becomes an Answer button, and a question the terminal
+ * answered first says so.
+ */
+describe.runIf(fixturesAvailable())('A20 answering a question', () => {
+  const sharedWaiting: Session = { ...sharedIdle, state: 'needs_input' };
+
+  beforeEach(() => {
+    useAnswers.setState({ drafts: {} });
+  });
+
+  it('decodes the question the terminal answered', () => {
+    expect(terminalQuestion.status).toBe('resolved');
+    expect(terminalQuestion.by).toBe('terminal');
+    expect(terminalQuestion.answers?.['q1']).toEqual(['clamp']);
+    // The same block, resolved: one row throughout.
+    expect(terminalQuestion.block_id).toBe(pendingQuestion.block_id);
+    expect(terminalQuestion.first_seq).toBe(pendingQuestion.seq);
+    expect(pendingQuestion.by).toBeUndefined();
+  });
+
+  it('says a question answered in the terminal was answered there', () => {
+    render(<QuestionCard event={terminalQuestion} onAnswer={vi.fn()} />);
+    expect(screen.getByText('Answered in the terminal')).toBeInTheDocument();
+    expect(document.querySelector('.approval-actions')).toBeNull();
+  });
+
+  it('says only "Answered" when the device names nobody', () => {
+    const resolved: QuestionEvent = { ...terminalQuestion };
+    delete resolved.by;
+    render(<QuestionCard event={resolved} onAnswer={vi.fn()} />);
+    expect(screen.getByText('Answered')).toBeInTheDocument();
+  });
+
+  // The card carries no `control` gate at all, and the composer beside it is
+  // enabled on a shared session, so a question is answerable from both there.
+  it('answers from the card itself', async () => {
+    const onAnswer = vi.fn().mockResolvedValue(undefined);
+    render(<QuestionCard event={pendingQuestion} onAnswer={onAnswer} />);
+    await userEvent.click(screen.getByRole('button', { name: /Clamp skew/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    expect(onAnswer).toHaveBeenCalledWith(pendingQuestion.request_id, { q1: ['clamp'] });
+  });
+
+  it('reads Answer while the question is pending', () => {
+    render(
+      <Composer
+        {...composerProps(sharedWaiting, attachAgent)}
+        question={pendingQuestion}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Answer' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Queue' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Message the agent…')).toHaveAttribute(
+      'placeholder',
+      'Type your answer…',
+    );
+  });
+
+  it('submits the draft as the free text of the first unanswered question', async () => {
+    const props = composerProps(sharedWaiting, attachAgent);
+    render(<Composer {...props} question={pendingQuestion} />);
+    const field = screen.getByLabelText('Message the agent…');
+    await userEvent.click(field);
+    await userEvent.keyboard('clamp it, but log the skew');
+    await userEvent.click(screen.getByRole('button', { name: 'Answer' }));
+
+    expect(props.onAnswer).toHaveBeenCalledWith(pendingQuestion.request_id, {
+      q1: 'clamp it, but log the skew',
+    });
+    expect(props.onSend).not.toHaveBeenCalled();
+    expect(field).toHaveValue('');
+  });
+
+  it('keeps the draft when the first unanswered question refuses free text', async () => {
+    const noText: QuestionEvent = {
+      ...pendingQuestion,
+      questions: [{ ...(pendingQuestion.questions[0] as QuestionSpec), allow_text: false }],
+    };
+    const props = composerProps(sharedWaiting, attachAgent);
+    render(<Composer {...props} question={noText} />);
+    const field = screen.getByLabelText('Message the agent…');
+    await userEvent.click(field);
+    await userEvent.keyboard('clamp it');
+    await userEvent.click(screen.getByRole('button', { name: 'Answer' }));
+
+    expect(props.onAnswer).not.toHaveBeenCalled();
+    expect(field).toHaveValue('clamp it');
+  });
+
+  it('shows a free-text answer back on the resolved card, but never a secret', () => {
+    const q = pendingQuestion.questions[0] as QuestionSpec;
+    const resolved: QuestionEvent = {
+      ...pendingQuestion,
+      status: 'resolved',
+      by: 'remote',
+      answers: { q1: 'clamp it, but log the skew' },
+    };
+    const { unmount } = render(<QuestionCard event={resolved} onAnswer={vi.fn()} />);
+    expect(screen.getByLabelText(q.prompt)).toHaveValue('clamp it, but log the skew');
+    unmount();
+
+    render(
+      <QuestionCard
+        event={{ ...resolved, questions: [{ ...q, secret: true }] }}
+        onAnswer={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText(q.prompt)).toHaveValue('');
+  });
+
+  it('sends the card selections alongside the draft', () => {
+    const two: QuestionEvent = {
+      ...pendingQuestion,
+      questions: [
+        pendingQuestion.questions[0] as QuestionSpec,
+        {
+          id: 'q2',
+          prompt: 'Anything else?',
+          options: [],
+          multi: false,
+          allow_text: true,
+        },
+      ],
+    };
+    const draft = { selection: { q1: ['widen'] }, text: {} };
+    expect(composeAnswer(two, draft, 'and raise the timeout')).toEqual({
+      q1: ['widen'],
+      q2: 'and raise the timeout',
+    });
+    // Nothing selected anywhere: the draft answers the first question.
+    expect(composeAnswer(two, emptyDraft, 'clamp it')).toEqual({ q1: 'clamp it' });
   });
 });

@@ -811,7 +811,7 @@ are timeline entries or state updates.
 | `text` | string | yes | |
 | `attachments` | `Attachment[]` | no | Metadata only |
 | `source` | `remote` \| `terminal` \| `queue` | yes | Where the message came from |
-| `delivery` | `pending` \| `delivered` \| `absorbed` | no | Set only on `shared` sessions; see below |
+| `delivery` | `delivered` \| `absorbed` | no | Set only on `shared` sessions; see below |
 
 The `user_message` a device emits for an app's `session.send` carries the request's `id` as its
 `block_id` (amendment A12). An app therefore renders the message the moment it is sent, under that
@@ -831,10 +831,13 @@ the device emits the block at the turn's end, with a `notice` of level `warning`
 interrupted, so the message is shown exactly once either way.
 
 `delivery` reports what happened to a message injected into an attached CLI and is absent for an
-ordinary prompt. `pending` means the device accepted the message and is holding it until the
-terminal turn ends. `delivered` means it was injected into the CLI. `absorbed` means the CLI treated
+ordinary prompt. `delivered` means it was injected into the CLI. `absorbed` means the CLI treated
 it as mid-turn data rather than a prompt, so the device will re-inject it at the next idle point.
-The block keeps its `block_id` throughout, and each re-injection is a replacement event carrying
+A message the device accepted while the terminal's turn was running is not a block at all until it
+is injected (amendment A19): it is a `queue` entry (5.12), the app keeps it in its queue as it does
+for any queued message, and the `user_message` appears only when the CLI takes it, so `first_seq`
+places it after the output of the turn it waited for — the order the terminal shows. The block
+keeps its `block_id` throughout, and each re-injection is a replacement event carrying
 `delivery: "delivered"`. `source` stays `remote` for messages apps send into a shared session and
 `terminal` for messages typed in the CLI.
 
@@ -1212,10 +1215,22 @@ in the terminal" and never sends it back. `fixtures/events/approval.codex-shared
 | `questions` | `QuestionItem[]` | yes | |
 | `status` | `pending` \| `resolved` \| `expired` | yes | |
 | `answers` | map | no | Question id to a list of option ids, or to free text |
+| `by` | `remote` \| `terminal` | no | On a resolved question: who answered it (amendment A20) |
 
 `QuestionItem` is `{id, prompt, options: [{id, label, description?}], multi, allow_text, secret?}`.
 `multi` allows several options; `allow_text` allows a free-text answer; `secret` asks the UI to mask
 the input.
+
+On an attached Claude Code session (`control: "shared"`) the CLI's own question dialog and this block
+exist at the same time (amendment A20). The device raises the block from the `PermissionRequest`
+hook Claude Code runs beside the dialog, reports `needs_input`, and answers the hook with the
+first reply that arrives: a `session.answer` from an app, or the dialog in the terminal. The other
+side then sees the block `resolved` with `by` saying who answered, and the CLI's dialog is
+withdrawn when the app was first. A question the device could not raise this way — an older shim
+without the hook — stays what it was before: a running `tool_call` the terminal answers alone.
+
+`fixtures/events/question.resolved.terminal.json` is the block after the person at the terminal
+answered.
 
 `fixtures/events/question.pending.json`
 
@@ -1961,9 +1976,9 @@ The result's `accepted` field reports what actually happened: `sent`, `queued` o
 
 | Request | Behaviour |
 | --- | --- |
-| `session.send` | Accepted whatever `mode` says; `steered` never applies. When the session is idle the device injects at once, replies `accepted: "sent"` and emits `user_message {delivery: "delivered"}`. When a turn is running, `auto` and `queue` alike, the device holds the message locally, replies `accepted: "queued"` with a `queued_id`, emits `user_message {delivery: "pending"}` **and** a `queue` event listing it, then injects it once the transcript shows the turn ended and replaces the block with `delivery: "delivered"`. `session.queue_remove` works on pending items. Attachments are refused with `unsupported` ("attachments cannot be delivered to a terminal session"). |
+| `session.send` | Accepted whatever `mode` says; `steered` never applies. When the session is idle the device injects at once, replies `accepted: "sent"` and emits `user_message {delivery: "delivered"}`. When a turn is running, `auto` and `queue` alike, the device holds the message locally, replies `accepted: "queued"` with a `queued_id` and emits a `queue` event listing it — no `user_message` yet (A19) — then injects it once the transcript shows the turn ended and emits the block with `delivery: "delivered"`. `session.queue_remove` works on held items. Attachments are refused with `unsupported` ("attachments cannot be delivered to a terminal session"). |
 | `session.approve` | Relays the option the block offered. An `option_id` the block did not offer, `elsewhere` included, is `bad_request`. Replying to a request the terminal already answered is a no-op returning `{}`. |
-| `session.answer` | `unsupported`. Questions the CLI asks are answered in the terminal; the device mirrors the `question` block read-only. |
+| `session.answer` | Supported for a `question` block the device raised through its `PermissionRequest` hook (A20): the answer goes to the CLI as the tool's own answers and the block resolves with `by: "remote"`. Answering a question the terminal already answered is a no-op returning `{}`. A question the device did not raise has no block to answer. |
 | `session.stop` | `unsupported` unless the agent lists capability `interrupt` **and** reports `shared_interrupt: true`. Message: "stop it in the terminal". |
 | `session.set` | `unsupported` for `model`, `permission_mode` and `effort` ("change it in the terminal"). `title` works. |
 | `session.takeover` | `conflict` ("already attached"). |
@@ -2662,8 +2677,8 @@ by `block_id` like any other.
 10. **Treat `shared` like `remote`.** A session with `control: "shared"` gets the same composer,
     approvals, queue and user-message rows as a remote session. Never offer "Take over" on it, and
     show Stop only when the agent has capability `interrupt` and reports `shared_interrupt: true`.
-    Render `delivery: "pending"` as a quiet "waiting for the terminal" chip on the bubble and
-    `delivery: "absorbed"` as "will be re-sent". Enable the model, permission-mode and effort
+    Render `delivery: "absorbed"` as a quiet "will be re-sent" chip on the bubble; a held message
+    is a queue entry until it lands (A19). Enable the model, permission-mode and effort
     pickers on a `shared` session when the agent reports `shared_settings: true`, and the
     attachment button when it reports `shared_attachments: true`. When both are true the composer
     status line says only that the session is attached to the terminal, with nothing disabled.
@@ -2738,9 +2753,13 @@ by `block_id` like any other.
       cannot perform.
 - [ ] Reports `control: "shared"` only while the attachment is live, and moves the session to
       `terminal` or `none` as soon as it drops.
-- [ ] On a `shared` session injects only while the transcript is idle, holds everything else as
-      `user_message {delivery: "pending"}` with a matching `queue` event, and replaces the block
-      with `delivery: "delivered"` once it is injected.
+- [ ] On a `shared` session injects only while the transcript is idle, holds everything else as a
+      `queue` entry with no `user_message`, and emits the block with `delivery: "delivered"` only
+      once it is injected (A19).
+- [ ] Raises a `question` block with `needs_input` for an `AskUserQuestion` its `PermissionRequest`
+      hook reports on an attached Claude session, answers the hook from the first `session.answer`,
+      and resolves the block with `by: "terminal"` when the transcript shows the terminal answered
+      first (A20).
 - [ ] Offers exactly `allow` and `deny` on an approval relayed through a Claude channel, offers the
       options the Codex daemon lists for that request, resolves either with `decision.by: "terminal"`
       when the terminal answered first, and expires it when the CLI exits or the attachment drops.
@@ -2768,6 +2787,8 @@ by `block_id` like any other.
 - [ ] Ignores unknown fields, unknown event kinds and unknown agent ids.
 - [ ] Shows `model`, `permission_mode` and `effort` on a terminal-held session as values it cannot
       change, by label when `AgentInfo` lists the id and by the id otherwise (A17).
+- [ ] While a `question` is pending, sends the composer's draft as that question's free-text answer
+      through `session.answer` instead of queueing it, and shows a resolved question's `by` (A20).
 - [ ] Applies events by `block_id` with the replacement and streaming rules of 5.1, orders blocks
       by `first_seq ?? seq`, and drops events whose `seq` is not newer than the last applied one.
 - [ ] Follows the reconnect order of 8.6 and treats 60 s of silence as a dead connection.
@@ -2979,3 +3000,21 @@ them anything a person had started at a terminal. The device now reads the `orig
 `source` the index carries and publishes only threads its own daemon holds or a terminal started;
 the rest are that application's and are removed if they were ever published. Nothing new on the
 wire: `session.removed` already exists and the apps already honour it. See 4.4 and 9.2.
+
+**2026-09-12 A19 — a held message is a queue entry until the CLI takes it.** A message sent into a
+running attached Claude turn was published at once as a `user_message {delivery: "pending"}`, so
+its `first_seq` pinned it in the middle of the turn — between the tool call that was running and
+the rest of the answer — while the terminal drew it after the turn, where Claude Code read it. The
+device now holds such a message as a `queue` entry only and emits the block when it injects it, as
+A14 already did for a steered Codex message; `delivery: "pending"` is gone from the protocol and
+`fixtures/events/user_message.pending.json` with it. See 5.2, 4.4 and 9.
+
+**2026-09-12 A20 — a question Claude Code asks in an attached session can be answered from an app.**
+The channel never relays `AskUserQuestion` (the CLI relays only tools that need no user
+interaction, and its permission reply carries no answers), so a shared session showed the question
+as a running tool call and the composer queued whatever was typed. Claude Code runs a
+`PermissionRequest` hook beside its own dialog and takes whichever answers first, so the device now
+installs one for `AskUserQuestion` in the settings file the shim passes, raises the `question`
+block from it with `needs_input`, feeds the first `session.answer` back as the tool's answers, and
+resolves the block `by: "terminal"` when the dialog was answered there. `question` gains an
+optional `by`; `session.answer` is no longer `unsupported` on a shared session. See 5.8, 4.4 and 9.

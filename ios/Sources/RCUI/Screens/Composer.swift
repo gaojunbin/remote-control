@@ -124,14 +124,12 @@ struct Composer: View {
     }
 
     /// Everything under the field, on one row — and while dictation runs, the
-    /// level meter, the elapsed time and exactly two controls, Cancel and Done,
-    /// in place of all of it.
+    /// level meter, the elapsed time and the one button, Done, in place of all
+    /// of it.
     @ViewBuilder
     private var controlsRow: some View {
         if let voice, voice.voice.phase.isBusy {
-            VoiceListeningControls(session: voice,
-                                   cancel: { cancelDictation() },
-                                   done: { finishDictation() })
+            VoiceListeningControls(session: voice, done: { finishDictation() })
         } else {
             HStack(spacing: Theme.Space.tight) {
                 // The two quiet icons read as one group, so they sit against
@@ -150,9 +148,12 @@ struct Composer: View {
         }
     }
 
+    /// Amendment A20: while a question is pending the one primary in the row
+    /// answers it instead of sending, and says so to assistive technology. The
+    /// glyph stays an arrow: it is still the button that takes what was typed.
     private var sendButton: some View {
         Button {
-            send(mode: .auto)
+            if chat.pendingQuestion != nil { answer() } else { send(mode: .auto) }
         } label: {
             Image(systemName: "arrow.up")
                 .font(.body.weight(.semibold))
@@ -164,7 +165,7 @@ struct Composer: View {
         .disabled(!chat.canSend)
         .opacity(chat.canSend ? 1 : 0.4)
         .contextMenu { sendMenu }
-        .accessibilityLabel("Send")
+        .accessibilityLabel(chat.pendingQuestion != nil ? "Answer" : "Send")
         .accessibilityIdentifier("composer.send")
     }
 
@@ -333,6 +334,9 @@ struct Composer: View {
 
     private var placeholder: String {
         if let reason = chat.sendBlockReason { return reason }
+        // Amendment A20: the field is the free-text answer while a question is
+        // open, and nothing typed here is queued behind it.
+        if chat.pendingQuestion != nil { return "Your answer" }
         guard chat.isRunning else { return "Message" }
         // An agent that steers joins the running turn, whoever started it, so
         // it never says the message is waiting for anything.
@@ -346,6 +350,15 @@ struct Composer: View {
         attachmentError = nil
         Task {
             await chat.send(mode: mode, attachments: outgoing)
+            await model.saveDraft()
+        }
+    }
+
+    /// Amendment A20: the draft is the free-text answer to the question the card
+    /// is still waiting on, and goes with whatever was chosen on the card.
+    private func answer() {
+        Task {
+            await chat.answerDraft()
             await model.saveDraft()
         }
     }
@@ -378,14 +391,6 @@ struct Composer: View {
     /// ordinary Send button afterwards.
     private func finishDictation() {
         voice?.finish()
-    }
-
-    /// Discard what this dictation added and put back the draft it started from.
-    private func cancelDictation() {
-        guard let voice else { return }
-        if let restored = voice.cancel(currentDraft: chat.draft, currentTarget: target) {
-            chat.draft = restored
-        }
     }
 
     // MARK: - Attachments

@@ -182,6 +182,7 @@ means, then labels the button with the decision:
 | Idle | Send | — |
 | Running, agent supports steering | Send | "Codex is working · your message will steer the turn" |
 | Running, agent does not | Queue | "Claude Code is working · your message will be queued" |
+| A question is pending | Answer | "Waiting for your answer" |
 | Terminal-controlled | disabled | "Controlled by the terminal · take over to send" |
 | Terminal, attached | Send | — (the header already says `terminal · attached`; the composer behaves as for a remote session) |
 | Device offline | disabled | "Device offline" |
@@ -222,10 +223,14 @@ bottom of the transcript as the optimistic row from sending, below whatever the 
 producing. A bubble that jumped up into the middle of an answer would put the reply before the
 question.
 
-A message sent into an attached session cannot always be delivered at once, so the bubble says where
-it is. A quiet chip under the text reads "waiting for the terminal" while the device holds it until
-the running turn ends, and "will be re-sent" if the CLI read it as mid-turn data. The chip
-disappears when the message lands; the bubble itself is replaced in place, never duplicated.
+A message sent into an attached session while its turn is running is a queued message and looks
+like one: the bubble from sending is taken over by the queue — "Up next · 1", the same list any
+queued message goes into — and the bubble reappears only when the CLI reads it, after the output of
+the turn it waited for, which is where the terminal draws it too (A19). A bubble pinned at the
+moment of sending, in the middle of an answer that was still arriving, put the message before what
+it was replying to. The one chip that remains under a bubble is "will be re-sent", for a message
+the CLI read as mid-turn data; it disappears when the message lands, and the bubble is replaced in
+place, never duplicated.
 
 A `terminal` session that *could* be attached gets one secondary line under "Controlled by the
 terminal" saying why it is not: install the shim on that machine, start the Codex app-server daemon
@@ -240,9 +245,12 @@ resend is how an agent gets told twice.
 
 **Voice** dictates into the composer's own field rather than into a separate panel. Tapping the
 mic starts listening on the web as on the phone — there is no hold-to-talk chord to learn: a waveform and an
-elapsed timer take the control row, and there are exactly two buttons, Cancel (restores the draft
-as it was) and Done (keeps the transcript). There is no time limit; listening runs until one of
-them is tapped. On iOS a soft multi-colour glow runs around the edge of the whole display while
+elapsed timer take the control row, and there is exactly one button, Done, which stops listening
+and keeps the transcript in the field; it stands where Send stands, at Send's size, because it is
+the one primary action while listening. There is no Cancel: a dictation you do not want is Done
+and then edited or cleared like any draft, and a second button of a different size beside the
+primary only made the row look unfinished. There is no time limit; listening runs until Done is
+tapped. On iOS a soft multi-colour glow runs around the edge of the whole display while
 listening, the way Siri does, never around the field alone. The label says "Transcribing live ·
 edit before sending", and it means it — the transcript is a draft you edit and send with the
 ordinary Send button; no utterance is ever sent by the act of stopping the recording. The mic
@@ -275,6 +283,16 @@ permanent bar, no line count.
   inside the card on a phone. Nothing in the UI counts them.
 - Questions support several questions at once, single or multiple choice, free text, and secret
   fields. A secret field says "Value is not stored or logged".
+- **A question is answered where you are.** On an attached Claude Code session the terminal shows
+  its own dialog and the app shows the card, at the same moment, and whichever is answered first
+  wins (A20): the other side sees the card resolved and by whom — "answered in the terminal" on the
+  phone, the dialog withdrawn in the terminal. Nothing is queued behind a question.
+- **While a question is pending, the field is the free-text answer.** The composer's button reads
+  Answer, the status line "Waiting for your answer", and Send submits the draft as the free-text
+  answer to the first question on the card that has no selection, together with whatever was
+  selected for the others. That is the terminal's "Type something" path, and it is the same on a
+  driven session and an attached one. A card with every question answered on the card itself is
+  submitted from the card.
 
 ## Reading position
 

@@ -112,10 +112,6 @@ struct LoginView: View {
     }
 }
 
-extension String {
-    var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
-}
-
 extension View {
     /// A URL keyboard on iOS, and nothing to do anywhere else.
     func keyboardTypeURL() -> some View {

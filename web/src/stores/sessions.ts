@@ -2,6 +2,7 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
 import { rpc } from '../lib/gateway';
+import { sessionTitle } from '../strings';
 import type { CreateSessionParams } from '../protocol/frames';
 import type { Device, Session } from '../protocol/types';
 
@@ -175,7 +176,7 @@ export function selectSessionLayout(
   const matches = (session: Session): boolean => {
     if (!needle) return true;
     const name = known.get(session.device_id)?.name ?? '';
-    return `${session.title} ${session.cwd} ${name}`.toLowerCase().includes(needle);
+    return `${sessionTitle(session)} ${session.cwd} ${name}`.toLowerCase().includes(needle);
   };
 
   const visible = Object.values(sessions)

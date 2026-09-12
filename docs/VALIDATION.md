@@ -304,6 +304,103 @@ sending hook frames. Not covered either: `compact`, which reports the same id an
 no-op it is, and a `--settings` file the person passes themselves, which keeps the CLI attached but
 without the hook and so back to the old behaviour.
 
+### A held message is a queue entry (2026-09-12, A19)
+
+A message sent into a running attached turn used to be published at once as
+`user_message {delivery: "pending"}`. Its `first_seq` therefore pinned it in the middle of the turn,
+between the tool call that was running and the rest of the answer, while the terminal drew it after
+the turn — where Claude Code actually reads it. The device now holds such a message as a `queue`
+entry only and emits the block when it injects it, so `first_seq` is issued at injection and the
+bubble lands where the terminal shows it. `delivery: "pending"` is gone from the device, and the
+fixture that carried it with it.
+
+Covered by `client/tests/test_shared_control.py`: a mid-turn send now publishes no `user_message` at
+all and one `queue` entry; the block appears once, as `delivered`, after the transcript goes idle
+(`test_a_held_message_is_issued_after_the_turn_it_waited_for` asserts its `first_seq` equals its own
+`seq` and is greater than the `seq` of what the turn said while it waited); and a message held across
+a detachment leaves no bubble behind, so the resume path — which emits under the item's own id, the
+app's request id — draws the only one there will ever be
+(`test_a_message_held_across_a_detachment_is_never_shown_twice`).
+
+### A question is answered where you are (2026-09-12, A20)
+
+Driven against a real interactive Claude Code 2.1.269 (`~/.local/bin/claude`) under `pexpect`, in a
+scratch git repository, with a scratch `RC_CLIENT_HOME` and the real `AttachServer` in process
+standing in for the hub. Three runs, one per case; each was quit with `/exit`.
+
+The bundle facts this rests on, read out of the 2.1.269 bundle on this Mac:
+
+- The channel never sees `AskUserQuestion`. `notifications/claude/channel/permission_request` is
+  sent only when `!tool.requiresUserInteraction()`, which that tool is not, and the channel's
+  `permission` reply carries `{request_id, behavior}` and no `updatedInput`. That path is closed.
+- Claude Code runs `PermissionRequest` hooks beside its own dialog and races them
+  (`Promise.race([prompt, hooks])`). Hook stdin is JSON with `session_id`, `transcript_path`, `cwd`,
+  `hook_event_name`, `tool_name` and `tool_input`; there is no `tool_use_id`. Stdout answers with
+  `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{…,"answers":{"<question>":"<label>"}}}}}`,
+  multi-select labels comma-joined. Exit 0 with no stdout means "no decision" and the dialog stands.
+- Hooks from the shim's `--settings` file fire in every permission mode.
+
+**(a) An app answers first, `--permission-mode bypassPermissions`.** The stub answered five seconds
+after the frame arrived, with the second option:
+
+```
+  4.98s  session_start startup a3538f99-6168-4212-aa79-90f97c7f18a4
+ 12.33s  question frame: {"questions": [{"question": "接下来想做点什么？", "header": "下一步", …
+ 17.33s  answered the hook {"接下来想做点什么？": "先聊聊别的"} sent=True
+ 17.33s  question hook connection closed
+```
+
+The dialog closed on the CLI's own screen and the transcript recorded the answer as the tool's:
+
+```
+⏺ User answered Claude's questions:
+  ⎿  · 接下来想做点什么？ → 先聊聊别的
+  ⎿  Allowed by PermissionRequest hook
+⏺ 你选择了"先聊聊别的"。
+```
+
+**(b) The terminal answers first, `bypassPermissions`.** Down-arrow and Enter in the pty picked the
+second option. The finding that matters: **Claude Code does not stop the hook when its own dialog is
+answered.** The hook process was still alive four seconds later, and it is the device that has to
+release it — which is exactly what the transcript's `AskUserQuestion` result makes it do:
+
+```
+ 14.77s  answered in the pty
+ 14.87s  question frame: {"questions": [{"question": "接下来你想让我做什么？", …
+ 18.83s  hook still running after the terminal answered: 25220 …/rc-client hook permission-request
+ 18.91s  answered the hook null sent=True
+ 20.46s  hook processes after the null: none
+ 32.61s  transcript toolUseResult: {"questions": […], "answers": {"接下来你想让我做什么？": "先看看项目现状"}, "annotations": {}}
+ 32.61s  the hook connection closed +0.07s after that row
+```
+
+The hook printed nothing, so the terminal's own answer stood, and the screen carries no "Allowed by
+PermissionRequest hook" line — the one-line difference between a question answered in the terminal
+and one answered from an app.
+
+**(c) An app answers first, `--permission-mode default`.** Identical to (a) with the status line
+reading `⏸ manual mode on`:
+
+```
+ 17.62s  question frame: {"questions": [{"question": "给你出一个示例问题：你更喜欢哪种沟通风格？", …
+ 22.62s  answered the hook {"给你出一个示例问题：你更喜欢哪种沟通风格？": "详细说明"} sent=True
+ 34.95s  transcript toolUseResult: … "answers": {"给你出一个示例问题：你更喜欢哪种沟通风格？": "详细说明"}
+⏺ 你选择了「详细说明」——沟通风格更偏向包含背景与推理过程，适合复杂决策场景。
+```
+
+What this pass did **not** drive: a gateway, an app, or the hub itself — the block the device emits
+from the frame, `session.answer` reaching it, and the resolution `by: "terminal"` from the transcript
+are covered by `client/tests/test_shared_control.py` (thirteen cases: the frame becoming a pending
+block with `needs_input` and resolving `by: "remote"`, free text in both directions, the transcript
+result resolving `by: "terminal"` with the labels mapped back to option ids, an unusable result
+resolving without `answers`, a stale answer as a no-op, the hook going away as `expired`, a second
+question expiring the first, a question on a session nothing is attached to being declined at once,
+a detachment releasing the hook, a `session.send` from an older app being queued rather than
+injected into the open dialog, and the transcript emit itself) and
+`client/tests/test_hook.py` (the frame the hook sends, the decision JSON it prints, and the four
+ways it stays silent). Also not covered: two apps answering the same question at the same instant,
+and a question left open long enough to reach the 24-hour hook timeout.
+
 ## 7. Codex on the shared daemon (A11)
 
 Amendment A11 attaches the device to the local Codex app-server daemon, so a bare `codex` TUI is a

@@ -6,10 +6,18 @@ import { cx } from '../../lib/cx';
 import { agentLabel, languageLabel, strings } from '../../strings';
 import { useSettings } from '../../stores/settings';
 import type { SendMode } from '../../protocol/frames';
-import type { AgentInfo, QueuedMessage, Session } from '../../protocol/types';
+import type {
+  AgentInfo,
+  QuestionAnswers,
+  QuestionEvent,
+  QueuedMessage,
+  Session,
+} from '../../protocol/types';
+import { draftOf, useAnswers } from '../../stores/answers';
 import { VoiceControls } from '../voice/VoiceControls';
 import { mergeDraft } from '../voice/draft';
 import { useVoice } from '../voice/useVoice';
+import { composeAnswer } from './answering';
 import { attachHint, canAttachShared, canInterruptShared, canSetShared } from './attach';
 import { readAttachments, textTooLong, type AttachmentDraft } from './attachments';
 
@@ -18,9 +26,12 @@ interface Props {
   agent: AgentInfo | null;
   deviceOnline: boolean;
   queue: QueuedMessage[];
+  /** A20: the question the session is waiting on, when there is one. */
+  question: QuestionEvent | null;
   sttEnabled: boolean;
   sttLanguages: string[];
   onSend: (text: string, attachments: AttachmentDraft[], mode: SendMode) => Promise<void>;
+  onAnswer: (requestId: string, answers: QuestionAnswers) => Promise<void>;
   onSetOption: (patch: { model?: string; permission_mode?: string; effort?: string }) => void;
   onRemoveQueued: (queuedId: string) => void;
   onTakeover: () => void;
@@ -31,9 +42,11 @@ export function Composer({
   agent,
   deviceOnline,
   queue,
+  question,
   sttEnabled,
   sttLanguages,
   onSend,
+  onAnswer,
   onSetOption,
   onRemoveQueued,
   onTakeover,
@@ -65,6 +78,10 @@ export function Composer({
 
   const language = useSettings((s) => s.sttLanguage);
   const setLanguage = useSettings((s) => s.setSttLanguage);
+  // A20: what the card on screen already holds, so the draft completes it
+  // rather than competing with it.
+  const answerDraft = useAnswers(draftOf(question?.request_id ?? ''));
+  const clearAnswer = useAnswers((s) => s.clear);
 
   const terminalControlled = session.control === 'terminal';
   // A10: a shared session is a live CLI the device is attached to. Everything
@@ -93,6 +110,30 @@ export function Composer({
   // instead, so the person can at least see what the terminal chose.
   const showOptions = !terminalControlled && (!shared || canSetShared(agent));
   const showAttach = !shared || canAttachShared(agent);
+
+  // A20: while a question is pending the field is that question's free-text
+  // answer, so nothing is sent and nothing is queued behind it.
+  const answering = question !== null && !disabled;
+  const answer = answering ? composeAnswer(question, answerDraft, text) : null;
+
+  /**
+   * A20: submit the draft as the free-text answer of the first question with
+   * no selection, alongside whatever the card holds. There is no optimistic
+   * row: an answer is not a message, and the card resolving is the receipt.
+   */
+  const submitAnswer = useCallback(() => {
+    if (!question || answer === null) return;
+    const requestId = question.request_id;
+    const value = text;
+    setDraft('');
+    setErrors([]);
+    onAnswer(requestId, answer)
+      .then(() => clearAnswer(requestId))
+      // The page reports the failure; a newer draft wins, as it does for a send.
+      .catch(() => {
+        if (textRef.current.length === 0) setDraft(value);
+      });
+  }, [question, answer, text, onAnswer, clearAnswer, setDraft]);
 
   /**
    * A12: the field is cleared and the message is put in the timeline in this
@@ -147,14 +188,6 @@ export function Composer({
     voice.start();
   };
 
-  /** Cancel hands the draft back exactly as it was before the mic was pressed. */
-  const cancelVoice = () => {
-    const run = dictation.current;
-    dictation.current = null;
-    voice.cancel();
-    if (run) setDraft(run.base);
-  };
-
   /** A keystroke takes the field back: the words so far stay, dictation stops. */
   const stopDictationForTyping = () => {
     if (!voiceBusy) return;
@@ -172,11 +205,17 @@ export function Composer({
   // PROTOCOL-FROZEN §5: `auto` is "send now if idle; if running, steer or queue".
   // Forcing `queue` here would make the `steer` capability unreachable.
   const primaryMode: SendMode = 'auto';
-  const primaryLabel = running
-    ? canSteer
-      ? strings.composer.send
-      : strings.composer.queue
-    : strings.composer.send;
+  const primaryLabel = answering
+    ? strings.composer.answer
+    : running
+      ? canSteer
+        ? strings.composer.send
+        : strings.composer.queue
+      : strings.composer.send;
+  const primarySubmit = () => (answering ? submitAnswer() : submit(primaryMode));
+  const primaryDisabled = answering
+    ? answer === null
+    : disabled || (text.trim().length === 0 && attachments.length === 0);
 
   // A10 §8: only a `terminal` session can be missing its attachment.
   const hint = terminalControlled ? attachHint(agent) : null;
@@ -185,11 +224,13 @@ export function Composer({
     ? strings.composer.placeholderTerminal
     : !deviceOnline
       ? strings.composer.placeholderOffline
-      : running
-        ? canSteer
-          ? strings.composer.placeholderSteer
-          : strings.composer.placeholderQueued
-        : strings.composer.placeholder;
+      : answering
+        ? strings.composer.placeholderAnswer
+        : running
+          ? canSteer
+            ? strings.composer.placeholderSteer
+            : strings.composer.placeholderQueued
+          : strings.composer.placeholder;
 
   return (
     <div className="composer-wrap">
@@ -294,11 +335,11 @@ export function Composer({
           onKeyDown={(e) => {
             if (e.key !== 'Enter' || e.shiftKey || composing.current || e.nativeEvent.isComposing) return;
             e.preventDefault();
-            submit(primaryMode);
+            primarySubmit();
           }}
         />
         {voiceBusy ? (
-          <VoiceControls voice={voice} onCancel={cancelVoice} onDone={voice.done} />
+          <VoiceControls voice={voice} onDone={voice.done} />
         ) : (
           <div className="composer-buttons">
           {showAttach ? (
@@ -336,7 +377,7 @@ export function Composer({
               <Mic size={16} />
             </button>
           ) : null}
-          {running && canInterrupt ? (
+          {running && canInterrupt && !answering ? (
             <Popover
               align="end"
               side="top"
@@ -366,8 +407,8 @@ export function Composer({
           <button
             type="button"
             className="btn primary small send-btn"
-            disabled={disabled || (text.trim().length === 0 && attachments.length === 0)}
-            onClick={() => submit(primaryMode)}
+            disabled={primaryDisabled}
+            onClick={primarySubmit}
           >
               {running ? primaryLabel : <ArrowUp size={15} aria-hidden />}
               {running ? null : <span className="sr-only">{strings.composer.send}</span>}

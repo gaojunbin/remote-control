@@ -167,10 +167,45 @@ public final class ChatStore {
         return TerminalSetting.all(for: session, agent: agent)
     }
 
-    /// Amendment A10: `session.answer` is unsupported on an attached session.
-    /// A question the CLI asked is answered in the terminal; the app mirrors
-    /// the block read-only. Approvals are relayed and stay answerable.
-    public var allowsAnswers: Bool { !isAttached && !isReadOnly }
+    /// Amendment A20: a question is answered where you are. The device raises
+    /// the block from the hook Claude Code runs beside its own dialog and takes
+    /// whichever answer arrives first, so an attached session's card is live
+    /// here exactly as it is in the terminal. Only a session the terminal holds
+    /// outright takes nothing from this app.
+    public var allowsAnswers: Bool { !isReadOnly }
+
+    /// Amendment A20: the question waiting on the reader, if one is. The
+    /// composer's button reads Answer while this is set, and the draft in the
+    /// message field is the free-text answer to the first question on it that
+    /// has nothing chosen or typed for it yet.
+    public var pendingQuestion: QuestionPayload? {
+        guard allowsAnswers, let question = timeline.pendingRequest?.question,
+              question.status.isActionable else { return nil }
+        return question
+    }
+
+    /// What the pending card is holding. The card writes its choices here and
+    /// the composer reads them, so the two submit the same answers.
+    public private(set) var questionDraft = QuestionDraft(requestID: "")
+
+    /// The card's state for one question block, empty when the block is not the
+    /// one the draft belongs to.
+    public func draft(for question: QuestionPayload) -> QuestionDraft {
+        questionDraft.requestID == question.requestID ? questionDraft
+            : QuestionDraft(requestID: question.requestID)
+    }
+
+    public func choose(_ optionID: String, of item: QuestionItem, in question: QuestionPayload) {
+        var draft = draft(for: question)
+        draft.toggle(optionID, of: item)
+        questionDraft = draft
+    }
+
+    public func write(_ text: String, for itemID: String, in question: QuestionPayload) {
+        var draft = draft(for: question)
+        draft.setText(text, for: itemID)
+        questionDraft = draft
+    }
 
     /// Amendment A10: what a `terminal` session would need before this app
     /// could control it, or nil when the agent cannot be attached at all. The
@@ -224,6 +259,9 @@ public final class ChatStore {
         if isReadOnly {
             return canTakeover ? "Controlled by the terminal · Take over to send" : "Controlled by the terminal"
         }
+        // Amendment A20: a question outranks the turn it interrupted. Nothing
+        // is queued behind it, so what a message would become is not the news.
+        if pendingQuestion != nil { return "Waiting for your answer" }
         switch session.state {
         case .running:
             if session.queued > 0 {
@@ -517,6 +555,37 @@ public final class ChatStore {
         await perform {
             try await self.channel.request(.answer(sessionID: self.sessionID, requestID: requestID,
                                                    answers: answers))
+        }
+    }
+
+    /// The card's own Submit: everything chosen and typed on the card.
+    public func submitAnswer(for question: QuestionPayload) async {
+        let answers = draft(for: question).answers(for: question.questions)
+        await answer(requestID: question.requestID, answers: answers)
+        questionDraft = QuestionDraft(requestID: question.requestID)
+    }
+
+    /// Amendment A20: the composer's Answer. The message field is the free-text
+    /// answer to the first question on the card still waiting for one, and goes
+    /// with whatever was chosen for the others.
+    ///
+    /// Nothing optimistic is drawn and nothing is queued: an answer is not a
+    /// message, and the card resolving is what says it arrived. A draft with
+    /// nowhere to go — every question answered already, or the one waiting
+    /// takes options and no words — is left in the field untouched.
+    public func answerDraft() async {
+        guard let question = pendingQuestion else { return }
+        guard let answers = draft(for: question).answers(for: question.questions, composing: draft)
+        else { return }
+        let text = draft
+        draft = ""
+        do {
+            try await channel.request(.answer(sessionID: sessionID, requestID: question.requestID,
+                                              answers: answers))
+            questionDraft = QuestionDraft(requestID: question.requestID)
+        } catch {
+            errorMessage = describe(error)
+            if draft.isEmpty { draft = text }
         }
     }
 

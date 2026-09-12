@@ -115,6 +115,7 @@ export const strings = {
     archived: 'Archived',
     deviceOffline: 'Device offline',
     open: 'Open session',
+    untitled: 'Untitled session',
   },
 
   newSession: {
@@ -177,7 +178,6 @@ export const strings = {
     queuedLabel: 'Queued',
     sending: 'Sending…',
     steering: 'the agent will read it at its next step',
-    deliveryPending: 'waiting for the terminal',
     deliveryAbsorbed: 'will be re-sent',
     attachHintChannel: 'Start claude through the Remote Control shim to control it from here',
     attachHintDaemon: 'Start the Codex app-server daemon on this device to control it from here',
@@ -189,6 +189,8 @@ export const strings = {
     approvalElsewhere: 'Answered in the terminal',
     approvalExpired: 'This request expired.',
     questionResolved: 'Answered',
+    /** A20: the question was answered in the CLI's own dialog, not from here. */
+    questionAnsweredInTerminal: 'Answered in the terminal',
     questionExpired: 'This question expired.',
     submitAnswer: 'Submit',
     freeTextPlaceholder: 'Type your answer…',
@@ -223,6 +225,9 @@ export const strings = {
     placeholderOffline: 'Device is offline',
     send: 'Send',
     queue: 'Queue',
+    /** A20: what Send becomes while the timeline holds a pending question. */
+    answer: 'Answer',
+    placeholderAnswer: 'Type your answer…',
     interruptAndSend: 'Interrupt & send',
     sendOptions: 'Send options',
     attach: 'Attach files',
@@ -245,7 +250,6 @@ export const strings = {
   voice: {
     transcribing: 'Transcribing live · edit before sending',
     connecting: 'Connecting…',
-    cancel: 'Cancel',
     done: 'Done',
     listeningFor: (elapsed: string) => `Listening for ${elapsed}`,
     denied: 'Microphone permission was denied.',
@@ -384,6 +388,17 @@ export function sessionStateLabel(session: { state: string; control: string }): 
     session.state === 'needs_approval' ||
     session.state === 'needs_input';
   return busy ? `terminal · ${stateLabel(session.state)}` : 'terminal';
+}
+
+/**
+ * The name every surface prints for a session. A thread the agent has not named
+ * yet arrives with an empty `title`; the row, the chat header and the sidebar
+ * all fall back to the same words in the title's own type, rather than leaving a
+ * blank line above the meta (`docs/DESIGN.md` § "Session lists"). The session
+ * search reads the same value, so an untitled row is found by those words too.
+ */
+export function sessionTitle(session: { title: string }): string {
+  return session.title.trim() || strings.sessions.untitled;
 }
 
 export const languageLabels: Record<string, string> = {

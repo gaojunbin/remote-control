@@ -203,14 +203,25 @@ def test_the_mcp_config_names_this_installation_and_its_home() -> None:
     assert server["env"]["RC_CLIENT_HOME"]
 
 
-def test_the_settings_file_holds_one_session_start_hook_and_stays_private() -> None:
-    target = write_settings(["/opt/rc/bin/rc-client", "hook", "session-start"])
+def test_the_settings_file_holds_both_hooks_and_stays_private() -> None:
+    target = write_settings(
+        ["/opt/rc/bin/rc-client", "hook", "session-start"],
+        ["/opt/rc/bin/rc-client", "hook", "permission-request"],
+    )
     assert target == paths.settings_path()
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
-    entries = json.loads(target.read_text())["hooks"]["SessionStart"]
+    hooks = json.loads(target.read_text())["hooks"]
+    entries = hooks["SessionStart"]
     assert len(entries) == 1
     assert "matcher" not in entries[0], "no matcher, so every source fires"
     assert entries[0]["hooks"][0]["command"].endswith("/opt/rc/bin/rc-client hook session-start")
+
+    questions = hooks["PermissionRequest"]
+    assert len(questions) == 1
+    assert questions[0]["matcher"] == "AskUserQuestion"
+    assert questions[0]["hooks"][0]["command"].endswith(
+        "/opt/rc/bin/rc-client hook permission-request"
+    )
 
 
 def test_the_socket_path_stays_inside_the_unix_limit(monkeypatch: pytest.MonkeyPatch) -> None:

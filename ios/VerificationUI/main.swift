@@ -375,7 +375,7 @@ func run() async -> (passed: Int, failures: [String]) {
     expect(!unlimited.isAwaitingFinalTranscript, "with no timer left behind")
     unlimited.cancel()
 
-    // MARK: - Done keeps the draft, Cancel puts back the one before it
+    // MARK: - Done is the one way out, and it keeps the draft
 
     let composerTarget = VoiceDraftTarget(account: "demo", deviceID: "d", sessionID: "s")
 
@@ -394,20 +394,18 @@ func run() async -> (passed: Int, failures: [String]) {
           "Done leaves the whole transcript in the message field")
     keepSession.reset()
 
-    let cancelling = SegmentedSpeechInput()
-    let cancelSession = InlineVoiceDraftSession(platform: cancelling, isPreview: true)
-    cancelSession.start(draft: "the draft I already had", target: composerTarget)
-    await settle { cancelSession.voice.phase == .listening }
-    cancelling.hear("and some dictation")
-    await settle { cancelSession.voice.transcript == "and some dictation" }
-    let merged = cancelSession.updateDraft(currentDraft: "the draft I already had",
-                                           currentTarget: composerTarget)
-    equal(merged, "the draft I already had\nand some dictation",
+    let appending = SegmentedSpeechInput()
+    let appendSession = InlineVoiceDraftSession(platform: appending, isPreview: true)
+    appendSession.start(draft: "the draft I already had", target: composerTarget)
+    await settle { appendSession.voice.phase == .listening }
+    appending.hear("and some dictation")
+    await settle { appendSession.voice.transcript == "and some dictation" }
+    equal(appendSession.updateDraft(currentDraft: "the draft I already had",
+                                    currentTarget: composerTarget),
+          "the draft I already had\nand some dictation",
           "dictation is appended after whatever the user already had")
-    equal(cancelSession.cancel(currentDraft: merged ?? "", currentTarget: composerTarget),
-          "the draft I already had",
-          "Cancel discards what this dictation added and restores the previous draft")
-    equal(cancelSession.voice.phase, .idle, "and leaves dictation idle")
+    appendSession.reset()
+    equal(appendSession.voice.phase, .idle, "and leaving the composer leaves dictation idle")
 
     // MARK: - How far the message field grows
 

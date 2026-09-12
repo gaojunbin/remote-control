@@ -382,6 +382,62 @@ Not verified in this pass: a real device filling those fields from a real transc
 above came from the mock's fixtures, so the app was checked against the shape of `meta`, not against
 what Claude Code writes.
 
+### Round 12 — a session with no title still has a name
+
+2026-09-12, in the installed Google Chrome driven by `playwright-core` against the bundled mock
+(`npm run dev:mock`) at 1280 px. App-side only, nothing on the wire: one fixture row's `title` was
+blanked in flight, on the `/api/sessions` response and on every `/ws/app` frame carrying it, so the
+mock fixtures stayed as they are. The row, the chat header and the chat sidebar each printed
+"Untitled session" in the title's own type, not dimmed and not italic, with the meta line and the
+state unchanged; typing "untitled" into the Sessions search left that one row on screen and nothing
+else. Six tests cover it — three in `tests/SessionsPage.test.tsx` (the row, the titled rows beside
+it, the search) and three in the new `tests/ChatHeader.test.tsx` (empty, whitespace-only, a real
+title). Screenshots under `…/scratchpad/web-untitled/shots/`:
+`sessions-untitled-1280.png`, `sessions-untitled-search-1280.png` and `chat-untitled-1280.png`.
+Run artefacts, not checked into the repository.
+
+```
+cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
+→ 26 files / 301 tests passed, tsc clean, eslint clean, built in 1.34 s
+```
+
+Not verified in this pass: a real device publishing an empty `title` — the blank came from the
+interception, so the app was checked against the shape of the field, not against what an unnamed
+Codex thread reports.
+
+### Round 13 — a held message is a queue entry, one voice button, and an answer typed where you are
+
+2026-09-12, in the installed Google Chrome driven by `playwright-core` against the bundled mock
+(`npm run dev:mock`) at 1280 px and 400 px. Three changes. **A19**: `delivery: "pending"` is gone
+from the app — the string, the `deliveryLabel` branch, the type member and the mock's held-message
+block. A message sent into a running attached turn is now a queue entry and nothing else, and the
+bubble appears when the CLI takes it, ordered by the `first_seq` the device issues then. **One voice
+button**: Cancel is gone from the listening row; Done stands where Send stands. Measured in the
+browser at 1280 px, the Send/Queue button and Done share a y of 807, a height of 28 px and the same
+right edge, the widths differing only by the label. **A20**: the composer's primary reads **Answer**
+while the timeline holds a pending `question`, the status line stays "Waiting for your answer", the
+field's placeholder becomes "Type your answer…", and submitting sends `session.answer` with the
+draft as the free text of the first question with no selection. Driven end to end against the mock,
+the frame on the wire was
+`{"type":"session.answer","session_id":"ses-answer","request_id":"req-answer-1","answers":{"order":"clamp it, but log the skew"}}`,
+no `session.send` was issued, the card resolved, the draft cleared and the button returned to Send.
+The shared session's history gained a question the terminal answered first; its card reads "Answered
+in the terminal". A resolved card now also shows the free text that was answered, except on a
+`secret` question. Screenshots under `…/scratchpad/web-hold/shots/`:
+`answer-composer-1280.png`, `answer-composer-typed-1280.png`, `answer-composer-400.png`,
+`answer-resolved-400.png`, `question-terminal-1280.png`, `voice-one-button-1280.png` and
+`voice-one-button-400.png`. Run artefacts, not checked into the repository.
+
+```
+cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
+→ 26 files / 310 tests passed, tsc clean, eslint clean, built in 1.39 s
+```
+
+Not verified in this pass: a real device raising the `question` block from its `PermissionRequest`
+hook, and a real terminal answering one first — both came from the mock, so the app was checked
+against the shape of the events, not against the CLI. The `by: "remote"` wording was read from the
+mock's own resolution rather than from a device.
+
 ## 2. iOS, in the simulator, against the same gateway
 
 `ios/UITests/RealGatewaySmokeTests.swift` is new. It skips unless the runner is given a gateway, so
@@ -686,6 +742,69 @@ at `HEAD`, so they came in before this round. The fourth,
 `testDeviceArchiveOpensOnTapAndOnSearch`, passes on its own and failed twice while two other builds
 were running on the same Mac: it scrolls a lazy list and taps what it finds, and a loaded machine
 moves the row under the tap.
+
+### Round 13 — one voice button, a question answered here, and the dictation that forgot (2026-09-13)
+
+Four changes, all in the iPhone 17 simulator on iOS 27. **One voice button**: Cancel is gone from
+the dictation row and Done stands where Send stands, at Send's size and in Send's style;
+`22-voice-listening.png` shows the row with the meter, the elapsed time and that one button, and
+`testDictationOffersOnlyDoneAndFillsTheField` measures Done's frame against the Send frame it
+replaced rather than trusting the shot. **A held message is a queue entry (A19)**: nothing is drawn
+for a message the device is only holding, so `07-shared-queued.png` shows the transcript with no
+bubble for the message just sent, and `08-shared-delivered.png` shows the bubble arriving when the
+CLI takes it. The "Up next · 1" chip that stands for it is off the right-hand end of the scrolling
+chip row in that shot, so `testSharedSessionDeliversAndApproves` asserts the chip and its count
+rather than the picture. `MessageDelivery.pending` and its chip are deleted. **A question is
+answered where you are (A20)**: `QuestionPayload` gained `by`, the card is live on a `shared` session, and the composer's
+one primary answers instead of sending — `33-composer-answer.png` shows the draft typed against the
+pending card with the status line reading "Waiting for your answer",
+`34-question-answered-here.png` the resolved card afterwards, and
+`32-question-answered-in-terminal.png` the earlier question the demo's terminal answered, reading
+"answered in the terminal". The card and the composer share one `QuestionDraft` in `ChatStore`, so
+they cannot submit different things. **The dictation that replaced its earlier text**: fixed in
+`TranscriptSegments`, which now settles a slot's text as a finished sub-segment when a result is a
+fresh start rather than a longer version of what it had — the rule and why it cannot lose a word are
+in `docs/IOS.md` § "No maximum duration".
+
+The experiment that would have proved the diagnosis could not run. Feeding two `say` clips joined by
+three seconds of silence to `SFSpeechURLRecognitionRequest` with `requiresOnDeviceRecognition`
+needs speech authorization, and `SFSpeechRecognizer.requestAuthorization` answers `.notDetermined`
+for a process nobody is sitting in front of — from a plain command-line tool and from an ad-hoc
+signed `.app` carrying `NSSpeechRecognitionUsageDescription` alike. So the restart is inferred from
+the symptom, and the rule is written to hold the transcript together whichever way the recognizer
+behaves.
+
+```
+cd ios && export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+swift run RCVerify && swift run RCUIVerify && swift test
+→ RCVerify 979 checks, RCUIVerify 134 checks, 183 tests in 17 suites passed
+xcodebuild test-without-building … -only-testing:RemoteControlUITests
+→ 23 run, 4 skipped (the real-gateway smoke tests), 0 failed
+```
+
+The three XCUITests that failed on a build of `HEAD` before this round are fixed and assert the
+current rules. Two of them — `testJumpToLatestAppearsWhenTheReaderLeavesTheBottom` and
+`testToolCardOpensOnTheFirstTapWhileTheKeyboardIsUp` — were written before Simple became the reading
+default, and Simple draws neither tool calls nor a transcript long enough to scroll away from; both
+now choose Detailed through the Settings control that owns the preference, which also proves the
+change reaches an open transcript. The third, `testSessionsListShowsEveryStatusTone`, asserted two
+pixel margins measured against row heights that have since changed. They can no longer both hold:
+scrolling far enough for the grey row to clear the foot leaves the amber row's status line at
+y 134.7 against a floor of 160, because the five rows and the two strips around them — the
+connection banner and the device summary — are together taller than an iPhone 17's 874 points. The
+test now drags until every one of the five rows is reachable and asserts that instead, naming the
+tone each row carries, which is what "in frame together" was measuring for. `30-status-tones.png`
+consequently clips the outermost two rows to their meta lines — the amber one under the header, the
+grey one under the device summary — so the five dot tones are read from the assertion rather than
+from the picture.
+
+Round 12 recorded `testDeviceArchiveOpensOnTapAndOnSearch` as failing under load. It was not load.
+Which machines are folded away and which Archives are open is written to `UserDefaults` and outlives
+a launch, and `--reset-state` was clearing only the remembered gateway, so a run inherited the shape
+of the list whatever the run before it left — an earlier failing run had left the CI runner's Archive
+open, and the test then tapped it shut. `--reset-state` now also forgets the list's folds and the
+timeline detail level, which is what "start as a fresh install" has to mean if the suite is to be
+deterministic in any order.
 
 ## 3. Attached terminal sessions (A10) in the apps
 

@@ -509,7 +509,11 @@ function terminalHistory(): SessionEvent[] {
   ];
 }
 
-/** A10: a terminal-typed prompt on a session the device is attached to. */
+/**
+ * A10: a terminal-typed prompt on a session the device is attached to. A20:
+ * the CLI asked a question while it ran, the app saw the card at the same
+ * moment as the terminal saw its dialog, and the terminal answered first.
+ */
 function sharedHistory(): SessionEvent[] {
   const base = minutes(9);
   return [
@@ -523,6 +527,28 @@ function sharedHistory(): SessionEvent[] {
     },
     {
       seq: 2,
+      ts: base + 1_200,
+      kind: 'question',
+      block_id: 'sh-q0',
+      request_id: 'req-shared-1',
+      status: 'resolved',
+      by: 'terminal',
+      answers: { placement: ['section11'] },
+      questions: [
+        {
+          id: 'placement',
+          prompt: 'Where should the handshake go?',
+          options: [
+            { id: 'section11', label: 'Section 11, beside the amendments' },
+            { id: 'section4', label: 'Section 4, with the device socket' },
+          ],
+          multi: false,
+          allow_text: true,
+        },
+      ],
+    },
+    {
+      seq: 3,
       ts: base + 2_400,
       kind: 'assistant_text',
       block_id: 'sh-a0',
@@ -530,7 +556,7 @@ function sharedHistory(): SessionEvent[] {
       text: 'Documented the handshake in §11. Anything typed here also reaches the terminal.',
     },
     {
-      seq: 3,
+      seq: 4,
       ts: base + 2_600,
       kind: 'turn_completed',
       turn_id: 'shared-turn-0',

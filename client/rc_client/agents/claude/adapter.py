@@ -31,6 +31,7 @@ from ...logging_setup import logger
 from ...models import now_ms
 from ...sessions.channel import SessionChannel
 from ..base import Emit
+from .questions import QUESTION_TOOL, answers_by_prompt, normalise_questions
 from .translate import ClaudeTranslator
 
 log = logger("rc_client.claude")
@@ -38,7 +39,6 @@ log = logger("rc_client.claude")
 APPROVAL_TIMEOUT = 30 * 60.0
 DRAIN_TIMEOUT = 15.0
 DEFAULT_MODEL_ID = "default"
-QUESTION_TOOL = "AskUserQuestion"
 
 TurnEndCallback = Callable[[], Awaitable[None]]
 
@@ -49,67 +49,6 @@ def _approval_options() -> list[dict[str, str]]:
         {"id": "allow_session", "label": "Allow for this session", "style": "secondary"},
         {"id": "deny", "label": "Deny", "style": "danger"},
     ]
-
-
-def normalise_questions(tool_input: dict[str, Any]) -> list[dict[str, Any]]:
-    """Turn an `AskUserQuestion` input into protocol `question.questions`."""
-    raw = tool_input.get("questions")
-    if not isinstance(raw, list) or not raw:
-        raise ValueError("AskUserQuestion requires at least one question")
-    questions: list[dict[str, Any]] = []
-    for index, entry in enumerate(raw[:4]):
-        if not isinstance(entry, dict):
-            continue
-        prompt = str(entry.get("question") or entry.get("prompt") or "").strip()
-        if not prompt:
-            continue
-        options: list[dict[str, str]] = []
-        for position, option in enumerate(entry.get("options") or []):
-            if position >= 8:
-                break
-            if isinstance(option, str):
-                label = option
-                description = ""
-            elif isinstance(option, dict):
-                label = str(option.get("label") or option.get("id") or "")
-                description = str(option.get("description") or "")
-            else:
-                continue
-            if not label:
-                continue
-            # Ids are positional: two options sharing a label would otherwise
-            # collide and the answer would be routed to the wrong one.
-            item = {"id": f"o{position}", "label": label}
-            if description:
-                item["description"] = description[:400]
-            options.append(item)
-        questions.append(
-            {
-                "id": f"q{index}",
-                "prompt": prompt[:2000],
-                "options": options,
-                "multi": bool(entry.get("multiSelect") or entry.get("multi")),
-                "allow_text": True,
-            }
-        )
-    if not questions:
-        raise ValueError("AskUserQuestion had no usable questions")
-    return questions
-
-
-def _answers_by_prompt(questions: list[dict[str, Any]], answers: dict[str, Any]) -> dict[str, Any]:
-    """Turn positional option ids back into the labels Claude expects."""
-    resolved: dict[str, Any] = {}
-    for question in questions:
-        value = answers.get(question["id"])
-        if value is None:
-            continue
-        labels = {option["id"]: option["label"] for option in question["options"]}
-        if isinstance(value, list):
-            resolved[question["prompt"]] = [labels.get(str(item), str(item)) for item in value]
-        else:
-            resolved[question["prompt"]] = labels.get(str(value), value)
-    return resolved
 
 
 class ClaudeRunner:
@@ -507,7 +446,7 @@ class ClaudeRunner:
         await self.channel.emit("question", status="resolved", answers=answers, **base)
         await self.channel.set_state("running")
         return PermissionResultAllow(
-            updated_input={**tool_input, "answers": _answers_by_prompt(questions, answers)}
+            updated_input={**tool_input, "answers": answers_by_prompt(questions, answers)}
         )
 
     def _cancel_pending(self, reason: str) -> None:

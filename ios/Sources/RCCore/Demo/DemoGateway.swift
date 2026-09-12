@@ -38,6 +38,10 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// Amendment A17: the moment the terminal switches model on the attached
     /// session, which the device reads from the transcript and publishes.
     private var retuning: Task<Void, Never>?
+    /// Amendment A20: the moment the attached Claude asks its question, and the
+    /// moment the person at the terminal answers it in their own dialog.
+    private var asking: Task<Void, Never>?
+    private var answering: Task<Void, Never>?
 
     /// The default is what a quick local device feels like. A UI test asks for
     /// a longer one so the state a real send passes through can be looked at
@@ -50,6 +54,12 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// Amendment A17: how long after the attached session is opened its
     /// terminal switches model. Short enough to be seen without waiting for it.
     private static let retuneDelay = Duration.milliseconds(700)
+    /// Amendment A20: how long after the attached session is opened its Claude
+    /// asks the question the terminal is also showing a dialog for.
+    private static let questionDelay = Duration.milliseconds(900)
+    /// And how long the person at the terminal takes to answer it there, which
+    /// is long enough that answering from here is what normally happens.
+    private static let terminalAnswerDelay = Duration.seconds(30)
 
     public init(echoDelay: Duration = DemoGateway.defaultEchoDelay,
                 resumeDelay: Duration? = DemoGateway.defaultResumeDelay) {
@@ -90,6 +100,8 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         injecting?.cancel(); injecting = nil
         reviving?.cancel(); reviving = nil
         retuning?.cancel(); retuning = nil
+        asking?.cancel(); asking = nil
+        answering?.cancel(); answering = nil
         continuation.yield(.state(.disconnected))
     }
 
@@ -105,7 +117,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         case "session.approve":
             return try resolveApproval(request)
         case "session.answer":
-            return .object([:])
+            return try resolveQuestion(request)
         case "session.stop":
             return try stop(request)
         case "session.set":
@@ -204,7 +216,10 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         let all: [SessionEvent] = transcripts[id] ?? []
         let events = since.map { cursor in all.filter { $0.seq > cursor } } ?? []
         if id == DemoFixtures.liveSessionID { startLiveScript(sessionID: id) }
-        if id == DemoFixtures.sharedSessionID { startRetuneScript(sessionID: id) }
+        if id == DemoFixtures.sharedSessionID {
+            startRetuneScript(sessionID: id)
+            startQuestionScript(sessionID: id)
+        }
         return try JSONValue.encode(SubscribeResult(session: session, events: events, resync: false))
     }
 
@@ -333,15 +348,15 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     }
 
     /// Amendment A10: a message a channel cannot deliver yet is held by the
-    /// device and injected when the terminal is next idle, so the app first
-    /// sees it as `pending` and then the same block again as `delivered`.
+    /// device and injected when the terminal is next idle. Amendment A19: while
+    /// it waits it is a queue entry and nothing else — the block appears only
+    /// when the CLI takes it, after the output of the turn it waited for.
     private func inject(sessionID: String, requestID: String, text: String) throws -> JSONValue {
         let blockID = requestID
-        emit(sessionID: sessionID, blockID: blockID,
-             body: .userMessage(UserMessagePayload(text: text, source: .remote, delivery: .pending)))
         emit(sessionID: sessionID, body: .queue(QueuePayload(pending: [
             QueuedMessage(id: requestID, text: text, ts: DemoFixtures.now)
         ])))
+        update(sessionID: sessionID) { $0.queued = 1 }
         injecting?.cancel()
         // A turn that is already running asks for its own permission; only an
         // idle thread reaches the request this script plays.
@@ -421,6 +436,58 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         update(sessionID: id) { $0.state = .running }
         if (try? session(id))?.isAttached == true { startReplyScript(sessionID: id) }
         return .object([:])
+    }
+
+    /// Amendment A20: the app got to the question before the terminal did. The
+    /// device feeds the answers back to the CLI as the tool's own answers and
+    /// the block resolves saying where they came from.
+    private func resolveQuestion(_ request: GatewayRequest) throws -> JSONValue {
+        let id = try requireSessionID(request)
+        let history: [SessionEvent] = transcripts[id] ?? []
+        guard let requestID = request.body["request_id"]?.stringValue,
+              let pending = history.last(where: { $0.question?.requestID == requestID }),
+              let question = pending.question, question.status.isActionable else {
+            throw GatewayErrorBody(code: .notFound, message: "That question is no longer open.")
+        }
+        let answers = try? request.body["answers"]?.decode([String: QuestionAnswer].self)
+        answering?.cancel(); answering = nil
+        resolve(sessionID: id, block: pending.blockID, question: question,
+                answers: answers, by: .remote)
+        return .object([:])
+    }
+
+    /// The terminal's own dialog, answered there because nobody answered here.
+    private func startQuestionScript(sessionID: String) {
+        guard asking == nil else { return }
+        asking = Task { [weak self] in
+            try? await Task.sleep(for: Self.questionDelay)
+            guard !Task.isCancelled else { return }
+            await self?.ask(sessionID: sessionID)
+        }
+    }
+
+    private func ask(sessionID: String) {
+        let question = DemoFixtures.sharedQuestion
+        emit(sessionID: sessionID, blockID: "q-shared", body: .question(question))
+        emit(sessionID: sessionID, body: .status(StatusPayload(state: .needsInput)))
+        update(sessionID: sessionID) { $0.state = .needsInput }
+        answering?.cancel()
+        answering = Task { [weak self] in
+            try? await Task.sleep(for: Self.terminalAnswerDelay)
+            guard !Task.isCancelled else { return }
+            await self?.resolve(sessionID: sessionID, block: "q-shared", question: question,
+                                answers: ["q1": .options(["remote"])], by: .terminal)
+        }
+    }
+
+    private func resolve(sessionID: String, block: String?, question: QuestionPayload,
+                         answers: [String: QuestionAnswer]?, by: EventSource) {
+        emit(sessionID: sessionID, blockID: block,
+             body: .question(QuestionPayload(requestID: question.requestID,
+                                             questions: question.questions,
+                                             status: .resolved, answers: answers, by: by)))
+        emit(sessionID: sessionID, body: .status(StatusPayload(state: .idle)))
+        update(sessionID: sessionID) { $0.state = .idle }
     }
 
     private func applySet(_ request: GatewayRequest) throws -> JSONValue {

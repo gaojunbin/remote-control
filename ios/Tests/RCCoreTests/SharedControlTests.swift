@@ -51,7 +51,7 @@ struct SharedControlTests {
     }
 
     @Test("delivery decodes, defaults to absent, and survives a re-encode",
-          arguments: ["pending", "delivered", "absorbed"])
+          arguments: ["delivered", "absorbed"])
     func deliveryDecoding(value: String) throws {
         let json: JSONValue = ["seq": 1, "ts": 1, "kind": "user_message", "block_id": "u1",
                                "text": "later", "source": "remote", "delivery": .string(value)]
@@ -134,12 +134,15 @@ struct SharedControlTests {
         #expect(store(state: .idle, control: .remote).allowsAttachments)
     }
 
-    @Test("A question the CLI asked is answered in the terminal, an approval is not")
+    /// Amendment A20: the device raises the question from the hook Claude Code
+    /// runs beside its own dialog, so the card here is as live as the dialog is.
+    @Test("A question the CLI asked is answered wherever the reader is")
     @MainActor
-    func attachedMirrorsQuestions() {
-        #expect(!store(state: .needsInput, control: .shared).allowsAnswers)
-        #expect(!store(state: .needsInput, control: .terminal).allowsAnswers)
+    func attachedAnswersQuestions() {
+        #expect(store(state: .needsInput, control: .shared).allowsAnswers)
         #expect(store(state: .needsInput, control: .remote).allowsAnswers)
+        // A session the terminal holds outright still takes nothing from here.
+        #expect(!store(state: .needsInput, control: .terminal).allowsAnswers)
         // Approvals are relayed, so they stay answerable while attached.
         #expect(store(state: .needsApproval, control: .shared).canSend)
     }
@@ -236,27 +239,44 @@ struct SharedControlTests {
 
     // MARK: - The delivery chip
 
-    @Test("A replacement event moves the same block from pending to delivered")
-    func deliveryReplacesTheBlock() throws {
-        func message(_ seq: Int, delivery: String, firstSeq: Int? = nil) throws -> SessionEvent {
-            var fields: [String: JSONValue] = [
-                "seq": .integer(Int64(seq)), "ts": .integer(Int64(seq)),
-                "kind": .string(SessionEvent.userMessageKind), "block_id": "u-held",
-                "text": "drop I, L, O and U", "source": "remote", "delivery": .string(delivery)
-            ]
-            if let firstSeq { fields["first_seq"] = .integer(Int64(firstSeq)) }
-            return try JSONValue.object(fields).decode(SessionEvent.self)
+    /// Amendment A19: the device holds a message sent into a running attached
+    /// turn as a queue entry and nothing else. The optimistic row the app drew
+    /// when it sent retires into that queue, and the block arrives only when
+    /// the CLI takes it — after the output of the turn it waited for.
+    @Test("A held message is a queue entry until the CLI takes it")
+    func heldMessageIsAQueueEntry() throws {
+        func event(_ seq: Int, _ kind: String, _ fields: [String: JSONValue]) throws -> SessionEvent {
+            var body = fields
+            body["seq"] = .integer(Int64(seq))
+            body["ts"] = .integer(Int64(seq))
+            body["kind"] = .string(kind)
+            return try JSONValue.object(body).decode(SessionEvent.self)
         }
 
         var timeline = Timeline()
-        timeline.apply(try message(12, delivery: "pending"))
-        #expect(timeline.entry(id: "u-held")?.userMessage?.delivery == .pending)
+        timeline.addOptimistic(OptimisticMessage(id: "req-1", text: "drop I, L, O and U"))
+        #expect(timeline.roots.last?.pending?.id == "req-1")
 
-        timeline.apply(try message(18, delivery: "delivered", firstSeq: 12))
-        #expect(timeline.entries.count == 1)
-        #expect(timeline.entry(id: "u-held")?.userMessage?.delivery == .delivered)
-        // A8 still holds: the block keeps the place it was first shown in.
-        #expect(timeline.entry(id: "u-held")?.seq == 12)
+        // The device answers `queued` and publishes the queue. No block yet.
+        timeline.apply(try event(12, SessionEvent.queueKind,
+                                 ["pending": [["id": "req-1", "text": "drop I, L, O and U", "ts": 1]]]))
+        #expect(timeline.queue.map(\.id) == ["req-1"])
+        #expect(timeline.roots.allSatisfy { $0.pending == nil },
+                "the optimistic row moved into the queue rather than staying in the transcript")
+        #expect(!timeline.entries.contains { $0.userMessage != nil }, "and no block was drawn for it")
+
+        // The turn the message waited for finishes.
+        timeline.apply(try event(16, SessionEvent.assistantTextKind,
+                                 ["block_id": "a-1", "text": "Done.", "done": true]))
+        // The CLI takes the message: the block appears, after that output.
+        timeline.apply(try event(18, SessionEvent.userMessageKind,
+                                 ["block_id": "req-1", "text": "drop I, L, O and U",
+                                  "source": "remote", "delivery": "delivered"]))
+        timeline.apply(try event(19, SessionEvent.queueKind, ["pending": []]))
+        #expect(timeline.entry(id: "req-1")?.userMessage?.delivery == .delivered)
+        #expect(timeline.queue.isEmpty)
+        #expect(timeline.roots.map(\.id).suffix(2) == ["a-1", "req-1"],
+                "and it is drawn after the output of the turn it waited for")
     }
 
     @Test("An absorbed message keeps its block so the re-send replaces it")
@@ -316,15 +336,18 @@ struct SharedControlTests {
 
         chat.draft = "mention the iOS app too"
         await chat.send()
-        try await settle(timeout: 10) {
-            chat.timeline.entries.contains { $0.userMessage?.delivery == .pending }
-        }
+        // Amendment A19: while the device holds it, it is a queue entry only.
+        try await settle(timeout: 10) { chat.timeline.queue.count == 1 }
+        #expect(chat.timeline.roots.allSatisfy { $0.pending == nil })
+        #expect(!chat.timeline.entries.contains { $0.userMessage?.source == .remote })
+
         try await settle(timeout: 10) {
             chat.timeline.entries.contains { $0.userMessage?.delivery == .delivered }
         }
-        #expect(chat.timeline.entries.filter { $0.userMessage != nil }.count == 1)
+        #expect(chat.timeline.entries.filter { $0.userMessage?.source == .remote }.count == 1)
+        #expect(chat.timeline.queue.isEmpty)
 
-        try await settle(timeout: 10) { chat.timeline.pendingRequest != nil }
+        try await settle(timeout: 10) { chat.timeline.pendingRequest?.approval != nil }
         let approval = chat.timeline.pendingRequest?.approval
         #expect(approval?.options.map(\.id) == ["allow", "deny"])
         #expect(approval?.diff == nil)

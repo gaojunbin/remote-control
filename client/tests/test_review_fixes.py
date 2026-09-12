@@ -474,7 +474,7 @@ def test_holder_records_expose_what_terminate_re_checks() -> None:
 
 
 def test_question_and_option_ids_are_positional_so_duplicates_cannot_collide() -> None:
-    from rc_client.agents.claude.adapter import _answers_by_prompt, normalise_questions
+    from rc_client.agents.claude.questions import answers_by_prompt, normalise_questions
 
     questions = normalise_questions(
         {
@@ -491,7 +491,7 @@ def test_question_and_option_ids_are_positional_so_duplicates_cannot_collide() -
     assert [question["id"] for question in questions] == ["q0", "q1"]
     assert [option["id"] for option in questions[0]["options"]] == ["o0", "o1"]
 
-    resolved = _answers_by_prompt(questions, {"q0": ["o1"], "q1": "o0"})
+    resolved = answers_by_prompt(questions, {"q0": ["o1"], "q1": "o0"})
     assert resolved == {"Pick one": ["Yes"], "Pick another": "No"}
 
 

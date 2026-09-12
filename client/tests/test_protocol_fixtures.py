@@ -222,13 +222,37 @@ def test_the_attachable_agent_fixture_matches_what_this_device_advertises() -> N
     assert [option["id"] for option in APPROVAL_OPTIONS] == ["allow", "deny"]
 
 
-@pytest.mark.parametrize("delivery", ["pending", "delivered", "absorbed"])
+@pytest.mark.parametrize("delivery", ["delivered", "absorbed"])
 def test_the_delivery_fixtures_cover_every_state_the_device_emits(delivery: str) -> None:
+    """Amendment A19: a held message is a queue entry, so `pending` is not a state."""
     event = load_fixture(f"events/user_message.{delivery}.json")
     assert event["delivery"] == delivery
     assert event["source"] == "remote"
     assert event["kind"] == "user_message"
     assert should_store(event) is True
+
+
+def test_a_question_resolved_in_the_terminal_names_who_answered_it() -> None:
+    """Amendment A20: the block says `by`, and the ids are the ones we mint."""
+    from rc_client.agents.claude.questions import answers_from_tool
+
+    resolved = load_fixture("events/question.resolved.terminal.json")
+    pending = load_fixture("events/question.pending.json")
+    assert resolved["by"] == "terminal"
+    assert resolved["block_id"] == pending["block_id"]
+    assert resolved["first_seq"] == pending["seq"]
+
+    questions = resolved["questions"]
+    labels = {option["id"]: option["label"] for option in questions[0]["options"]}
+    chosen = [labels[option] for option in resolved["answers"][questions[0]["id"]]]
+    assert answers_from_tool(questions, {questions[0]["prompt"]: chosen[0]}) == resolved["answers"]
+
+
+def test_a_question_answered_by_a_policy_is_a_value_this_device_never_produces() -> None:
+    invalid = FIXTURE_ROOT.parent / "fixtures_invalid"
+    payload = json.loads((invalid / "events__question_by_policy.json").read_text(encoding="utf-8"))
+    assert payload["by"] == "policy"
+    assert payload["by"] not in {"remote", "terminal"}
 
 
 def test_the_shared_approval_fixtures_offer_exactly_allow_and_deny() -> None:

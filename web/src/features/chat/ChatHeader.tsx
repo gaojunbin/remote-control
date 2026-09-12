@@ -2,7 +2,7 @@ import { ArrowLeft, CheckSquare, Square } from 'lucide-react';
 import { Link } from 'react-router';
 import { Popover } from '../../components/Popover';
 import { compactNumber, duration, tildePath } from '../../lib/format';
-import { strings } from '../../strings';
+import { sessionTitle, strings } from '../../strings';
 import { useSettings } from '../../stores/settings';
 import { useNow } from '../../lib/useNow';
 import { canInterruptShared } from './attach';
@@ -39,7 +39,7 @@ export function ChatHeader({ session, agent, deviceName, todos, stopping, onStop
         <ArrowLeft size={17} />
       </Link>
       <div className="chat-heading">
-        <h1>{session.title}</h1>
+        <h1>{sessionTitle(session)}</h1>
         <p className="mono chat-sub">
           {deviceName}:{tildePath(session.cwd)}
           {session.git ? ` · ${session.git.branch}` : ''}

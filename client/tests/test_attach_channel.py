@@ -15,7 +15,7 @@ import pytest
 from rc_client.channel import rpc, wire
 from rc_client.channel.bridge import ChannelBridge
 from rc_client.channel.link import DaemonLink
-from rc_client.sessions.attach import Attachment, AttachServer, SessionStart
+from rc_client.sessions.attach import Attachment, AttachServer, HookQuestion, SessionStart
 
 
 @pytest.fixture
@@ -131,8 +131,14 @@ class RecordingSink:
         self.permissions: list[dict[str, Any]] = []
         self.closed: list[Attachment] = []
         self.starts: list[SessionStart] = []
+        self.questions: list[HookQuestion] = []
+        self.finished: list[HookQuestion] = []
         self.saw_close = asyncio.Event()
         self.saw_permission = asyncio.Event()
+        self.saw_question = asyncio.Event()
+        self.saw_question_closed = asyncio.Event()
+        # What the daemon would answer the next question hook that arrives.
+        self.answer: dict[str, Any] | None = None
 
     async def attach_registered(self, attachment: Attachment) -> None:
         self.registered.append(attachment)
@@ -149,6 +155,16 @@ class RecordingSink:
 
     async def attach_session_started(self, start: SessionStart) -> None:
         self.starts.append(start)
+
+    async def attach_question(self, question: HookQuestion) -> None:
+        self.questions.append(question)
+        self.saw_question.set()
+        if self.answer is not None:
+            await question.answer(self.answer)
+
+    async def attach_question_closed(self, question: HookQuestion) -> None:
+        self.finished.append(question)
+        self.saw_question_closed.set()
 
 
 async def test_a_bridge_and_the_daemon_talk_over_the_unix_socket(short_dir: Path) -> None:
@@ -281,6 +297,75 @@ async def test_an_unusable_session_start_frame_is_dropped(short_dir: Path) -> No
     finally:
         await server.stop()
     assert [start.source for start in sink.starts] == ["startup"]
+
+
+async def test_a_question_hook_waits_on_the_socket_until_it_is_answered(
+    short_dir: Path,
+) -> None:
+    """Amendment A20: the hook holds its connection open for the answer."""
+    socket = short_dir / "channel.sock"
+    sink = RecordingSink()
+    sink.answer = {"Which fix?": "Go monotonic"}
+    server = AttachServer(socket, sink)
+    await server.start()
+    try:
+        reader, writer = await asyncio.open_unix_connection(str(socket))
+        writer.write(
+            wire.encode(
+                wire.question("sess-q", "/repo", "AskUserQuestion", {"questions": [{"id": "q1"}]})
+            )
+        )
+        await writer.drain()
+        line = await asyncio.wait_for(reader.readline(), timeout=2)
+        assert wire.decode(line) == {"type": "answers", "answers": sink.answer}
+        writer.close()
+        await asyncio.wait_for(sink.saw_question_closed.wait(), timeout=2)
+    finally:
+        await server.stop()
+
+    assert [question.session_id for question in sink.questions] == ["sess-q"]
+    assert sink.questions[0].input == {"questions": [{"id": "q1"}]}
+    assert sink.finished == sink.questions
+
+
+async def test_a_question_hook_that_goes_away_first_is_reported_as_closed(
+    short_dir: Path,
+) -> None:
+    socket = short_dir / "channel.sock"
+    sink = RecordingSink()
+    server = AttachServer(socket, sink)
+    await server.start()
+    try:
+        _, writer = await asyncio.open_unix_connection(str(socket))
+        writer.write(wire.encode(wire.question("sess-q", "/repo", "AskUserQuestion", {})))
+        await writer.drain()
+        await asyncio.wait_for(sink.saw_question.wait(), timeout=2)
+        writer.close()
+        await asyncio.wait_for(sink.saw_question_closed.wait(), timeout=2)
+    finally:
+        await server.stop()
+    assert sink.finished == sink.questions
+
+
+async def test_an_unusable_question_frame_is_dropped(short_dir: Path) -> None:
+    socket = short_dir / "channel.sock"
+    sink = RecordingSink()
+    server = AttachServer(socket, sink)
+    await server.start()
+    try:
+        for frame in (
+            {"type": wire.QUESTION, "session_id": "", "input": {}},
+            {"type": wire.QUESTION, "session_id": "with space", "input": {}},
+            {"type": wire.QUESTION, "session_id": "sess-q", "input": "not an object"},
+        ):
+            reader, writer = await asyncio.open_unix_connection(str(socket))
+            writer.write(wire.encode(frame))
+            await writer.drain()
+            assert await reader.read() == b""
+            writer.close()
+    finally:
+        await server.stop()
+    assert sink.questions == []
 
 
 async def test_a_connection_that_never_registers_is_dropped(short_dir: Path) -> None:

@@ -74,7 +74,12 @@ enum TimelineChecks {
         checks.expect(!attachedIdle.allowsSettingsChanges,
                       "model, permission mode and effort stay in the terminal")
         checks.expect(!attachedIdle.allowsAttachments, "and attachments cannot be relayed")
-        checks.expect(!attachedIdle.allowsAnswers, "and a question the CLI asked is answered there")
+        // Amendment A20: a question is answered where you are. The device raises
+        // the block from a hook beside the CLI's own dialog and takes whichever
+        // answer arrives first, so the card here is live.
+        checks.expect(attachedIdle.allowsAnswers, "and a question the CLI asked is answerable here")
+        checks.expect(!store(state: .needsInput, control: .terminal).allowsAnswers,
+                      "while a session the terminal holds outright takes nothing from this app")
 
         let attachedRunning = store(state: .running, control: .shared)
         checks.expect(attachedRunning.isRunning, "an attached turn runs like any other")

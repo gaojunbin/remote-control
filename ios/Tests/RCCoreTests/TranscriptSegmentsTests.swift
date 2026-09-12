@@ -72,6 +72,59 @@ struct TranscriptSegmentsTests {
         #expect(!padded)
     }
 
+    /// The defect this rule exists for: the speaker pauses, the recognizer
+    /// starts its transcription over inside the same request, and the sentence
+    /// already spoken used to be replaced by the new one.
+    @Test("A partial that starts the sentence over keeps what was already said")
+    func restartInsideOneRequest() {
+        var segments = TranscriptSegments()
+        let index = segments.begin()
+        segments.update(index, text: "The weather in Berlin")
+        segments.update(index, text: "The weather in Berlin is cold today.")
+        segments.update(index, text: "Tomorrow")
+        #expect(segments.joined == "The weather in Berlin is cold today. Tomorrow")
+        segments.update(index, text: "Tomorrow I will take the train.")
+        #expect(segments.joined == "The weather in Berlin is cold today. Tomorrow I will take the train.")
+        #expect(segments.count == 1, "one request still owns one slot")
+    }
+
+    @Test("A recognizer rewriting its own last words revises rather than starts over")
+    func revisionReplacesTheSegment() {
+        var segments = TranscriptSegments()
+        let index = segments.begin()
+        segments.update(index, text: "Re-run the auth suite on the CI runner")
+        segments.update(index, text: "Re-run the auth suite on the CI runner too.")
+        segments.update(index, text: "Re-run the auth suite on the SI runner")
+        #expect(segments.joined == "Re-run the auth suite on the SI runner")
+    }
+
+    @Test("The first words of an utterance are corrected, never settled behind the correction")
+    func shortSegmentIsNeverSettled() {
+        var segments = TranscriptSegments()
+        let index = segments.begin()
+        segments.update(index, text: "Hello")
+        segments.update(index, text: "Halo")
+        #expect(segments.joined == "Halo")
+    }
+
+    @Test("A restart is told apart from a revision by what the two have in common")
+    func freshStartRule() {
+        // A new sentence: shorter, and agreeing on nothing but a first letter.
+        #expect(TranscriptSegments.isFreshStart(after: "The weather in Berlin is cold today.",
+                                                next: "Tomorrow"))
+        // The same sentence, longer: an extension.
+        #expect(!TranscriptSegments.isFreshStart(after: "The weather in Berlin",
+                                                 next: "The weather in Berlin is cold"))
+        // The same sentence with its tail rewritten, and a word shorter.
+        #expect(!TranscriptSegments.isFreshStart(after: "The weather in Berlin is cold today.",
+                                                 next: "The weather in Berlin is cold"))
+        // Too little heard so far to call anything a second sentence.
+        #expect(!TranscriptSegments.isFreshStart(after: "Hello", next: "Halo"))
+        // Punctuation and spacing alone never make a restart.
+        #expect(!TranscriptSegments.isFreshStart(after: "the weather in berlin is cold today",
+                                                 next: "The weather, in Berlin"))
+    }
+
     @Test("A result for a slot that was never opened is ignored")
     func unknownSlot() {
         var segments = TranscriptSegments()

@@ -172,12 +172,13 @@ a prompt: the CLI wraps it as an attachment and tells the model, in as many word
 untrusted external data that must not be obeyed. The same text injected while idle starts a turn in
 about twenty milliseconds.
 
-So the daemon holds anything it cannot inject immediately, and the timeline says so. A message sent
-into a running shared session appears at once as a bubble with `delivery: "pending"` and a `queue`
-entry. When the transcript shows the turn has ended, the daemon injects it and republishes the same
-`block_id` with `delivery: "delivered"`. If the CLI absorbs an injection anyway the bubble becomes
-`delivery: "absorbed"` and the device re-sends it once at the next idle point. The block is replaced,
-never duplicated, and `first_seq` keeps it in the position where it first appeared (amendment A8).
+So the daemon holds anything it cannot inject immediately, and the queue says so. A message sent
+into a running shared session is a `queue` entry and nothing else until the transcript shows the
+turn has ended; then the daemon injects it and emits the `user_message` under the request's id,
+so `first_seq` puts it after the turn it waited for, where the terminal draws it (amendment A19).
+If the CLI absorbs an injection anyway the bubble becomes `delivery: "absorbed"` and the device
+re-sends it once at the next idle point. The block is replaced, never duplicated, and `first_seq`
+keeps it in the position where it first appeared (amendment A8).
 
 Turn state comes from the transcript the daemon already tails, so it lags reality by up to a couple
 of seconds. Every injected message carries the device's own id in the channel `meta`, which survives
@@ -291,8 +292,8 @@ maps to `thread/settings/update`, so changing the model, the permission mode or 
 from a phone changes the thread for everyone attached to it. `shared_attachments` is true because the
 daemon accepts image inputs. And because Codex advertises `steer`, a message sent into a running
 shared turn joins that turn through `turn/steer` instead of waiting for it — the one thing an
-attached Claude session cannot do. A10's `delivery: "pending"` chip therefore appears on a Codex
-session only when the message was deliberately queued. `attach_ready` is set from a real handshake on the socket, not from the
+attached Claude session cannot do. A deliberately queued message on a Codex session waits in the
+queue as it does anywhere else (A19). `attach_ready` is set from a real handshake on the socket, not from the
 socket file existing, because a stale socket is exactly the case the hint text exists for.
 
 ### Approvals are shared state, not a private modal
