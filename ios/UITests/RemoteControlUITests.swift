@@ -973,6 +973,145 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "51-chat-chinese")
     }
 
+    // MARK: - Devices (amendments A22 and A23)
+
+    /// `docs/DESIGN.md` § "Devices": every row offers the same three actions on
+    /// both apps, and on the phone a swipe is where they live.
+    func testDeviceRowSwipesToRenameAndRemove() {
+        openDevices()
+        let row = deviceRow(DemoDevices.laptop)
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
+
+        row.swipeLeft()
+        let rename = app.buttons["device.rename"]
+        let remove = app.buttons["device.remove"]
+        XCTAssertTrue(rename.waitForExistence(timeout: 10), "a swipe offers Rename")
+        XCTAssertTrue(remove.exists, "and Remove beside it")
+        attach(name: "60-device-swipe-actions")
+
+        rename.tap()
+        XCTAssertTrue(app.alerts["Rename device"].waitForExistence(timeout: 10),
+                      "and Rename opens the same sheet the menu opens")
+        app.alerts["Rename device"].buttons["Cancel"].tap()
+    }
+
+    /// Amendment A22: the row says an update is available, the action confirms
+    /// what it costs, and the row follows the device through it.
+    func testDeviceUpdateConfirmsAndRunsToCompletion() {
+        openDevices()
+        let row = deviceRow(DemoDevices.laptop)
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
+        XCTAssertTrue(app.staticTexts["Update available"].waitForExistence(timeout: 15),
+                      "a device on an older build says so under its name")
+        attach(name: "61-device-update-available")
+
+        row.swipeRight()
+        let update = app.buttons["device.update"]
+        XCTAssertTrue(update.waitForExistence(timeout: 10), "the leading swipe offers Update")
+        update.tap()
+
+        let alert = app.alerts["Update device"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), "which confirms before it acts")
+        XCTAssertTrue(alert.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS %@", "service restarts")).firstMatch.exists,
+                      "and says what it costs the device")
+        attach(name: "62-device-update-confirm")
+        alert.buttons["Update"].tap()
+
+        XCTAssertTrue(app.staticTexts["Updating…"].waitForExistence(timeout: 15),
+                      "the row reports the update it asked for")
+        attach(name: "63-device-updating")
+
+        // The offline machine is on the same old build, so the end state is
+        // read off this row rather than off the screen.
+        XCTAssertTrue(waitFor(timeout: 30) {
+            deviceRow(DemoDevices.laptop).label.contains("3f2b4a9c")
+        }, "and the row shows the build the device came back on")
+        XCTAssertFalse(deviceRow(DemoDevices.laptop).label.contains("Update available"),
+                       "with nothing left to offer it")
+        attach(name: "64-device-updated")
+    }
+
+    /// Amendment A23: the whole scan flow, with the camera replaced by the
+    /// stand-in the demo injects — a simulator has none.
+    func testScanningAPrintedCodePairsTheHost() {
+        openDevices()
+        let add = app.buttons["devices.add"]
+        XCTAssertTrue(add.waitForExistence(timeout: 15), "adding a device is a labelled button")
+        add.tap()
+
+        let scan = app.buttons["pairing.scan"]
+        XCTAssertTrue(scan.waitForExistence(timeout: 15), "the sheet offers the scan flow")
+        scan.tap()
+
+        XCTAssertTrue(app.staticTexts["Pair with Remote Control"].waitForExistence(timeout: 10),
+                      "the camera opens with the two steps over it")
+        XCTAssertTrue(app.staticTexts["scan.command"].label.contains("install.sh | sh"),
+                      "step one is the one-liner the host runs")
+        XCTAssertTrue(app.buttons["scan.copy"].exists, "which can be copied")
+        XCTAssertTrue(app.staticTexts["scan.status"].label.contains("Hold steady"),
+                      "and the strip says what the camera is doing")
+        attach(name: "65-scan-overlay")
+
+        app.buttons["scan.simulate"].tap()
+        XCTAssertTrue(app.staticTexts["pairing.steps"].waitForExistence(timeout: 15)
+                      || app.staticTexts["Gateway ready"].waitForExistence(timeout: 15),
+                      "a claimed code drops back to the progress the code flow shows")
+        XCTAssertTrue(app.staticTexts["RC-9M27-TB4K"].waitForExistence(timeout: 10),
+                      "and the sheet shows the code the gateway minted for that host")
+        attach(name: "66-scan-claimed")
+        XCTAssertTrue(app.staticTexts["Device online"].waitForExistence(timeout: 20),
+                      "the host's progress arrives on the claimed code")
+        attach(name: "67-scan-progress")
+    }
+
+    /// The Photos item in the `+` menu opens the picker. It did nothing on the
+    /// owner's phone while Files and Camera worked, because a `PhotosPicker`
+    /// built inside a `Menu` leaves the hierarchy when the menu closes and its
+    /// sheet never arrives.
+    func testPhotosOpensThePickerFromTheAttachMenu() {
+        app.launch()
+        openLiveSession()
+
+        let attach = app.buttons["composer.attach"]
+        XCTAssertTrue(attach.waitForExistence(timeout: 20), "the composer offers attachments")
+        attach.tap()
+
+        let photos = app.buttons["Photos"]
+        XCTAssertTrue(photos.waitForExistence(timeout: 10), "the menu offers Photos")
+        photos.tap()
+
+        XCTAssertTrue(photoPicker().waitForExistence(timeout: 20),
+                      "and tapping it opens the photo picker")
+        self.attach(name: "68-photos-picker")
+    }
+
+    /// The demo device ids, which are the row identifiers.
+    private enum DemoDevices {
+        static let studio = "demo-mac-studio"
+        static let laptop = "demo-macbook-air"
+    }
+
+    private func openDevices() {
+        app.launch()
+        let devices = app.tabBars.buttons["Devices"]
+        XCTAssertTrue(devices.waitForExistence(timeout: 20), "the Devices tab is there")
+        devices.tap()
+    }
+
+    /// A combined accessibility element is not a button, so the row is looked
+    /// up wherever SwiftUI decided to put it.
+    private func deviceRow(_ deviceID: String) -> XCUIElement {
+        app.descendants(matching: .any)["device.\(deviceID)"].firstMatch
+    }
+
+    /// The system photo picker runs out of process and is titled in the phone's
+    /// own language, so it is found by the identifier its own collection
+    /// carries rather than by a word.
+    private func photoPicker() -> XCUIElement {
+        app.descendants(matching: .any)["photosView_content_scroll_view"].firstMatch
+    }
+
     private func attach(name: String, screenshot: XCUIScreenshot? = nil) {
         let attachment = XCTAttachment(screenshot: screenshot ?? XCUIScreen.main.screenshot())
         attachment.name = name

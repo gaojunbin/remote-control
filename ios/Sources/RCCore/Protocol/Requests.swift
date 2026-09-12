@@ -235,4 +235,12 @@ extension GatewayRequest {
     public static func agents(deviceID: String) -> GatewayRequest {
         GatewayRequest(type: "device.agents", body: ["device_id": .string(deviceID)])
     }
+
+    /// Amendment A22: fetch exactly the build the gateway serves, install it and
+    /// restart. The build travels with the request so a device that has already
+    /// moved on refuses it rather than reinstalling what it runs.
+    public static func updateDevice(deviceID: String, build: String) -> GatewayRequest {
+        GatewayRequest(type: "device.update",
+                       body: ["device_id": .string(deviceID), "build": .string(build)])
+    }
 }

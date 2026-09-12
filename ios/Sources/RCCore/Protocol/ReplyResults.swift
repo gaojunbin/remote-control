@@ -182,3 +182,22 @@ public struct AgentsResult: Codable, Sendable {
     public let agents: [AgentInfo]
     public init(agents: [AgentInfo]) { self.agents = agents }
 }
+
+/// Amendment A22: what a device says when it takes an update on. `from` is the
+/// build it is leaving, which is the only thing the app learns that it did not
+/// already know.
+public struct DeviceUpdateResult: Codable, Sendable {
+    public let accepted: Bool
+    public let from: String?
+
+    public init(accepted: Bool, from: String? = nil) {
+        self.accepted = accepted
+        self.from = from
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        accepted = try values.decodeIfPresent(Bool.self, forKey: .accepted) ?? false
+        from = try values.decodeIfPresent(String.self, forKey: .from)
+    }
+}

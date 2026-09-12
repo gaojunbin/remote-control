@@ -42,6 +42,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// moment the person at the terminal answers it in their own dialog.
     private var asking: Task<Void, Never>?
     private var answering: Task<Void, Never>?
+    /// Amendment A22: the moment a device that took an update on comes back,
+    /// running the build the gateway serves.
+    private var updating: Task<Void, Never>?
 
     /// The default is what a quick local device feels like. A UI test asks for
     /// a longer one so the state a real send passes through can be looked at
@@ -60,6 +63,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// And how long the person at the terminal takes to answer it there, which
     /// is long enough that answering from here is what normally happens.
     private static let terminalAnswerDelay = Duration.seconds(30)
+    /// Amendment A22: how long a demo device takes to fetch the wheel, install
+    /// it and restart. Long enough that "Updating…" is a state you can read.
+    private static let updateDelay = Duration.seconds(4)
 
     public init(echoDelay: Duration = DemoGateway.defaultEchoDelay,
                 resumeDelay: Duration? = DemoGateway.defaultResumeDelay) {
@@ -102,6 +108,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         retuning?.cancel(); retuning = nil
         asking?.cancel(); asking = nil
         answering?.cancel(); answering = nil
+        updating?.cancel(); updating = nil
         continuation.yield(.state(.disconnected))
     }
 
@@ -136,6 +143,8 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             return try JSONValue.encode(GitStatus(isRepo: true, branch: "main", dirty: false, ahead: 0, behind: 0))
         case "device.agents":
             return try JSONValue.encode(AgentsResult(agents: [DemoFixtures.claude, DemoFixtures.codex]))
+        case "device.update":
+            return try updateDevice(request)
         default:
             return .object([:])
         }
@@ -153,17 +162,11 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     public func config() async throws -> GatewayConfig { DemoFixtures.config }
     public func devices() async throws -> [Device] { devices }
     public func renameDevice(_ deviceID: String, name: String) async throws -> Device {
-        guard let index = devices.firstIndex(where: { $0.deviceID == deviceID }) else {
+        guard devices.contains(where: { $0.deviceID == deviceID }) else {
             throw GatewayErrorBody(code: .notFound, message: "No such device")
         }
-        let old = devices[index]
-        let renamed = Device(deviceID: old.deviceID, name: name, platform: old.platform, hostname: old.hostname,
-                             arch: old.arch, clientVersion: old.clientVersion, online: old.online,
-                             lastSeen: old.lastSeen, createdAt: old.createdAt, latencyMS: old.latencyMS,
-                             agents: old.agents)
-        devices[index] = renamed
-        continuation.yield(.frame(.deviceUpdated(renamed)))
-        return renamed
+        update(deviceID: deviceID) { $0.name = name }
+        return try device(deviceID)
     }
     public func revokeDevice(_ deviceID: String) async throws {
         devices.removeAll { $0.deviceID == deviceID }
@@ -177,6 +180,15 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         return grant
     }
     public func cancelPairing(code: String) async throws { pairing?.cancel(); pairing = nil }
+    public func claimPairingRequest(token: String) async throws -> PairingClaim {
+        guard token == DemoFixtures.claimToken else {
+            throw GatewayErrorBody(code: .notFound, message: "No such pairing request")
+        }
+        let claim = DemoFixtures.pairingClaim
+        pairing?.cancel()
+        pairing = Task { [weak self] in await self?.runPairingScript(code: claim.code) }
+        return claim
+    }
     public func sessions(deviceID: String?, archived: Bool?) async throws -> [Session] {
         sessionList.filter { deviceID == nil || $0.deviceID == deviceID }
     }
@@ -200,6 +212,52 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             throw GatewayErrorBody(code: .notFound, message: "No such session")
         }
         return session
+    }
+
+    private func device(_ id: String) throws -> Device {
+        guard let device = devices.first(where: { $0.deviceID == id }) else {
+            throw GatewayErrorBody(code: .notFound, message: "No such device")
+        }
+        return device
+    }
+
+    /// Amendment A22: the device takes the update on, restarts, and comes back
+    /// on the build it was sent to. The gateway is what publishes each step, so
+    /// the demo does too and the row follows without a reload.
+    private func updateDevice(_ request: GatewayRequest) throws -> JSONValue {
+        let id = request.body["device_id"]?.stringValue ?? ""
+        let target = try device(id)
+        guard let build = request.body["build"]?.stringValue, !build.isEmpty else {
+            throw GatewayErrorBody(code: .badRequest, message: "build is required")
+        }
+        guard target.online else {
+            throw GatewayErrorBody(code: .deviceOffline, message: "That device is offline.")
+        }
+        guard target.clientBuild != build else {
+            throw GatewayErrorBody(code: .conflict, message: "already on this build")
+        }
+        update(deviceID: id) { device in
+            device.updateState = .updating
+            device.updateMessage = nil
+        }
+        updating?.cancel()
+        updating = Task { [weak self] in
+            try? await Task.sleep(for: Self.updateDelay)
+            guard !Task.isCancelled else { return }
+            await self?.finishUpdate(deviceID: id, build: build)
+        }
+        return try JSONValue.encode(DeviceUpdateResult(accepted: true, from: target.clientBuild))
+    }
+
+    /// The `hello` a restarted client sends, as the gateway republishes it: the
+    /// new build, and an update state back at rest.
+    private func finishUpdate(deviceID: String, build: String) {
+        update(deviceID: deviceID) { device in
+            device.clientBuild = build
+            device.updateState = .idle
+            device.updateMessage = nil
+            device.lastSeen = DemoFixtures.now
+        }
     }
 
     /// What the device says the agent running this session can do. Amendments
@@ -690,6 +748,12 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         transcripts[sessionID] = history
         let deviceID = sessionList.first { $0.sessionID == sessionID }?.deviceID
         continuation.yield(.frame(.sessionEvent(sessionID: sessionID, deviceID: deviceID, event: event)))
+    }
+
+    private func update(deviceID: String, _ mutate: (inout Device) -> Void) {
+        guard let index = devices.firstIndex(where: { $0.deviceID == deviceID }) else { return }
+        mutate(&devices[index])
+        continuation.yield(.frame(.deviceUpdated(devices[index])))
     }
 
     private func update(sessionID: String, _ mutate: (inout Session) -> Void) {

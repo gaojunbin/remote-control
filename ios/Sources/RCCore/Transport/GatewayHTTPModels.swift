@@ -58,21 +58,46 @@ public struct PushConfig: Codable, Sendable, Hashable {
     public static let disabled = PushConfig(webEnabled: false, apnsEnabled: false)
 }
 
+/// Amendment A22: the client wheel this gateway serves. A gateway running from
+/// a developer checkout has no wheel on disk and omits the whole object, which
+/// is why every field of it is known together or not at all.
+public struct ClientBuild: Codable, Sendable, Hashable {
+    public let version: String
+    public let build: String
+    public let url: String
+
+    public init(version: String, build: String, url: String) {
+        self.version = version
+        self.build = build
+        self.url = url
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decodeIfPresent(String.self, forKey: .version) ?? ""
+        build = try values.decodeIfPresent(String.self, forKey: .build) ?? ""
+        url = try values.decodeIfPresent(String.self, forKey: .url) ?? ""
+    }
+}
+
 public struct GatewayConfig: Codable, Sendable, Hashable {
     public let publicOrigin: String
     public let stt: STTConfig
     public let push: PushConfig
     public let version: String
+    public let client: ClientBuild?
 
-    public init(publicOrigin: String, stt: STTConfig, push: PushConfig, version: String) {
+    public init(publicOrigin: String, stt: STTConfig, push: PushConfig, version: String,
+                client: ClientBuild? = nil) {
         self.publicOrigin = publicOrigin
         self.stt = stt
         self.push = push
         self.version = version
+        self.client = client
     }
 
     enum CodingKeys: String, CodingKey {
-        case stt, push, version
+        case stt, push, version, client
         case publicOrigin = "public_origin"
     }
 
@@ -82,6 +107,14 @@ public struct GatewayConfig: Codable, Sendable, Hashable {
         stt = try values.decodeIfPresent(STTConfig.self, forKey: .stt) ?? .disabled
         push = try values.decodeIfPresent(PushConfig.self, forKey: .push) ?? .disabled
         version = try values.decodeIfPresent(String.self, forKey: .version) ?? ""
+        client = try values.decodeIfPresent(ClientBuild.self, forKey: .client)
+    }
+
+    /// The build every device is measured against, or nil when this gateway
+    /// serves none and no device can be said to be out of date.
+    public var servedBuild: String? {
+        guard let build = client?.build, !build.isEmpty else { return nil }
+        return build
     }
 
     public static let empty = GatewayConfig(publicOrigin: "", stt: .disabled, push: .disabled, version: "")
@@ -136,6 +169,24 @@ public struct PairingGrant: Codable, Sendable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case code, install
+        case expiresAt = "expires_at"
+    }
+}
+
+/// Amendment A23: what claiming a host's request hands back — the ordinary
+/// pairing code, minted for the caller, which the host is already waiting for.
+/// There is no install command with it: the host ran one to get here.
+public struct PairingClaim: Codable, Sendable, Hashable {
+    public let code: String
+    public let expiresAt: Int64
+
+    public init(code: String, expiresAt: Int64) {
+        self.code = code
+        self.expiresAt = expiresAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case code
         case expiresAt = "expires_at"
     }
 }

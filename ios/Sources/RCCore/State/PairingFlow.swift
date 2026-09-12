@@ -12,7 +12,23 @@ public final class PairingFlow {
         public var done: Bool
     }
 
-    public private(set) var grant: PairingGrant?
+    /// The code this flow is following. Amendment A23: it is minted here for
+    /// the code flow and handed over by a claim for the scan flow, and only the
+    /// first of those carries an install command — the host that printed a QR
+    /// code has already run one.
+    public struct Pairing: Sendable, Hashable {
+        public let code: String
+        public let expiresAt: Int64
+        public let install: InstallCommands?
+
+        public init(code: String, expiresAt: Int64, install: InstallCommands? = nil) {
+            self.code = code
+            self.expiresAt = expiresAt
+            self.install = install
+        }
+    }
+
+    public private(set) var pairing: Pairing?
     public private(set) var reached: PairingStep = .waiting
     public private(set) var pairedDevice: Device?
     public private(set) var errorMessage: String?
@@ -23,20 +39,20 @@ public final class PairingFlow {
 
     public init(api: any GatewayAPI) { self.api = api }
 
-    public var command: String { grant.map { $0.install.command(for: platform) } ?? "" }
+    public var command: String { pairing?.install?.command(for: platform) ?? "" }
 
-    public var code: String { grant?.code ?? "" }
+    public var code: String { pairing?.code ?? "" }
 
     public var isComplete: Bool { pairedDevice != nil && reached == .agents }
 
     public func expiry(now: Date = Date()) -> String {
-        guard let grant else { return "" }
-        return RelativeTime.countdown(to: grant.expiresAt, now: now)
+        guard let pairing else { return "" }
+        return RelativeTime.countdown(to: pairing.expiresAt, now: now)
     }
 
     public func hasExpired(now: Date = Date()) -> Bool {
-        guard let grant else { return false }
-        return Double(grant.expiresAt) / 1000 <= now.timeIntervalSince1970
+        guard let pairing else { return false }
+        return Double(pairing.expiresAt) / 1000 <= now.timeIntervalSince1970
     }
 
     public var steps: [Step] {
@@ -62,7 +78,8 @@ public final class PairingFlow {
         errorMessage = nil
         defer { isRequesting = false }
         do {
-            grant = try await api.beginPairing()
+            let grant = try await api.beginPairing()
+            pairing = Pairing(code: grant.code, expiresAt: grant.expiresAt, install: grant.install)
             reached = .waiting
             pairedDevice = nil
         } catch {
@@ -70,16 +87,26 @@ public final class PairingFlow {
         }
     }
 
+    /// Amendment A23: follow the code the gateway minted for a scanned host.
+    /// The code this sheet was already showing is given back first, so one
+    /// sheet never leaves two codes outstanding.
+    public func claim(token: String) async throws {
+        let claim = try await api.claimPairingRequest(token: token)
+        await cancel()
+        pairing = Pairing(code: claim.code, expiresAt: claim.expiresAt)
+        errorMessage = nil
+    }
+
     public func cancel() async {
-        guard let code = grant?.code else { return }
-        grant = nil
+        guard let code = pairing?.code else { return }
+        pairing = nil
         reached = .waiting
         pairedDevice = nil
         try? await api.cancelPairing(code: code)
     }
 
     public func receive(_ frame: AppFrame) {
-        guard case .pairingProgress(let progress) = frame, progress.code == grant?.code else { return }
+        guard case .pairingProgress(let progress) = frame, progress.code == pairing?.code else { return }
         if progress.step.order >= reached.order { reached = progress.step }
         if let device = progress.device { pairedDevice = device }
     }

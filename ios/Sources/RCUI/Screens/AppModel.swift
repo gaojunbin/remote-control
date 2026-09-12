@@ -28,6 +28,11 @@ public final class AppModel {
     /// on every launch reads as a broken app.
     public private(set) var isResuming: Bool
 
+    /// Amendment A22: why a device refused the last update it was asked for.
+    /// A refusal means nothing started, so no `device.updated` will ever carry
+    /// it and the app is the only place it can live.
+    public private(set) var deviceUpdateErrors: [String: String] = [:]
+
     @ObservationIgnored private let drafts = DraftStore()
     @ObservationIgnored private let isUITesting: Bool
     @ObservationIgnored private var pendingLink: SessionLink?
@@ -214,6 +219,28 @@ public final class AppModel {
     public func pairingFlow() -> PairingFlow? {
         guard let api = connection.api else { return nil }
         return PairingFlow(api: api)
+    }
+
+    public func deviceUpdateError(_ deviceID: String) -> String? { deviceUpdateErrors[deviceID] }
+
+    /// Amendment A22: ask a device to fetch the build the gateway serves. The
+    /// accepted case says nothing here — `device.updated` carries the state the
+    /// row draws from then on.
+    public func updateDevice(_ device: Device) async {
+        guard let channel = connection.channel, let build = connection.config.servedBuild else { return }
+        deviceUpdateErrors.removeValue(forKey: device.deviceID)
+        do {
+            _ = try await channel.request(.updateDevice(deviceID: device.deviceID, build: build),
+                                          as: DeviceUpdateResult.self)
+        } catch {
+            deviceUpdateErrors[device.deviceID] = connection.message(for: error)
+        }
+    }
+
+    /// The camera the pairing scanner runs on. The demo has none to reach, so
+    /// it takes the stand-in that hands over a printed payload (A23).
+    public var codeScanner: any CodeScanning {
+        isDemo ? StaticCodeScanner(payload: DemoFixtures.claimURL) : SystemCodeScanner.make()
     }
 
     public var accessibilityMode: Bool { isUITesting }

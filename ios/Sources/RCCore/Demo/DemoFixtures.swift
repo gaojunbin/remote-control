@@ -94,18 +94,26 @@ public enum DemoFixtures {
             attach: .daemon, attachReady: false)
     }
 
+    /// Amendment A22: the build this demo gateway serves, and the older one the
+    /// laptop is still on so a row with an update available can be looked at.
+    public static let servedBuild = "3f2b4a9c1d8e7f60a5b4c3d2e1f0918273645a5b6c7d8e9f0a1b2c3d4e5f6a7b"
+    public static let outdatedBuild = "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d"
+
     public static var devices: [Device] {
         [
             Device(deviceID: macDeviceID, name: "mac-studio-office", platform: .macos,
                    hostname: "mac-studio.local", arch: "arm64", clientVersion: "0.1.0",
+                   clientBuild: servedBuild,
                    online: true, lastSeen: now, createdAt: now - 8_640_000, latencyMS: 18,
                    agents: [claude, codex]),
             Device(deviceID: laptopDeviceID, name: "macbook-air", platform: .macos,
                    hostname: "macbook-air.local", arch: "arm64", clientVersion: "0.1.0",
+                   clientBuild: outdatedBuild,
                    online: true, lastSeen: now, createdAt: now - 4_320_000, latencyMS: 41,
                    agents: [claudeWithoutShim]),
             Device(deviceID: ciDeviceID, name: "ci-runner-01", platform: .linux,
                    hostname: "ci-runner-01", arch: "x86_64", clientVersion: "0.1.0",
+                   clientBuild: outdatedBuild,
                    online: false, lastSeen: now - 3_600_000, createdAt: now - 86_400_000,
                    latencyMS: nil, agents: [codexWithoutDaemon])
         ]
@@ -479,7 +487,9 @@ public enum DemoFixtures {
         GatewayConfig(publicOrigin: "https://demo.remote-control.invalid",
                       stt: STTConfig(enabled: true, languages: ["auto", "en", "zh"]),
                       push: PushConfig(webEnabled: true, apnsEnabled: true),
-                      version: "0.1.0-demo")
+                      version: "0.1.0-demo",
+                      client: ClientBuild(version: "0.1.0", build: servedBuild,
+                                          url: "/dist/rc_client-latest.whl"))
     }
 
     public static var pairingGrant: PairingGrant {
@@ -487,5 +497,17 @@ public enum DemoFixtures {
                      install: InstallCommands(
                         macos: "curl -fsSL https://demo.remote-control.invalid/install.sh | sh -s -- --pair RC-7K42-QX9M",
                         linux: "curl -fsSL https://demo.remote-control.invalid/install.sh | sh -s -- --pair RC-7K42-QX9M"))
+    }
+
+    /// Amendment A23: the code a claimed host is given, and the link the host
+    /// printed to ask for it.
+    public static var pairingClaim: PairingClaim {
+        PairingClaim(code: "RC-9M27-TB4K", expiresAt: now + 600_000)
+    }
+
+    public static let claimToken = "7ZK3M9Q2X5H8B1V4N6P0R2T4W6"
+
+    public static var claimURL: String {
+        "https://demo.remote-control.invalid/pair#\(claimToken)"
     }
 }

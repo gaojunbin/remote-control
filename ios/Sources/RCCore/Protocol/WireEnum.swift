@@ -35,6 +35,16 @@ public struct DevicePlatform: WireEnum {
     public static let linux = DevicePlatform(rawValue: "linux")
 }
 
+/// Amendment A22: where a device is in an update an app asked for. A device
+/// that was never asked, or that came back on its new build, is `idle`.
+public struct DeviceUpdateState: WireEnum {
+    public let rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
+    public static let idle = DeviceUpdateState(rawValue: "idle")
+    public static let updating = DeviceUpdateState(rawValue: "updating")
+    public static let failed = DeviceUpdateState(rawValue: "failed")
+}
+
 /// Lifecycle of one session, as reported by the owning device.
 public struct SessionState: WireEnum {
     public let rawValue: String

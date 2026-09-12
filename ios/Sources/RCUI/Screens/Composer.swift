@@ -24,6 +24,7 @@ struct Composer: View {
     @State private var attachments: [OutboundAttachment] = []
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showsFileImporter = false
+    @State private var showsPhotos = false
     @State private var showsCamera = false
     @State private var attachmentError: String?
     @State private var isWriting = false
@@ -61,6 +62,11 @@ struct Composer: View {
                       allowsMultipleSelection: true) { result in
             Task { await ingest(files: result) }
         }
+        // The picker is presented from the composer, not from the menu row that
+        // asks for it: a `PhotosPicker` built inside a `Menu` leaves the view
+        // hierarchy the moment the menu closes, so its sheet never arrives.
+        .photosPicker(isPresented: $showsPhotos, selection: $photoItems,
+                      maxSelectionCount: RequestLimits.maxAttachments, matching: .images)
         #if os(iOS)
         .fullScreenCover(isPresented: $showsCamera) {
             CameraCapture { data in addPhoto(data, name: "photo.jpg") }
@@ -183,10 +189,7 @@ struct Composer: View {
                 #if os(iOS)
                 Button { showsCamera = true } label: { Label("Camera", systemImage: "camera") }
                 #endif
-                PhotosPicker(selection: $photoItems, maxSelectionCount: RequestLimits.maxAttachments,
-                             matching: .images) {
-                    Label("Photos", systemImage: "photo")
-                }
+                Button { showsPhotos = true } label: { Label("Photos", systemImage: "photo") }
             } label: {
                 attachLabel
             }

@@ -902,6 +902,23 @@
         }
       }
     },
+    "Claiming that code…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claiming that code…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在认领此码…"
+          }
+        }
+      }
+    },
     "Code": {
       "extractionState": "manual",
       "localizations": {
@@ -1034,6 +1051,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "复制整段"
+          }
+        }
+      }
+    },
+    "Could not claim that code.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not claim that code."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法认领此码。"
           }
         }
       }
@@ -1718,6 +1752,23 @@
         }
       }
     },
+    "Hold steady — the QR code is detected automatically.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold steady — the QR code is detected automatically."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持稳定 · 二维码会被自动识别。"
+          }
+        }
+      }
+    },
     "Input": {
       "extractionState": "manual",
       "localizations": {
@@ -2296,6 +2347,23 @@
         }
       }
     },
+    "On the host you want to connect to, run:": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On the host you want to connect to, run:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在要连接的主机上执行："
+          }
+        }
+      }
+    },
     "On this iPhone": {
       "extractionState": "manual",
       "localizations": {
@@ -2381,6 +2449,23 @@
         }
       }
     },
+    "Pair with Remote Control": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair with Remote Control"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与 Remote Control 配对"
+          }
+        }
+      }
+    },
     "Password": {
       "extractionState": "manual",
       "localizations": {
@@ -2445,6 +2530,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "平台"
+          }
+        }
+      }
+    },
+    "Point this camera at the QR code it prints.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Point this camera at the QR code it prints."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将摄像头对准它打印出的二维码。"
           }
         }
       }
@@ -2602,23 +2704,6 @@
         }
       }
     },
-    "Remove device": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remove device"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "移除设备"
-          }
-        }
-      }
-    },
     "Remove this device?": {
       "extractionState": "manual",
       "localizations": {
@@ -2768,6 +2853,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "保存"
+          }
+        }
+      }
+    },
+    "Scan a code": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan a code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扫码配对"
           }
         }
       }
@@ -3112,6 +3214,23 @@
         }
       }
     },
+    "Simulate a scan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulate a scan"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟扫码"
+          }
+        }
+      }
+    },
     "Speed": {
       "extractionState": "manual",
       "localizations": {
@@ -3329,6 +3448,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "接管"
+          }
+        }
+      }
+    },
+    "That code belongs to a different gateway": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That code belongs to a different gateway"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此码属于另一个网关"
           }
         }
       }
@@ -3724,6 +3860,40 @@
         }
       }
     },
+    "This code has expired. Run the command again on the host.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This code has expired. Run the command again on the host."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此码已过期。请在主机上重新执行该命令。"
+          }
+        }
+      }
+    },
+    "This code was already used.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This code was already used."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此码已被使用。"
+          }
+        }
+      }
+    },
     "This device": {
       "extractionState": "manual",
       "localizations": {
@@ -3737,6 +3907,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "这台设备"
+          }
+        }
+      }
+    },
+    "This device is already updating.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device is already updating."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备正在更新。"
+          }
+        }
+      }
+    },
+    "This device is offline.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device is offline."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备当前离线。"
+          }
+        }
+      }
+    },
+    "This device runs the build the gateway serves.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device runs the build the gateway serves."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备已在运行网关提供的版本。"
           }
         }
       }
@@ -3775,6 +3996,23 @@
         }
       }
     },
+    "This gateway is not serving a client build.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This gateway is not serving a client build."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本网关未提供客户端安装包。"
+          }
+        }
+      }
+    },
     "This gateway refused the connection.": {
       "extractionState": "manual",
       "localizations": {
@@ -3805,6 +4043,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "此网关拒绝了连接。请向网关管理者申请访问权限。"
+          }
+        }
+      }
+    },
+    "This host asked to join your gateway.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This host asked to join your gateway."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台主机请求加入你的网关。"
           }
         }
       }
@@ -4217,6 +4472,108 @@
         }
       }
     },
+    "Update": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新"
+          }
+        }
+      }
+    },
+    "Update %@ to the gateway's client? Its service restarts; sessions it drives are stopped.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update %@ to the gateway's client? Its service restarts; sessions it drives are stopped."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 %@ 更新到网关提供的客户端？它的服务会重启，由它驱动的会话会被停止。"
+          }
+        }
+      }
+    },
+    "Update available": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update available"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有可用更新"
+          }
+        }
+      }
+    },
+    "Update device": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新设备"
+          }
+        }
+      }
+    },
+    "Update failed · %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update failed · %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新失败 · %@"
+          }
+        }
+      }
+    },
+    "Updating…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新中…"
+          }
+        }
+      }
+    },
     "Version": {
       "extractionState": "manual",
       "localizations": {
@@ -4519,6 +4876,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "干净"
+          }
+        }
+      }
+    },
+    "client %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "client %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端 %@"
+          }
+        }
+      }
+    },
+    "client %@ · %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "client %@ · %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端 %@ · %@"
           }
         }
       }

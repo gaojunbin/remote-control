@@ -12,6 +12,7 @@ struct AddDeviceSheet: View {
     @State private var flow: PairingFlow?
     @State private var copied = false
     @State private var showsManual = false
+    @State private var showsScanner = false
     @State private var now = Date()
 
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -20,25 +21,13 @@ struct AddDeviceSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.large) {
-                    Text("Run one command on the machine where your agents live. It dials out to the gateway, so nothing is exposed on the host.")
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.inkSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if let flow {
-                        platformPicker(flow)
-                        commandCard(flow)
-                        progressCard(flow)
-                        Button("Manual install") { showsManual = true }
-                            .font(.footnote)
-                            .buttonStyle(.plain)
-                            .foregroundStyle(Theme.ink)
-                            .frame(minHeight: Theme.Touch.minimum)
-                        if let error = flow.errorMessage {
-                            Text(error).font(.footnote).foregroundStyle(Theme.danger)
-                        }
+                    if let flow, let pairing = flow.pairing {
+                        code(flow, pairing: pairing)
                     } else {
-                        HStack { ProgressView(); Text("Requesting a code").foregroundStyle(Theme.inkSecondary) }
+                        waiting
+                    }
+                    if let error = flow?.errorMessage {
+                        Text(error).font(.footnote).foregroundStyle(Theme.danger)
                     }
                 }
                 .padding(.horizontal, Theme.Space.page)
@@ -60,13 +49,111 @@ struct AddDeviceSheet: View {
                 }
             }
             .task { await begin() }
+            // The scanner covers this sheet full screen, which takes it off the
+            // window and back on again. Listening is re-established on the way
+            // back rather than left behind with the cover.
+            .onAppear { listen() }
             .onDisappear { model.connection.removeFrameHandler("pairing") }
             .onReceive(tick) { now = $0 }
             .sheet(isPresented: $showsManual) {
                 ManualInstallView(command: flow?.command ?? "", code: flow?.code ?? "")
             }
+            #if os(iOS)
+            .fullScreenCover(isPresented: $showsScanner) {
+                if let flow {
+                    ScanPairingView(flow: flow, origins: origins, installCommand: scanCommand,
+                                    scanner: model.codeScanner)
+                }
+            }
+            #endif
         }
         .sheetSize()
+    }
+
+    /// One code, reached one of two ways. A code minted here comes with the
+    /// one-liner that uses it; a code claimed from a scan does not, because the
+    /// host that printed the QR code has already run one (A23).
+    @ViewBuilder
+    private func code(_ flow: PairingFlow, pairing: PairingFlow.Pairing) -> some View {
+        if pairing.install != nil {
+            Text("Run one command on the machine where your agents live. It dials out to the gateway, so nothing is exposed on the host.")
+                .font(.subheadline)
+                .foregroundStyle(Theme.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            platformPicker(flow)
+            commandCard(flow)
+            #if os(iOS)
+            scanButton
+            #endif
+            progressCard(flow)
+            Button("Manual install") { showsManual = true }
+                .font(.footnote)
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.ink)
+                .frame(minHeight: Theme.Touch.minimum)
+        } else {
+            claimedCard(flow)
+            progressCard(flow)
+        }
+    }
+
+    private var waiting: some View {
+        HStack { ProgressView(); Text("Requesting a code").foregroundStyle(Theme.inkSecondary) }
+    }
+
+    #if os(iOS)
+    /// Amendment A23: the other way in. The host runs one command, prints a QR
+    /// code, and this claims it — no code is typed anywhere.
+    private var scanButton: some View {
+        Button {
+            showsScanner = true
+        } label: {
+            Label("Scan a code", systemImage: "qrcode.viewfinder")
+        }
+        .buttonStyle(ChipButtonStyle())
+        .accessibilityIdentifier("pairing.scan")
+    }
+    #endif
+
+    /// The code the gateway minted for a scanned host. There is no one-liner
+    /// beside it: the host ran one to get here.
+    private func claimedCard(_ flow: PairingFlow) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.small) {
+            Text("This host asked to join your gateway.")
+                .font(.subheadline)
+                .foregroundStyle(Theme.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Text(flow.code).font(Theme.mono).foregroundStyle(Theme.ink)
+                Text("single use").font(.caption).foregroundStyle(Theme.inkSecondary)
+                Spacer()
+                Text(flow.hasExpired(now: now) ? L10n.string("expired")
+                                               : L10n.string("expires in %@", flow.expiry(now: now)))
+                    .font(.caption)
+                    .foregroundStyle(flow.hasExpired(now: now) ? Theme.danger : Theme.inkSecondary)
+                    .accessibilityIdentifier("pairing.claimedCode")
+            }
+        }
+        .card()
+    }
+
+    /// The origins a scanned link may name: the one this app dials, and the one
+    /// the gateway publishes to the world. They differ on a LAN sign-in.
+    private var origins: [GatewayEndpoint] {
+        var found = model.connection.endpoint.map { [$0] } ?? []
+        let published = model.connection.config.publicOrigin
+        if !published.isEmpty, let endpoint = try? GatewayEndpoint(published),
+           !found.contains(endpoint) {
+            found.append(endpoint)
+        }
+        return found
+    }
+
+    private var scanCommand: String {
+        let origin = model.connection.config.publicOrigin.isEmpty
+            ? (model.connection.endpoint?.origin ?? "")
+            : model.connection.config.publicOrigin
+        return "curl -fsSL \(origin)/install.sh | sh"
     }
 
     @ViewBuilder
@@ -143,8 +230,13 @@ struct AddDeviceSheet: View {
     private func begin() async {
         guard flow == nil, let created = model.pairingFlow() else { return }
         flow = created
-        model.connection.addFrameHandler("pairing") { [weak created] frame in created?.receive(frame) }
+        listen()
         await created.begin()
+    }
+
+    private func listen() {
+        guard let flow else { return }
+        model.connection.addFrameHandler("pairing") { [weak flow] frame in flow?.receive(frame) }
     }
 
     private func copy(_ text: String) {

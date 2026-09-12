@@ -601,6 +601,108 @@ enum ProtocolChecks {
         }
     }
 
+    /// Amendment A22: the build a gateway serves, the build a device runs, and
+    /// the rule the row draws from the two of them.
+    private static func deviceUpdates(checks: CheckRunner) {
+        guard let config = FixtureSource.json("http/config.response.json"),
+              let served = try? config.decode(GatewayConfig.self).servedBuild else {
+            checks.expect(false, "http/config.response.json names the served client build")
+            return
+        }
+        checks.equal(served.count, 64, "the served build is a SHA-256")
+        guard let list = FixtureSource.json("http/devices.list.response.json"),
+              let devices = try? list.decode(DeviceListResponse.self).devices, devices.count == 2 else {
+            checks.expect(false, "the device list decodes both devices")
+            return
+        }
+        checks.equal(devices[0].clientBuild, served, "the first device runs the served build")
+        checks.equal(devices[0].updateState, .idle, "and reports no update in flight")
+        checks.expect(devices[0].updateMessage == nil, "and carries no update message")
+        checks.expect(!DeviceUpdate.isBehind(devices[0], servedBuild: served),
+                      "so it is not offered an update")
+        checks.equal(DeviceUpdate.block(for: devices[0], servedBuild: served), .current,
+                     "and Update says why it cannot act")
+        checks.equal(DeviceUpdate.block(for: devices[1], servedBuild: served), .offline,
+                     "an offline device is not asked to update")
+
+        // A device the gateway has not heard a build from is behind whatever
+        // the gateway serves: an unknown build is not the served one.
+        var unknown = devices[0]
+        unknown.clientBuild = nil
+        checks.expect(DeviceUpdate.isBehind(unknown, servedBuild: served), "an unknown build is behind")
+        checks.equal(DeviceUpdate.notice(for: unknown, servedBuild: served), .available,
+                     "and the row says an update is available")
+        checks.expect(DeviceUpdate.notice(for: devices[0], servedBuild: nil) == nil,
+                      "a gateway with no wheel puts nothing on the row")
+
+        guard let updated = FixtureSource.json("app/device.updated.json"),
+              let frame = try? AppFrame(json: updated), case .deviceUpdated(let device) = frame else {
+            checks.expect(false, "app/device.updated.json decodes as a device frame")
+            return
+        }
+        checks.equal(device.clientBuild, served, "device.updated carries the build the device runs")
+
+        if let hello = FixtureSource.json("device/hello.json") {
+            checks.equal(hello["client_build"]?.stringValue, served,
+                         "the device's own hello reports the same build")
+        }
+        if let request = FixtureSource.json("app/device.update.json") {
+            let built = GatewayRequest.updateDevice(
+                deviceID: request["device_id"]?.stringValue ?? "",
+                build: request["build"]?.stringValue ?? "")
+            checks.equal(built.type, request["type"]?.stringValue, "device.update is built as the fixture")
+            checks.equal(built.body["build"], request["build"], "with the build the gateway serves")
+        }
+        if let reply = FixtureSource.json("app/reply.device.update.json") {
+            checks.noThrow("a device's acceptance decodes") {
+                let result = try (reply["result"] ?? .object([:])).decode(DeviceUpdateResult.self)
+                guard result.accepted, result.from?.count == 64 else {
+                    throw ProtocolFailure.malformed("device.update reply")
+                }
+            }
+        }
+        if let failure = FixtureSource.json("device/update.failed.json") {
+            checks.expect(failure["message"]?.stringValue?.isEmpty == false,
+                          "update.failed says why the update did not complete")
+        }
+    }
+
+    /// Amendment A23: the link a host prints, and the code claiming it returns.
+    private static func claimTokens(checks: CheckRunner) {
+        guard let request = FixtureSource.json("http/devices.pairing.request.response.json"),
+              let claimURL = request["claim_url"]?.stringValue,
+              let token = request["token"]?.stringValue else {
+            checks.expect(false, "http/devices.pairing.request.response.json exists")
+            return
+        }
+        guard let gateway = try? GatewayEndpoint("https://rc.example.com") else {
+            checks.expect(false, "the fixture's origin parses")
+            return
+        }
+        checks.equal(PairingClaimLink(payload: claimURL, gateway: gateway)?.token, token,
+                     "the printed link carries the claim token")
+        checks.expect(PairingClaimLink(payload: claimURL,
+                                       gateway: (try? GatewayEndpoint("https://other.example.com"))
+                                        ?? .placeholder) == nil,
+                      "and a link for another gateway is not ours to claim")
+        checks.expect(PairingClaimLink(payload: "https://rc.example.com/pair", gateway: gateway) == nil,
+                      "a link with no token is refused")
+
+        if let status = FixtureSource.json("http/devices.pairing.request.status.response.json") {
+            checks.equal(status["status"]?.stringValue, "claimed", "a claimed poll carries the code")
+        }
+        if let claim = FixtureSource.json("http/devices.pairing.claim.response.json") {
+            checks.noThrow("a claim response decodes") {
+                let decoded = try claim.decode(PairingClaim.self)
+                guard decoded.code.hasPrefix("RC-"), decoded.expiresAt > 0 else {
+                    throw ProtocolFailure.malformed("pairing claim")
+                }
+            }
+        } else {
+            checks.expect(false, "http/devices.pairing.claim.response.json exists")
+        }
+    }
+
     private static func http(checks: CheckRunner) {
         if let json = FixtureSource.json("http/login.response.json") {
             checks.noThrow("a login response decodes") {
@@ -623,6 +725,8 @@ enum ProtocolChecks {
         if let json = FixtureSource.json("http/devices.list.response.json") {
             checks.noThrow("a device list decodes") { _ = try json.decode(DeviceListResponse.self) }
         }
+        deviceUpdates(checks: checks)
+        claimTokens(checks: checks)
         if let json = FixtureSource.json("http/devices.patch.response.json") {
             checks.noThrow("a renamed device decodes") { _ = try json.decode(DeviceResponse.self) }
         }

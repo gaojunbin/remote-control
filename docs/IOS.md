@@ -71,6 +71,10 @@ xcrun simctl openurl booted "remotecontrol://session?device=<id>&id=<session_id>
 `--demo`, or "Try the demo" on the login screen, installs an in-memory gateway that serves the
 protocol from typed fixtures and scripts a live turn. It never constructs a transport, so the demo
 cannot reach the network even by accident. Every SwiftUI preview and the XCUITest smoke run on it.
+It answers `/api/config` from memory too, so the served client build the Devices screen measures
+against is there in the demo: one demo machine runs an older build and the demo gateway takes
+`device.update`, reports the device as updating and brings it back on the new build a few seconds
+later (A22). It also claims one printed pairing token, which is what the scan flow is driven with.
 
 Other launch arguments: `--ui-testing`, `--reset-state`, and in debug builds `--voice-preview`,
 which swaps in a scripted speech platform so a UI test never opens the microphone. The listening
@@ -154,6 +158,58 @@ for a first message, so `session.create` goes out without `first_message`; the p
 field. The four agent settings start at the agent's own defaults and change with the agent picker,
 so choosing Codex where Claude was selected re-reads every list. Its section headers use
 `FieldLabel`, the one label every form section in the app is headed with.
+
+## Devices
+
+One row per enrolled machine: name and latency, the dot with `online`/`offline` and the host, the
+agents it detected, and the client line. Every row offers the same three actions the web menu
+offers — **Rename**, **Update**, **Remove** — from a trailing swipe (Rename, Remove), a leading
+swipe (Update) and the context menu, which carries all three. Identifiers `device.rename`,
+`device.update`, `device.remove`. Each action opens the same alert whichever way it was reached.
+
+Every confirmation reads the row it acts on while the tap is still being handled, never inside the
+task it starts: dismissing an alert clears the `@State` that holds the device, and it does so before
+a task started from the button's action gets to run. Update was written the other way first and did
+nothing at all.
+
+**Update (A22).** `GET /api/config` names the wheel the gateway serves (`client.version`,
+`client.build`, `client.url`) and every device reports the build it runs. The client line reads
+`client 0.1.0 · 3f2b4a9c` while there is nothing to say, and the eight characters give way to the
+one notice there is:
+
+| `Device` says | The line reads | Update is |
+| --- | --- | --- |
+| `update_state: "updating"` | "Updating…", with the row's dot pulsing | disabled |
+| a refusal this app is holding, or `update_state: "failed"` | "Update failed · &lt;message&gt;" | offered again |
+| a `client_build` other than the gateway's, or none | "Update available" | offered |
+| the gateway's own build | nothing | disabled, "This device runs the build the gateway serves." |
+
+An offline device and a gateway serving no wheel disable the action too, each with its own reason on
+the accessibility hint. The rule itself is `DeviceUpdate` in `Sources/RCCore/State/DeviceUpdate.swift`,
+which is the same rule the web's `updateNotice` applies; `Tests/RCCoreTests/DeviceUpdateTests.swift`
+covers it on hand-built devices and `Verification/ProtocolChecks.swift` against the fixtures.
+Confirming sends `device.update {device_id, build}` and says nothing on success — `device.updated`
+carries the state the row draws from then on. A refusal (`conflict`, `unsupported`) never reaches
+the gateway's record, because no update started, so `AppModel.deviceUpdateErrors` holds it against
+the row that asked.
+
+**Scan a code (A23).** The Add device sheet keeps the code flow first and adds **Scan a code**
+beside it. The scanner is a full-screen camera with the two steps on a card over it — the one-liner
+`curl -fsSL <origin>/install.sh | sh` with a Copy button, then "Point this camera at the QR code it
+prints." — a Cancel button top right, and a status strip along the bottom. A payload is claimed only
+when it parses as `<this gateway's origin>/pair#<token>` with a Crockford token
+(`PairingClaimLink`); the origin is checked against both the address this app dials and the one the
+gateway publishes, since a LAN sign-in reads a QR code carrying the public one. Anything else says
+"That code belongs to a different gateway" in the strip and the camera keeps looking. A claim
+cancels the code the sheet had minted, adopts the one the gateway minted for that host, and the
+sheet shows the progress the code flow already shows. `404`/`410` read "This code has expired. Run
+the command again on the host."; `409` reads "This code was already used."
+
+The camera is behind `CodeScanning` (`Sources/RCUI/Screens/CodeScanner.swift`): `CameraCodeScanner`
+prefers VisionKit's `DataScannerViewController` and falls back to an `AVCaptureMetadataOutput`
+session where it is unavailable, and `StaticCodeScanner` hands over a printed payload on a tap. A
+simulator has no camera, so the demo takes the stand-in and the UI test drives the whole flow
+through it.
 
 ## Surfaces and type
 
@@ -438,6 +494,15 @@ rather than trusting a screenshot to be read by hand. Focus is a `Bool` binding 
 ways, so dictation still hands the cursor back to the field and a background tap still ends editing
 through `endEditing(true)`, which the field reports back.
 
+**The `+` menu presents nothing itself.** Files, Camera and Photos are three buttons that set a
+flag; every presenter — the file importer, the camera cover and `.photosPicker` — sits on the
+composer beside the others. Photos used to be a `PhotosPicker` built inside the `Menu`, and on a
+phone it did nothing at all while the other two worked: a menu item's view leaves the hierarchy the
+moment the menu closes, so the picker it was asked to present never arrived. Nothing about
+`ingest(_:)` changed. `testPhotosOpensThePickerFromTheAttachMenu` taps `+` → Photos and waits for
+the system picker's own collection, which is identified rather than named because the picker is
+titled in the phone's language and not the app's.
+
 Above the field the composer draws one line at most, and only while something is happening to it: an
 attachment that was refused, or what dictation is doing. It never says who owns the session — the
 header above the transcript already reads `terminal · attached`, and a control the app cannot drive
@@ -707,7 +772,9 @@ gateway address surviving a background, terminate and relaunch. Details in
 ## Not verified
 
 Everything beyond those four tests ran only against the offline demo: new session, add device, the
-directory picker, voice and push. Segment rollover is covered as a rule and against a fake backend,
+directory picker, voice and push. The pairing camera is the one piece with no coverage at all: a
+simulator has none, so the scan flow was driven through the injected stand-in and neither
+VisionKit's data scanner nor the `AVCaptureMetadataOutput` fallback has read a real QR code. Segment rollover is covered as a rule and against a fake backend,
 never against a real microphone: no dictation has run past one recognition request on a device, and
 neither Apple's own limit nor the gateway's has been reached in practice. APNs delivery and gateway speech-to-text have never been
 exercised, the app has never run on a physical device, and dark mode and VoiceOver have not been

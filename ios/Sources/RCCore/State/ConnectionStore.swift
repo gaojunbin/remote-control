@@ -148,6 +148,9 @@ public final class ConnectionStore {
         self.api = api
         self.channel = channel
         await start(channel: channel)
+        // The demo answers `/api/config` from memory and reaches nothing, and
+        // the screens read the served client build from it (A22).
+        await loadConfig()
     }
 
     public func signOut() async {
@@ -237,7 +240,7 @@ public final class ConnectionStore {
     }
 
     private func loadConfig() async {
-        guard let api, !isDemo, let value = try? await api.config(), !Task.isCancelled else { return }
+        guard let api, let value = try? await api.config(), !Task.isCancelled else { return }
         config = value
         // `hello` and `/api/config` describe the same gateway. The one that
         // arrives later wins, and this call always follows the hello it races.

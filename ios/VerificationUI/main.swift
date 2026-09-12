@@ -483,6 +483,37 @@ func run() async -> (passed: Int, failures: [String]) {
         expect(fonts.count >= 20, "the KaTeX fonts ship with the bundle")
     }
 
+    // MARK: - Amendment A22: a device is updated from the app
+
+    equal(model.connection.config.servedBuild, DemoFixtures.servedBuild,
+          "the app reads the build the gateway serves from /api/config")
+    if let laptop = model.connection.device(DemoFixtures.laptopDeviceID) {
+        equal(DeviceUpdate.notice(for: laptop, servedBuild: model.connection.config.servedBuild),
+              .available, "a device on an older build says so on its row")
+        await model.updateDevice(laptop)
+        await settle { model.connection.device(DemoFixtures.laptopDeviceID)?.updateState == .updating }
+        equal(model.connection.device(DemoFixtures.laptopDeviceID)?.updateState, .updating,
+              "asking for the update puts the row in its updating state")
+        expect(model.deviceUpdateError(DemoFixtures.laptopDeviceID) == nil,
+               "and an accepted update is not an error")
+        await settle(timeout: 15) {
+            model.connection.device(DemoFixtures.laptopDeviceID)?.updateState == .idle
+        }
+        equal(model.connection.device(DemoFixtures.laptopDeviceID)?.clientBuild,
+              DemoFixtures.servedBuild, "and the device comes back on the build it was sent to")
+    } else {
+        expect(false, "the demo lists a device on an older build")
+    }
+    if let studio = model.connection.device(DemoFixtures.macDeviceID) {
+        // A device already on the served build is refused by the device, and a
+        // refusal is the app's own news: no update ever started.
+        await model.updateDevice(studio)
+        expect(model.deviceUpdateError(DemoFixtures.macDeviceID) != nil,
+               "a refused update is held against the row that asked for it")
+        equal(DeviceUpdate.block(for: studio, servedBuild: model.connection.config.servedBuild),
+              .current, "and the action says why it could not act")
+    }
+
     // MARK: - The interface language
 
     let languageDefaults = UserDefaults(suiteName: "rc-ui-verify-\(UUID().uuidString)")!
@@ -660,6 +691,9 @@ actor StoredAccountGateway: GatewayAPI, GatewayChannel {
     func revokeDevice(_ deviceID: String) async throws { throw TransportError.notConnected }
     func beginPairing() async throws -> PairingGrant { throw TransportError.notConnected }
     func cancelPairing(code: String) async throws {}
+    func claimPairingRequest(token: String) async throws -> PairingClaim {
+        throw TransportError.notConnected
+    }
     func sessions(deviceID: String?, archived: Bool?) async throws -> [Session] { [] }
     func registerPush(_ registration: APNSRegistration) async throws {}
     func unregisterPush(token: String) async throws {}

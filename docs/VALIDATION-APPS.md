@@ -919,6 +919,40 @@ caption, so the word appears once. Adding a group also pushed Timeline below the
 `testSettingsSectionHeadersAreSentenceCase` now scrolls to each header instead of assuming they all
 fit on one screen.
 
+**Round 15 — the three device actions, an update from the app (A22), pairing by scanning (A23), and
+the Photos button** (iPhone 17 on iOS 27.0, the offline demo, 2026-09-13). `RemoteControlUITests`
+runs 29 tests, 4 skipped (the real-gateway smoke tests) and 0 failures; `swift run RCVerify` 1036
+checks, `swift run RCUIVerify` 160, `swift test` 205. Screenshots are run artefacts under
+`…/scratchpad/ios-devices/named/`. **The Photos button did nothing on the owner's phone while Files
+and Camera worked**, and the cause was not the picker: `Composer.attachControl` built a
+`PhotosPicker` as an item inside the `Menu`, and a menu item's view leaves the hierarchy the moment
+the menu closes, so the sheet it was asked to present never arrived. The item is now a `Button` that
+sets a flag and `.photosPicker` sits on the composer beside the file importer and the camera cover;
+`testPhotosOpensThePickerFromTheAttachMenu` taps `+` → Photos and waits for the system picker's own
+collection, which arrives with the simulator's sample library in it (`68-photos-picker.png`). The
+picker is titled in the phone's language, not the app's, so the test matches an identifier rather
+than a word. **The three actions** are now on a swipe as well as in the context menu:
+`testDeviceRowSwipesToRenameAndRemove` swipes a row and finds Rename and Remove, and opens the
+rename alert from the swipe (`60-device-swipe-actions.png`). **Update (A22)**: the row reads
+"Update available" under the client version when the device's build differs from
+`config.client.build` (`61-device-update-available.png`), the leading swipe offers Update, the alert
+says the service restarts and the sessions it drives are stopped (`62-device-update-confirm.png`),
+and the row then reads "Updating…" with its dot pulsing (`63-device-updating.png`) until the demo
+device comes back on the new build, which the test reads off that row's own label rather than off
+the screen — the offline CI runner is on the same old build (`64-device-updated.png`). **Scanning
+(A23)**: `testScanningAPrintedCodePairsTheHost` opens the Add device sheet, taps Scan a code, reads
+the one-liner and the status strip off the camera overlay (`65-scan-overlay.png`), hands the
+scanner a printed payload through the injected stand-in, and watches the sheet drop back to the
+claimed code with the same progress checklist the code flow shows (`66-scan-claimed.png`,
+`67-scan-progress.png`). A simulator has no camera, so the camera itself — VisionKit's data scanner
+and the `AVCaptureMetadataOutput` fallback — has never run; everything above it did.
+
+One defect came out of this round rather than out of reading. `DevicesView` confirmed Rename, Update
+and Remove by starting a task from the alert's button and reading the `@State` device inside it, and
+dismissing an alert clears that state before the task runs: Update silently did nothing the first
+time the UI test drove it, and Rename and Remove were written the same way. All three now read the
+row while the tap is still being handled and start the request with it.
+
 ## 3. Attached terminal sessions (A10) in the apps
 
 Amendment A10 landed after the run above. This section records what each app does with

@@ -138,16 +138,21 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
 /// A machine running the client daemon.
 public struct Device: Codable, Sendable, Hashable, Identifiable {
     public let deviceID: String
-    public let name: String
+    public var name: String
     public let platform: DevicePlatform
     public let hostname: String
     public let arch: String
-    public let clientVersion: String
-    public let online: Bool
-    public let lastSeen: Int64
+    public var clientVersion: String
+    /// Amendment A22: the SHA-256 of the wheel this client was installed from,
+    /// or nil when it was installed from source and cannot say.
+    public var clientBuild: String?
+    public var updateState: DeviceUpdateState
+    public var updateMessage: String?
+    public var online: Bool
+    public var lastSeen: Int64
     public let createdAt: Int64
-    public let latencyMS: Int?
-    public let agents: [AgentInfo]
+    public var latencyMS: Int?
+    public var agents: [AgentInfo]
 
     public var id: String { deviceID }
 
@@ -159,7 +164,9 @@ public struct Device: Codable, Sendable, Hashable, Identifiable {
     }
 
     public init(deviceID: String, name: String, platform: DevicePlatform, hostname: String, arch: String,
-                clientVersion: String, online: Bool, lastSeen: Int64, createdAt: Int64,
+                clientVersion: String, clientBuild: String? = nil,
+                updateState: DeviceUpdateState = .idle, updateMessage: String? = nil,
+                online: Bool, lastSeen: Int64, createdAt: Int64,
                 latencyMS: Int? = nil, agents: [AgentInfo] = []) {
         self.deviceID = deviceID
         self.name = name
@@ -167,6 +174,9 @@ public struct Device: Codable, Sendable, Hashable, Identifiable {
         self.hostname = hostname
         self.arch = arch
         self.clientVersion = clientVersion
+        self.clientBuild = clientBuild
+        self.updateState = updateState
+        self.updateMessage = updateMessage
         self.online = online
         self.lastSeen = lastSeen
         self.createdAt = createdAt
@@ -178,6 +188,9 @@ public struct Device: Codable, Sendable, Hashable, Identifiable {
         case name, platform, hostname, arch, online, agents
         case deviceID = "device_id"
         case clientVersion = "client_version"
+        case clientBuild = "client_build"
+        case updateState = "update_state"
+        case updateMessage = "update_message"
         case lastSeen = "last_seen"
         case createdAt = "created_at"
         case latencyMS = "latency_ms"
@@ -191,6 +204,10 @@ public struct Device: Codable, Sendable, Hashable, Identifiable {
         hostname = try values.decodeIfPresent(String.self, forKey: .hostname) ?? ""
         arch = try values.decodeIfPresent(String.self, forKey: .arch) ?? ""
         clientVersion = try values.decodeIfPresent(String.self, forKey: .clientVersion) ?? ""
+        clientBuild = try values.decodeIfPresent(String.self, forKey: .clientBuild)
+        // The field is optional on the wire, and "absent" means idle (A22).
+        updateState = try values.decodeIfPresent(DeviceUpdateState.self, forKey: .updateState) ?? .idle
+        updateMessage = try values.decodeIfPresent(String.self, forKey: .updateMessage)
         online = try values.decodeIfPresent(Bool.self, forKey: .online) ?? false
         lastSeen = try values.decodeIfPresent(Int64.self, forKey: .lastSeen) ?? 0
         createdAt = try values.decodeIfPresent(Int64.self, forKey: .createdAt) ?? 0

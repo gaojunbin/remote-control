@@ -134,6 +134,14 @@ public actor GatewayHTTPClient {
         _ = try await send(.delete, "/api/devices/pairing/\(escape(code))")
     }
 
+    /// Amendment A23: bind a host's claim token to this account and take the
+    /// pairing code the gateway mints for it. The host's own long poll is
+    /// waiting on the same code.
+    public func claimPairingRequest(token: String) async throws -> PairingClaim {
+        try await send(.post, "/api/pairing/requests/\(escape(token))/claim", body: .object([:]))
+            .decode(PairingClaim.self)
+    }
+
     public func sessions(deviceID: String? = nil, archived: Bool? = nil) async throws -> [Session] {
         var query: [URLQueryItem] = []
         if let deviceID { query.append(.init(name: "device_id", value: deviceID)) }

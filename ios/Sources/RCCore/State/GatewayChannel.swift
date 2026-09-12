@@ -30,6 +30,7 @@ public protocol GatewayAPI: Sendable {
     func revokeDevice(_ deviceID: String) async throws
     func beginPairing() async throws -> PairingGrant
     func cancelPairing(code: String) async throws
+    func claimPairingRequest(token: String) async throws -> PairingClaim
     func sessions(deviceID: String?, archived: Bool?) async throws -> [Session]
     func registerPush(_ registration: APNSRegistration) async throws
     func unregisterPush(token: String) async throws
