@@ -90,7 +90,7 @@ struct NewSessionSheet: View {
                     .foregroundStyle(Theme.inkSecondary)
             }
         } header: {
-            FormLabel("Device")
+            FieldLabel("Device")
         }
     }
 
@@ -109,7 +109,7 @@ struct NewSessionSheet: View {
                     .foregroundStyle(Theme.inkSecondary)
             }
         } header: {
-            FormLabel("Agent")
+            FieldLabel("Agent")
         }
     }
 
@@ -138,7 +138,7 @@ struct NewSessionSheet: View {
                 .buttonStyle(.plain)
             }
         } header: {
-            FormLabel("Working directory") {
+            FieldLabel("Working directory") {
                 Button("Browse") { isBrowsing = true }
                     .font(.caption.weight(.medium))
                     .buttonStyle(.plain)
@@ -162,7 +162,7 @@ struct NewSessionSheet: View {
                         .accessibilityIdentifier("newsession.worktree")
                 }
             } header: {
-                FormLabel("Git")
+                FieldLabel("Git")
             } footer: {
                 if agent?.supports(.worktree) == true {
                     Text("A worktree gives the agent its own checkout, so your working copy stays untouched.")

@@ -26,7 +26,7 @@ struct Composer: View {
     @State private var showsFileImporter = false
     @State private var showsCamera = false
     @State private var attachmentError: String?
-    @FocusState private var isWriting: Bool
+    @State private var isWriting = false
 
     private var target: VoiceDraftTarget {
         VoiceDraftTarget(account: model.connection.account,
@@ -92,21 +92,18 @@ struct Composer: View {
     /// `ComposerLayout.maximumLines`, then scrolls inside itself.
     private var promptField: some View {
         @Bindable var chat = chat
-        return TextField(placeholder, text: $chat.draft, axis: .vertical)
-            .lineLimit(ComposerLayout.growth)
+        return GrowingTextField(placeholder, text: $chat.draft, isFocused: $isWriting,
+                                identifier: "composer.prompt")
             // Without this the bar takes its height from what is left over and
             // squeezes the field back to one scrolling line; the transcript is
             // the view that should give way, not the thing being written.
             .fixedSize(horizontal: false, vertical: true)
-            .focused($isWriting)
-            .font(.body)
             .padding(.horizontal, Theme.Space.small)
             .padding(.vertical, Theme.Space.small)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.surface,
                         in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
             .disabled(chat.isReadOnly)
-            .accessibilityIdentifier("composer.prompt")
             .overlay { dictationTakeover }
     }
 

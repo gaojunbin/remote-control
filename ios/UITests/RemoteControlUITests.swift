@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 /// A smoke test against the offline demo. It never reaches the network and
 /// never touches the microphone: dictation is driven by a scripted platform
@@ -392,7 +393,9 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["composer.readonly.model"].exists,
                        "and A17 shows nothing where the picker is live")
         XCTAssertTrue(app.buttons["chat.stop"].exists, "shared_interrupt offers Stop while it runs")
-        XCTAssertEqual(composerField.placeholderValue, "Message · will steer the turn",
+        // The field's placeholder is its accessibility name: UIKit has no
+        // placeholder on a text view for the runner to read as one.
+        XCTAssertEqual(composerField.label, "Message · will steer the turn",
                        "a steering agent joins the running turn instead of queueing behind it")
 
         // The daemon's four decisions all render, stacked, with Allow primary.
@@ -626,11 +629,85 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "05-add-device")
     }
 
-    private func attach(name: String) {
-        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        screenshot.name = name
-        screenshot.lifetime = .keepAlways
-        add(screenshot)
+    /// `docs/DESIGN.md` § "Surfaces, rows and controls": nothing is re-cased.
+    /// A re-cased header carries the transformed text in its accessibility
+    /// label, so reading the label reads what is really on the screen.
+    func testSettingsSectionHeadersAreSentenceCase() {
+        app.launch()
+        let settings = app.tabBars.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 20))
+        settings.tap()
+
+        XCTAssertTrue(app.staticTexts["Signed in as"].waitForExistence(timeout: 15),
+                      "the account rows are drawn")
+        attach(name: "30-settings-headers")
+
+        for header in ["Account", "Notifications", "Voice", "Timeline"] {
+            XCTAssertTrue(app.staticTexts[header].exists, "the section is headed \(header)")
+            XCTAssertFalse(app.staticTexts[header.uppercased()].exists,
+                           "and not \(header.uppercased())")
+        }
+    }
+
+    /// `docs/DESIGN.md` § "The composer": once the field scrolls, the system
+    /// scroll indicator runs down its trailing edge while the draft is being
+    /// scrolled. The field's fill is flat, so a dark pixel in the strip along
+    /// that edge is the indicator and nothing else.
+    func testComposerFieldShowsItsScrollIndicator() {
+        app.launch()
+        openLiveSession()
+
+        let field = promptField()
+        XCTAssertTrue(field.waitForExistence(timeout: 15), "the message field is on screen")
+        field.tap()
+        // Nine breaks puts the draft past `ComposerLayout.maximumLines`, so the
+        // field has certainly stopped growing and moved its text instead.
+        field.typeText("one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten")
+        let capped = promptField()
+        XCTAssertTrue(capped.waitForExistence(timeout: 10))
+        let cappedHeight = capped.frame.height
+
+        // Typing leaves the draft at its end, so the scroll that has somewhere
+        // to go is the one back towards the first line.
+        capped.swipeDown(velocity: .slow)
+        let shot = XCUIScreen.main.screenshot()
+        attach(name: "31-composer-scroll-indicator", screenshot: shot)
+        XCTAssertEqual(promptField().frame.height, cappedHeight, accuracy: 1,
+                       "scrolling the draft does not resize the field")
+        let edge = capped.frame
+        let strip = CGRect(x: edge.maxX - 12, y: edge.minY + 4, width: 11, height: edge.height - 8)
+        XCTAssertLessThan(darkest(in: strip, of: shot), 0.9,
+                          "the scroll indicator runs down the field's trailing edge")
+    }
+
+    private func attach(name: String, screenshot: XCUIScreenshot? = nil) {
+        let attachment = XCTAttachment(screenshot: screenshot ?? XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    /// The darkest pixel in a rectangle of the screen, as a fraction of white.
+    /// Returns white when the rectangle cannot be read, so a broken sample
+    /// fails the assertion it feeds rather than passing it.
+    private func darkest(in rect: CGRect, of screenshot: XCUIScreenshot) -> CGFloat {
+        guard let screen = screenshot.image.cgImage, app.frame.width > 0 else { return 1 }
+        let scale = CGFloat(screen.width) / app.frame.width
+        let box = CGRect(x: rect.minX * scale, y: rect.minY * scale,
+                         width: rect.width * scale, height: rect.height * scale)
+        guard let crop = screen.cropping(to: box), crop.width > 0, crop.height > 0 else { return 1 }
+        var pixels = [UInt8](repeating: 0, count: crop.width * crop.height * 4)
+        guard let context = CGContext(data: &pixels, width: crop.width, height: crop.height,
+                                      bitsPerComponent: 8, bytesPerRow: crop.width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return 1 }
+        context.draw(crop, in: CGRect(x: 0, y: 0, width: crop.width, height: crop.height))
+        return stride(from: 0, to: pixels.count, by: 4).reduce(CGFloat(1)) { darkest, index in
+            let luma = (0.3 * CGFloat(pixels[index]) + 0.6 * CGFloat(pixels[index + 1])
+                        + 0.1 * CGFloat(pixels[index + 2])) / 255
+            return min(darkest, luma)
+        }
     }
 }
 

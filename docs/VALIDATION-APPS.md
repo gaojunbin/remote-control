@@ -646,6 +646,47 @@ pickers, the row was not scrolled at phone width, and no VoiceOver pass read one
 XCUITest assertions added for them (chips present on the attached session, absent on the shared
 Codex thread) were written but not run.
 
+### Round 12 — two defects the owner saw on the phone, settled by screenshot (2026-09-12)
+
+Both were established in the iPhone 17 simulator on iOS 27 before anything was changed, and both
+shots are kept. **Settings headers were capitals**: `before-settings-headers.png` shows ACCOUNT,
+NOTIFICATIONS, VOICE against `docs/DESIGN.md` § "Surfaces, rows and controls", so the phone was not
+running an old build — the app really did re-case them, in two ways at once, an explicit
+`.uppercased()` in the label and the `Section` header transform SwiftUI applies inside a `Form`.
+`after-settings-headers.png` shows Account, Notifications, Voice, Timeline.
+`testSettingsSectionHeadersAreSentenceCase` reads the four headers back through their accessibility
+labels, which carry the transformed text when a header is re-cased. **The composer field scrolled
+with no indicator**: `before-composer-scroll.png` shows a capped eight-line draft after a slow drag
+inside the field with nothing on its trailing edge. `.scrollIndicators(.visible)` changed nothing —
+five screenshots taken in a burst straight after the drag were all pure white along that edge, while
+the chat transcript dragged the same way in the same burst showed its indicator in all five, which
+is what ruled the modifier out rather than a fade race. The field became a `UITextView`
+(`GrowingTextField`); `after-composer-scroll.png` and `after-composer-capped.png` show the indicator,
+the latter also showing that the cap is now a measured eight lines rather than eight times the
+font's line height, which had been clipping the eighth. `testComposerFieldShowsItsScrollIndicator`
+samples the pixels along the trailing edge after the drag, so it fails if the indicator goes away
+again. One existing assertion had to change with the implementation: UIKit has no placeholder on a
+text view and no placeholder value to report, so the composer's placeholder is now the field's
+accessibility label and `testSharedCodexSessionKeepsEveryControl` reads `label` where it read
+`placeholderValue`.
+
+```
+cd ios && export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+swift run RCVerify && swift run RCUIVerify && swift test
+→ RCVerify 961 of 962 checks, RCUIVerify 135 checks, 167 tests in 16 suites passed
+xcodebuild test-without-building … -only-testing:RemoteControlUITests
+→ 18 run, 4 skipped (the real-gateway smoke tests), 4 failed
+```
+
+The one RCVerify check that fails is `events/user_message.pending.json`, a fixture removed from the
+working tree by concurrent protocol work, not by anything here. Three of the four XCUITest failures
+— `testJumpToLatestAppearsWhenTheReaderLeavesTheBottom`, `testSessionsListShowsEveryStatusTone` and
+`testToolCardOpensOnTheFirstTapWhileTheKeyboardIsUp` — fail the same way on a build of the sources
+at `HEAD`, so they came in before this round. The fourth,
+`testDeviceArchiveOpensOnTapAndOnSearch`, passes on its own and failed twice while two other builds
+were running on the same Mac: it scrolls a lazy list and taps what it finds, and a loaded machine
+moves the row under the tap.
+
 ## 3. Attached terminal sessions (A10) in the apps
 
 Amendment A10 landed after the run above. This section records what each app does with

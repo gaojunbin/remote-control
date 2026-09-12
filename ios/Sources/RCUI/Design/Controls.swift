@@ -168,65 +168,14 @@ public struct AgentChip: View {
     }
 }
 
-/// The caption above a group of rows: uppercase, tracked, secondary, with an
-/// optional trailing count or control on the same line.
-public struct ListGroupHeader<Trailing: View>: View {
-    let title: String
-    let leading: Color?
-    let trailing: Trailing
-
-    public init(_ title: String, dot: Color? = nil,
-                @ViewBuilder trailing: () -> Trailing = { EmptyView() }) {
-        self.title = title
-        leading = dot
-        self.trailing = trailing()
-    }
-
-    public var body: some View {
-        HStack(spacing: Theme.Space.tight) {
-            if let leading {
-                Circle().fill(leading).frame(width: 6, height: 6).accessibilityHidden(true)
-            }
-            Text(title.uppercased())
-                .font(Theme.Text.groupHeader)
-                .kerning(Theme.headerKerning)
-                .foregroundStyle(Theme.inkSecondary)
-            Spacer(minLength: Theme.Space.tight)
-            trailing
-        }
-    }
-}
-
-/// A small label used above a group of fields.
+/// The caption above a group of fields, with an optional trailing count or
+/// control on the same line.
+///
+/// Sentence case, and the one place that says so: a `Section` inside a `Form`
+/// re-cases its header to capitals by default, and `.textCase(nil)` here — on
+/// the view the `Section` is handed — turns that off for every call site at
+/// once. `docs/DESIGN.md` § "Surfaces, rows and controls": nothing is re-cased.
 public struct FieldLabel: View {
-    let text: String
-    var trailing: AnyView?
-
-    public init(_ text: String) {
-        self.text = text
-        trailing = nil
-    }
-
-    public init<Trailing: View>(_ text: String, @ViewBuilder trailing: () -> Trailing) {
-        self.text = text
-        self.trailing = AnyView(trailing())
-    }
-
-    public var body: some View {
-        HStack {
-            Text(text.uppercased())
-                .font(Theme.Text.groupHeader)
-                .kerning(Theme.headerKerning)
-                .foregroundStyle(Theme.inkSecondary)
-            Spacer(minLength: Theme.Space.small)
-            trailing
-        }
-    }
-}
-
-/// The name of a field the reader fills in. Sentence case, because a form label
-/// is read as a word rather than as the eyebrow above a section.
-public struct FormLabel: View {
     let text: String
     var trailing: AnyView?
 

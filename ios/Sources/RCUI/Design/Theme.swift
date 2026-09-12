@@ -78,14 +78,9 @@ public enum Theme {
         public static let meta = Font.footnote
         /// The smallest supporting line, and the value beside a settings label.
         public static let caption = Font.caption
-        /// A group header above a surface.
-        public static let groupHeader = Font.caption.weight(.semibold)
         /// Monospace at meta weight, for a path or a branch in a list row.
         public static let metaMono = Font.system(.caption, design: .monospaced)
     }
-
-    /// Tracking on an uppercase group header. Small caps by another name.
-    public static let headerKerning: CGFloat = 0.7
 
     /// The colour a session's status dot uses. `working` and `live` share the
     /// green; the pulse is what tells a running turn from a quiet one.

@@ -150,8 +150,7 @@ once.
 
 Device, agent, working directory and git, and nothing else: the sheet does not ask for a first
 message, so `session.create` goes out without `first_message`. The protocol keeps the field.
-Field labels there are sentence case through `FormLabel`, because a form label is read as a word;
-`FieldLabel` stays the uppercase eyebrow above a settings group.
+Its section headers use `FieldLabel`, the one label every form section in the app is headed with.
 
 ## Surfaces and type
 
@@ -165,7 +164,6 @@ Tokens first, screens second. Everything visual comes from `Sources/RCUI/Design/
 | `Theme.Text.label` | `.callout` | a settings label, where the control beside it is the point |
 | `Theme.Text.meta` | `.footnote` | the status word and the line under a title |
 | `Theme.Text.caption` | `.caption` | a time, a value, a supporting line |
-| `Theme.Text.groupHeader` | `.caption` semibold, kerned, uppercased | the caption above a group |
 | `Theme.Text.metaMono` | `.caption` monospaced | a path or a branch inside a row |
 
 `softSurface()` is one rounded fill with no border and no shadow; `card()` keeps a hairline border
@@ -175,9 +173,19 @@ model and permission chips and "Take over" all lost their borders in one place.
 `sessionRowLayout()` and `settingsRowLayout()` hold the row insets, so Sessions and Devices share
 one rhythm and Settings shares another.
 
-Settings reads like iOS grouped settings: an uppercase caption, one soft surface, label left and
-control right, and the explanation as a footnote under the group rather than inside it. A monospace
-value truncates in the middle, so a gateway origin keeps its scheme and its host.
+Settings reads like iOS grouped settings: a quiet caption, one soft surface, label left and control
+right, and the explanation as a footnote under the group rather than inside it. A monospace value
+truncates in the middle, so a gateway origin keeps its scheme and its host.
+
+**Nothing is re-cased, and it takes saying so twice.** `docs/DESIGN.md` § "Surfaces, rows and
+controls" allows no `text-transform` anywhere, and the app broke that rule in two ways at once: a
+group caption called `.uppercased()` on the words itself, and a `Section` inside a `Form` re-cases
+whatever it is handed as a header regardless. So `FieldLabel` — the one label every form section in
+the app is headed with, Settings, the session settings sheet and the new-session sheet alike — spells
+the words as they were written and carries `.textCase(nil)` on its own outer `HStack`, which is the
+view the `Section` re-cases. One place, no modifier at any call site.
+`testSettingsSectionHeadersAreSentenceCase` reads the headers back: a re-cased header carries the
+transformed text in its accessibility label, so the assertion is on what the screen really says.
 
 ## Attached terminal sessions
 
@@ -343,6 +351,25 @@ answer field on an agent's question uses the same one so the two never disagree.
 `.fixedSize(horizontal: false, vertical: true)` on the field is load-bearing: without it the bar
 takes its height from whatever is left over and squeezes the field back to one scrolling line. The
 transcript above is the view that should give way, not the thing being written.
+
+**The field is a `UITextView`, for the scroll indicator.** Past the cap a long draft has more above
+and below it, and the only cue `docs/DESIGN.md` allows is the system indicator down the trailing
+edge. SwiftUI's `TextField(axis: .vertical)` draws none, and `.scrollIndicators(.visible)` does not
+reach the text view it keeps inside — measured on iOS 27, five screenshots taken straight after a
+slow drag inside the field, against a `ScrollView` dragged the same way in the same burst that
+showed its indicator in all five. So `GrowingTextField` in `Sources/RCUI/Design/GrowingTextField.swift`
+owns a `UITextView`: scrolling switches on only once the text passes eight lines, and the indicator
+flashes once at that moment. Nothing was added around it — no expand button, no permanent bar, no
+line count. Two things follow from owning the view. The cap is measured rather than multiplied,
+because a text view sets its lines further apart than the font's own line height and eight times
+that clips the eighth line. And the placeholder is the field's accessibility label, because UIKit
+has neither a placeholder on a text view nor a placeholder value to report: VoiceOver reads
+"Message · will steer the turn" before whatever has been typed, and
+`testComposerFieldShowsItsScrollIndicator` samples the pixels along the trailing edge after a drag
+rather than trusting a screenshot to be read by hand. Focus is a `Bool` binding rather than
+`@FocusState`, since a represented view is not a focus target SwiftUI can move to; it reads both
+ways, so dictation still hands the cursor back to the field and a background tap still ends editing
+through `endEditing(true)`, which the field reports back.
 
 Above the field the composer draws one line at most, and only while something is happening to it: an
 attachment that was refused, or what dictation is doing. It never says who owns the session — the
