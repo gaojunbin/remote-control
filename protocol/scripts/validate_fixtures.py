@@ -79,6 +79,7 @@ APP_FRAME_TYPES = (
     "device.dirs",
     "device.git",
     "device.agents",
+    "device.update",
 )
 DEVICE_FRAME_TYPES = (
     "hello",
@@ -87,6 +88,7 @@ DEVICE_FRAME_TYPES = (
     "session.removed",
     "session.event",
     "agents.updated",
+    "update.failed",
     "ping",
     "pong",
     "reply",
@@ -107,6 +109,7 @@ FORWARDED_TYPES = (
     "device.dirs",
     "device.git",
     "device.agents",
+    "device.update",
 )
 STT_FRAME_TYPES = ("stt.stop", "stt.cancel", "stt.partial", "stt.final", "stt.error")
 EVENT_KINDS = (
@@ -155,6 +158,9 @@ HTTP_DEFS = {
     "devices.delete.response": "OkResponse",
     "devices.pairing.response": "PairingResponse",
     "devices.pairing.delete.response": "OkResponse",
+    "devices.pairing.request.response": "PairingRequestResponse",
+    "devices.pairing.request.status.response": "PairingRequestStatusResponse",
+    "devices.pairing.claim.response": "PairingClaimResponse",
     "sessions.list.response": "SessionListResponse",
     "stt.transcribe.response": "SttTranscribeResponse",
     "stt.transcribe.error": "ErrorResponse",
@@ -192,6 +198,7 @@ PATH_SCHEMAS = {
     "app/reply.device.dirs.json": ("app_frames.json", "ReplyDeviceDirs"),
     "app/reply.device.git.json": ("app_frames.json", "ReplyDeviceGit"),
     "app/reply.device.agents.json": ("app_frames.json", "ReplyDeviceAgents"),
+    "app/reply.device.update.json": ("app_frames.json", "ReplyDeviceUpdate"),
 }
 # fixtures_invalid/<prefix>__<reason>.json -> (schema file, definition or None)
 INVALID_SCHEMAS = {

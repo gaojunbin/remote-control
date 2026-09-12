@@ -88,9 +88,19 @@
           },
           "required": ["web_enabled", "apns_enabled"]
         },
-        "version": { "type": "string", "minLength": 1 }
+        "version": { "type": "string", "minLength": 1 },
+        "client": {
+          "description": "The rc-client wheel this gateway serves (A22).",
+          "type": "object",
+          "properties": {
+            "version": { "type": "string", "minLength": 1 },
+            "build": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "url": { "type": "string", "minLength": 1 }
+          },
+          "required": ["version", "build", "url"]
+        }
       },
-      "required": ["public_origin", "stt", "push", "version"]
+      "required": ["public_origin", "stt", "push", "version", "client"]
     },
 
     "EnrollRequest": {
@@ -155,6 +165,40 @@
         }
       },
       "required": ["code", "expires_at", "install"]
+    },
+    "PairingRequestResponse": {
+      "description": "POST /api/pairing/requests, unauthenticated: a host asks to be claimed by scanning (A23).",
+      "type": "object",
+      "properties": {
+        "token": { "$ref": "objects.json#/$defs/PairingToken" },
+        "expires_at": { "$ref": "objects.json#/$defs/Timestamp" },
+        "claim_url": { "type": "string", "minLength": 1, "description": "What the QR code encodes: <public_origin>/pair#<token>." }
+      },
+      "required": ["token", "expires_at", "claim_url"]
+    },
+    "PairingRequestStatusResponse": {
+      "description": "GET /api/pairing/requests/{token}, unauthenticated long-poll (A23).",
+      "type": "object",
+      "oneOf": [
+        { "properties": { "status": { "const": "waiting" } }, "required": ["status"] },
+        {
+          "properties": {
+            "status": { "const": "claimed" },
+            "code": { "$ref": "objects.json#/$defs/PairingCode" },
+            "expires_at": { "$ref": "objects.json#/$defs/Timestamp" }
+          },
+          "required": ["status", "code", "expires_at"]
+        }
+      ]
+    },
+    "PairingClaimResponse": {
+      "description": "POST /api/pairing/requests/{token}/claim, authenticated: the code minted for the host, so the app can follow pairing.progress for it (A23).",
+      "type": "object",
+      "properties": {
+        "code": { "$ref": "objects.json#/$defs/PairingCode" },
+        "expires_at": { "$ref": "objects.json#/$defs/Timestamp" }
+      },
+      "required": ["code", "expires_at"]
     },
 
     "SessionListResponse": {

@@ -87,6 +87,9 @@
         },
         {
           "$ref": "#/$defs/DeviceAgents"
+        },
+        {
+          "$ref": "#/$defs/DeviceUpdate"
         }
       ]
     },
@@ -137,6 +140,9 @@
         },
         {
           "$ref": "#/$defs/DeviceAgents"
+        },
+        {
+          "$ref": "#/$defs/DeviceUpdate"
         }
       ]
     },
@@ -521,6 +527,13 @@
         },
         "title": {
           "type": "string"
+        },
+        "speed": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A speed tier from AgentInfo.speeds, or null for the standard speed (A21)."
         }
       },
       "required": [
@@ -680,6 +693,13 @@
         },
         "title": {
           "type": "string"
+        },
+        "speed": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A speed tier from AgentInfo.speeds, or null for the standard speed (A21)."
         }
       },
       "required": [
@@ -1267,6 +1287,65 @@
       "properties": {
         "result": {
           "$ref": "#/$defs/ResultDeviceAgents"
+        }
+      }
+    },
+    "DeviceUpdate": {
+      "description": "Update the device's rc-client to the gateway's build and restart it (A22).",
+      "allOf": [
+        {
+          "$ref": "#/$defs/RequestBase"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "device.update"
+        },
+        "device_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        },
+        "build": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "The build the app saw in GET /api/config; the device refuses any other wheel."
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "device_id",
+        "build"
+      ]
+    },
+    "ResultDeviceUpdate": {
+      "type": "object",
+      "properties": {
+        "accepted": {
+          "const": true
+        },
+        "from": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The build the device is leaving."
+        }
+      },
+      "required": [
+        "accepted"
+      ]
+    },
+    "ReplyDeviceUpdate": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/ReplyOk"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/ResultDeviceUpdate"
         }
       }
     }

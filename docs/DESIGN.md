@@ -26,8 +26,43 @@ here.
 
 **Chat.** A sidebar of sessions grouped by device, each device's Archive collapsed under it, a header
 with the title, `device:path · branch`, a Todos chip, usage and elapsed time, and a Stop button. The timeline runs down the middle on the
-page's own canvas. The composer sits at the bottom with model, permission mode and voice language
-pickers on a row beneath it.
+page's own canvas. The composer sits at the bottom with the model card (model, effort and speed in
+one control), the permission-mode picker and the voice language picker on a row beneath it.
+
+**Settings** holds the account, notifications, voice, the timeline detail, the app lock, and the
+interface language. **Language** offers English and 中文 and defaults to English whatever the
+system language is; it changes the app's own words only — menus, buttons, captions, status lines,
+placeholders, accessible names — and applies the moment it is chosen, on every screen that is open.
+What the agent wrote, what the device reported (its name, a path, a branch, a model id, a permission
+mode id) and anything the person typed are never translated.
+
+**Launch shows the app, never the sign-in form, when there is an account.** The app remembers the
+gateway and the user; on launch it draws the main screens at once in their connecting state and
+restores the session behind them. The sign-in form appears only when nothing is stored, or when the
+gateway refuses the stored token — then it says so. A form that flashes for the length of a network
+round trip on every launch reads as a broken app.
+
+**Devices.** One row per enrolled machine: name, hostname, platform, the agents it detected, the
+client version and build, online dot and latency. Every row offers the same three actions on both
+apps — **Rename**, **Update** and **Remove** — from the row's menu on the web and from a swipe and
+the context menu on the phone; nothing is reachable on one app and not the other.
+
+**Update is the app's job, not the terminal's.** The gateway serves one client build and says which
+(`GET /api/config` `client.build`); a device reports the build it runs. A row whose build differs
+reads "Update available" under the version, and **Update** asks the device to fetch that exact
+build from the gateway, install it and restart its service (A22). The row reads "Updating…" until
+the device comes back with the new build, "Update failed · <reason>" if it does not, and the
+action is disabled while the device is offline or a session it drives is running. A device on the
+gateway's build offers no Update.
+
+**Pairing by scanning.** Adding a device from the phone should not mean typing a pairing code into
+a terminal. The phone's Add device sheet offers **Scan a code**: the camera opens with the two steps
+over it — run `curl -fsSL <gateway>/install.sh | sh` on the host (with a copy button), then point the
+camera at the QR code it prints — and the scan does the pairing (A23): the host asked the gateway
+for a claim token, the phone claims it as the signed-in user, and the host enrols with the code the
+gateway minted for it. The progress that follows ("enrolled", "online") is the one the code flow
+already shows. The web keeps the code flow first and explains the scan flow beside it; the same QR
+encodes a link the web app also honours when signed in.
 
 Below 1024 px the web sidebar collapses into the Sessions page and the chat runs full width, which
 is the layout iOS uses natively.
@@ -174,6 +209,31 @@ be, as plain chips that open nothing, named "set in the terminal" for assistive 
 the agent's lists do not know is shown by its raw id; nothing is drawn for a value the device has not
 seen. Sessions the device drives keep the pickers.
 
+**The model card: model, effort and speed are one control.** The composer row does not spend three
+chips on what runs and how hard: one chip reads the model label and the effort label side by side
+("Opus Extra high"), with a small lightning glyph before them while a faster tier is on. Tapping
+it opens a card anchored above the composer — a popover on the web, a card over the keyboard on
+the phone — with two rows, the way the ChatGPT app does it:
+
+- The first row holds the speed toggle at the leading edge (a lightning icon, filled and tinted
+  while a tier is on; a tap cycles standard → each tier `AgentInfo.speeds` lists → standard; drawn
+  only when the agent lists tiers), then the model name with the current effort word after it and a
+  chevron; tapping the name opens the model list, one row per `AgentInfo.models` entry, the current
+  one marked.
+- The second row is the effort slider: one stop per `AgentInfo.efforts` entry in the order listed,
+  the thumb snapping to stops, the track tinted up to the thumb in the accent colour, no other
+  decoration. Moving it updates the effort word in the first row at once; releasing it sends the
+  value. On the phone every stop the thumb crosses gives one selection haptic, so the levels can be
+  counted without looking. An agent with no effort levels draws no slider.
+
+The card stays open until it is dismissed, so several changes can be made in one visit. The
+accessible names are "Model, Opus", "Effort, Extra high" and "Speed, Fast" or "Speed, Standard".
+After the card comes the permission-mode picker, then the rest of the row — what runs and how hard
+first, what it may do second. A terminal-held session shows the same chip as a read-only value
+(A17), and the tier with it (A21); the card does not open there. Forms keep list pickers — the
+new-session sheet and the session settings sheet list Model, Effort, Permissions in that order,
+with the speed switch after the three when the agent offers one.
+
 The composer never guesses. It always sends `mode: "auto"` and lets the device decide what that
 means, then labels the button with the decision:
 
@@ -200,7 +260,7 @@ booleans on the agent. Nothing in either app asks which agent it is looking at.
 | Boolean | What it turns on | Claude channel | Codex daemon |
 | --- | --- | --- | --- |
 | `shared_interrupt` | Stop, and "Interrupt & send" | off | on |
-| `shared_settings` | The model, permission-mode and effort pickers | off | on |
+| `shared_settings` | The model card and the permission-mode picker | off | on |
 | `shared_attachments` | The attachment button, and pasted files | off | on |
 
 A control the attachment cannot drive is hidden, not disabled with a caption: a Claude channel

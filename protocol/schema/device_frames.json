@@ -13,6 +13,7 @@
         { "$ref": "#/$defs/SessionRemoved" },
         { "$ref": "#/$defs/SessionEvent" },
         { "$ref": "#/$defs/AgentsUpdated" },
+        { "$ref": "#/$defs/UpdateFailed" },
         { "$ref": "#/$defs/Ping" },
         { "$ref": "#/$defs/Pong" },
         { "$ref": "#/$defs/Reply" },
@@ -33,6 +34,7 @@
         "type": { "const": "hello" },
         "protocol": { "const": 1 },
         "client_version": { "type": "string", "minLength": 1 },
+        "client_build": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the installed wheel, or null (A22)." },
         "name": { "type": "string", "minLength": 1 },
         "platform": { "$ref": "objects.json#/$defs/Platform" },
         "hostname": { "type": "string" },
@@ -98,6 +100,15 @@
         "agents": { "type": "array", "items": { "$ref": "objects.json#/$defs/AgentInfo" } }
       },
       "required": ["type", "agents"]
+    },
+    "UpdateFailed": {
+      "description": "Device -> gateway, unsolicited: an app-requested client update did not complete and the old client is still running (A22).",
+      "type": "object",
+      "properties": {
+        "type": { "const": "update.failed" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 400 }
+      },
+      "required": ["type", "message"]
     },
     "Ping": {
       "description": "Gateway -> device every 25 s.",

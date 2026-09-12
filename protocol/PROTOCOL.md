@@ -179,6 +179,8 @@ an `Origin` header equal to `PUBLIC_ORIGIN`. Bearer-authenticated requests need 
 | POST | `/api/devices/enroll` | `EnrollRequest` | `EnrollResponse` | `404` unknown or expired code, `409` code already used |
 | GET | `/install.sh` | – | The client install script with `__GATEWAY_ORIGIN__` replaced by `PUBLIC_ORIGIN` | – |
 | GET | `/dist/rc_client-latest.whl` | – | The client wheel built into the image. The versioned filename also resolves. | – |
+| POST | `/api/pairing/requests` | – | `PairingRequestResponse` | A host asks to be claimed by scanning (A23). `429 too_many_requests` beyond 6 per minute per IP or 50 outstanding tokens. |
+| GET | `/api/pairing/requests/{token}` | – | `PairingRequestStatusResponse` | Long-poll up to 25 s. `waiting` until claimed; `claimed` carries the code once, then the token is spent. `404` unknown, `410` expired. |
 | GET | `/` and any non-API path | – | The web app (single-page-app fallback) | – |
 
 The pairing code is the only credential `POST /api/devices/enroll` needs. `device_token` is returned
@@ -253,6 +255,9 @@ once and stored hashed.
 }
 ```
 
+`client` names the wheel the gateway serves: its `version`, its `build` (the SHA-256 of the file)
+and its `url`; a device whose `client_build` differs can be brought to it with `device.update` (A22).
+
 `fixtures/http/config.response.json`
 
 ```json
@@ -283,6 +288,7 @@ once and stored hashed.
 | DELETE | `/api/devices/{device_id}` | – | `OkResponse` | Revokes the device token, closes its socket, drops its sessions from the gateway index |
 | POST | `/api/devices/pairing` | – | `PairingResponse` | Code format `RC-XXXX-XXXX`, Crockford base32 without I, L, O and U. Single use, 10-minute lifetime. |
 | DELETE | `/api/devices/pairing/{code}` | – | `OkResponse` | Cancels an outstanding code |
+| POST | `/api/pairing/requests/{token}/claim` | – | `PairingClaimResponse` | Binds a host's request to the caller and mints its pairing code (A23); `pairing.progress` follows for that code. `404` unknown or expired, `409` already claimed. |
 
 `fixtures/http/devices.patch.request.json`
 
@@ -448,6 +454,9 @@ Schema: `schema/objects.json`. These objects appear in HTTP bodies and in frames
 | `hostname` | string | yes | Reported by the device |
 | `arch` | `arm64` \| `x86_64` | yes | |
 | `client_version` | string | yes | `rc-client` version |
+| `client_build` | string \| null | no | SHA-256 of the wheel the client was installed from; null when unknown (A22) |
+| `update_state` | `idle` \| `updating` \| `failed` | no | An app-requested update in flight or failed; absent means idle (A22) |
+| `update_message` | string \| null | no | Why the last update failed (A22) |
 | `online` | boolean | yes | True while the device socket is live |
 | `last_seen` | timestamp | yes | |
 | `created_at` | timestamp | yes | Enrollment time |
@@ -528,11 +537,12 @@ The agent and option arrays are shortened here; the fixture holds the full objec
 | `default_permission_mode` | string \| null | yes | |
 | `efforts` | `LabeledId[]` | yes | Empty array when the agent has no effort levels |
 | `default_effort` | string \| null | yes | |
+| `speeds` | `LabeledId[]` | no | Speed tiers the agent can run a session at beyond its standard speed, for example Codex's `priority` ("Fast"); empty or absent when it has none (amendment A21) |
 | `capabilities` | string[] | yes | Subset of `worktree`, `takeover`, `interrupt`, `queue`, `steer`, `attachments`, `effort`, `history` |
 | `attach` | `channel` \| `daemon` \| null | no | How this agent's terminal sessions can be attached. `channel` is the Claude channel shim, `daemon` the Codex shared app-server. Null or absent means terminal sessions can only be taken over or resumed. |
 | `attach_ready` | boolean | no | Whether the device is prepared to attach: for Claude the `claude` shim is installed and on `PATH`, for Codex a handshake on the shared daemon socket succeeds. Apps use it only to word the hint on a `terminal` session. |
 | `shared_interrupt` | boolean | no | Whether the attachment can interrupt a running turn. `session.stop` on a `shared` session needs this **and** capability `interrupt`. False when absent. |
-| `shared_settings` | boolean | no | Whether `session.set` for `model`, `permission_mode` and `effort` works on a `shared` session. False when absent. |
+| `shared_settings` | boolean | no | Whether `session.set` for `model`, `permission_mode`, `effort` and `speed` works on a `shared` session. False when absent. |
 | `shared_attachments` | boolean | no | Whether `session.send` attachments are delivered on a `shared` session. False when absent. |
 
 Capabilities gate the UI. `steer` decides whether a message sent during a running turn is steered or
@@ -579,6 +589,7 @@ Model ids are the agents' native ids.
 | `model` | string \| null | yes | |
 | `permission_mode` | string \| null | yes | |
 | `effort` | string \| null | yes | |
+| `speed` | string \| null | no | The tier from `AgentInfo.speeds` the session runs at; null or absent is the standard speed (A21) |
 | `created_at` | timestamp | yes | |
 | `updated_at` | timestamp | yes | |
 | `last_seq` | integer | yes | Highest `seq` the device has produced |
@@ -618,7 +629,9 @@ For a Claude session it mirrors from a transcript, the device fills `model`, `pe
 `effort` from the transcript's own records — the model row Claude Code writes at start and on every
 change, the permission-mode row it writes each turn, and the effort carried on each assistant
 message — and publishes every change as `meta` (5.11), so an app sees a `/model` typed in the
-terminal within a scan (amendment A17). The values are the agent's own ids and need not appear in
+terminal within a scan (amendment A17); a Codex thread reports its `speed` from the daemon's own
+settings as soon as the device attaches to it (A21). The
+values are the agent's own ids and need not appear in
 `AgentInfo`; an app shows an unknown one by its id. Changing them is still `session.set`, which a
 `shared` session refuses with `unsupported` unless `shared_settings` is true (4.2) and a
 `terminal` session refuses outright.
@@ -1358,8 +1371,8 @@ events that change a session's state.
 
 ### 5.11 `meta`
 
-A partial update of `Session` fields: `title`, `model`, `permission_mode`, `effort`, `cwd`, `git`,
-`control`, `agent_version`. Every field is optional; apply only what is present.
+A partial update of `Session` fields: `title`, `model`, `permission_mode`, `effort`, `speed`, `cwd`,
+`git`, `control`, `agent_version`. Every field is optional; apply only what is present.
 
 `fixtures/events/meta.json`
 
@@ -1929,12 +1942,12 @@ The gateway forwards these to the owning device and returns the device's reply.
 
 | Type | Fields | Result |
 | --- | --- | --- |
-| `session.create` | `device_id`, `agent`, `cwd`, `model?`, `permission_mode?`, `effort?`, `worktree?`, `first_message?`, `title?` | `{session}` |
+| `session.create` | `device_id`, `agent`, `cwd`, `model?`, `permission_mode?`, `effort?`, `speed?`, `worktree?`, `first_message?`, `title?` | `{session}` |
 | `session.send` | `session_id`, `text`, `attachments?`, `mode` | `{accepted, queued_id?}` |
 | `session.stop` | `session_id` | `{}` |
 | `session.approve` | `session_id`, `request_id`, `option_id`, `message?` | `{}` |
 | `session.answer` | `session_id`, `request_id`, `answers` | `{}` |
-| `session.set` | `session_id`, `model?`, `permission_mode?`, `effort?`, `title?` | `{session}` |
+| `session.set` | `session_id`, `model?`, `permission_mode?`, `effort?`, `speed?`, `title?` | `{session}` |
 | `session.history` | `session_id`, `before_seq?`, `after_seq?`, `limit?` | `{events, has_more}` |
 | `session.block` | `session_id`, `block_id` | `{event}` |
 | `session.queue_remove` | `session_id`, `queued_id` | `{}` |
@@ -1944,6 +1957,7 @@ The gateway forwards these to the owning device and returns the device's reply.
 | `device.dirs` | `device_id`, `path?` | `{path, parent, entries, recent}` |
 | `device.git` | `device_id`, `path` | `{is_repo, branch?, dirty?, ahead?, behind?}` |
 | `device.agents` | `device_id` | `{agents}` |
+| `device.update` | `device_id`, `build` | `{accepted: true, from}` — the device fetches the gateway's wheel, refuses it unless its SHA-256 is `build`, installs it, restarts its service and reconnects with the new `client_build` (A22). `conflict` while a session it drives is running or when it already runs `build`; `unsupported` when the client cannot update itself (installed from source). |
 
 Every request carries `id`. `session.stop` is idempotent. `session.delete` removes the session from
 the device registry and does **not** delete the agent's own transcripts. `device.dirs` returns
@@ -1980,7 +1994,7 @@ The result's `accepted` field reports what actually happened: `sent`, `queued` o
 | `session.approve` | Relays the option the block offered. An `option_id` the block did not offer, `elsewhere` included, is `bad_request`. Replying to a request the terminal already answered is a no-op returning `{}`. |
 | `session.answer` | Supported for a `question` block the device raised through its `PermissionRequest` hook (A20): the answer goes to the CLI as the tool's own answers and the block resolves with `by: "remote"`. Answering a question the terminal already answered is a no-op returning `{}`. A question the device did not raise has no block to answer. |
 | `session.stop` | `unsupported` unless the agent lists capability `interrupt` **and** reports `shared_interrupt: true`. Message: "stop it in the terminal". |
-| `session.set` | `unsupported` for `model`, `permission_mode` and `effort` ("change it in the terminal"). `title` works. |
+| `session.set` | `unsupported` for `model`, `permission_mode`, `effort` and `speed` ("change it in the terminal"). `title` works. |
 | `session.takeover` | `conflict` ("already attached"). |
 
 The table above describes what an attachment can do at its narrowest, which is what a Claude channel
@@ -1991,7 +2005,7 @@ replace the ones they name for a `shared` Codex session on the daemon.
 | --- | --- |
 | `session.send` | Every `mode` behaves as it does on a `remote` session. Idle: the device starts the turn and replies `accepted: "sent"`. Running under `mode: "auto"`: the device steers the running turn and replies `accepted: "steered"`, because Codex has capability `steer`. Running under `mode: "queue"`: the device holds the message, replies `accepted: "queued"` with a `queued_id`, emits `user_message {delivery: "pending"}` and a `queue` event, and starts the turn once the running one completes. `mode: "interrupt"` interrupts and then sends. Attachments are delivered, because `shared_attachments` is true. |
 | `session.stop` | Interrupts the running turn, because `shared_interrupt` is true. |
-| `session.set` | `model`, `permission_mode` and `effort` reach the daemon and change the thread for everyone attached to it, because `shared_settings` is true; `title` stays device-local as always. |
+| `session.set` | `model`, `permission_mode`, `effort` and `speed` reach the daemon and change the thread for everyone attached to it, because `shared_settings` is true; `title` stays device-local as always. |
 | `session.answer` | Supported. The daemon relays questions asked of the thread and accepts the answer from whichever client replies. |
 
 `session.takeover` is still `conflict`, and every rule of 5.1 through 5.13 applies to a shared Codex
@@ -2379,12 +2393,13 @@ device replaces the first; the old socket is closed with code 4001.
 
 | Direction | Type | Payload |
 | --- | --- | --- |
-| device → gateway | `hello` | `protocol`, `client_version`, `name`, `platform`, `hostname`, `arch`, `agents`, `sessions` |
+| device → gateway | `hello` | `protocol`, `client_version`, `client_build?`, `name`, `platform`, `hostname`, `arch`, `agents`, `sessions` |
 | gateway → device | `hello_ack` | `device_id`, `server_time`, `config: {delta_flush_ms, max_event_bytes}` |
 | device → gateway | `session.updated` | `session` |
 | device → gateway | `session.removed` | `session_id` |
 | device → gateway | `session.event` | `session_id`, `event` |
 | device → gateway | `agents.updated` | `agents` |
+| device → gateway | `update.failed` | `message` — the update the app asked for did not complete; the old client is still running (A22) |
 | device → gateway | `pong` | – |
 | device → gateway | `reply` | `id`, `from`, `ok`, `result` or `error` |
 | gateway → device | forwarded request | any type from 6.3, plus `from` and `device_id` |
@@ -2707,6 +2722,12 @@ by `block_id` like any other.
 - [ ] Pings every 25 s on both sockets; closes a connection silent for 90 s.
 - [ ] Enforces the `Origin` check on cookie-authenticated upgrades and mutating requests.
 - [ ] Rate limits `POST /api/login` to 5 per minute per IP.
+- [ ] Reports the served wheel as `client` in `GET /api/config`, stores `client_build` from each
+      `hello`, forwards `device.update`, marks the device `updating` on an accepted reply and
+      `failed` with the message on `update.failed` or when no `hello` follows within five minutes,
+      and clears both on the next `hello` (A22).
+- [ ] Issues claim tokens for hosts, lets a signed-in user claim one, mints the pairing code for
+      the host on that claim and hands it out exactly once (A23).
 - [ ] Issues pairing codes as `RC-XXXX-XXXX` in Crockford base32 without I, L, O and U, single use,
       10-minute lifetime, and emits `pairing.progress` through `waiting`, `enrolled`, `online`,
       `agents`.
@@ -2756,6 +2777,13 @@ by `block_id` like any other.
 - [ ] On a `shared` session injects only while the transcript is idle, holds everything else as a
       `queue` entry with no `user_message`, and emits the block with `delivery: "delivered"` only
       once it is injected (A19).
+- [ ] Reports `client_build` in `hello`, answers `device.update` as 6.3 says, verifies the wheel's
+      SHA-256 before installing, restarts itself only after a successful install, and sends
+      `update.failed` otherwise (A22).
+- [ ] Advertises `speeds` from the agent's own catalogue, maps `session.set` / `session.create`
+      `speed` to the agent's setting (Codex: `thread/settings/update {serviceTier}`), refuses a tier
+      the session's model does not offer with `unsupported`, and reports the tier in `Session.speed`
+      and `meta` (A21).
 - [ ] Raises a `question` block with `needs_input` for an `AskUserQuestion` its `PermissionRequest`
       hook reports on an attached Claude session, answers the hook from the first `session.answer`,
       and resolves the block with `by: "terminal"` when the transcript shows the terminal answered
@@ -2787,6 +2815,11 @@ by `block_id` like any other.
 - [ ] Ignores unknown fields, unknown event kinds and unknown agent ids.
 - [ ] Shows `model`, `permission_mode` and `effort` on a terminal-held session as values it cannot
       change, by label when `AgentInfo` lists the id and by the id otherwise (A17).
+- [ ] Offers Rename, Update and Remove on every device row, shows "Update available" when the
+      device's `client_build` differs from `config.client.build`, and reflects `update_state` (A22).
+- [ ] Offers `speeds` as one control that cycles standard → each tier → standard, drawn only when
+      the list is non-empty, and shows a terminal-held session's `speed` as a value it cannot change
+      (A21).
 - [ ] While a `question` is pending, sends the composer's draft as that question's free-text answer
       through `session.answer` instead of queueing it, and shows a resolved question's `by` (A20).
 - [ ] Applies events by `block_id` with the replacement and streaming rules of 5.1, orders blocks
@@ -3018,3 +3051,24 @@ installs one for `AskUserQuestion` in the settings file the shim passes, raises 
 block from it with `needs_input`, feeds the first `session.answer` back as the tool's answers, and
 resolves the block `by: "terminal"` when the dialog was answered there. `question` gains an
 optional `by`; `session.answer` is no longer `unsupported` on a shared session. See 5.8, 4.4 and 9.
+
+**2026-09-13 A21 — a speed tier beside the model, the effort and the permission mode.** Codex offers
+a faster tier per model (`serviceTiers` in its catalogue, `priority` named "Fast") and the TUI
+toggles it with `/fast`; the apps could not. `AgentInfo` gains `speeds`, `Session` and `meta` gain
+`speed`, `session.create` and `session.set` accept it, and the device maps it to the agent's own
+setting. Nothing else changes; an agent that lists no speeds draws no control.
+
+**2026-09-13 A22 — a device is updated from an app.** Bringing a device to a new client meant
+re-running the installer on each machine. The gateway now reports the wheel it serves by its
+SHA-256 (`GET /api/config` `client`), every device reports the build it runs (`hello`
+`client_build`, `Device.client_build`), and `device.update` asks a device to fetch exactly that
+build, install it and restart. `Device` gains `update_state` and `update_message`; the device
+gains the `update.failed` frame. See 3.2, 4.1, 6.3, 7 and 9.
+
+**2026-09-13 A23 — a host is paired by scanning.** The only way to pair was to mint a code in an
+app and type it into the host's terminal, which is awkward from a phone. A host may now ask the
+gateway for a claim token (`POST /api/pairing/requests`), print it as a QR code, and long-poll
+for the outcome; a signed-in app claims the token (`POST /api/pairing/requests/{token}/claim`),
+the gateway mints the ordinary pairing code for that host and hands it back to the poll, and
+enrolment proceeds exactly as before, `pairing.progress` included. The QR encodes
+`<public_origin>/pair#<token>`, which the web app honours too. See 3.1, 3.3 and 9.1.

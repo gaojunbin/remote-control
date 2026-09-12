@@ -352,6 +352,13 @@
         "shared_attachments": {
           "description": "Whether session.send attachments are delivered on a session with control \"shared\". False when absent.",
           "type": "boolean"
+        },
+        "speeds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LabeledId"
+          },
+          "description": "Speed tiers the agent can run a session at, beyond its standard speed; empty or absent when it has none (A21)."
         }
       },
       "required": [
@@ -411,6 +418,29 @@
           "items": {
             "$ref": "#/$defs/AgentInfo"
           }
+        },
+        "client_build": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the wheel the client was installed from; null when unknown (A22)."
+        },
+        "update_state": {
+          "enum": [
+            "idle",
+            "updating",
+            "failed"
+          ],
+          "description": "Whether an app-requested client update is in flight or failed (A22). Absent means idle."
+        },
+        "update_message": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Why the last update failed, in one line (A22)."
         }
       },
       "required": [
@@ -567,6 +597,13 @@
         "queued": {
           "type": "integer",
           "minimum": 0
+        },
+        "speed": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The speed tier the session runs at, one of AgentInfo.speeds, or null for the standard speed (A21)."
         }
       },
       "required": [
@@ -619,6 +656,11 @@
           }
         }
       ]
+    },
+    "PairingToken": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "128 bits in Crockford base32, single use, ten-minute lifetime (A23)."
     }
   }
 }

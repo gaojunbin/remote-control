@@ -126,6 +126,12 @@
           "attachments",
           "effort",
           "history"
+        ],
+        "speeds": [
+          {
+            "id": "priority",
+            "label": "Fast"
+          }
         ]
       }
     ]
