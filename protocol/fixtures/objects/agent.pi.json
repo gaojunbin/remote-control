@@ -1,0 +1,51 @@
+{
+  "agent": "pi",
+  "available": true,
+  "version": "0.85.1",
+  "path": "/Users/me/.local/bin/pi",
+  "models": [
+    {
+      "id": "anthropic/claude-sonnet-4-5",
+      "label": "Claude Sonnet 4.5"
+    },
+    {
+      "id": "openai/gpt-5",
+      "label": "GPT-5"
+    }
+  ],
+  "default_model": "anthropic/claude-sonnet-4-5",
+  "permission_modes": [],
+  "default_permission_mode": null,
+  "efforts": [
+    {
+      "id": "off",
+      "label": "Off"
+    },
+    {
+      "id": "low",
+      "label": "Low"
+    },
+    {
+      "id": "medium",
+      "label": "Medium"
+    },
+    {
+      "id": "high",
+      "label": "High"
+    }
+  ],
+  "default_effort": "medium",
+  "capabilities": [
+    "worktree",
+    "interrupt",
+    "queue",
+    "steer",
+    "effort",
+    "history"
+  ],
+  "attach": null,
+  "attach_ready": false,
+  "shared_interrupt": false,
+  "shared_settings": false,
+  "shared_attachments": false
+}

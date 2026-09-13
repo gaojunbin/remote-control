@@ -34,7 +34,10 @@
       "minLength": 1,
       "examples": [
         "claude",
-        "codex"
+        "codex",
+        "grok",
+        "cursor",
+        "pi"
       ]
     },
     "Platform": {

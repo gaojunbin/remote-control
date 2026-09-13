@@ -42,7 +42,7 @@ Section 5 uses the amended field names throughout.
 | gateway | The VPS service. Authenticates users and devices, routes frames, indexes sessions, buffers events for replay, proxies speech-to-text and push. It never runs an agent and never holds model credentials. |
 | device | A developer machine running `rc-client`. It drives the locally installed agents and is the source of truth for session history. |
 | app | The web UI or the iOS app. Apps never talk to devices directly. |
-| agent | `"claude"` (Claude Code) or `"codex"` (Codex CLI). The field is an **extensible string**: a UI that meets an unknown agent renders it generically, using the id as the label. |
+| agent | `"claude"` (Claude Code), `"codex"` (Codex CLI), `"grok"` (Grok Build), `"cursor"` (the Cursor agent CLI) or `"pi"` (the pi coding agent) (A25). The field is an **extensible string**: a UI that meets an unknown agent renders it generically, using the id as the label. |
 | session | One conversation with one agent on one device. `session_id` is device-local (for Claude it equals the Claude session id, for Codex the thread id). Global identity is the pair (`device_id`, `session_id`). |
 | block | One renderable unit in a session timeline. |
 | seq | Per-session, monotonically increasing integer assigned by the device to every session event. It survives device restarts and is the replay cursor. |
@@ -595,13 +595,13 @@ The agent and option arrays are shortened here; the fixture holds the full objec
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `agent` | string | yes | `claude`, `codex`, or a future id. Never assume a closed set. |
+| `agent` | string | yes | `claude`, `codex`, `grok`, `cursor`, `pi`, or a future id. Never assume a closed set. |
 | `available` | boolean | yes | False when the binary is missing or will not start |
 | `version` | string \| null | yes | |
 | `path` | string \| null | yes | Resolved binary path |
 | `models` | `LabeledId[]` | yes | Native model ids with human labels |
 | `default_model` | string \| null | yes | |
-| `permission_modes` | `LabeledId[]` | yes | See 4.3 for the ids each agent exposes |
+| `permission_modes` | `LabeledId[]` | yes | See 4.3 for the ids each agent exposes. Empty for an agent with no permission system (pi, A25): an app then draws no permission picker and `session.set` refuses `permission_mode` with `unsupported` |
 | `default_permission_mode` | string \| null | yes | |
 | `efforts` | `LabeledId[]` | yes | Empty array when the agent has no effort levels |
 | `default_effort` | string \| null | yes | |
@@ -637,8 +637,14 @@ two worked examples.
 | --- | --- |
 | Claude | `default` "Ask before edits", `acceptEdits` "Auto-accept edits", `plan` "Plan mode", `bypassPermissions` "Bypass permissions" |
 | Codex | `untrusted` "Ask for everything", `on-request` "Ask when needed", `never` "Never ask" |
+| Grok Build | `default` "Ask when needed", `acceptEdits` "Auto-accept edits", `auto` "Auto mode", `dontAsk` "Deny unless allowed", `plan` "Plan mode", `bypassPermissions` "Bypass permissions" (A25) |
+| Cursor | `default` "Ask when needed", `force` "Never ask", `plan` "Plan mode", `ask` "Ask, read only" (A25) |
+| pi | none: pi has no permission system, so `permission_modes` is empty (A25) |
 
-Model ids are the agents' native ids.
+Model ids are the agents' native ids. Effort ids are too: Claude's and Codex's reasoning
+efforts, Grok's `reasoning_effort` levels as its model catalogue lists them per model, and pi's
+thinking levels (`off` … `max`); Cursor exposes no separate effort. `fixtures/objects/agent.grok.json`,
+`agent.cursor.json` and `agent.pi.json` are the three worked examples of A25.
 
 ### 4.4 Session
 
@@ -2849,6 +2855,9 @@ by `block_id` like any other.
 ### 9.2 Device
 
 - [ ] Assigns `seq` per session, strictly increasing, persisted across restarts.
+- [ ] Reports every agent it knows how to drive — `claude`, `codex`, `grok`, `cursor`, `pi` — with
+      `available: false` when the binary is missing, and drives a session of any of them through
+      the same frames (A25).
 - [ ] Emits `status` on every state change and `turn_started` / `turn_completed` around every turn.
 - [ ] Reports `readonly` only for a terminal-controlled session with no turn in progress, and
       `running` while a terminal-driven turn is working.
@@ -2912,6 +2921,8 @@ by `block_id` like any other.
 ### 9.3 App
 
 - [ ] Ignores unknown fields, unknown event kinds and unknown agent ids.
+- [ ] Labels `grok`, `cursor` and `pi` by name, draws no permission picker for an agent whose
+      `permission_modes` is empty, and no effort control for one whose `efforts` is empty (A25).
 - [ ] Signs in with a username and a password, offers registration only when `registration_open`,
       shows the signed-in account and its role, lets a `member` change its own password, and shows
       the accounts screen only to `admin` (A24).
@@ -3187,3 +3198,13 @@ listing to the account that owns the device, and refuses cross-account subscribe
 3.9 gives the admin the account routes. Devices, `rc-client` and the device socket are unchanged:
 a pairing code was always the account's, and so the device it enrols. See 3.1, 3.2, 3.9, 4.10, 6.1,
 8.14 and 9.
+
+**2026-09-13 A25 — three more agents: Grok Build, Cursor and pi.** The protocol never named a
+closed set of agents, and nothing on the wire changes: an `AgentInfo` describes what each one
+offers and a session of any of them is driven through the same frames. What is new is the
+device's knowledge of three more CLIs and two shapes the apps had not met — an agent with no
+permission modes (pi) and one with no effort levels (Cursor) — so 4.2 and 4.3 say what those
+empty lists mean, and the worked examples in `fixtures/objects/` show them. Grok Build is driven
+over its ACP JSON-RPC and its terminal sessions are mirrored from the update log it keeps; Cursor
+is driven in its print mode one turn at a time, with approvals brokered by its hook; pi is
+driven over its RPC mode. See 1.1, 4.2, 4.3, 9.2 and 9.3.

@@ -117,6 +117,28 @@ and the timeline detail belong to the person signed in on this app, not to the a
 who share one browser or one phone find their own choices when they sign in. They live on the
 app, keyed by gateway and username; the gateway holds no settings for anyone.
 
+## Agents
+
+**Five agents, one vocabulary.** The device knows Claude Code (`claude`), Codex (`codex`), Grok
+Build (`grok`), Cursor (`cursor`) and pi (`pi`), and the apps name them exactly so; an id nobody
+knows renders as itself. Each has a one- or two-letter mark for the places a name does not fit
+— the agent control of the new-session form and the filter menu: C for Claude Code, X for Codex,
+G for Grok Build, Cu for Cursor, π for pi. Agent chips share one quiet tint; the mark and the
+name tell them apart, not a colour per vendor.
+
+**What an agent does not have is not drawn.** The composer row and the new-session form offer
+exactly what the device advertises: an agent whose `permission_modes` is empty (pi has no
+permission system) shows no permission picker and no permission row, and the status line never
+mentions permissions for it; an agent whose `efforts` is empty (Cursor) shows no effort slider,
+and its model card reads the model alone. Nothing is greyed out and nothing is explained: an
+absent control means the agent has no such setting.
+
+**Terminal sessions of the new agents are mirrored where the agent leaves a log.** Grok Build
+writes its own update log, so a Grok session started in a terminal appears in the lists as a
+terminal-held session, readable but not writable from an app, exactly as a Claude session did
+before channels. Cursor and pi keep no readable log on the device, so their sessions exist only
+when an app starts them.
+
 ## Session lists: by device, then by activity
 
 Every session list follows one rule — the web Sessions page, the web chat sidebar and the iOS
