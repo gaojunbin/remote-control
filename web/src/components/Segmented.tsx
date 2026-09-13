@@ -4,7 +4,11 @@ export interface SegmentOption<T extends string> {
   value: T;
   label: ReactNode;
   disabled?: boolean;
-  title?: string;
+  /**
+   * What this segment is, in words, for a label that is a glyph or a mark. It
+   * names the button for assistive technology and on hover.
+   */
+  name?: string;
 }
 
 interface Props<T extends string> {
@@ -22,8 +26,9 @@ export function Segmented<T extends string>({ value, options, onChange, ariaLabe
           key={option.value}
           type="button"
           aria-pressed={value === option.value}
+          aria-label={option.name}
           disabled={option.disabled}
-          title={option.title}
+          title={option.name}
           onClick={() => onChange(option.value)}
         >
           {option.label}

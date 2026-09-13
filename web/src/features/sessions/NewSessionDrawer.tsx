@@ -214,6 +214,9 @@ function NewSessionForm({ devices, presetDeviceId, onClose }: FormProps) {
 
       <section>
         <span className="label">{strings.newSession.agent}</span>
+        {/* A25: five agents no longer fit side by side, so each one is its mark
+            and the line under the row names the one that is chosen
+            (`docs/DESIGN.md` § "Agents"). */}
         <Segmented<string>
           ariaLabel={strings.newSession.agent}
           value={agent?.agent ?? ''}
@@ -224,22 +227,23 @@ function NewSessionForm({ devices, presetDeviceId, onClose }: FormProps) {
           options={agents.map((a) => ({
             value: a.agent,
             disabled: !a.available,
-            ...(a.available ? {} : { title: strings.newSession.agentUnavailable }),
+            name: a.available
+              ? agentLabel(a.agent)
+              : `${agentLabel(a.agent)} · ${strings.newSession.agentUnavailable}`,
             label: (
-              <span className="agent-option">
-                <span className="agent-mark" aria-hidden>
-                  {agentMark(a.agent)}
-                </span>
-                {agentLabel(a.agent)}
+              <span className="agent-mark" aria-hidden>
+                {agentMark(a.agent)}
               </span>
             ),
           }))}
         />
         {agent ? (
-          <p className="mono agent-line">
-            {agent.agent}
-            {agent.version ? ` ${agent.version}` : ''}
-            {agent.default_model ? ` · ${agent.default_model}` : ''}
+          <p className="agent-line">
+            {agentLabel(agent.agent)}
+            <span className="mono">
+              {agent.version ? ` ${agent.version}` : ''}
+              {agent.default_model ? ` · ${agent.default_model}` : ''}
+            </span>
           </p>
         ) : null}
       </section>

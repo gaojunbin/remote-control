@@ -6,8 +6,9 @@
  * Only the app's own words live here. Everything the device reported — agent
  * output, device names, paths, branches, model, effort, permission and speed
  * labels — arrives translated by nobody and is drawn as it came. The product
- * name, "Claude Code" and "Codex" stay in Latin script, and each of the two
- * interface languages is always named in its own script.
+ * name and every agent's name — "Claude Code", "Codex", "Grok Build", "Cursor"
+ * and "pi" — stay as their makers write them, and each of the two interface
+ * languages is always named in its own script.
  */
 import type { StringTable } from './strings';
 
@@ -106,7 +107,7 @@ export const zhHans: StringTable = {
     title: '设备',
     subtitleCount: (online: number, total: number) => `已连接 ${online} · 共 ${total} 台设备`,
     empty: '还没有设备。',
-    emptyHint: '添加安装了 Claude Code 或 Codex 的机器。',
+    emptyHint: '添加安装了编程 agent 的机器。',
     add: '添加设备',
     sessionsCount: (n: number) => `${n} 个会话`,
     noSessions: '空闲',
@@ -181,7 +182,7 @@ export const zhHans: StringTable = {
     emptyHint: '从已配对的设备上新建一个，或在机器上打开一个终端会话。',
     noMatches: '没有匹配的结果。',
     allDevices: '全部设备',
-    allAgents: '全部',
+    allAgents: '全部 agent',
     agentFilter: '按 agent 筛选',
     archive: '归档',
     archiveGroup: (n: number) => `归档 · ${n}`,
@@ -295,7 +296,8 @@ export const zhHans: StringTable = {
     placeholder: '给 agent 发消息…',
     placeholderQueued: '消息将排队…',
     placeholderSteer: '消息将转向当前任务…',
-    placeholderTerminal: '由终端控制 · 接管后可发送',
+    placeholderTerminal: '由终端控制',
+    placeholderTerminalTakeover: '由终端控制 · 接管后可发送',
     placeholderOffline: '设备已离线',
     send: '发送',
     queue: '排队',

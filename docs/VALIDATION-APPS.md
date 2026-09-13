@@ -595,6 +595,42 @@ account store is in memory and whose passwords are compared in the clear; a memb
 its own, the mock giving both scripted devices to `admin`; the rate limiter behind the `429` wording
 on both cards, which the mock does not implement; and Firefox and Safari.
 
+### Round 18 — three more agents, and what an agent does not have (A25)
+
+2026-09-13, in the installed Google Chrome driven by `playwright-core` against the bundled mock
+(the mock on 8791 with Vite on 5191) at 1280 px and 400 px. `mac-studio-office` now advertises all
+five agents, the three new ones copied from `protocol/fixtures/objects/`, and carries one session of
+each. **Every agent is named**: the session rows read `Claude Code`, `Codex`, `Grok Build`, `Cursor`
+and `pi` in one shared chip tint, the per-vendor tints having gone. **The new-session form's agent
+control** drew five marks, `C X G Cu π`, with the line under it naming the chosen one — "pi 0.85.1 ·
+anthropic/claude-sonnet-4-5", "Cursor 2026.09.02-c22c1a3 · auto", "Grok Build 1.0.25 · grok-4.6" —
+and each segment carrying its agent's name as its accessible name. Five names side by side had not
+fit. **What an agent does not have was not drawn**: picking pi took the whole Permissions row out of
+the form, leaving Model and Effort; picking Cursor took the Effort row out, leaving Model and
+Permissions; picking Grok Build brought back all three. In the chat, the pi composer row held the
+model card and the dictation language and no permission chip at all, and the Cursor card read
+"Sonnet 4 Thinking" alone with no effort word beside it. **The Grok Build session a terminal holds**
+opened read-only: the composer disabled, "Controlled by the terminal", its model and permission
+mode shown as the chips A17 describes ("Grok 4.6 Extra high", "Auto-accept edits"), and no Take over
+button, because Grok advertises no `takeover`. **The agent filter became a menu** beside the device
+one, listing `All agents · C Claude Code · X Codex · Cu Cursor · G Grok Build · π pi`: as a
+segmented control the six segments made the Sessions page 427 px wide in a 400 px viewport, and the
+menu brought `document.scrollWidth` back to 400 px on every screen in the pass. The only
+browser-logged errors were the two 401s on the pre-login `GET /api/session` probe. Screenshots under
+`…/scratchpad/web-agents/shots/`, at both widths: `sessions-*`, `agent-filter-*`, `new-session-*`,
+`new-session-pi-*`, `new-session-cursor-*`, `new-session-grok-*`, `chat-pi-*`, `chat-cursor-*` and
+`chat-grok-*`. Run artefacts, not checked into the repository.
+
+```
+cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
+→ 34 files / 409 tests passed, tsc clean, eslint clean, built in 1.90 s
+```
+
+Not verified in this pass: any of the three agents against a real device — the client adapters
+landed in the same round, so every shape above came from the mock and from
+`protocol/fixtures/objects/`; a Grok Build approval card, which the mock never raises on that
+session; and a session created from the form actually starting on a device.
+
 ## 2. iOS, in the simulator, against the same gateway
 
 `ios/UITests/RealGatewaySmokeTests.swift` is new. It skips unless the runner is given a gateway, so

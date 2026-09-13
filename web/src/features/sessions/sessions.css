@@ -207,8 +207,11 @@
   gap: var(--sp-2);
 }
 
+/* A25: a mark is one or two letters, so the box grows sideways for "Cu" and
+   stays square for the rest. */
 .agent-mark {
-  width: 18px;
+  min-width: 18px;
+  padding: 0 3px;
   height: 18px;
   border-radius: 5px;
   background: var(--ink);
@@ -223,6 +226,15 @@
 .segmented > button[aria-pressed='false'] .agent-mark {
   background: var(--line-strong);
   color: var(--surface);
+}
+
+/* A25: in the new-session form the mark is the whole segment, so it is drawn at
+   reading size rather than as a badge beside a name. */
+.segmented > button .agent-mark {
+  min-width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: var(--fs-12);
 }
 
 .agent-line {

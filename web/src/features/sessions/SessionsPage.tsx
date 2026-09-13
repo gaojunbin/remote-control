@@ -4,11 +4,11 @@ import { Plus, Search } from 'lucide-react';
 import { ArchiveGroupHeader, DeviceGroupHeader } from '../../components/GroupHeader';
 import { Button } from '../../components/Button';
 import { Menu } from '../../components/Popover';
-import { Segmented } from '../../components/Segmented';
 import { agentLabel, strings } from '../../strings';
 import { useDevices } from '../../stores/devices';
 import { selectAgents, selectSessionLayout, useSessions } from '../../stores/sessions';
 import { useSettings } from '../../stores/settings';
+import { AgentOption } from './AgentOption';
 import { NewSessionDrawer } from './NewSessionDrawer';
 import { SessionRow } from './SessionRow';
 import './sessions.css';
@@ -80,13 +80,16 @@ export function SessionsPage() {
           />
         </label>
         {agents.length > 1 ? (
-          <Segmented<string>
+          <Menu
             ariaLabel={strings.sessions.agentFilter}
+            align="end"
+            // No filter is the "All agents" row, which the menu then marks.
             value={agentFilter ?? ALL}
-            onChange={(id) => setAgentFilter(id === ALL ? null : id)}
+            onSelect={(id) => setAgentFilter(id === ALL ? null : id)}
+            label={agentFilter ? agentLabel(agentFilter) : strings.sessions.allAgents}
             options={[
-              { value: ALL, label: strings.sessions.allAgents },
-              ...agents.map((agent) => ({ value: agent, label: agentLabel(agent) })),
+              { id: ALL, label: strings.sessions.allAgents },
+              ...agents.map((agent) => ({ id: agent, label: <AgentOption agent={agent} /> })),
             ]}
           />
         ) : null}

@@ -113,7 +113,7 @@ export const en = {
     subtitleCount: (online: number, total: number) =>
       `${online} connected · ${total} ${total === 1 ? 'device' : 'devices'}`,
     empty: 'No devices yet.',
-    emptyHint: 'Add the machine where Claude Code or Codex is installed.',
+    emptyHint: 'Add the machine where your coding agents are installed.',
     add: 'Add device',
     sessionsCount: (n: number) => `${n} ${n === 1 ? 'session' : 'sessions'}`,
     noSessions: 'idle',
@@ -189,7 +189,7 @@ export const en = {
     emptyHint: 'Start one from a paired device, or open a terminal session on the machine.',
     noMatches: 'Nothing matches that search.',
     allDevices: 'All devices',
-    allAgents: 'All',
+    allAgents: 'All agents',
     agentFilter: 'Filter by agent',
     archive: 'Archive',
     archiveGroup: (n: number) => `Archive · ${n}`,
@@ -306,7 +306,8 @@ export const en = {
     placeholder: 'Message the agent…',
     placeholderQueued: 'Message will be queued…',
     placeholderSteer: 'Message will steer the turn…',
-    placeholderTerminal: 'Controlled by the terminal · take over to send',
+    placeholderTerminal: 'Controlled by the terminal',
+    placeholderTerminalTakeover: 'Controlled by the terminal · take over to send',
     placeholderOffline: 'Device is offline',
     send: 'Send',
     queue: 'Queue',
@@ -499,22 +500,31 @@ export const strings: StringTable = new Proxy({} as StringTable, {
   has: (_target, key) => key in table(),
 });
 
-/** Product names, never translated. */
+/** Product names, never translated. A25 added the last three. */
 export const agentLabels: Record<string, string> = {
   claude: 'Claude Code',
   codex: 'Codex',
+  grok: 'Grok Build',
+  cursor: 'Cursor',
+  pi: 'pi',
 };
 
 const agentMarks: Record<string, string> = {
   claude: 'C',
   codex: 'X',
+  grok: 'G',
+  cursor: 'Cu',
+  pi: 'π',
 };
 
 export function agentLabel(agent: string): string {
   return agentLabels[agent] ?? agent;
 }
 
-/** Single-character mark used by the agent picker. */
+/**
+ * The one- or two-letter mark the agent picker and the filter menu draw where a
+ * name does not fit. An agent nobody knows is marked by its own first letter.
+ */
 export function agentMark(agent: string): string {
   return agentMarks[agent] ?? agent.charAt(0).toUpperCase();
 }

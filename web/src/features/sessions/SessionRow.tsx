@@ -1,6 +1,5 @@
 import { Archive } from 'lucide-react';
 import { StatusDot } from '../../components/StatusDot';
-import { cx } from '../../lib/cx';
 import { relativeTime, tildePath } from '../../lib/format';
 import { agentLabel, sessionStateLabel, sessionTitle, strings } from '../../strings';
 import { useSessions } from '../../stores/sessions';
@@ -31,7 +30,7 @@ export function SessionRow({ session, online, onOpen }: Props) {
         <span className="session-text">
           <span className="session-title">{sessionTitle(session)}</span>
           <span className="session-meta">
-            <span className={cx('agent-chip', session.agent)}>{agentLabel(session.agent)}</span>
+            <span className="agent-chip">{agentLabel(session.agent)}</span>
             <span className="session-sub mono">{tildePath(session.cwd)}</span>
           </span>
         </span>

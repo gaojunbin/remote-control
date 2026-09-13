@@ -179,16 +179,22 @@ describe('SessionsPage grouping', () => {
     expect(screen.getAllByText('Codex').length).toBeGreaterThan(0);
   });
 
+  /** A25: the filter is a menu, so a choice is an option inside it. */
+  const pickAgent = async (name: string) => {
+    await userEvent.click(screen.getByRole('button', { name: strings.sessions.agentFilter }));
+    await userEvent.click(screen.getByRole('option', { name }));
+  };
+
   it('filters by agent and keeps the choice in the sessions store', async () => {
     renderPage();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Codex' }));
+    await pickAgent('Codex');
 
     expect(useSessions.getState().agentFilter).toBe('codex');
     expect(rowTitles()).not.toContain('Fix flaky auth test');
     expect(rowTitles()).toContain('Add OTLP traces');
 
-    await userEvent.click(screen.getByRole('button', { name: strings.sessions.allAgents }));
+    await pickAgent(strings.sessions.allAgents);
 
     expect(useSessions.getState().agentFilter).toBeNull();
     expect(rowTitles()).toContain('Fix flaky auth test');
@@ -200,7 +206,7 @@ describe('SessionsPage grouping', () => {
     });
     renderPage();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Claude Code' }));
+    await pickAgent('Claude Code');
 
     expect(screen.getByText(MAC)).toBeInTheDocument();
     expect(screen.queryByText(CI)).not.toBeInTheDocument();

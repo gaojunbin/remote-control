@@ -383,7 +383,8 @@
   color: #9c2c21;
 }
 
-/* Which agent a session runs. Tinted, no border, one per row. */
+/* Which agent a session runs. One quiet tint for every agent, no border, one
+   per row: the name is what tells them apart, never a colour per vendor. */
 .agent-chip {
   display: inline-flex;
   align-items: center;
@@ -396,16 +397,6 @@
   font-weight: 500;
   white-space: nowrap;
   flex: none;
-}
-
-.agent-chip.claude {
-  background: var(--agent-claude-soft);
-  color: var(--agent-claude-ink);
-}
-
-.agent-chip.codex {
-  background: var(--agent-codex-soft);
-  color: var(--agent-codex-ink);
 }
 
 .segmented {

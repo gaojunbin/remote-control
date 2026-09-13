@@ -110,7 +110,7 @@ export function Popover({
 
 export interface MenuOption {
   id: string;
-  label: string;
+  label: ReactNode;
   description?: string;
   disabled?: boolean;
 }

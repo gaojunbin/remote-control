@@ -107,6 +107,103 @@ export const codexNoDaemon: AgentInfo = {
 };
 
 /**
+ * A25 — the three agents the apps met last, copied from
+ * `protocol/fixtures/objects/agent.grok.json`, `agent.cursor.json` and
+ * `agent.pi.json`. Grok Build leaves an update log on disk, so its terminal
+ * sessions are mirrored; none of the three can be attached.
+ */
+export const grokAgent: AgentInfo = {
+  agent: 'grok',
+  available: true,
+  version: '1.0.25',
+  path: '/Users/me/.grok/bin/agent',
+  models: [
+    { id: 'grok-4.6', label: 'Grok 4.6' },
+    { id: 'grok-4.5', label: 'Grok 4.5' },
+  ],
+  default_model: 'grok-4.6',
+  permission_modes: [
+    { id: 'default', label: 'Ask when needed' },
+    { id: 'acceptEdits', label: 'Auto-accept edits' },
+    { id: 'auto', label: 'Auto mode' },
+    { id: 'dontAsk', label: 'Deny unless allowed' },
+    { id: 'plan', label: 'Plan mode' },
+    { id: 'bypassPermissions', label: 'Bypass permissions' },
+  ],
+  default_permission_mode: 'default',
+  efforts: [
+    { id: 'low', label: 'Low' },
+    { id: 'medium', label: 'Medium' },
+    { id: 'high', label: 'High' },
+    { id: 'xhigh', label: 'Extra high' },
+  ],
+  default_effort: 'high',
+  capabilities: ['worktree', 'interrupt', 'queue', 'effort', 'history'],
+  attach: null,
+  attach_ready: false,
+  shared_interrupt: false,
+  shared_settings: false,
+  shared_attachments: false,
+};
+
+/** A25: no effort levels at all, so no slider and no word beside the model. */
+export const cursorAgent: AgentInfo = {
+  agent: 'cursor',
+  available: true,
+  version: '2026.09.02-c22c1a3',
+  path: '/Users/me/.local/bin/cursor-agent',
+  models: [
+    { id: 'auto', label: 'Auto' },
+    { id: 'gpt-5', label: 'GPT-5' },
+    { id: 'sonnet-4-thinking', label: 'Sonnet 4 Thinking' },
+  ],
+  default_model: 'auto',
+  permission_modes: [
+    { id: 'default', label: 'Ask when needed' },
+    { id: 'force', label: 'Never ask' },
+    { id: 'plan', label: 'Plan mode' },
+    { id: 'ask', label: 'Ask, read only' },
+  ],
+  default_permission_mode: 'default',
+  efforts: [],
+  default_effort: null,
+  capabilities: ['worktree', 'interrupt', 'queue', 'history'],
+  attach: null,
+  attach_ready: false,
+  shared_interrupt: false,
+  shared_settings: false,
+  shared_attachments: false,
+};
+
+/** A25: no permission system at all, so no picker and no permission row. */
+export const piAgent: AgentInfo = {
+  agent: 'pi',
+  available: true,
+  version: '0.85.1',
+  path: '/Users/me/.local/bin/pi',
+  models: [
+    { id: 'anthropic/claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
+    { id: 'openai/gpt-5', label: 'GPT-5' },
+  ],
+  default_model: 'anthropic/claude-sonnet-4-5',
+  permission_modes: [],
+  default_permission_mode: null,
+  efforts: [
+    { id: 'off', label: 'Off' },
+    { id: 'low', label: 'Low' },
+    { id: 'medium', label: 'Medium' },
+    { id: 'high', label: 'High' },
+  ],
+  default_effort: 'medium',
+  capabilities: ['worktree', 'interrupt', 'queue', 'steer', 'effort', 'history'],
+  attach: null,
+  attach_ready: false,
+  shared_interrupt: false,
+  shared_settings: false,
+  shared_attachments: false,
+};
+
+/**
  * A22: the build the mock gateway serves as `/api/config` `client.build`.
  * `dev-mac` runs it and `dev-ci` runs the one before, so the device list shows
  * both a row with nothing to do and a row offering Update.
@@ -129,7 +226,9 @@ export const devices: Device[] = [
     last_seen: now,
     created_at: minutes(60 * 24 * 9),
     latency_ms: 18,
-    agents: [claudeAgent, codexAgent],
+    // A25: the one device that knows all five, so the picker, the card and a
+    // session of each can be seen in development.
+    agents: [claudeAgent, codexAgent, grokAgent, cursorAgent, piAgent],
   },
   {
     device_id: 'dev-ci',
@@ -364,6 +463,59 @@ export const sessions: Session[] = [
     git: { branch: 'main', dirty: false, ahead: 0, behind: 1, worktree: false },
   }),
   session({
+    // A25: Grok Build is the one new agent whose terminal sessions are mirrored,
+    // so this row is held by a terminal and reads without writing.
+    session_id: 'ses-grok-terminal',
+    device_id: 'dev-mac',
+    title: 'Trim the ACP update log',
+    cwd: '/Users/me/dev/remote-control/client',
+    agent: 'grok',
+    model: 'grok-4.6',
+    permission_mode: 'acceptEdits',
+    effort: 'xhigh',
+    state: 'readonly',
+    origin: 'terminal',
+    control: 'terminal',
+    updated_at: minutes(7),
+    git: { branch: 'feat/grok-mirror', dirty: true, ahead: 1, behind: 0, worktree: false },
+  }),
+  session({
+    // A25: Cursor lists no effort levels, so its model card reads the model
+    // alone and the new-session form offers no effort row.
+    session_id: 'ses-cursor',
+    device_id: 'dev-mac',
+    title: 'Port the diff view to the new tokens',
+    cwd: '/Users/me/dev/remote-control/web',
+    agent: 'cursor',
+    model: 'sonnet-4-thinking',
+    permission_mode: 'default',
+    effort: null,
+    state: 'idle',
+    updated_at: minutes(16),
+  }),
+  session({
+    // A25: pi has no permission system, so nothing in the composer or the form
+    // mentions permissions for it.
+    session_id: 'ses-pi',
+    device_id: 'dev-mac',
+    title: 'Sketch the RPC event assembler',
+    cwd: '/Users/me/dev/remote-control/client',
+    agent: 'pi',
+    model: 'anthropic/claude-sonnet-4-5',
+    permission_mode: null,
+    effort: 'high',
+    state: 'idle',
+    updated_at: minutes(22),
+    usage: {
+      input_tokens: 8_120,
+      output_tokens: 1_310,
+      total_tokens: 9_430,
+      context_used: 11_400,
+      context_window: 200_000,
+      cost_usd: 0.07,
+    },
+  }),
+  session({
     // A second exited Codex session, so a device's Archive holds more than one
     // row and both halves of it are visible in the mock.
     session_id: 'ses-exited-codex',
@@ -422,9 +574,180 @@ export function historyFor(sessionId: string): SessionEvent[] {
       return crashHistory();
     case 'ses-otlp':
       return codexHistory();
+    case 'ses-grok-terminal':
+      return grokTerminalHistory();
+    case 'ses-cursor':
+      return cursorHistory();
+    case 'ses-pi':
+      return piHistory();
     default:
       return [];
   }
+}
+
+/**
+ * A25: a Grok Build session someone started in a terminal. The device read it
+ * from the update log Grok keeps, so the transcript is there and the composer
+ * is not — nothing here can write to it.
+ */
+function grokTerminalHistory(): SessionEvent[] {
+  const base = minutes(9);
+  return [
+    {
+      seq: 1,
+      ts: base,
+      kind: 'user_message',
+      block_id: 'gk-u1',
+      source: 'terminal',
+      text: 'trim the update log to the last 500 events on load',
+    },
+    {
+      seq: 2,
+      ts: base + 1_400,
+      kind: 'thinking',
+      block_id: 'gk-th1',
+      done: true,
+      text: 'The log is append-only and the cursor is the event id, so a tail read is enough — nothing has to rewrite the file.',
+      duration_ms: 4_200,
+    },
+    {
+      seq: 3,
+      ts: base + 5_000,
+      kind: 'tool_call',
+      block_id: 'gk-t1',
+      tool: 'read_file',
+      tool_kind: 'read',
+      title: 'updates.jsonl (tail)',
+      status: 'succeeded',
+      started_at: base + 4_200,
+      ended_at: base + 5_000,
+      duration_ms: 800,
+      input: { path: '~/.grok/sessions/-Users-me-dev/9d1c/updates.jsonl' },
+      output: '500 lines, last event id 9d1c-4821',
+    },
+    {
+      seq: 4,
+      ts: base + 7_200,
+      kind: 'assistant_text',
+      block_id: 'gk-a1',
+      done: true,
+      text: 'The reader now seeks to the last 500 event ids and resumes from `9d1c-4821`, so a restart replays nothing it has already shown.',
+    },
+    {
+      seq: 5,
+      ts: base + 7_400,
+      kind: 'turn_completed',
+      turn_id: 'grok-turn-1',
+      stop_reason: 'completed',
+      duration_ms: 7_300,
+    },
+  ];
+}
+
+/** A25: Cursor streams text and tool calls, and reports no thinking. */
+function cursorHistory(): SessionEvent[] {
+  const base = minutes(18);
+  return [
+    {
+      seq: 1,
+      ts: base,
+      kind: 'user_message',
+      block_id: 'cu-u1',
+      source: 'remote',
+      text: 'Move the diff view onto the shared colour tokens.',
+    },
+    {
+      seq: 2,
+      ts: base + 2_600,
+      kind: 'tool_call',
+      block_id: 'cu-t1',
+      tool: 'edit',
+      tool_kind: 'edit',
+      title: 'src/features/chat/blocks/DiffView.tsx',
+      status: 'succeeded',
+      started_at: base + 1_900,
+      ended_at: base + 2_600,
+      duration_ms: 700,
+      diff: {
+        path: 'src/features/chat/blocks/DiffView.tsx',
+        additions: 2,
+        deletions: 2,
+        patch: [
+          '@@ -18,8 +18,8 @@',
+          ' .diff-line.add {',
+          '-  background: #eefaf3;',
+          '-  color: #1f7a4d;',
+          '+  background: var(--diff-add-bg);',
+          '+  color: var(--diff-add);',
+          ' }',
+        ].join('\n'),
+      },
+    },
+    {
+      seq: 3,
+      ts: base + 4_000,
+      kind: 'assistant_text',
+      block_id: 'cu-a1',
+      done: true,
+      text: 'The added and removed rows now read `--diff-add` and `--diff-del`, so the view follows the theme rather than its own two hex values.',
+    },
+    {
+      seq: 4,
+      ts: base + 4_200,
+      kind: 'turn_completed',
+      turn_id: 'cursor-turn-1',
+      stop_reason: 'completed',
+      duration_ms: 4_100,
+    },
+  ];
+}
+
+/** A25: pi runs with its own permissions, so nothing here asks to approve. */
+function piHistory(): SessionEvent[] {
+  const base = minutes(24);
+  return [
+    {
+      seq: 1,
+      ts: base,
+      kind: 'user_message',
+      block_id: 'pi-u1',
+      source: 'remote',
+      text: 'Assemble the streamed message deltas by content index.',
+    },
+    {
+      seq: 2,
+      ts: base + 1_100,
+      kind: 'thinking',
+      block_id: 'pi-th1',
+      done: true,
+      text: 'Deltas arrive per content index and never repeat, so one buffer per index and a join at `message_end` is all it takes.',
+      duration_ms: 3_100,
+    },
+    {
+      seq: 3,
+      ts: base + 5_200,
+      kind: 'assistant_text',
+      block_id: 'pi-a1',
+      done: true,
+      text: 'Each `contentIndex` now owns a buffer, and `text_delta` and `thinking_delta` land in their own blocks. Records split on LF only, so a U+2028 inside a string never ends one.',
+    },
+    {
+      seq: 4,
+      ts: base + 5_400,
+      kind: 'turn_completed',
+      turn_id: 'pi-turn-1',
+      stop_reason: 'completed',
+      duration_ms: 5_300,
+      usage: {
+        input_tokens: 8_120,
+        output_tokens: 1_310,
+        total_tokens: 9_430,
+        context_used: 11_400,
+        context_window: 200_000,
+        cost_usd: 0.07,
+      },
+    },
+  ];
 }
 
 function flakyHistory(): SessionEvent[] {
