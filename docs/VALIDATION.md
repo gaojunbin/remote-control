@@ -1233,34 +1233,23 @@ plan from a live run (one prompt that answers "OK" makes none of those), the lea
 Tool, plan and diff translation is tested against rows built from the shapes the owner's own session
 logs show, and is marked as constructed in the test module.
 
-## 18. Cursor and pi adapters (2026-09-14, A25)
+## 18. pi adapter (2026-09-14, A25)
 
-Neither agent could run a turn on this machine: `cursor-agent 2026.09.02-c22c1a3` is installed but
-not signed in, and pi 0.85.1 (`@earendil-works/pi-coding-agent`, installed into a scratch directory
-with a redirected `HOME`) has no provider credential. Both adapters are therefore built to the
-documented stream shapes and tested against fake peers — `client/tests/test_cursor_fake_agent.py`
-and `client/tests/fixtures/pi/fake_pi.py` — with the fixtures under `client/tests/fixtures/cursor/`
-and `client/tests/fixtures/pi/` stating where each field came from.
+pi could not run a turn on this machine: pi 0.85.1 (`@earendil-works/pi-coding-agent`, installed
+into a scratch directory with a redirected `HOME`) has no provider credential. The adapter is
+therefore built to the documented stream shapes and tested against a fake peer,
+`client/tests/fixtures/pi/fake_pi.py`, with the fixtures under `client/tests/fixtures/pi/` stating
+where each field came from.
 
-What was exercised against the real binaries: Cursor's detection returns exactly
-`fixtures/objects/agent.cursor.json`; `rc-client cursor setup` against a copy of the owner's real
-`~/.cursor/hooks.json` in a scratch home appends one `preToolUse` entry and leaves the other
-product's eleven events untouched, and `--remove` restores the file byte for byte. pi's `--version`,
-`--list-models` (the table the parser reads, and the sentence it prints when nothing is logged in),
-`get_state`, `get_available_thinking_levels`, `set_thinking_level` (accepts a level the model does
-not expose), `set_model` (refuses an unknown id), `abort`, `clear_queue`, `get_session_stats`, a
-`prompt` refused with `success: false`, and `--session-id` creating an unknown session with a
+What was exercised against the real binary: `--version`; `--list-models`, both the table the parser
+reads and the sentence it prints when nothing is logged in; `get_state`;
+`get_available_thinking_levels`; `set_thinking_level`, which accepts a level the model does not
+expose; `set_model`, which refuses an unknown id; `abort`; `clear_queue`; `get_session_stats`; a
+`prompt` refused with `success: false`; and `--session-id` creating an unknown session with a
 warning on stderr.
 
-Two facts the recon took from Cursor's documentation are wrong for the shipped build, read from
-its bundle: print mode does print `thinking` deltas (under the same flag as `tool_call` lines), and
-`result` carries a `usage` object. Both are implemented; if a live run disagrees, no thinking lines
-means no thinking blocks and no usage means a turn with no token counts.
-
-Not verified for either: a live stream, tool argument names (Cursor), whether `conversation_id` is
-the chat id (Cursor), whether `preToolUse` fires under `-p` (Cursor), the hook timeout unit
-(Cursor), every streaming event shape (pi), and whether `abort` always settles (pi ends the turn
-itself after sixty seconds).
+Not verified: a live stream, every streaming event shape, and whether `abort` always settles — pi
+ends the turn itself after sixty seconds.
 
 ## Smoke procedure
 

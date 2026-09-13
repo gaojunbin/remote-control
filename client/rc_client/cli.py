@@ -21,7 +21,6 @@ import httpx
 from . import __version__, linkstate, pairing, qr
 from . import config as config_module
 from .agents.codex.daemon import setup as codex_setup
-from .agents.cursor import commands as cursor_commands
 from .agents.registry import detect_all
 from .build import read_build
 from .channel import commands as shim_commands
@@ -85,13 +84,6 @@ def build_parser() -> argparse.ArgumentParser:
     codex_parser.add_argument("action", choices=["setup", "status"])
     codex_parser.add_argument(
         "--no-install", action="store_true", help="never run the official Codex installer"
-    )
-    cursor_parser = sub.add_parser(
-        "cursor", help="manage the Cursor hook this device answers tool calls through"
-    )
-    cursor_parser.add_argument("action", choices=list(cursor_commands.ACTIONS))
-    cursor_parser.add_argument(
-        "--remove", action="store_true", help="take this device's entry out of ~/.cursor/hooks.json"
     )
 
     sub.add_parser("status", help="print configuration and service status")
@@ -259,8 +251,6 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_service(args)
         if args.command == "shim":
             return _cmd_shim(args)
-        if args.command == "cursor":
-            return int(cursor_commands.run(args.action, remove=args.remove))
         if args.command == "channel":
             return int(channel_main())
         if args.command == "hook":

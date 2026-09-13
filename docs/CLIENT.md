@@ -181,25 +181,20 @@ For `grok`: `RC_GROK_BIN`, then `~/.grok/bin/agent`, then `grok` and `agent` on 
 of `PATH` on purpose, and only executables are ever considered: `grok` is commonly a shell function
 wrapping the binary with `--yolo`, and a device must never inherit that.
 
-For `cursor`: `RC_CURSOR_BIN`, then `cursor-agent` on `PATH`, then `~/.local/bin/cursor-agent`, which
-is where Cursor's own installer puts its symlink. Only executables are considered, so a shell alias
-cannot be picked up. The version is a calendar build (`2026.09.02-c22c1a3`), not three dotted
-numbers, so it is read as the whole first line `--version` prints.
-
 For `pi`: `RC_PI_BIN`, then `pi` on `PATH`, then `~/.local/bin/pi`, `~/.npm-global/bin/pi`,
 `/opt/homebrew/bin/pi`, `/usr/local/bin/pi`. pi installs as an ordinary npm binary and ships no
 launcher of its own, so there is no vendor directory to prefer ahead of `PATH`.
 
 What each agent advertises:
 
-| | Claude Code | Codex | Grok Build | Cursor | pi |
-| --- | --- | --- | --- | --- | --- |
-| Models | `default`, `fable`, `opus`, `sonnet`, `haiku`, most capable first. `default` means "do not pass a model"; the real id arrives from the SDK and is reported as `meta.model` | Read live from the CLI's `model/list` and cached for ten minutes | Read from `~/.grok/models_cache.json`, in the order the file lists them, hidden models skipped. No cache file means the two ids `agent.grok.json` names | `cursor-agent --list-models` when the CLI is signed in, asked once per binary and remembered for the life of the process, because it is a network call and detection reruns on every rescan. It answers nothing when the CLI is not signed in, and the device then offers the three ids `agent.cursor.json` names. `auto` always leads the list and is always the default: it is Cursor's own "let the server choose", spelled by passing no `--model` at all, and so the one id valid on every install | Read from `pi --list-models` and cached for ten minutes: one `provider/model` id per row of the table it prints, in its order. Nothing logged in means no table, and the two ids `agent.pi.json` names |
-| Permission modes | `default` (Ask before edits), `acceptEdits` (Auto-accept edits), `plan` (Plan mode), `bypassPermissions` (Bypass permissions) | `untrusted` (Ask for everything), `on-request` (Ask when needed), `never` (Never ask) | `default` (Ask when needed), `acceptEdits` (Auto-accept edits), `auto` (Auto mode), `dontAsk` (Deny unless allowed), `plan` (Plan mode), `bypassPermissions` (Bypass permissions) | `default` (Ask when needed), `force` (Never ask), `plan` (Plan mode), `ask` (Ask, read only) | **none.** pi has no permission system, so the list is empty, apps draw no picker, and `session.set` answers `unsupported` for a permission mode |
-| Efforts | `low`, `medium`, `high`, `xhigh`, `max` | Whatever the catalogue reports, clamped per model, from `minimal` to `ultra` | The union of the models' `reasoning_efforts`, weakest first, clamped per model when a session runs | none. Cursor has no effort setting: effort rides inside a parameterised model id (`claude-opus-4-8[effort=high]`), so `efforts` is empty and `session.set` answers `unsupported` for one | pi's thinking levels: `off`, `low`, `medium`, `high`. `minimal`, `xhigh` and `max` exist too, but pi only says which of them a model exposes once a session is running, so they are advertised only when one of them is the person's own saved default |
-| Speeds | none | The `serviceTiers` the catalogue lists, in catalogue order and with their own labels: `priority` ("Fast") today. `AgentInfo.speeds` is the union over every model; a model that lists none can run at no tier | none | none | none |
-| Capabilities | `takeover`, `interrupt`, `queue`, `attachments`, `effort`, `history`, `worktree` | `interrupt`, `queue`, `steer`, `history`, `worktree`, `attachments`, `effort` | `worktree`, `interrupt`, `queue`, `effort`, `history` | `worktree`, `interrupt`, `queue`, `history` | `worktree`, `interrupt`, `queue`, `steer`, `effort`, `history` |
-| Attachment | `attach: "channel"`, `attach_ready` from the shim, `shared_interrupt`, `shared_settings` and `shared_attachments` all false | `attach: "daemon"`, `attach_ready` from a real handshake on the daemon socket, `shared_interrupt`, `shared_settings` and `shared_attachments` all true | `attach: null`: a terminal session is mirrored and resumed, never attached | `attach: null`: a Cursor session this device did not start can be neither attached nor mirrored | `attach: null`: pi has no daemon, no socket and no server mode, so a terminal session can be neither attached nor mirrored |
+| | Claude Code | Codex | Grok Build | pi |
+| --- | --- | --- | --- | --- |
+| Models | `default`, `fable`, `opus`, `sonnet`, `haiku`, most capable first. `default` means "do not pass a model"; the real id arrives from the SDK and is reported as `meta.model` | Read live from the CLI's `model/list` and cached for ten minutes | Read from `~/.grok/models_cache.json`, in the order the file lists them, hidden models skipped. No cache file means the two ids `agent.grok.json` names | Read from `pi --list-models` and cached for ten minutes: one `provider/model` id per row of the table it prints, in its order. Nothing logged in means no table, and the two ids `agent.pi.json` names |
+| Permission modes | `default` (Ask before edits), `acceptEdits` (Auto-accept edits), `plan` (Plan mode), `bypassPermissions` (Bypass permissions) | `untrusted` (Ask for everything), `on-request` (Ask when needed), `never` (Never ask) | `default` (Ask when needed), `acceptEdits` (Auto-accept edits), `auto` (Auto mode), `dontAsk` (Deny unless allowed), `plan` (Plan mode), `bypassPermissions` (Bypass permissions) | **none.** pi has no permission system, so the list is empty, apps draw no picker, and `session.set` answers `unsupported` for a permission mode |
+| Efforts | `low`, `medium`, `high`, `xhigh`, `max` | Whatever the catalogue reports, clamped per model, from `minimal` to `ultra` | The union of the models' `reasoning_efforts`, weakest first, clamped per model when a session runs | pi's thinking levels: `off`, `low`, `medium`, `high`. `minimal`, `xhigh` and `max` exist too, but pi only says which of them a model exposes once a session is running, so they are advertised only when one of them is the person's own saved default |
+| Speeds | none | The `serviceTiers` the catalogue lists, in catalogue order and with their own labels: `priority` ("Fast") today. `AgentInfo.speeds` is the union over every model; a model that lists none can run at no tier | none | none |
+| Capabilities | `takeover`, `interrupt`, `queue`, `attachments`, `effort`, `history`, `worktree` | `interrupt`, `queue`, `steer`, `history`, `worktree`, `attachments`, `effort` | `worktree`, `interrupt`, `queue`, `effort`, `history` | `worktree`, `interrupt`, `queue`, `steer`, `effort`, `history` |
+| Attachment | `attach: "channel"`, `attach_ready` from the shim, `shared_interrupt`, `shared_settings` and `shared_attachments` all false | `attach: "daemon"`, `attach_ready` from a real handshake on the daemon socket, `shared_interrupt`, `shared_settings` and `shared_attachments` all true | `attach: null`: a terminal session is mirrored and resumed, never attached | `attach: null`: pi has no daemon, no socket and no server mode, so a terminal session can be neither attached nor mirrored |
 
 Defaults follow the person's own configuration where there is one: pi's `default_model` and
 `default_effort` come from `defaultProvider`, `defaultModel` and `defaultThinkingLevel` in
@@ -789,109 +784,6 @@ and no change to anybody's configuration.
 - **The leader process**, which would let a device share a person's running TUI, is off unless
   `[cli] use_leader` is set in their configuration. Turning it on means editing their config file, so
   it is left alone and terminal sessions are mirrored instead.
-
-## Cursor
-
-Cursor has no server mode, no daemon and no local transcript, so a session is driven the only way it
-can be: one `cursor-agent -p --output-format stream-json --stream-partial-output` process per turn,
-started in the session's working directory, printing NDJSON until it exits. The prompt is the last
-argument, behind a `--` so a message beginning with a dash cannot be read as a flag.
-
-The conversation itself lives on Cursor's servers under a chat id. The `system`/`init` line of the
-first turn names it, the session is rekeyed to it, and every turn after that passes
-`--resume <chatId>`. The model is `--model <id>`, omitted entirely for `auto`. The permission mode is
-flags rather than a setting: `default` passes nothing, `force` passes `--force`, and `plan` and `ask`
-pass `--mode plan` and `--mode ask`. Both are process options, so `session.set` acknowledges a change
-and the next turn runs with it.
-
-Interrupting is killing the process — Cursor has no cancel — with `SIGTERM`, then `SIGKILL` five
-seconds later. Whatever the process left half-written is closed: open text blocks are finished and a
-tool call still running is marked `cancelled`.
-
-### What the stream carries
-
-| Line | Becomes |
-| --- | --- |
-| `system` / `init` | the chat id, and nothing else. Its `model` is the model's **display name**, not an id, so it is never published as `meta`: the session keeps the id it was started with |
-| `assistant` | `assistant_text` deltas |
-| `thinking` (`delta`, `completed`) | `thinking`, closed by its own `completed` line |
-| `tool_call` (`started`, `completed`) | one `tool_call` block keyed by `call_id` |
-| `result` | `turn_completed`, with the token counts it carries |
-| `user`, `interaction_query`, `system`/`task_notification` and everything else | nothing |
-
-Two shapes are worth knowing. **Text arrives twice.** With `--stream-partial-output` every token is
-printed as a delta, and the same text is printed again as a buffered replay just before each tool
-call and once more at the end of the turn. A delta carries `timestamp_ms` and no `model_call_id`; the
-replays carry `model_call_id`, or neither field, which is how they are dropped. As a safety net, a
-turn whose text never arrived as a delta publishes the `result` line's full text instead, so an
-answer is never lost.
-
-**A tool call is a tagged union**, `{"<name>ToolCall": {"args": …, "result": …}}`, so the tool's
-identity is the single key rather than a field. The key's stem is the tool name and decides the kind:
-`read`, `ls`, `readLints` → `read`; `grep`, `glob`, `semSearch` → `search`; `shell`,
-`writeShellStdin` → `shell`; `edit`, `applyAgentDiff`, `delete` → `edit`; `webSearch`, `webFetch` →
-`web`; the five `mcp*` tools → `mcp`; `task` → `subagent`; `updateTodos`, `createPlan`, `createGoal`
-→ `todo`; anything else → `other`. A result is a union too, and only `success` succeeded. An
-`updateTodos` call also publishes its `args.todos` as a `todos` block.
-
-### Approvals go through Cursor's hook
-
-The stream carries no approval request and accepts no answer, so a tool call can only be held by a
-`preToolUse` hook process that blocks. `rc-client cursor setup` registers one; the daemon then
-listens on `state/cursor-hook.sock` (or the short fallback path, the same rule the Claude channel
-socket follows), owner-only, and opens it only while a Cursor session is live.
-
-The hook is machine-wide, so it names the `conversation_id` it belongs to and the daemon answers only
-for the chats it drives itself. A person's own `cursor-agent`, or another product's, gets silence:
-the hook prints nothing, exits 0, and Cursor's own rules decide. An answered call returns
-`{"permission": "allow"}` or `{"permission": "deny"}` — the two options, `primary` and `danger`, that
-the `approval` block offers. Nothing else is ever printed on stdout, because Cursor reads that stream
-as the hook's answer, and the exit code is always 0: a failure here would interrupt somebody in the
-middle of their own work for a feature they did not ask about.
-
-**`~/.cursor/hooks.json` belongs to whoever is already in it.** On the development machine a
-third-party app registers for eleven events. So `rc-client cursor setup` merges: it reads what is
-there, appends one `preToolUse` entry, and writes every other entry back in its original order and
-position. `rc-client cursor setup --remove` takes out only the entry whose command is this device's
-own, identified by its command ending in `cursor hook`. Running setup twice leaves one entry. The
-file is often a symbolic link into a synchronised folder, so a write follows the link and replaces
-the file it points at rather than replacing the link.
-
-### What is not covered
-
-The CLI on the development machine is installed but **not signed in**, so no turn was ever executed
-and no stream was recorded. Every runtime shape above comes from two places: Cursor's published
-output-format documentation, and the module inside the shipped bundle of `cursor-agent
-2026.09.02-c22c1a3` that prints these lines. The fixtures under `client/tests/fixtures/cursor/` say
-which field came from where. In particular:
-
-- **Two published facts are wrong for this build.** The docs say print mode suppresses reasoning and
-  that no event carries token usage. The emitter in the bundle prints `thinking` deltas under the
-  same flag as `tool_call` lines, and puts a `usage` object on `result` whenever the turn reported
-  tokens. Both are implemented. If a live run disagrees, the fallbacks are harmless: no `thinking`
-  lines simply means no thinking blocks, and no `usage` means a turn with no token counts.
-- **`inputTokens` is net of the cache.** The bundle subtracts the cache reads and writes before
-  printing, so `total_tokens` adds all four counts back together.
-- **Tool argument names are guesses.** Cursor documents no per-tool argument schema, so a call's
-  one-line title is taken from the first of a list of likely names (`command`, `path`, `file_path`,
-  `pattern`, `query`, …) and falls back to the tool's own name. A call's output is the first
-  string-valued field of its result, or the result object itself.
-- **`conversation_id` is assumed to be the chat id** that `--resume` takes and that the `init` line
-  reports. The hook's common fields document the name but not the relationship.
-- **Hook coverage for the CLI is not documented.** Cursor's docs enumerate which events fire for
-  *cloud* agents, not for `cursor-agent`. If `preToolUse` does not fire under `-p`, approvals never
-  reach an app and the session runs under Cursor's own `permissions` rules instead.
-- **The hook timeout is 86400** in the entry that setup writes, on the assumption that the unit is
-  seconds, as it is for Claude Code's hooks. If it is milliseconds, an approval is cut off after 86
-  seconds and the call falls back to Cursor's own rules.
-- **No mirroring.** Cursor's CLI keeps no readable transcript: the local footprint is settings only,
-  and the authoritative store is `api2.cursor.sh`. `persist attach` exists but is undocumented and
-  looks like a terminal reattach. A Cursor session started by a person is therefore invisible to the
-  device.
-- **No attachments.** Print mode takes a prompt and nothing else; the capability is not advertised
-  and an attachment sent anyway is refused.
-- **Questions.** Cursor answers its own `askQuestion` tool inside the process and prints it as an
-  observational `interaction_query` line, so no `question` block is raised for one.
 
 ## pi
 

@@ -16,7 +16,7 @@ from rc_client.sessions.hub import SessionEntry
 
 
 def test_every_id_names_a_package_with_the_three_plugin_symbols() -> None:
-    assert AGENT_IDS == ("claude", "codex", "grok", "cursor", "pi")
+    assert AGENT_IDS == ("claude", "codex", "grok", "pi")
     for agent in AGENT_IDS:
         plugin = registry.plugin(agent)
         assert agent == plugin.AGENT
