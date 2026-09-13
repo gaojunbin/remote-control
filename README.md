@@ -110,6 +110,17 @@ never rewrites a shell profile, then runs `codex app-server daemon bootstrap` an
 supervision, because Codex's bootstrap leaves none and the daemon would not survive a reboot. On a
 healthy machine `rc-client status` then reports the daemon as `healthy (loaded)`.
 
+Terminal **pi** sessions need the device's pi extension, which the installer sets up when `pi` is
+already installed. To check it, or to set it up after installing pi later:
+
+```sh
+~/.rc-client/venv/bin/rc-client pi status   # installed, current, or missing
+~/.rc-client/venv/bin/rc-client pi setup    # idempotent: copy the extension into ~/.pi/agent/extensions
+```
+
+A `pi` you start in a terminal then appears in the apps as a shared session with a live composer,
+and its tool calls ask for permission on the phone or in the terminal, whichever answers first.
+
 One rule applies from then on: start Codex as a bare `codex`. Any `-c`, `--enable`, `--disable` or
 `--dangerously-bypass-approvals-and-sandbox` on the command line makes the CLI run its own private
 app-server, which the device cannot join, and the session falls back to read-only mirroring.
@@ -175,8 +186,9 @@ RCVerify` checks the protocol fixtures with plain Command Line Tools and needs n
   mode or effort mid-session.
 - **Agents** — Claude Code through `claude-agent-sdk`, Codex through its app-server JSON-RPC
   interface, either as a private process per session or as a second client on the machine's shared
-  app-server daemon. Both agents are normalised to one block timeline, so the UI has no
-  agent-specific code paths.
+  app-server daemon, Grok Build over its ACP JSON-RPC, and pi over its RPC mode with an extension of
+  the device's own loaded into every pi process. Every agent is normalised to one block timeline,
+  so the UI has no agent-specific code paths, and each one is shown by its logo.
 - **Timeline** — streamed assistant Markdown, collapsible thinking, one-line tool rows that expand
   to input and output, diffs with per-file counts, todo snapshots, approval cards, question cards,
   turn markers and usage.

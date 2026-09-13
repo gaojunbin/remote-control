@@ -18,7 +18,25 @@ curl -fsSL https://rc.example.com/install.sh | sh -s -- --pair RC-7K42-QX9M  # p
 It installs `uv` into `~/.local/bin` if it is not already there, installs Python 3.12, creates a
 private virtual environment at `~/.rc-client/venv`, downloads the `rc_client` wheel from the
 gateway, records which wheel that was, enrolls the device, registers the background service, starts
-it, and prints the agents it found. Re-running upgrades in place.
+it, installs the `claude` shim, sets up the shared Codex daemon, installs the pi extension, and
+prints the agents it found. Re-running upgrades in place.
+
+It reports as it goes. A bold title and a one-line tagline open the run, then each step is a single
+line: a braille spinner and a present-tense label while it works, a green `✓` and the result when it
+is done. The step's own output is captured, not printed, so a successful run is a dozen quiet lines;
+a step that fails prints a red `✗` and that captured output indented underneath, and stops there.
+Enrolment is the exception and keeps its terminal: the QR code, the claim URL and the `Enrolled as …`
+lines all pass straight through, with the `✓ Enrolled` line printed after them. The `claude` shim,
+the shared Codex daemon and the pi extension are never fatal — each one that does not come up prints
+a dim `–` line naming the `status` command that explains it, and the install carries on. The run ends
+with **Detected agents**, one line per agent with its version or `(not installed)`, and a two-column
+list of the commands you are most likely to want next.
+
+The colours, the spinner, the hidden cursor and the Unicode marks are for a terminal only. Piped
+into a file or another program, with `TERM=dumb`, or with `NO_COLOR` set, the same lines print with
+`ok`, `error` and `-` in place of `✓`, `✗` and `–`, no escape codes and no spinner, so a logged
+install reads as plain text. Unicode marks additionally need a UTF-8 locale or a terminal known to
+have one. Ctrl-C at any point clears the spinner line, restores the cursor and exits 130.
 
 With `--pair` the code comes from **Add device** in an app and you type it on the host. Without it
 the host asks the gateway for a claim token, prints it as a QR code with its URL underneath, and

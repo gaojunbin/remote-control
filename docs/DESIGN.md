@@ -119,25 +119,40 @@ app, keyed by gateway and username; the gateway holds no settings for anyone.
 
 ## Agents
 
-**Five agents, one vocabulary.** The device knows Claude Code (`claude`), Codex (`codex`), Grok
-Build (`grok`), Cursor (`cursor`) and pi (`pi`), and the apps name them exactly so; an id nobody
-knows renders as itself. Each has a one- or two-letter mark for the places a name does not fit
-— the agent control of the new-session form and the filter menu: C for Claude Code, X for Codex,
-G for Grok Build, Cu for Cursor, π for pi. Agent chips share one quiet tint; the mark and the
-name tell them apart, not a colour per vendor.
+**Four agents, one vocabulary.** The device knows Claude Code (`claude`), Codex (`codex`), Grok
+Build (`grok`) and pi (`pi`), and the apps name them exactly so; an id nobody knows renders as
+itself. Cursor was withdrawn (protocol A26) until it can be exercised against a signed-in Cursor.
+
+**The mark is the agent's own logo.** Where an agent is shown by something smaller than its name
+— the agent control of the new-session form, the filter menu, the chip on a session row, a
+device's agent list — it is shown by its logo: Anthropic's starburst for Claude Code, OpenAI's
+knot for Codex, the Grok spiral for Grok Build, pi's pixel P. Every logo is drawn monochrome in
+the ink colour, at the cap height of the text beside it, on the same quiet chip tint as before:
+the shape tells the agents apart, not a colour per vendor, and nothing on the screen wears a brand
+colour. Where there is room the name follows the logo; in the agent control the logo stands alone
+and the line under the control names the chosen agent. An agent nobody knows is marked by the
+first letter of its id in the same box. The vectors are the vendors' published marks (Simple Icons
+for Claude and OpenAI, pi.dev for pi, the Grok mark), used to identify the product and for nothing
+else; the letters C, X, G and π are gone.
 
 **What an agent does not have is not drawn.** The composer row and the new-session form offer
-exactly what the device advertises: an agent whose `permission_modes` is empty (pi has no
-permission system) shows no permission picker and no permission row, and the status line never
-mentions permissions for it; an agent whose `efforts` is empty (Cursor) shows no effort slider,
-and its model card reads the model alone. Nothing is greyed out and nothing is explained: an
-absent control means the agent has no such setting.
+exactly what the device advertises: an agent whose `permission_modes` is empty shows no permission
+picker and no permission row, and the status line never mentions permissions for it; an agent
+whose `efforts` is empty shows no effort slider, and its model card reads the model alone. Nothing
+is greyed out and nothing is explained: an absent control means the agent has no such setting. No
+shipped agent is empty today: pi's three modes — Ask for everything, Ask when needed, Never ask —
+are the device's own, enforced by the extension it loads into every pi session (A26), and an app
+draws them exactly as it draws Codex's.
 
-**Terminal sessions of the new agents are mirrored where the agent leaves a log.** Grok Build
-writes its own update log, so a Grok session started in a terminal appears in the lists as a
-terminal-held session, readable but not writable from an app, exactly as a Claude session did
-before channels. Cursor and pi keep no readable log on the device, so their sessions exist only
-when an app starts them.
+**Terminal sessions of the new agents.** Grok Build writes its own update log, so a Grok session
+started in a terminal appears in the lists as a terminal-held session, readable but not writable
+from an app, exactly as a Claude session did before channels. pi loads the device's extension
+into every session it runs, so a pi session started in a terminal is a *shared* session —
+readable, writable, stoppable and re-modelled from an app, exactly as a Codex TUI under the shared
+daemon is — once `rc-client pi setup` has been run on that device; without the extension a
+terminal pi session does not exist for the apps, and nothing is shown for it. An approval on a
+shared pi session is one question asked in two places, the terminal dialog and the app's block;
+whichever answers first wins and the other side is told, as A20 already says for Claude.
 
 ## Session lists: by device, then by activity
 
@@ -204,7 +219,7 @@ that did nothing.
 **Agents are visible and filterable.** Every row carries an agent chip on its meta line — the
 agent's name from § "Agents", falling back to the raw agent id, in the one quiet tint every agent
 shares. The Sessions page adds an agent filter: a menu of "All agents" and the agents actually
-present, each with its mark and its name, defaulting to All and not persisted. It applies before the grouping, so a device whose sessions it removes disappears with
+present, each with its logo and its name, defaulting to All and not persisted. It applies before the grouping, so a device whose sessions it removes disappears with
 them. The filter lives in the store both lists read, so the page and the chat sidebar never
 disagree.
 

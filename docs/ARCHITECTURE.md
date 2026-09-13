@@ -8,7 +8,7 @@ do. `protocol/PROTOCOL.md` is the normative contract; this document explains the
 | Component | Runs on | Owns |
 | --- | --- | --- |
 | `rc_gateway` | Your VPS, in Docker | Authentication, device enrollment, routing between apps and devices, the session index, a bounded replay buffer, the speech-to-text proxy, push, and serving the web app and the installer |
-| `rc-client` | Every developer machine | Agent discovery, session lifecycle, the Claude and Codex adapters, terminal-session mirroring, the full event history, and the local `seq` counter |
+| `rc-client` | Every developer machine | Agent discovery, session lifecycle, the Claude, Codex, Grok Build and pi adapters, terminal-session mirroring and attaching, the full event history, and the local `seq` counter |
 | `web` | A browser | The four screens, live rendering of the block timeline, voice capture, Web Push |
 | `ios` | An iPhone | The same four screens natively, on-device or gateway dictation, APNs |
 
@@ -57,7 +57,7 @@ would let any client fill the disk.
 
 ## The block timeline
 
-Both adapters normalise their agent's output into one model, so the apps contain no agent-specific
+Every adapter normalises its agent's output into one model, so the apps contain no agent-specific
 rendering. A session is a list of **blocks**, each identified by a `block_id`:
 
 | Kind | What it renders as |
@@ -286,6 +286,7 @@ branching on the agent id:
 | --- | --- | --- | --- | --- |
 | Claude, through the channel shim | `channel` | false | false | false |
 | Codex, through the app-server daemon | `daemon` | true | true | true |
+| pi, through the device's extension | `extension` | true | true | true |
 
 `shared_interrupt` maps to `turn/interrupt`, which works whoever started the turn. `shared_settings`
 maps to `thread/settings/update`, so changing the model, the permission mode or the reasoning effort
@@ -295,6 +296,19 @@ shared turn joins that turn through `turn/steer` instead of waiting for it — t
 attached Claude session cannot do. A deliberately queued message on a Codex session waits in the
 queue as it does anywhere else (A19). `attach_ready` is set from a real handshake on the socket, not from the
 socket file existing, because a stale socket is exactly the case the hint text exists for.
+
+**pi attaches through an extension of the device's own (A26).** pi has no daemon and no socket, but
+it loads TypeScript extensions from `~/.pi/agent/extensions/` into every process, and an extension
+sees every agent event, can block a tool call, inject a user message, abort the turn and change
+the model and thinking level. `rc-client pi setup` installs the device's extension there; the
+device also loads it into the RPC sessions it starts when the installed copy is missing or stale.
+The extension dials a Unix socket in the device home, registers the pi session with the branch it
+already holds, forwards pi's events verbatim so one translator serves terminal and remote sessions
+alike, and takes the device's commands back. It is also what gives pi permission modes: pi itself
+asks nothing, so the extension holds a tool call until the app or the terminal answers — the
+Codex vocabulary, `untrusted` / `on-request` / `never`, with the device deciding which tools each
+mode asks about. A pi session started in a terminal is therefore `shared` for as long as the
+process lives, and without the extension it does not exist for the apps at all.
 
 ### Approvals are shared state, not a private modal
 
