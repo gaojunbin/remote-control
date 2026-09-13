@@ -606,7 +606,7 @@ The agent and option arrays are shortened here; the fixture holds the full objec
 | `efforts` | `LabeledId[]` | yes | Empty array when the agent has no effort levels |
 | `default_effort` | string \| null | yes | |
 | `speeds` | `LabeledId[]` | no | Speed tiers the agent can run a session at beyond its standard speed, for example Codex's `priority` ("Fast"); empty or absent when it has none (amendment A21) |
-| `capabilities` | string[] | yes | Subset of `worktree`, `takeover`, `interrupt`, `queue`, `steer`, `attachments`, `effort`, `history` |
+| `capabilities` | string[] | yes | Subset of `worktree`, `takeover`, `interrupt`, `queue`, `steer`, `attachments`, `effort`, `history`, `commands`. `commands` means the agent's sessions can list and run slash commands from an app through `session.commands` and `session.command` (A27); Codex, Grok Build and pi carry it, Claude does not |
 | `attach` | `channel` \| `daemon` \| `extension` \| null | no | How this agent's terminal sessions can be attached. `channel` is the Claude channel shim, `daemon` the Codex shared app-server, `extension` an extension of the device's own that the agent loads into every one of its processes (pi, A26). Null or absent means terminal sessions can only be taken over or resumed. |
 | `attach_ready` | boolean | no | Whether the device is prepared to attach: for Claude the `claude` shim is installed and on `PATH`, for Codex a handshake on the shared daemon socket succeeds, for pi the device's extension is installed in pi's global extension directory at the current build. Apps use it only to word the hint on a `terminal` session. |
 | `shared_interrupt` | boolean | no | Whether the attachment can interrupt a running turn. `session.stop` on a `shared` session needs this **and** capability `interrupt`. False when absent. |
@@ -865,6 +865,23 @@ timestamps and the number of devices it has enrolled.
 | --- | --- | --- |
 | `username` | string | Lower case, 3 to 32 characters, see 3.1. `admin` is the operator. |
 | `role` | `admin` \| `member` | What 3.9 is gated on. A `member` sees nothing of any other account. |
+
+---
+
+### 4.11 Command
+
+A slash command a session offers (A27). `fixtures/app/reply.session.commands.json` is the worked
+list.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | string | yes | What the user types after the slash: `compact`, `review`, `hooks-list`, `skill:pdf-tables`. Lower case, `[a-z0-9_:.-]`, never with the slash |
+| `description` | string | yes | One line, what it does, in the agent's own words where it has them |
+| `argument` | string | no | A placeholder for what may follow the name — `instructions`, `path`. Absent when the command takes nothing. An app shows it as the hint once the name is complete, and sends whatever was typed after the name as `argument` |
+| `group` | string | no | Where the command comes from: `Built-in`, `Skills`, `Prompts`, `Extensions`. An app sections the list by it only when more than one group is present |
+
+Apps render `/name` beside `description`, filter by prefix of `name` as the user types, and send
+`name` back unchanged.
 
 ---
 
@@ -2043,6 +2060,8 @@ The gateway forwards these to the owning device and returns the device's reply.
 | `session.set` | `session_id`, `model?`, `permission_mode?`, `effort?`, `speed?`, `title?` | `{session}` |
 | `session.history` | `session_id`, `before_seq?`, `after_seq?`, `limit?` | `{events, has_more}` |
 | `session.block` | `session_id`, `block_id` | `{event}` |
+| `session.commands` | `session_id` | `{commands}` — the slash commands the session offers now (A27) |
+| `session.command` | `session_id`, `name`, `argument?` | `{}` — runs one; the echo and the outcome arrive as events (A27) |
 | `session.queue_remove` | `session_id`, `queued_id` | `{}` |
 | `session.takeover` | `session_id` | `{session}` |
 | `session.archive` | `session_id`, `archived` | `{session}` |
@@ -2078,6 +2097,45 @@ The result's `accepted` field reports what actually happened: `sent`, `queued` o
 - `session.set` with `effort` on Claude may need the SDK connection restarted before the next turn.
   The device replies immediately with the updated `Session` and applies the change lazily. The same
   applies to `permission_mode` when the agent cannot change it live.
+
+#### Slash commands (A27)
+
+A terminal offers its agent's commands the moment `/` is typed; an app offers the same list the same
+way, for the agents that can take them. `AgentInfo.capabilities` carries `commands` for an agent
+whose sessions can list and run commands remotely — Codex, Grok Build and pi today — and never for
+Claude, whose channel carries user text and nothing else. An app draws nothing for an agent without
+it: `/` is then ordinary text.
+
+`session.commands {session_id}` returns `{commands: Command[]}` (4.11): what the session's agent
+offers **now**. For a session with a live process the device asks the agent — Grok Build advertises
+its list over ACP when a session opens, pi answers `get_commands`; Codex has no such call, so the
+device ships a fixed table. For a session with no live process (`control: "none"`) the device answers
+from what it knows without starting one: Codex's table, pi's prompt templates and skills on disk,
+the list Grok last advertised on this device. That may be `[]`, and an app that receives `[]` draws
+nothing until it asks again. Apps ask when a conversation opens and again when `/` is typed if the
+last answer is older than a minute or was empty. `unsupported` for an agent without the capability.
+
+`session.command {session_id, name, argument?}` runs one. The device echoes it as a `user_message`
+under the request's `id` with text `/name argument` and `source: "remote"` — A12 applies, the app
+has already drawn the row — and reports the outcome as ordinary events. For Grok Build and pi the
+command is handed to the agent as the text of a turn, which is how their agents interpret it: Grok
+runs its shell-side commands locally and answers in `assistant_text` at zero tokens, sometimes with
+no output at all; pi expands prompt templates, skill commands and extension commands before the
+turn. For Codex the device calls the method the command stands for and reports a `notice` for a
+state change (`compact`), the turn's own blocks (`review`, `init`), or a `tool_call` block for
+information a terminal would have printed: `tool_kind: "other"`, `tool` and `title` `/name`,
+`status: "succeeded"`, `output` the text — `fixtures/events/tool_call.command.json`. The result is `{}`;
+the effects are in the stream. Refusals: `not_found` for a name the session does not offer,
+`conflict` while a turn is running ("wait for the turn to finish") or on a `control: "terminal"`
+session (as `session.send`), `unsupported` for an agent without the capability. A `none` session is
+resumed first, exactly as `session.send` does. On a `shared` session the request works exactly where
+`session.send` does — Codex on the daemon, pi through its extension.
+
+Commands are not settings and not lifecycle. `/model`, `/permissions`, `/fast`, `/thinking` and
+`/name` are `session.set`; `/new`, `/archive`, `/delete` and `/resume` are `session.create`,
+`session.archive` and `session.delete`. A device never lists them as commands, so an app never draws
+two controls for one thing. Terminal ergonomics — `/vim`, `/theme`, `/keymap`, `/copy`, `/hotkeys` —
+are never listed either: they change a terminal the app cannot see.
 
 #### Requests on a `shared` session
 
@@ -2859,6 +2917,10 @@ by `block_id` like any other.
 - [ ] Reports every agent it knows how to drive — `claude`, `codex`, `grok`, `pi` — with
       `available: false` when the binary is missing, and drives a session of any of them through
       the same frames (A25, A26).
+- [ ] Lists capability `commands` only for an agent whose sessions can list and run slash
+      commands remotely, answers `session.commands` with what the agent offers now, echoes every
+      `session.command` as a `user_message` under the request's `id`, and refuses one while a
+      turn is running with `conflict` (A27).
 - [ ] Emits `status` on every state change and `turn_started` / `turn_completed` around every turn.
 - [ ] Reports `readonly` only for a terminal-controlled session with no turn in progress, and
       `running` while a terminal-driven turn is working.
@@ -2959,6 +3021,11 @@ by `block_id` like any other.
       reconnects with backoff on any code other than 4401 and 4403.
 - [ ] Never auto-resends a `session.send`; retries reuse the original `id`.
 - [ ] Shows the queued or steered outcome from `accepted` rather than guessing.
+- [ ] Opens the command list when `/` is typed into an empty composer on a session whose agent
+      has capability `commands`, filters it by name as the user types, shows each command's
+      description and argument hint, sends a matched first word as `session.command` and
+      anything else as `session.send`, and draws nothing for an agent without the capability
+      (A27).
 - [ ] Decodes every fixture under `fixtures/` in its test suite.
 
 ---
@@ -3226,3 +3293,14 @@ tool call until an app or the terminal answers, so `permission_modes` is no long
 and `approval` blocks appear on its sessions; pi's `prompt` takes images, so pi gains the
 `attachments` capability and `shared_attachments`. `fixtures/objects/agent.pi.json` is the worked
 example. See 1.1, 4.2, 4.3 and 4.4.
+
+**2026-09-14 A27 — slash commands from the apps.** A terminal offers `/compact`, `/review`, a
+project's prompt templates and its skills the moment `/` is typed; the apps could send only prose.
+`AgentInfo.capabilities` gains `commands`, 4.11 defines `Command`, and 6.3 gains `session.commands`
+(the list a session offers now) and `session.command` (run one, echoed as a `user_message` under the
+request's id, outcome in the stream). Grok Build and pi hand the command to the agent as the text of
+a turn, which is how their agents interpret it; Codex has no such path, so the device maps each entry
+of a fixed table to the app-server method it stands for and reports information as a `tool_call`
+block titled with the command. Settings, lifecycle and terminal ergonomics are never commands.
+Claude does not list the capability: a channel carries user text and nothing else. See 4.2, 4.11,
+6.3, 9.2 and 9.3.

@@ -68,6 +68,12 @@
           "$ref": "#/$defs/SessionBlock"
         },
         {
+          "$ref": "#/$defs/SessionCommands"
+        },
+        {
+          "$ref": "#/$defs/SessionCommand"
+        },
+        {
           "$ref": "#/$defs/SessionQueueRemove"
         },
         {
@@ -119,6 +125,12 @@
         },
         {
           "$ref": "#/$defs/SessionBlock"
+        },
+        {
+          "$ref": "#/$defs/SessionCommands"
+        },
+        {
+          "$ref": "#/$defs/SessionCommand"
         },
         {
           "$ref": "#/$defs/SessionQueueRemove"
@@ -768,6 +780,59 @@
         "block_id"
       ]
     },
+    "SessionCommands": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/RequestBase"
+        }
+      ],
+      "type": "object",
+      "description": "Ask what slash commands the session offers right now (A27). Needs capability `commands` on the session's agent.",
+      "properties": {
+        "type": {
+          "const": "session.commands"
+        },
+        "session_id": {
+          "$ref": "objects.json#/$defs/Id"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "session_id"
+      ]
+    },
+    "SessionCommand": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/RequestBase"
+        }
+      ],
+      "type": "object",
+      "description": "Run one slash command on an idle session (A27). The device echoes it as a `user_message` under this request's `id` and reports the outcome as events.",
+      "properties": {
+        "type": {
+          "const": "session.command"
+        },
+        "session_id": {
+          "$ref": "objects.json#/$defs/Id"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_:.-]*$"
+        },
+        "argument": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "session_id",
+        "name"
+      ]
+    },
     "SessionQueueRemove": {
       "allOf": [
         {
@@ -1200,6 +1265,33 @@
       "properties": {
         "result": {
           "$ref": "#/$defs/ResultSessionBlock"
+        }
+      }
+    },
+    "ResultSessionCommands": {
+      "type": "object",
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "objects.json#/$defs/Command"
+          }
+        }
+      },
+      "required": [
+        "commands"
+      ]
+    },
+    "ReplySessionCommands": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/ReplyOk"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/ResultSessionCommands"
         }
       }
     },

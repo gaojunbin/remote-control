@@ -88,7 +88,8 @@
         "steer",
         "attachments",
         "effort",
-        "history"
+        "history",
+        "commands"
       ]
     },
     "AttachMode": {
@@ -143,6 +144,33 @@
       "required": [
         "id",
         "label"
+      ]
+    },
+    "Command": {
+      "description": "A slash command a session offers (A27). `name` is what the user types after the slash.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_:.-]*$"
+        },
+        "description": {
+          "type": "string"
+        },
+        "argument": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Placeholder for what may follow the name, e.g. `instructions`. Absent when the command takes nothing."
+        },
+        "group": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Where the command comes from, for sectioning a long list: `Skills`, `Prompts`, `Extensions`, `Built-in`. Absent when the agent draws no distinction."
+        }
+      },
+      "required": [
+        "name",
+        "description"
       ]
     },
     "Usage": {
