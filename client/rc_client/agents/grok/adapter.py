@@ -16,7 +16,8 @@ from ...sessions.channel import SessionChannel
 from ..base import Emit
 from .acp import GrokAgent
 from .catalog import GrokCatalog
-from .translate import SETTINGS, GrokTranslator, config_settings, stop_reason
+from .commands import advertised, recall, remember
+from .translate import SETTINGS, GrokTranslator, config_settings, session_update, stop_reason
 
 log = logger("rc_client.grok")
 
@@ -70,6 +71,7 @@ class GrokRunner:
         self._turn_started_at = 0
         self._interrupting = False
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._commands: list[Command] = []
 
     # ------------------------------------------------------------- lifecycle
 
@@ -141,6 +143,8 @@ class GrokRunner:
     # ------------------------------------------------------------- streaming
 
     async def _on_notification(self, method: str, params: dict[str, Any]) -> None:
+        if self._note_commands(method, params):
+            return
         completion: dict[str, Any] | None = None
         for emit in self._translator.notification(method, params):
             if emit.kind == "turn_completed":
@@ -292,11 +296,36 @@ class GrokRunner:
         await self.start()
         await self._finish_turn({"stop_reason": "interrupted", "duration_ms": 0})
 
+    # -------------------------------------------------------- slash commands
+
+    def _note_commands(self, method: str, params: dict[str, Any]) -> bool:
+        """Grok pushes its whole command list when a session opens, and again
+        whenever plugins or skills are reloaded (A27). It is state, not an event,
+        so a replayed one during `session/load` is taken as gladly as a live one.
+        """
+        found = session_update(method, params)
+        if found is None or found[0] != "available_commands_update":
+            return False
+        listed = advertised(found[1])
+        if listed != self._commands:
+            self._commands = listed
+            remember(listed)
+        return True
+
     async def commands(self) -> list[Command]:
-        return []
+        """What this session advertised, falling back to what the device last saw.
+
+        The advertisement is a notification, so a `session.commands` that arrives
+        in the same instant as the session opens would otherwise answer nothing.
+        """
+        return list(self._commands) if self._commands else recall()
 
     async def command(self, name: str, argument: str | None, block_id: str) -> None:
-        raise RcError("not_found", f"/{name} is not a command this session offers")
+        """Grok runs its own commands: the turn's text is `/name argument`."""
+        listed = await self.commands()
+        if not any(command.name == name for command in listed):
+            raise RcError("not_found", f"/{name} is not a command this session offers")
+        await self.send(f"/{name} {argument}" if argument else f"/{name}", block_id=block_id)
 
     async def apply_settings(
         self,

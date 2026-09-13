@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from ...errors import RcError
-from ...models import AgentInfo, Choice
+from ...models import AgentInfo, Choice, Command, Session
 from ..base import SessionRunner
 from ..registry import DetectContext, RunnerSpec
 from . import catalog as catalogue
 from . import runtime
 from .adapter import GrokRunner
+from .commands import recall
 
 AGENT = "grok"
 
@@ -28,6 +29,7 @@ CAPABILITIES = [
     "queue",
     "effort",
     "history",
+    "commands",
 ]
 
 
@@ -56,6 +58,15 @@ async def detect(context: DetectContext) -> AgentInfo:
         shared_settings=False,
         shared_attachments=False,
     )
+
+
+async def commands(session: Session) -> list[Command]:
+    """What a session with no live process offers (A27).
+
+    Grok only advertises to a session it has open, so the answer is the list it
+    last advertised on this device; a resumed session replaces it with its own.
+    """
+    return recall()
 
 
 async def build_runner(spec: RunnerSpec) -> SessionRunner:

@@ -1,0 +1,897 @@
+{
+  "jsonrpc": "2.0",
+  "method": "session/update",
+  "params": {
+    "sessionId": "01a09b4f-1b25-7e92-b96b-356d292ff2d0",
+    "update": {
+      "sessionUpdate": "available_commands_update",
+      "availableCommands": [
+        {
+          "name": "compact",
+          "description": "Compress conversation history to save context window",
+          "input": {
+            "hint": "optional context about what to preserve"
+          }
+        },
+        {
+          "name": "always-approve",
+          "description": "Toggle always-approve mode (skip all permission prompts)",
+          "input": {
+            "hint": "on|off"
+          }
+        },
+        {
+          "name": "context",
+          "description": "Show context window usage and session stats",
+          "input": null
+        },
+        {
+          "name": "hooks-trust",
+          "description": "Trust this project for hook execution",
+          "input": null
+        },
+        {
+          "name": "hooks-list",
+          "description": "Show hooks loaded in this session",
+          "input": null
+        },
+        {
+          "name": "hooks-add",
+          "description": "Add a custom hook file or directory",
+          "input": {
+            "hint": "path to hook file or directory"
+          }
+        },
+        {
+          "name": "hooks-remove",
+          "description": "Remove a custom hook file or directory path",
+          "input": {
+            "hint": "path to hook file or directory"
+          }
+        },
+        {
+          "name": "hooks-untrust",
+          "description": "Remove trust for the current project",
+          "input": null
+        },
+        {
+          "name": "plugins",
+          "description": "Manage plugins (list, reload, trust, add, remove)",
+          "input": {
+            "hint": "list | reload | trust <path> | add <path> | remove <path>"
+          }
+        },
+        {
+          "name": "reload-plugins",
+          "description": "Reload plugins from disk (alias for /plugins reload)",
+          "input": null
+        },
+        {
+          "name": "session-info",
+          "description": "Show session details (model, turns, context usage)",
+          "input": null
+        },
+        {
+          "name": "feedback",
+          "description": "Send feedback about the current session",
+          "input": {
+            "hint": "feedback text"
+          }
+        },
+        {
+          "name": "deep-research",
+          "description": "Research with bounded parallel agents, cross-check evidence, and write a cited report",
+          "input": {
+            "hint": "<query>"
+          },
+          "_meta": {
+            "workflowSource": "builtin",
+            "workflowPath": "/Users/dev/.grok/bundled/workflows/deep-research.rhai"
+          }
+        },
+        {
+          "name": "workflow",
+          "description": "Launch a saved workflow, list runs, or manage a run (pause, resume, stop, save)",
+          "input": {
+            "hint": "<name> [--agent-budget N] [--effort LEVEL] [args] | runs | pause|resume|stop|save [name]"
+          }
+        },
+        {
+          "name": "goal",
+          "description": "Set, manage, or check an autonomous goal",
+          "input": {
+            "hint": "<objective> [--budget <tokens>] | status | pause | resume | clear"
+          }
+        },
+        {
+          "name": "loop",
+          "description": "Run a prompt on a recurring interval",
+          "input": {
+            "hint": "[interval] <prompt>"
+          }
+        },
+        {
+          "name": "agent-browser",
+          "description": "Browser automation CLI for AI agents. Use when the user needs to interact with websites, including navigating pages, filling forms, clicking buttons, taking screenshots, extracting data, testing web apps, or automating any browser task. Triggers include requests to \"open a website\", \"fill out a form\", \"click a button\", \"take a screenshot\", \"scrape data from a page\", \"test this web app\", \"login to a site\", \"automate browser actions\", or any task requiring programmatic web interaction.",
+          "input": null,
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.agents/skills/agent-browser/SKILL.md",
+            "bareName": "agent-browser",
+            "qualifiedName": "user:agent-browser"
+          }
+        },
+        {
+          "name": "ai-video-generation",
+          "description": "Generate AI videos with Google Veo, Seedance, Wan, Grok and 40+ models via inference.sh CLI. Models: Veo 3.1, Veo 3, Seedance 1.5 Pro, Wan 2.5, Grok Imagine Video, OmniHuman, Fabric, HunyuanVideo. Capabilities: text-to-video, image-to-video, lipsync, avatar animation, video upscaling, foley sound. Use for: social media videos, marketing content, explainer videos, product demos, AI avatars. Triggers: video generation, ai video, text to video, image to video, veo, animate image, video from image, ai animation, video generator, generate video, t2v, i2v, ai video maker, create video with ai, runway alternative, pika alternative, sora alternative, kling alternative",
+          "input": null,
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.agents/skills/ai-video-generation/SKILL.md",
+            "bareName": "ai-video-generation",
+            "qualifiedName": "user:ai-video-generation"
+          }
+        },
+        {
+          "name": "copywriting",
+          "description": "When the user wants to write, rewrite, or improve marketing copy for any page — including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says \"write copy for,\" \"improve this copy,\" \"rewrite this page,\" \"marketing copy,\" \"headline help,\" \"CTA copy,\" \"value proposition,\" \"tagline,\" \"subheadline,\" \"hero section copy,\" \"above the fold,\" \"this copy is weak,\" \"make this more compelling,\" or \"help me describe my product.\" Use this whenever someone is working on website text that needs to persuade or convert. For email copy, see email-sequence. For popup copy, see popup-cro. For editing existing copy, see copy-editing.",
+          "input": null,
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.agents/skills/copywriting/SKILL.md",
+            "bareName": "copywriting",
+            "qualifiedName": "user:copywriting"
+          }
+        },
+        {
+          "name": "find-skills",
+          "description": "Helps users discover and install agent skills when they ask questions like \"how do I do X\", \"find a skill for X\", \"is there a skill that can...\", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.",
+          "input": null,
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.agents/skills/find-skills/SKILL.md",
+            "bareName": "find-skills",
+            "qualifiedName": "user:find-skills"
+          }
+        },
+        {
+          "name": "seedmux-team",
+          "description": "在 Seedmux 中创建或复用 Claude、Codex、Grok、OpenCode、Kimi 的真实 pane，派发任务、收回执或组织设计讨论。用户要求开 agent、分头做、组 team、圆桌，或收到已有 team 工单/回执时使用。",
+          "input": null,
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.agents/skills/seedmux-team/SKILL.md",
+            "bareName": "seedmux-team",
+            "qualifiedName": "user:seedmux-team"
+          }
+        },
+        {
+          "name": "frontend-design",
+          "description": "Frontend design skill fused from Impeccable + custom extensions. Covers design philosophy, anti-AI-slop patterns, typography, color (OKLCH), spatial design, motion, interaction, responsive, UX writing, state management, engineering, and 4 style variants. Includes 20 command skills for audit/critique/polish/animate/etc.",
+          "input": null,
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/domains/frontend-design/SKILL.md",
+            "bareName": "frontend-design",
+            "qualifiedName": "user:frontend-design"
+          }
+        },
+        {
+          "name": "adapt",
+          "description": "Adapt designs to work across different screen sizes, devices, contexts, or platforms. Implements breakpoints, fluid layouts, and touch targets. Use when the user mentions responsive design, mobile layouts, breakpoints, viewport adaptation, or cross-device compatibility.",
+          "input": {
+            "hint": "[target] [context (mobile, tablet, print...)]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/adapt/SKILL.md",
+            "bareName": "adapt",
+            "qualifiedName": "user:adapt"
+          }
+        },
+        {
+          "name": "animate",
+          "description": "Review a feature and enhance it with purposeful animations, micro-interactions, and motion effects that improve usability and delight. Use when the user mentions adding animation, transitions, micro-interactions, motion design, hover effects, or making the UI feel more alive.",
+          "input": {
+            "hint": "[target]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/animate/SKILL.md",
+            "bareName": "animate",
+            "qualifiedName": "user:animate"
+          }
+        },
+        {
+          "name": "arrange",
+          "description": "Improve layout, spacing, and visual rhythm. Fixes monotonous grids, inconsistent spacing, and weak visual hierarchy. Use when the user mentions layout feeling off, spacing issues, visual hierarchy, crowded UI, alignment problems, or wanting better composition.",
+          "input": {
+            "hint": "[target]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/arrange/SKILL.md",
+            "bareName": "arrange",
+            "qualifiedName": "user:arrange"
+          }
+        },
+        {
+          "name": "audit",
+          "description": "Run technical quality checks across accessibility, performance, theming, responsive design, and anti-patterns. Generates a scored report with P0-P3 severity ratings and actionable plan. Use when the user wants an accessibility check, performance audit, or technical quality review.",
+          "input": {
+            "hint": "[area (feature, page, component...)]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/audit/SKILL.md",
+            "bareName": "audit",
+            "qualifiedName": "user:audit"
+          }
+        },
+        {
+          "name": "bolder",
+          "description": "Amplify safe or boring designs to make them more visually interesting and stimulating. Increases impact while maintaining usability. Use when the user says the design looks bland, generic, too safe, lacks personality, or wants more visual impact and character.",
+          "input": {
+            "hint": "[target]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/bolder/SKILL.md",
+            "bareName": "bolder",
+            "qualifiedName": "user:bolder"
+          }
+        },
+        {
+          "name": "clarify",
+          "description": "Improve unclear UX copy, error messages, microcopy, labels, and instructions to make interfaces easier to understand. Use when the user mentions confusing text, unclear labels, bad error messages, hard-to-follow instructions, or wanting better UX writing.",
+          "input": {
+            "hint": "[target]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/clarify/SKILL.md",
+            "bareName": "clarify",
+            "qualifiedName": "user:clarify"
+          }
+        },
+        {
+          "name": "colorize",
+          "description": "Add strategic color to features that are too monochromatic or lack visual interest, making interfaces more engaging and expressive. Use when the user mentions the design looking gray, dull, lacking warmth, needing more color, or wanting a more vibrant or expressive palette.",
+          "input": {
+            "hint": "[target]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/colorize/SKILL.md",
+            "bareName": "colorize",
+            "qualifiedName": "user:colorize"
+          }
+        },
+        {
+          "name": "critique",
+          "description": "Evaluate design from a UX perspective, assessing visual hierarchy, information architecture, emotional resonance, cognitive load, and overall quality with quantitative scoring, persona-based testing, and actionable feedback. Use when the user asks to review, critique, evaluate, or give feedback on a design or component.",
+          "input": {
+            "hint": "[area (feature, page, component...)]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/critique/SKILL.md",
+            "bareName": "critique",
+            "qualifiedName": "user:critique"
+          }
+        },
+        {
+          "name": "delight",
+          "description": "Add moments of joy, personality, and unexpected touches that make interfaces memorable and enjoyable to use. Elevates functional to delightful. Use when the user asks to add polish, personality, animations, micro-interactions, delight, or make an interface feel fun or memorable.",
+          "input": {
+            "hint": "[target]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/delight/SKILL.md",
+            "bareName": "delight",
+            "qualifiedName": "user:delight"
+          }
+        },
+        {
+          "name": "distill",
+          "description": "Strip designs to their essence by removing unnecessary complexity. Great design is simple, powerful, and clean. Use when the user asks to simplify, declutter, reduce noise, remove elements, or make a UI cleaner and more focused.",
+          "input": {
+            "hint": "[target]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/distill/SKILL.md",
+            "bareName": "distill",
+            "qualifiedName": "user:distill"
+          }
+        },
+        {
+          "name": "extract",
+          "description": "Extract and consolidate reusable components, design tokens, and patterns into your design system. Identifies opportunities for systematic reuse and enriches your component library. Use when the user asks to create components, refactor repeated UI patterns, build a design system, or extract tokens.",
+          "input": {
+            "hint": "[target]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/extract/SKILL.md",
+            "bareName": "extract",
+            "qualifiedName": "user:extract"
+          }
+        },
+        {
+          "name": "harden",
+          "description": "Improve interface resilience through better error handling, i18n support, text overflow handling, and edge case management. Makes interfaces robust and production-ready. Use when the user asks to harden, make production-ready, handle edge cases, add error states, or fix overflow and i18n issues.",
+          "input": {
+            "hint": "[target]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/harden/SKILL.md",
+            "bareName": "harden",
+            "qualifiedName": "user:harden"
+          }
+        },
+        {
+          "name": "normalize",
+          "description": "Audits and realigns UI to match design system standards, spacing, tokens, and patterns. Use when the user mentions consistency, design drift, mismatched styles, tokens, or wants to bring a feature back in line with the system.",
+          "input": {
+            "hint": "[feature (page, route, component...)]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/normalize/SKILL.md",
+            "bareName": "normalize",
+            "qualifiedName": "user:normalize"
+          }
+        },
+        {
+          "name": "onboard",
+          "description": "Designs and improves onboarding flows, empty states, and first-run experiences to help users reach value quickly. Use when the user mentions onboarding, first-time users, empty states, activation, getting started, or new user flows.",
+          "input": {
+            "hint": "[target]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/onboard/SKILL.md",
+            "bareName": "onboard",
+            "qualifiedName": "user:onboard"
+          }
+        },
+        {
+          "name": "optimize",
+          "description": "Diagnoses and fixes UI performance across loading speed, rendering, animations, images, and bundle size. Use when the user mentions slow, laggy, janky, performance, bundle size, load time, or wants a faster, smoother experience.",
+          "input": {
+            "hint": "[target]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/optimize/SKILL.md",
+            "bareName": "optimize",
+            "qualifiedName": "user:optimize"
+          }
+        },
+        {
+          "name": "overdrive",
+          "description": "Pushes interfaces past conventional limits with technically ambitious implementations — shaders, spring physics, scroll-driven reveals, 60fps animations. Use when the user wants to wow, impress, go all-out, or make something that feels extraordinary.",
+          "input": {
+            "hint": "[target]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/overdrive/SKILL.md",
+            "bareName": "overdrive",
+            "qualifiedName": "user:overdrive"
+          }
+        },
+        {
+          "name": "polish",
+          "description": "Performs a final quality pass fixing alignment, spacing, consistency, and micro-detail issues before shipping. Use when the user mentions polish, finishing touches, pre-launch review, something looks off, or wants to go from good to great.",
+          "input": {
+            "hint": "[target]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/polish/SKILL.md",
+            "bareName": "polish",
+            "qualifiedName": "user:polish"
+          }
+        },
+        {
+          "name": "quieter",
+          "description": "Tones down visually aggressive or overstimulating designs, reducing intensity while preserving quality. Use when the user mentions too bold, too loud, overwhelming, aggressive, garish, or wants a calmer, more refined aesthetic.",
+          "input": {
+            "hint": "[target]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/quieter/SKILL.md",
+            "bareName": "quieter",
+            "qualifiedName": "user:quieter"
+          }
+        },
+        {
+          "name": "teach-impeccable",
+          "description": "One-time setup that gathers design context for your project and saves it to your AI config file. Run once to establish persistent design guidelines.",
+          "input": null,
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/teach-impeccable/SKILL.md",
+            "bareName": "teach-impeccable",
+            "qualifiedName": "user:teach-impeccable"
+          }
+        },
+        {
+          "name": "typeset",
+          "description": "Improves typography by fixing font choices, hierarchy, sizing, weight, and readability so text feels intentional. Use when the user mentions fonts, type, readability, text hierarchy, sizing looks off, or wants more polished, intentional typography.",
+          "input": {
+            "hint": "[target]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/impeccable/typeset/SKILL.md",
+            "bareName": "typeset",
+            "qualifiedName": "user:typeset"
+          }
+        },
+        {
+          "name": "scrapling",
+          "description": "使用 scrapling 进行网页抓取和数据提取。自动选择 Fetcher，支持 Cloudflare/WAF 绕过、Session 登录、HTML 解析。当用户提到 scrape/crawl/fetch page/extract data/爬取/抓取/绕过Cloudflare/解析HTML/批量采集 时触发。",
+          "input": {
+            "hint": "[URL or scraping task description]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/scrapling/SKILL.md",
+            "bareName": "scrapling",
+            "qualifiedName": "user:scrapling"
+          }
+        },
+        {
+          "name": "gen-docs",
+          "description": "文档生成器。自动分析模块结构，生成 README.md 和 DESIGN.md 骨架。当用户提到生成文档、创建README、创建DESIGN、文档骨架、文档模板时使用。在新建模块开始时自动触发。",
+          "input": {
+            "hint": "<模块路径> [--force]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/tools/gen-docs/SKILL.md",
+            "bareName": "gen-docs",
+            "qualifiedName": "user:gen-docs"
+          }
+        },
+        {
+          "name": "hi",
+          "description": "反拒绝覆写（/hi）。将当前会话最近一条模型输出整体替换为通用同意模板，无需正则匹配。",
+          "input": null,
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/tools/override-refusal/SKILL.md",
+            "bareName": "hi",
+            "qualifiedName": "user:hi"
+          }
+        },
+        {
+          "name": "verify-change",
+          "description": "变更校验关卡。分析代码变更，检测文档同步状态，评估变更影响范围。当用户提到变更检查、文档同步、代码审查、提交前检查、diff分析时使用。在设计级变更、重构完成时自动触发。",
+          "input": null,
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/tools/verify-change/SKILL.md",
+            "bareName": "verify-change",
+            "qualifiedName": "user:verify-change"
+          }
+        },
+        {
+          "name": "verify-module",
+          "description": "模块完整性校验关卡。扫描目录结构、检测缺失文档、验证代码与文档同步。当用户提到模块校验、文档检查、结构完整性、README检查、DESIGN检查时使用。在新建模块完成时自动触发。",
+          "input": {
+            "hint": "<模块路径>"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/tools/verify-module/SKILL.md",
+            "bareName": "verify-module",
+            "qualifiedName": "user:verify-module"
+          }
+        },
+        {
+          "name": "verify-quality",
+          "description": "代码质量校验关卡。检测复杂度、重复代码、命名规范、函数长度等质量指标。当用户提到代码质量、复杂度检查、代码异味、重构建议、lint检查、代码规范时使用。在复杂模块、重构完成时自动触发。",
+          "input": {
+            "hint": "<扫描路径>"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/tools/verify-quality/SKILL.md",
+            "bareName": "verify-quality",
+            "qualifiedName": "user:verify-quality"
+          }
+        },
+        {
+          "name": "verify-security",
+          "description": "安全校验关卡。自动扫描代码安全漏洞，检测危险模式，确保安全决策有文档记录。当用户提到安全扫描、漏洞检测、安全审计、代码安全、OWASP、注入检测、敏感信息泄露时使用。在新建模块、安全相关变更、攻防任务、重构完成时自动触发。",
+          "input": {
+            "hint": "<扫描路径>"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/skills/ccg/tools/verify-security/SKILL.md",
+            "bareName": "verify-security",
+            "qualifiedName": "user:verify-security"
+          }
+        },
+        {
+          "name": "build-with-ai",
+          "description": "Build AI apps on SpaceXAI (XAI_API_KEY + api.x.ai)",
+          "input": {
+            "hint": "<what you're building>"
+          },
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/build-with-ai/SKILL.md",
+            "bareName": "build-with-ai",
+            "qualifiedName": "bundled:build-with-ai"
+          }
+        },
+        {
+          "name": "code-review",
+          "description": "Run an extremely strict maintainability review for abstraction quality, giant files, and spaghetti-condition growth. Use for a deep code quality audit or an especially harsh maintainability review.",
+          "input": null,
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/code-review/SKILL.md",
+            "bareName": "code-review",
+            "qualifiedName": "bundled:code-review"
+          }
+        },
+        {
+          "name": "create-skill",
+          "description": "Create a new Grok skill",
+          "input": null,
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/create-skill/SKILL.md",
+            "bareName": "create-skill",
+            "qualifiedName": "bundled:create-skill"
+          }
+        },
+        {
+          "name": "create-workflow",
+          "description": "Author a new multi-agent workflow",
+          "input": null,
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/create-workflow/SKILL.md",
+            "bareName": "create-workflow",
+            "qualifiedName": "bundled:create-workflow"
+          }
+        },
+        {
+          "name": "design",
+          "description": "Run the full design-doc-writer and design-doc-reviewer loop until consensus. Produces a polished design document with a PR plan.",
+          "input": {
+            "hint": "<description of what to design>"
+          },
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/design/SKILL.md",
+            "bareName": "design",
+            "qualifiedName": "bundled:design"
+          }
+        },
+        {
+          "name": "execute-plan",
+          "description": "Execute a PR Plan DAG from a design document. Parses the plan, topologically sorts it, implements PRs in parallel using worktree-isolated subagents, runs mandatory orchestrator-level review, and assembles either a Graphite PR stack or a plain-git branch stack depending on tool availability.",
+          "input": {
+            "hint": "<design-doc-path> [--effort N] [--concurrency N] [--dry-run] [--resume <PLAN_ID>] [--instructions \"...\"] [--no-graphite] [--auto-pr]"
+          },
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/execute-plan/SKILL.md",
+            "bareName": "execute-plan",
+            "qualifiedName": "bundled:execute-plan"
+          }
+        },
+        {
+          "name": "bundled:imagine",
+          "description": "Prompting and workflow guidance for Imagine image tools",
+          "input": null,
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/imagine/SKILL.md",
+            "bareName": "imagine",
+            "qualifiedName": "bundled:imagine"
+          }
+        },
+        {
+          "name": "implement",
+          "description": "Run the full implement-review-fix loop using implementer and reviewer personas. Supports effort-based multi-reviewer scaling (1-5 reviewers) with automatic specialization selection. Includes memory-based feedback loop that learns from past review patterns. Loops until all reviewers find 0 issues of any severity.",
+          "input": {
+            "hint": "[--effort N] <description of what to implement>"
+          },
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/implement/SKILL.md",
+            "bareName": "implement",
+            "qualifiedName": "bundled:implement"
+          }
+        },
+        {
+          "name": "learn",
+          "description": "Learn from your own Grok Build sessions and tune your setup: add skills for things you keep typing, fix stale skill instructions, and retire skills, plugins, or MCP servers you never use. Use on \"/learn\", \"learn from my traces\", \"what skills do I never use\". Not for summarizing sessions into notes or memory.",
+          "input": {
+            "hint": "[--mode step|auto|report] [--days N | --since-last | --limit N] [--per-trace] [--include-headless] [--cwd PATH] [--focus TEXT] [--resume]"
+          },
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/learn/SKILL.md",
+            "bareName": "learn",
+            "qualifiedName": "bundled:learn"
+          }
+        },
+        {
+          "name": "long-running-background-tasks",
+          "description": "Required reading before you start, watch, or wait on anything that keeps running after you launch it — background jobs, watchers, scheduled loops, CI, pull requests, training runs, dev servers, long builds. Read it before you launch such work and before you report on its state. Saying where a running job stands counts as working on it. Use when: about to launch, supervise, inspect, diagnose, or report on work that keeps running after it is started.",
+          "input": null,
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/long-running-background-tasks/SKILL.md",
+            "bareName": "long-running-background-tasks",
+            "qualifiedName": "bundled:long-running-background-tasks"
+          }
+        },
+        {
+          "name": "pr-babysit",
+          "description": "Monitor PRs, fix CI failures, address review comments, resolve merge conflicts, and restack stacks. Supports independent PRs, Graphite stacks, and GitHub stacked PRs (gh-stack).",
+          "input": {
+            "hint": "add <number> | remove <number> | list | check"
+          },
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/pr-babysit/SKILL.md",
+            "bareName": "pr-babysit",
+            "qualifiedName": "bundled:pr-babysit"
+          }
+        },
+        {
+          "name": "resume-claude",
+          "description": "Continue from a recent Claude Code session",
+          "input": {
+            "hint": "[words describing the session | session id]"
+          },
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/resume-claude/SKILL.md",
+            "bareName": "resume-claude",
+            "qualifiedName": "bundled:resume-claude"
+          }
+        },
+        {
+          "name": "resume-codex",
+          "description": "Continue from a recent Codex session",
+          "input": {
+            "hint": "[words describing the session | session id]"
+          },
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/resume-codex/SKILL.md",
+            "bareName": "resume-codex",
+            "qualifiedName": "bundled:resume-codex"
+          }
+        },
+        {
+          "name": "resume-cursor",
+          "description": "Continue from a recent Cursor session",
+          "input": {
+            "hint": "[words describing the session | session id]"
+          },
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/resume-cursor/SKILL.md",
+            "bareName": "resume-cursor",
+            "qualifiedName": "bundled:resume-cursor"
+          }
+        },
+        {
+          "name": "bundled:review",
+          "description": "Run a reviewer subagent against uncommitted local changes, a named branch, or a GitHub PR. Local and branch modes write a review file plus a summary to disk. PR mode posts the findings as a PENDING GitHub review for the user to inspect and submit through the UI.",
+          "input": {
+            "hint": "[--local | --branch <name> | --pr <number-or-url> | <auto-detect>]"
+          },
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/review/SKILL.md",
+            "bareName": "review",
+            "qualifiedName": "bundled:review"
+          }
+        },
+        {
+          "name": "skill-design-principles",
+          "description": "Concise, high-signal principles for writing and editing skills well. Use whenever authoring or editing a skill.",
+          "input": null,
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/skill-design-principles/SKILL.md",
+            "bareName": "skill-design-principles",
+            "qualifiedName": "bundled:skill-design-principles"
+          }
+        },
+        {
+          "name": "statusline",
+          "description": "Configure the Grok Build status line.",
+          "input": null,
+          "_meta": {
+            "scope": "bundled",
+            "path": "/Users/dev/.grok/bundled/skills/statusline/SKILL.md",
+            "bareName": "statusline",
+            "qualifiedName": "bundled:statusline"
+          }
+        },
+        {
+          "name": "adversarial-review",
+          "description": "Run a Codex review that challenges the implementation approach and design choices",
+          "input": {
+            "hint": "[--wait|--background] [--base <ref>] [--scope auto|working-tree|branch] [focus ...]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/plugins/marketplaces/openai-codex/plugins/codex/commands/adversarial-review.md",
+            "bareName": "adversarial-review",
+            "qualifiedName": "codex:adversarial-review",
+            "pluginName": "codex"
+          }
+        },
+        {
+          "name": "cancel",
+          "description": "Cancel an active background Codex job in this repository",
+          "input": {
+            "hint": "[job-id]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/plugins/marketplaces/openai-codex/plugins/codex/commands/cancel.md",
+            "bareName": "cancel",
+            "qualifiedName": "codex:cancel",
+            "pluginName": "codex"
+          }
+        },
+        {
+          "name": "rescue",
+          "description": "Delegate investigation, an explicit fix request, or follow-up rescue work to the Codex rescue subagent",
+          "input": {
+            "hint": "[--background|--wait] [--resume|--fresh] [--model <model|spark>] [--effort <none|minimal|low|medium|high|xhigh>] [what Codex should investigate, solve, or continue]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/plugins/marketplaces/openai-codex/plugins/codex/commands/rescue.md",
+            "bareName": "rescue",
+            "qualifiedName": "codex:rescue",
+            "pluginName": "codex"
+          }
+        },
+        {
+          "name": "result",
+          "description": "Show the stored final output for a finished Codex job in this repository",
+          "input": {
+            "hint": "[job-id]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/plugins/marketplaces/openai-codex/plugins/codex/commands/result.md",
+            "bareName": "result",
+            "qualifiedName": "codex:result",
+            "pluginName": "codex"
+          }
+        },
+        {
+          "name": "codex:review",
+          "description": "Run a Codex code review against local git state",
+          "input": {
+            "hint": "[--wait|--background] [--base <ref>] [--scope auto|working-tree|branch]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/plugins/marketplaces/openai-codex/plugins/codex/commands/review.md",
+            "bareName": "review",
+            "qualifiedName": "codex:review",
+            "pluginName": "codex"
+          }
+        },
+        {
+          "name": "setup",
+          "description": "Check whether the local Codex CLI is ready and optionally toggle the stop-time review gate",
+          "input": {
+            "hint": "[--enable-review-gate|--disable-review-gate]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/plugins/marketplaces/openai-codex/plugins/codex/commands/setup.md",
+            "bareName": "setup",
+            "qualifiedName": "codex:setup",
+            "pluginName": "codex"
+          }
+        },
+        {
+          "name": "codex:status",
+          "description": "Show active and recent Codex jobs for this repository, including review-gate status",
+          "input": {
+            "hint": "[job-id] [--wait] [--timeout-ms <ms>] [--all]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/plugins/marketplaces/openai-codex/plugins/codex/commands/status.md",
+            "bareName": "status",
+            "qualifiedName": "codex:status",
+            "pluginName": "codex"
+          }
+        },
+        {
+          "name": "transfer",
+          "description": "Transfer the current Claude Code session into a resumable Codex thread",
+          "input": {
+            "hint": "[--source <claude-jsonl>]"
+          },
+          "_meta": {
+            "scope": "user",
+            "path": "/Users/dev/.claude/plugins/marketplaces/openai-codex/plugins/codex/commands/transfer.md",
+            "bareName": "transfer",
+            "qualifiedName": "codex:transfer",
+            "pluginName": "codex"
+          }
+        },
+        {
+          "name": "learn-traces",
+          "description": "Workflow: Map-reduce a collected set of Grok Build sessions into a curated list of harness changes: new or edited skills, plugin enables, deletes",
+          "input": {
+            "hint": "[--agent-budget N] [--effort LEVEL] [args]"
+          },
+          "_meta": {
+            "workflowSource": "bundled",
+            "workflowPath": "/Users/dev/.grok/bundled/workflows/learn-traces.rhai"
+          }
+        }
+      ],
+      "_meta": {
+        "tools": [
+          "run_terminal_command",
+          "read_file",
+          "search_replace",
+          "list_dir",
+          "grep",
+          "kill_command_or_subagent",
+          "todo_write",
+          "get_command_or_subagent_output",
+          "spawn_subagent",
+          "scheduler_create",
+          "scheduler_delete",
+          "scheduler_list",
+          "monitor",
+          "search_tool",
+          "use_tool",
+          "workflow",
+          "enter_plan_mode",
+          "exit_plan_mode",
+          "ask_user_question",
+          "send_feedback",
+          "web_search",
+          "web_fetch",
+          "image_gen",
+          "image_edit",
+          "image_to_video",
+          "reference_to_video",
+          "write"
+        ]
+      }
+    },
+    "_meta": {
+      "totalTokens": 1475,
+      "eventId": "01a09b4f-1b25-7e92-b96b-356d292ff2d0-0",
+      "agentTimestampMs": 1789333872589,
+      "updateType": "AvailableCommandsUpdate",
+      "updateParams": {
+        "commandsCount": 75
+      }
+    }
+  }
+}

@@ -84,8 +84,10 @@ class FakePeer:
             self.result(message_id, handshake["initialize"])
         elif method == "session/new":
             self.result(message_id, handshake["session/new"])
+            self.advertise_commands()
         elif method == "session/load":
             self.load(message_id)
+            self.advertise_commands()
         elif method == "session/set_mode":
             self.result(message_id, {})
         elif method == "session/set_config_option":
@@ -100,6 +102,10 @@ class FakePeer:
                     "error": {"code": -32601, "message": "Method not found"},
                 }
             )
+
+    def advertise_commands(self) -> None:
+        """Grok pushes its whole command list unasked once a session is open."""
+        self.send(_handshake("available-commands.json"))
 
     def load(self, message_id: Any) -> None:
         resumed = _handshake("resume-handshake.json")
@@ -138,7 +144,9 @@ class FakePeer:
     def finish_prompt(self) -> None:
         if self.prompt_id is None:
             return
-        for row in _notifications("turn.jsonl"):
+        # A slash command runs inside Grok itself: one message, no tools, no usage.
+        source = "command.jsonl" if self.mode == "command" else "turn.jsonl"
+        for row in _notifications(source):
             self.send(row)
         self.result(self.prompt_id, {"stopReason": "end_turn"})
         self.prompt_id = None
