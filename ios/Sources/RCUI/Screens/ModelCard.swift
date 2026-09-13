@@ -70,14 +70,14 @@ struct ModelCardChip: View {
 
 /// What the chip says, in one place, so the live chip and the read-only chip
 /// never word the same session differently.
-enum ModelCardText {
-    static func words(for session: Session, agent: AgentInfo?) -> String {
+public enum ModelCardText {
+    public static func words(for session: Session, agent: AgentInfo?) -> String {
         let text = TerminalSetting.modelCardText(for: session, agent: agent)
         return text.isEmpty ? AgentLabel.name(session.agent) : text
     }
 
     /// The glyph says "faster tier" to the eye and nothing to a screen reader.
-    static func spoken(for session: Session, agent: AgentInfo?) -> String {
+    public static func spoken(for session: Session, agent: AgentInfo?) -> String {
         let words = words(for: session, agent: agent)
         guard let tier = agent?.speedLabel(session.speed) ?? session.speed else { return words }
         return "\(words), \(tier)"
@@ -108,26 +108,26 @@ private struct ModelCardSizer<Sizer: View, Content: View>: View {
 
 /// The combinations a sizer measures. An agent with no efforts or no models
 /// measures whatever it has, which is what the row would draw for it.
-enum ModelCardSizing {
-    struct Pair: Hashable {
-        let model: String
-        let effort: String?
+public enum ModelCardSizing {
+    public struct Pair: Hashable {
+        public let model: String
+        public let effort: String?
 
         /// The two words as one string, exactly the way
         /// `TerminalSetting.modelCardText` words a session for the chip.
-        var joined: String { effort.map { "\(model) \($0)" } ?? model }
+        public var joined: String { effort.map { "\(model) \($0)" } ?? model }
     }
 
     /// Whether the lightning glyph takes a place on the row. It is reserved
     /// wherever the agent lists a tier, so turning the tier on moves nothing.
-    static func reservesLightning(for agent: AgentInfo?) -> Bool {
+    public static func reservesLightning(for agent: AgentInfo?) -> Bool {
         agent?.speeds.isEmpty == false
     }
 
     /// Every model label with every effort label after it. The fallback stands
     /// in where the agent lists no model, because that is what the row draws
     /// there.
-    static func pairs(for agent: AgentInfo?, model fallback: String) -> [Pair] {
+    public static func pairs(for agent: AgentInfo?, model fallback: String) -> [Pair] {
         let models = agent?.models.map(\.label) ?? []
         let efforts = agent?.supports(.effort) == true ? agent?.efforts.map(\.label) ?? [] : []
         let names = models.isEmpty ? [fallback] : models
@@ -270,9 +270,12 @@ private struct ModelCard: View {
     }
 
     /// The level the thumb is on while it is moving, and the session's own
-    /// level when there is no slider to move.
+    /// level when there is no slider to move. Amendment A25: an agent that
+    /// lists no levels has no such setting, so the row reads the model alone.
     private var effortLabel: String? {
-        guard !efforts.isEmpty else { return agent?.effortLabel(chat.session.effort) }
+        guard !efforts.isEmpty else {
+            return TerminalSetting.effortText(for: chat.session, agent: agent)
+        }
         return efforts[safe: stop]?.label
     }
 

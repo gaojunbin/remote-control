@@ -53,8 +53,7 @@ public struct TerminalSetting: Sendable, Hashable, Identifiable {
     /// effort word after it, in whichever of the two the device has reported.
     /// The live control and this chip read the same session the same way.
     public static func modelCardText(for session: Session, agent: AgentInfo?) -> String {
-        [agent?.modelLabel(session.model) ?? session.model,
-         agent?.effortLabel(session.effort) ?? session.effort]
+        [agent?.modelLabel(session.model) ?? session.model, effortText(for: session, agent: agent)]
             .compactMap { $0 }
             .joined(separator: " ")
     }
@@ -69,9 +68,26 @@ public struct TerminalSetting: Sendable, Hashable, Identifiable {
             settings.append(TerminalSetting(field: .modelCard, text: card,
                                             speed: agent?.speedLabel(session.speed) ?? session.speed))
         }
-        if let mode = agent?.permissionModeLabel(session.permissionMode) ?? session.permissionMode {
+        if let mode = permissionText(for: session, agent: agent) {
             settings.append(TerminalSetting(field: .permissionMode, text: mode))
         }
         return settings
+    }
+
+    /// Amendment A25: an agent that lists no effort levels has no such setting,
+    /// so the card reads the model alone even where a session carries a value.
+    /// An agent this app has never met keeps the raw id, as A17 asks.
+    public static func effortText(for session: Session, agent: AgentInfo?) -> String? {
+        guard let agent else { return session.effort }
+        guard !agent.efforts.isEmpty else { return nil }
+        return agent.effortLabel(session.effort) ?? session.effort
+    }
+
+    /// Amendment A25: an agent that lists no permission modes has no permission
+    /// system (pi), so no chip stands in for the picker it never had.
+    public static func permissionText(for session: Session, agent: AgentInfo?) -> String? {
+        guard let agent else { return session.permissionMode }
+        guard !agent.permissionModes.isEmpty else { return nil }
+        return agent.permissionModeLabel(session.permissionMode) ?? session.permissionMode
     }
 }

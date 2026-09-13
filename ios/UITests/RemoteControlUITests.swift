@@ -556,8 +556,11 @@ final class RemoteControlUITests: XCTestCase {
     func testTerminalSessionExplainsHowToAttach() {
         app.launch()
 
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
+        // It is on the second machine, and five agents' worth of sessions on the
+        // first one (A25) put that machine's group below the fold.
         let row = app.buttons["session.demo-session-rename"]
-        XCTAssertTrue(row.waitForExistence(timeout: 20), "the unattachable terminal session is listed")
+        XCTAssertTrue(scrollDown(to: row), "the unattachable terminal session is listed")
         row.tap()
 
         let hint = app.descendants(matching: .any)["chat.attachHint"]
@@ -565,10 +568,15 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "11-attach-hint")
     }
 
-    /// Every tone a status dot can take is on the sessions list at once: a turn
-    /// under way, a session blocked on the user, one that is alive and quiet,
-    /// one whose agent stopped on an error, and one nothing owns any more on a
+    /// Every tone a status dot can take is on the sessions list: a turn under
+    /// way, a session blocked on the user, one that is alive and quiet, one
+    /// whose agent stopped on an error, and one nothing owns any more on a
     /// machine that is no longer there.
+    ///
+    /// The four on the live machine are in frame together, which is what the
+    /// screenshot is for. The grey one is not: it lives in another machine's
+    /// Archive, and since the demo grew to five agents (A25) the rows in
+    /// between are taller than a phone. It is reached by scrolling instead.
     func testSessionsListShowsEveryStatusTone() {
         app.launch()
         XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
@@ -607,18 +615,17 @@ final class RemoteControlUITests: XCTestCase {
         }
 
         // One measured drag to lift the first row towards the top of the list,
-        // then short ones until every row is reachable. The five rows and the
+        // then short ones until every row is reachable. The four rows and the
         // bar below them are together about as tall as this screen, so the
         // first row is taken right up under the search field and there is no
         // pixel margin left to spare; what "in frame together" means is that
-        // the reader can see and reach all five, and a fling would land
+        // the reader can see and reach all four, and a fling would land
         // anywhere.
         let list = sessionList()
         let tones = [("demo-session-vite", "amber, waiting on the user"),
                      ("demo-session-auth", "blue, a turn running"),
-                     ("demo-session-shared", "quiet, attached to a terminal"),
                      ("demo-session-toolchain", "red, stopped on an error"),
-                     ("demo-session-otlp", "grey, owned by nothing")]
+                     ("demo-session-shared", "quiet, attached to a terminal")]
         let rows = tones.map { app.buttons["session.\($0.0)"] }
         drag(list, by: rows[0].frame.minY - list.frame.minY - 52)
         for _ in 0..<6 where !rows.allSatisfy({ $0.isHittable }) { drag(list, by: 24) }
@@ -627,6 +634,10 @@ final class RemoteControlUITests: XCTestCase {
             XCTAssertTrue(row.isHittable, "the \(tone.1) row is in frame with the rest")
         }
         attach(name: "30-status-tones")
+
+        // And the fifth, further down than a screen reaches.
+        XCTAssertTrue(scrollDown(to: archived), "the grey row, owned by nothing, is still reachable")
+        attach(name: "30-status-tone-grey")
 
         XCTAssertTrue(scrollDown(to: middle), "the folded machine is still there")
         middle.tap()
@@ -731,6 +742,108 @@ final class RemoteControlUITests: XCTestCase {
 
     /// Scrolls the list until the element is on screen and can be tapped, so a
     /// lazy row at the foot of the page is never a matter of swipe distance.
+    /// `docs/DESIGN.md` § "Agents", amendment A25: five agents on one machine.
+    /// The segmented control carries each agent's mark rather than its name,
+    /// because five names do not fit a phone; assistive technology still reads
+    /// the name. And the form asks about nothing the agent does not have.
+    func testNewSessionSheetMarksEveryAgentAndDrawsOnlyWhatItHas() {
+        app.launch()
+        let newSession = app.buttons["sessions.new"]
+        XCTAssertTrue(newSession.waitForExistence(timeout: 20))
+        newSession.tap()
+        XCTAssertTrue(app.buttons["newsession.start"].waitForExistence(timeout: 10),
+                      "the sheet is up")
+
+        let picker = app.segmentedControls.firstMatch
+        XCTAssertTrue(picker.waitForExistence(timeout: 10), "the agent control is a segmented control")
+        XCTAssertEqual(picker.buttons.allElementsBoundByIndex.map { $0.label },
+                       ["Claude Code", "Codex", "Grok Build", "Cursor", "pi"],
+                       "one segment per agent the machine reported, each named to a screen reader")
+        attach(name: "82-new-session-agents")
+
+        // pi has no permission system at all, so there is no row for one.
+        app.buttons["pi"].firstMatch.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["newsession.effort"].exists,
+                      "pi offers the thinking levels it does have")
+        XCTAssertFalse(app.descendants(matching: .any)["newsession.permissions"].exists,
+                       "and no permission row, greyed out or otherwise")
+        attach(name: "83-new-session-pi")
+
+        // Cursor is the other way round: permission modes, no effort levels.
+        app.buttons["Cursor"].firstMatch.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["newsession.permissions"].exists,
+                      "Cursor offers its own four permission modes")
+        XCTAssertFalse(app.descendants(matching: .any)["newsession.effort"].exists,
+                       "and no effort row, because it has no levels to pick from")
+        attach(name: "84-new-session-cursor")
+    }
+
+    /// Amendment A25: pi has no permission system, so the composer row carries
+    /// the model card and nothing where the permission chip would stand.
+    func testPiSessionDrawsNoPermissionChip() {
+        app.launch()
+        let row = app.buttons["session.demo-session-parser"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the pi demo session is listed")
+        row.tap()
+
+        let chip = app.buttons["composer.modelCard"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 15), "the model card is on the row")
+        XCTAssertEqual(chip.label, "Model")
+        XCTAssertEqual(chip.value as? String, "Claude Sonnet 4.5 Medium",
+                       "reading the model and the thinking level pi is set to")
+        XCTAssertFalse(app.buttons["composer.permissions"].exists,
+                       "and nothing stands where the permission chip would be")
+        attach(name: "85-pi-composer")
+
+        // The levels pi does have are still a slider on the card.
+        chip.tap()
+        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 10), "the card opens")
+        XCTAssertTrue(app.descendants(matching: .any)["composer.effort"].exists,
+                      "with the thinking-level slider on it")
+        attach(name: "86-pi-model-card")
+    }
+
+    /// Amendment A25: Cursor lists no effort levels, so its model card reads
+    /// the model alone and offers no slider to move.
+    func testCursorModelCardReadsTheModelAlone() {
+        app.launch()
+        let row = app.buttons["session.demo-session-storybook"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the Cursor demo session is listed")
+        row.tap()
+
+        let chip = app.buttons["composer.modelCard"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 15))
+        XCTAssertEqual(chip.value as? String, "Auto", "the chip is the model and nothing after it")
+        XCTAssertTrue(app.buttons["composer.permissions"].exists,
+                      "Cursor does have permission modes, so that chip stays")
+
+        chip.tap()
+        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 10), "the card opens")
+        XCTAssertFalse(app.descendants(matching: .any)["composer.effort"].exists,
+                       "and carries no effort slider at all")
+        attach(name: "87-cursor-model-card")
+    }
+
+    /// Amendment A25: Grok Build writes its own update log, so a session a
+    /// terminal started is mirrored here — readable, not writable. Its summary
+    /// carries the model and the level but never a permission mode, so one chip
+    /// stands where two would (A17).
+    func testGrokTerminalSessionShowsWhatItsLogKnows() {
+        app.launch()
+        let row = app.buttons["session.demo-session-migrations"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the Grok demo session is listed")
+        row.tap()
+
+        let card = app.descendants(matching: .any)["composer.readonly.modelCard"]
+        XCTAssertTrue(card.waitForExistence(timeout: 15), "the model and level are shown, not offered")
+        XCTAssertEqual(card.value as? String, "Grok 4.6 High")
+        XCTAssertFalse(app.descendants(matching: .any)["composer.readonly.permissionMode"].exists,
+                       "and the update log knows no permission mode, so no chip claims one")
+        XCTAssertFalse(app.buttons["composer.modelCard"].exists,
+                       "nothing on this row is a control")
+        attach(name: "88-grok-terminal-composer")
+    }
+
     private func scrollDown(to element: XCUIElement, swipes: Int = 6) -> Bool {
         for _ in 0..<swipes {
             if element.exists && element.isHittable { return true }

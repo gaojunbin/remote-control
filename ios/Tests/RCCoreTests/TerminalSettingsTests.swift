@@ -77,12 +77,27 @@ struct TerminalSettingsTests {
     @Test("Effort is shown whether or not the agent advertises the capability")
     @MainActor
     func effortNeedsNoCapability() {
-        // Claude lists no effort options, and the transcript carries one anyway.
+        // The agent lists its levels but cannot be retuned from this app, so
+        // the capability is absent. The chip still says which level it is on.
         let bare = AgentInfo(agent: "claude", available: true,
                              models: DemoFixtures.claude.models,
-                             permissionModes: DemoFixtures.claude.permissionModes)
+                             permissionModes: DemoFixtures.claude.permissionModes,
+                             efforts: DemoFixtures.claude.efforts)
+        #expect(!bare.supports(.effort))
         #expect(store(control: .terminal, agent: bare).terminalSettings.map(\.text)
-                == ["Sonnet 4.5 high", "auto"])
+                == ["Sonnet 4.5 High", "auto"])
+    }
+
+    /// Amendment A25: an empty list is the agent saying it has no such setting,
+    /// so nothing stands where the control would have been — not even the id
+    /// the device reported.
+    @Test("An agent that lists neither drops both, whatever the session carries")
+    @MainActor
+    func emptyListsDrawNothing() {
+        let bare = AgentInfo(agent: "claude", available: true,
+                             models: DemoFixtures.claude.models)
+        #expect(store(control: .terminal, agent: bare).terminalSettings.map(\.text)
+                == ["Sonnet 4.5"])
     }
 
     // MARK: - Following the terminal

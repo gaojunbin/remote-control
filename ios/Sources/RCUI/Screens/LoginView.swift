@@ -77,7 +77,7 @@ struct LoginView: View {
                 .foregroundStyle(Theme.ink)
             Text(isRegistering
                  ? L10n.string("Pick a username and a password for this gateway.")
-                 : L10n.string("Drive Claude Code and Codex on your own machines, from your phone."))
+                 : L10n.string("Drive your coding agents on your own machines, from your phone."))
                 .font(.subheadline)
                 .foregroundStyle(Theme.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)

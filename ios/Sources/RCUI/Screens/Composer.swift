@@ -274,24 +274,29 @@ struct Composer: View {
     /// What the session may do, as a plain list of the agent's own modes with
     /// the current one marked and nothing else on it. What runs and how hard
     /// is the model card's; this is the chip after it.
+    ///
+    /// Amendment A25: an agent with no permission system (pi) lists no modes,
+    /// and the chip is not drawn at all. Nothing is greyed out and nothing is
+    /// explained — an absent control means the agent has no such setting.
     @ViewBuilder
     private var permissionChip: some View {
         let modes = agent?.permissionModes ?? []
-        Menu {
-            Picker("Permissions", selection: permissionBinding) {
-                ForEach(modes) { option in Text(option.label).tag(option.id) }
+        if !modes.isEmpty {
+            Menu {
+                Picker("Permissions", selection: permissionBinding) {
+                    ForEach(modes) { option in Text(option.label).tag(option.id) }
+                }
+            } label: {
+                Text(agent?.permissionModeLabel(chat.session.permissionMode)
+                     ?? L10n.string("Permissions"))
             }
-        } label: {
-            Text(agent?.permissionModeLabel(chat.session.permissionMode)
-                 ?? L10n.string("Permissions"))
+            .menuStyle(.button)
+            .buttonStyle(ChipButtonStyle())
+            .accessibilityLabel("Permissions")
+            .accessibilityValue(agent?.permissionModeLabel(chat.session.permissionMode)
+                                ?? chat.session.permissionMode ?? "")
+            .accessibilityIdentifier("composer.permissions")
         }
-        .menuStyle(.button)
-        .buttonStyle(ChipButtonStyle())
-        .disabled(modes.isEmpty)
-        .accessibilityLabel("Permissions")
-        .accessibilityValue(agent?.permissionModeLabel(chat.session.permissionMode)
-                            ?? chat.session.permissionMode ?? "")
-        .accessibilityIdentifier("composer.permissions")
     }
 
     private var permissionBinding: Binding<String> {

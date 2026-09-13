@@ -67,9 +67,11 @@ public final class PairingFlow {
         ]
     }
 
-    /// Agent names the paired device reported, for the last checklist row.
+    /// Agent names the paired device reported, for the last checklist row. The
+    /// names, not the ids: this line is the first thing a new machine says
+    /// about itself, and the app names every agent it knows (A25).
     public var detectedAgents: String {
-        pairedDevice?.availableAgents.map(\.agent).joined(separator: " · ") ?? ""
+        pairedDevice?.availableAgents.map(\.displayName).joined(separator: " · ") ?? ""
     }
 
     public func begin() async {

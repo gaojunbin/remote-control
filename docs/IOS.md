@@ -143,6 +143,43 @@ not move the app out from under a test.
 Nothing here is scoped by the app alone: the gateway sends one account's devices and sessions and
 answers `not_found` for anyone else's, so `hello` is already the whole of what this person has.
 
+## Agents: five names, five marks, and nothing drawn for what an agent lacks
+
+`AgentLabel` in `Sources/RCCore/Protocol/AgentLabel.swift` is the whole mapping, and both halves of
+it live there: `name(_:)` gives Claude Code, Codex, Grok Build, Cursor and pi (amendment A25), and
+`mark(_:)` gives the one- or two-letter mark — C, X, G, Cu, π — that stands in where a name does not
+fit. An id this build has never met renders as itself and is marked by its own first letter, so a
+sixth agent needs no release. `Session.agentLabel` is how a row asks for the name; the agent chip on
+a row and the filter's own button are always the full name, because both have room for it.
+
+Two places take the mark. The **new-session sheet's** agent control is a segmented `Picker`, and
+five names do not fit one across a phone: each segment draws `AgentLabel.mark` and carries
+`.accessibilityLabel(info.displayName)`, so a screen reader still reads "Grok Build" where the eye
+reads G. The line under the control names the agent that is chosen and then, in the monospace face,
+the version the device detected and the model that agent would start on — the same line the web
+draws under its own segmented control. The **filter menu** has room for both, so each row reads the
+mark and then the name.
+
+**What an agent does not have is not drawn.** The device's `AgentInfo` is the only authority, and an
+empty list means the agent has no such setting rather than that the app could not read one:
+
+| Empty list | What goes | Where |
+| --- | --- | --- |
+| `permission_modes` (pi) | the composer's `composer.permissions` chip, and the sheet's Permissions section | `Composer.permissionChip`, `NewSessionSheet.settingsSections` |
+| `efforts` (Cursor) | the card's `StopSlider`, the sheet's Effort section, and the effort word after the model name | `ModelCard`, `NewSessionSheet.settingsSections` |
+
+Nothing is greyed out and no caption explains the gap. The same rule reaches the read-only chips a
+terminal-held session draws (A17): `TerminalSetting.permissionText(for:agent:)` and
+`effortText(for:agent:)` return nil when the agent lists none, so a mirrored Grok session — whose
+update log carries a model and a level but never a permission mode — shows one chip where a Claude
+session shows two. A session whose agent this build has never met keeps A17's fallback and shows the
+raw ids, because with no `AgentInfo` at hand there is no list to say the setting does not exist.
+
+The demo device `mac-studio-office` advertises all five agents, copied from
+`protocol/fixtures/objects/agent.grok.json`, `agent.cursor.json` and `agent.pi.json` to the letter,
+and the demo list carries one session of each new agent: the Grok one terminal-held and mirrored,
+the Cursor and pi ones the app's own.
+
 ## The shell: three tabs, one order, one landing rule
 
 `MainShell` in `RootView.swift` lists **Devices**, **Sessions**, **Settings**, in that order — the
@@ -191,8 +228,8 @@ small "Archived" mark so the two are told apart. Nothing is removed from the pro
 | Search reads the title, the working directory and the agent, by id and by label, and drops a machine with no match | `SessionListLayout.matches` |
 | An agent filter applies before the grouping, so a machine whose sessions all drop out disappears | `SessionStore.agentFilter` |
 
-The agent filter sits in the navigation bar as `All · Claude Code · Codex`, offering only the
-agents the list actually contains. It is a view of the list rather than a setting: it starts at
+The agent filter sits in the navigation bar as **All** and then every agent the list actually
+contains, each row reading its mark and then its name (A25). It is a view of the list rather than a setting: it starts at
 All on every launch and is never written to defaults. The device filter is a parameter of the
 same function, for the callers that narrow to one machine.
 
@@ -250,8 +287,10 @@ other rather than trusting a screenshot.
 Device, agent, model, effort, permissions, speed, working directory and git. The sheet does not ask
 for a first message, so `session.create` goes out without `first_message`; the protocol keeps the
 field. The four agent settings start at the agent's own defaults and change with the agent picker,
-so choosing Codex where Claude was selected re-reads every list. Its section headers use
-`FieldLabel`, the one label every form section in the app is headed with.
+so choosing Codex where Claude was selected re-reads every list — and a section whose list comes
+back empty is not drawn at all (A25): pi gets no Permissions row, Cursor no Effort row. The agent
+control itself is marked rather than named, as the Agents section above describes. Its section
+headers use `FieldLabel`, the one label every form section in the app is headed with.
 
 ## Devices
 
@@ -521,7 +560,7 @@ them — it stays in the navigation bar, so no one ends a turn while reaching fo
 | Chip | Shown when | Identifier |
 | --- | --- | --- |
 | Model card | `ChatStore.allowsSettingsChanges` | `composer.modelCard` |
-| Permission mode | the same | `composer.permissions` |
+| Permission mode | the same, and `AgentInfo.permissionModes` is non-empty (A25) | `composer.permissions` |
 | Dictation language | always; it belongs to the microphone beside it | `composer.language` |
 | Up next · N | `session.queued > 0` | `composer.queue` |
 
@@ -548,7 +587,8 @@ phone and not a sheet — with two rows:
   the stop index gives one selection haptic per stop the thumb crosses, which is what lets the
   levels be counted without looking. VoiceOver reaches it as one adjustable element with an
   `.accessibilityAdjustableAction` for increment and decrement. An agent with one effort level or
-  none draws no slider: there is nothing to slide.
+  none draws no slider: there is nothing to slide. An agent that lists none at all (Cursor, A25)
+  loses the effort word after the model name as well, so its card reads the model alone.
 
 **A width that never changes.** The chip and the card's name row are as wide as the widest
 model-and-effort combination the agent offers, so nothing beside them shifts while a level is

@@ -99,20 +99,33 @@ struct NewSessionSheet: View {
         }
     }
 
+    /// `docs/DESIGN.md` § "Agents": five agents do not fit a segmented control
+    /// by name, so each segment carries the agent's mark and the line under the
+    /// control names the one that is chosen. The mark is for the eye only —
+    /// assistive technology reads the name.
     private var agentSection: some View {
         Section {
             Picker("Agent", selection: $agentID) {
                 ForEach(device?.availableAgents ?? []) { info in
-                    Text(info.displayName).tag(info.agent)
+                    Text(AgentLabel.mark(info.agent))
+                        .accessibilityLabel(info.displayName)
+                        .tag(info.agent)
                 }
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("newsession.agent")
             .onChange(of: agentID) { _, _ in adoptAgentDefaults() }
             if let agent {
-                Text(subtitle(for: agent))
-                    .font(Theme.mono)
-                    .foregroundStyle(Theme.inkSecondary)
+                HStack(spacing: Theme.Space.tight) {
+                    Text(agent.displayName)
+                        .font(Theme.Text.meta)
+                        .foregroundStyle(Theme.inkSecondary)
+                    Text(subtitle(for: agent))
+                        .font(Theme.mono)
+                        .foregroundStyle(Theme.inkSecondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("newsession.agentLine")
             }
         } header: {
             FieldLabel("Agent")
@@ -215,10 +228,12 @@ struct NewSessionSheet: View {
         }
     }
 
+    /// What the device detected, after the agent's name: the version it found
+    /// and the model that agent would start on.
     private func subtitle(for agent: AgentInfo) -> String {
-        let version = agent.version.map { "\(agent.agent) \($0)" } ?? agent.agent
-        guard let model = agent.modelLabel(agent.defaultModel) else { return version }
-        return "\(version) · \(model)"
+        [agent.version, agent.modelLabel(agent.defaultModel)]
+            .compactMap { $0 }
+            .joined(separator: " · ")
     }
 
     private func gitDetail(_ git: GitStatus) -> String {

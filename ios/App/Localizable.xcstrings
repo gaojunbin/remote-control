@@ -1786,19 +1786,19 @@
         }
       }
     },
-    "Drive Claude Code and Codex on your own machines, from your phone.": {
+    "Drive your coding agents on your own machines, from your phone.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drive Claude Code and Codex on your own machines, from your phone."
+            "value": "Drive your coding agents on your own machines, from your phone."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在手机上驱动你自己机器上的 Claude Code 和 Codex。"
+            "value": "在手机上驱动你自己机器上的编码 agent。"
           }
         }
       }

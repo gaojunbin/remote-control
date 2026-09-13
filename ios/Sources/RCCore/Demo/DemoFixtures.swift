@@ -26,6 +26,15 @@ public enum DemoFixtures {
     /// Amendment A15: a session the user archived by hand, which the demo
     /// device brings back to life shortly after the list opens.
     public static let revivedSessionID = "demo-session-changelog"
+    /// Amendment A25: a Grok Build session a terminal started, mirrored from
+    /// the update log Grok keeps, so the app reads it and cannot write to it.
+    public static let grokSessionID = "demo-session-migrations"
+    /// Amendment A25: a Cursor session. Cursor exposes no effort levels, so its
+    /// model card reads the model alone and offers no slider.
+    public static let cursorSessionID = "demo-session-storybook"
+    /// Amendment A25: a pi session. pi has no permission system, so its
+    /// composer row carries no permission chip at all.
+    public static let piSessionID = "demo-session-parser"
 
     public static var now: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
@@ -94,6 +103,65 @@ public enum DemoFixtures {
             attach: .daemon, attachReady: false)
     }
 
+    /// Amendment A25: Grok Build, driven over its ACP JSON-RPC. Exactly what
+    /// `protocol/fixtures/objects/agent.grok.json` advertises.
+    public static var grok: AgentInfo {
+        AgentInfo(
+            agent: "grok", available: true, version: "1.0.25", path: "/Users/me/.grok/bin/agent",
+            models: [AgentOption(id: "grok-4.6", label: "Grok 4.6"),
+                     AgentOption(id: "grok-4.5", label: "Grok 4.5")],
+            defaultModel: "grok-4.6",
+            permissionModes: [AgentOption(id: "default", label: "Ask when needed"),
+                              AgentOption(id: "acceptEdits", label: "Auto-accept edits"),
+                              AgentOption(id: "auto", label: "Auto mode"),
+                              AgentOption(id: "dontAsk", label: "Deny unless allowed"),
+                              AgentOption(id: "plan", label: "Plan mode"),
+                              AgentOption(id: "bypassPermissions", label: "Bypass permissions")],
+            defaultPermissionMode: "default",
+            efforts: [AgentOption(id: "low", label: "Low"),
+                      AgentOption(id: "medium", label: "Medium"),
+                      AgentOption(id: "high", label: "High"),
+                      AgentOption(id: "xhigh", label: "Extra high")],
+            defaultEffort: "high",
+            capabilities: [.worktree, .interrupt, .queue, .effort, .history])
+    }
+
+    /// Amendment A25: the Cursor agent CLI, which exposes no effort levels at
+    /// all — so its model card reads the model alone and draws no slider.
+    /// Exactly what `protocol/fixtures/objects/agent.cursor.json` advertises.
+    public static var cursor: AgentInfo {
+        AgentInfo(
+            agent: "cursor", available: true, version: "2026.09.02-c22c1a3",
+            path: "/Users/me/.local/bin/cursor-agent",
+            models: [AgentOption(id: "auto", label: "Auto"),
+                     AgentOption(id: "gpt-5", label: "GPT-5"),
+                     AgentOption(id: "sonnet-4-thinking", label: "Sonnet 4 Thinking")],
+            defaultModel: "auto",
+            permissionModes: [AgentOption(id: "default", label: "Ask when needed"),
+                              AgentOption(id: "force", label: "Never ask"),
+                              AgentOption(id: "plan", label: "Plan mode"),
+                              AgentOption(id: "ask", label: "Ask, read only")],
+            defaultPermissionMode: "default",
+            capabilities: [.worktree, .interrupt, .queue, .history])
+    }
+
+    /// Amendment A25: the pi coding agent, which has no permission system at
+    /// all — so no permission chip and no permission row are drawn for it.
+    /// Exactly what `protocol/fixtures/objects/agent.pi.json` advertises.
+    public static var pi: AgentInfo {
+        AgentInfo(
+            agent: "pi", available: true, version: "0.85.1", path: "/Users/me/.local/bin/pi",
+            models: [AgentOption(id: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5"),
+                     AgentOption(id: "openai/gpt-5", label: "GPT-5")],
+            defaultModel: "anthropic/claude-sonnet-4-5",
+            efforts: [AgentOption(id: "off", label: "Off"),
+                      AgentOption(id: "low", label: "Low"),
+                      AgentOption(id: "medium", label: "Medium"),
+                      AgentOption(id: "high", label: "High")],
+            defaultEffort: "medium",
+            capabilities: [.worktree, .interrupt, .queue, .steer, .effort, .history])
+    }
+
     /// Amendment A22: the build this demo gateway serves, and the older one the
     /// laptop is still on so a row with an update available can be looked at.
     public static let servedBuild = "3f2b4a9c1d8e7f60a5b4c3d2e1f0918273645a5b6c7d8e9f0a1b2c3d4e5f6a7b"
@@ -105,7 +173,9 @@ public enum DemoFixtures {
                    hostname: "mac-studio.local", arch: "arm64", clientVersion: "0.1.0",
                    clientBuild: servedBuild,
                    online: true, lastSeen: now, createdAt: now - 8_640_000, latencyMS: 18,
-                   agents: [claude, codex]),
+                   // Amendment A25: one machine with all five agents on it, so
+                   // the picker, the card and a session of each can be seen.
+                   agents: [claude, codex, grok, cursor, pi]),
             Device(deviceID: laptopDeviceID, name: "macbook-air", platform: .macos,
                    hostname: "macbook-air.local", arch: "arm64", clientVersion: "0.1.0",
                    clientBuild: outdatedBuild,
@@ -200,6 +270,32 @@ public enum DemoFixtures {
                     model: "claude-sonnet-4-5", permissionMode: "default",
                     createdAt: now - 9_000_000, updatedAt: now - 5_400_000, lastSeq: 0,
                     archived: true),
+            // Amendment A25: Grok Build writes its own update log, so a session
+            // started in a terminal is mirrored and read here. The summary
+            // carries the model and the effort but never a permission mode, so
+            // the composer shows one chip where three would have stood (A17).
+            Session(sessionID: grokSessionID, deviceID: macDeviceID, agent: "grok",
+                    title: "Squash the pending migrations", cwd: "/Users/me/dev/remote-control/gateway",
+                    git: GitInfo(branch: "migrations", dirty: true),
+                    state: .readonly, origin: .terminal, control: .terminal,
+                    model: "grok-4.6", effort: "high",
+                    createdAt: now - 3_000_000, updatedAt: now - 240_000, lastSeq: 0),
+            // Amendment A25: Cursor lists no effort levels, so the model card
+            // reads the model alone. Its permission modes are its own.
+            Session(sessionID: cursorSessionID, deviceID: macDeviceID, agent: "cursor",
+                    title: "Wire up the Storybook build", cwd: "/Users/me/dev/remote-control/web",
+                    git: GitInfo(branch: "storybook", dirty: false),
+                    state: .idle, origin: .remote, control: .remote,
+                    model: "auto", permissionMode: "default",
+                    createdAt: now - 1_500_000, updatedAt: now - 180_000, lastSeq: 0),
+            // Amendment A25: pi has no permission system, so the composer row
+            // carries the model card and nothing where the picker would be.
+            Session(sessionID: piSessionID, deviceID: macDeviceID, agent: "pi",
+                    title: "Rewrite the config parser", cwd: "/Users/me/dev/remote-control/client",
+                    git: GitInfo(branch: "config-parser", dirty: true, ahead: 3),
+                    state: .idle, origin: .remote, control: .remote,
+                    model: "anthropic/claude-sonnet-4-5", effort: "medium",
+                    createdAt: now - 1_200_000, updatedAt: now - 150_000, lastSeq: 0),
             Session(sessionID: doneSessionID, deviceID: ciDeviceID, agent: "codex",
                     title: "Add OTLP traces", cwd: "/work/api",
                     git: nil, state: .idle, origin: .remote, control: .none,
@@ -411,6 +507,67 @@ public enum DemoFixtures {
         ]
     }
 
+    /// Amendment A25: what the device read out of Grok Build's own update log
+    /// while a person drove the terminal. Every message carries the terminal as
+    /// its source, because none of it came from an app.
+    public static func grokHistory(base: Int64 = now - 3_000_000) -> [SessionEvent] {
+        [
+            SessionEvent(seq: 1, ts: base, kind: SessionEvent.userMessageKind, blockID: "u-1",
+                         body: .userMessage(UserMessagePayload(
+                            text: "Squash the pending migrations into one and keep the down path working.",
+                            source: .terminal))),
+            SessionEvent(seq: 2, ts: base + 1_100, kind: SessionEvent.thinkingKind, blockID: "t-1",
+                         body: .thinking(StreamTextPayload(
+                            text: "Four migrations touch the same two tables, so the order they ran in matters.",
+                            done: true, durationMS: 8_000))),
+            SessionEvent(seq: 3, ts: base + 2_400, kind: SessionEvent.assistantTextKind, blockID: "a-1",
+                         body: .assistantText(StreamTextPayload(
+                            text: "Collapsed the four migrations into `0007_sessions.sql` and kept the reverse.",
+                            done: true))),
+            SessionEvent(seq: 4, ts: base + 2_500, kind: SessionEvent.turnCompletedKind,
+                         body: .turnCompleted(TurnCompletedPayload(turnID: "demo-turn-grok",
+                                                                   stopReason: .completed,
+                                                                   durationMS: 31_000)))
+        ]
+    }
+
+    /// Amendment A25: a Cursor turn. Cursor's print mode carries no thinking
+    /// and no token usage, so neither appears here.
+    public static func cursorHistory(base: Int64 = now - 1_500_000) -> [SessionEvent] {
+        [
+            SessionEvent(seq: 1, ts: base, kind: SessionEvent.userMessageKind, blockID: "u-1",
+                         body: .userMessage(UserMessagePayload(
+                            text: "Add a Storybook build to the web package and run it in CI."))),
+            SessionEvent(seq: 2, ts: base + 1_800, kind: SessionEvent.assistantTextKind, blockID: "a-1",
+                         body: .assistantText(StreamTextPayload(
+                            text: "Added the `storybook` script and a job that builds it on every push.",
+                            done: true))),
+            SessionEvent(seq: 3, ts: base + 1_900, kind: SessionEvent.turnCompletedKind,
+                         body: .turnCompleted(TurnCompletedPayload(turnID: "demo-turn-cursor",
+                                                                   stopReason: .completed,
+                                                                   durationMS: 26_000)))
+        ]
+    }
+
+    /// Amendment A25: a pi turn. pi reports its usage and its cost at the end
+    /// of a turn, and asks for no approvals on the way.
+    public static func piHistory(base: Int64 = now - 1_200_000) -> [SessionEvent] {
+        [
+            SessionEvent(seq: 1, ts: base, kind: SessionEvent.userMessageKind, blockID: "u-1",
+                         body: .userMessage(UserMessagePayload(
+                            text: "Rewrite the config parser so an unknown key is an error, not a warning."))),
+            SessionEvent(seq: 2, ts: base + 1_500, kind: SessionEvent.assistantTextKind, blockID: "a-1",
+                         body: .assistantText(StreamTextPayload(
+                            text: "Unknown keys now raise `ConfigError` and name the line they came from.",
+                            done: true))),
+            SessionEvent(seq: 3, ts: base + 1_600, kind: SessionEvent.turnCompletedKind,
+                         body: .turnCompleted(TurnCompletedPayload(
+                            turnID: "demo-turn-pi", stopReason: .completed, durationMS: 19_000,
+                            usage: SessionUsage(inputTokens: 8_100, outputTokens: 2_300,
+                                                totalTokens: 10_400, costUSD: 0.06))))
+        ]
+    }
+
     /// The transcript of the turn that ended on an error.
     public static func erroredHistory(base: Int64 = now - 1_200_000) -> [SessionEvent] {
         [
@@ -455,6 +612,9 @@ public enum DemoFixtures {
         case attachHintSessionID: attachHintHistory()
         case erroredSessionID: erroredHistory()
         case revivedSessionID: revivedHistory()
+        case grokSessionID: grokHistory()
+        case cursorSessionID: cursorHistory()
+        case piSessionID: piHistory()
         default: [
             SessionEvent(seq: 1, ts: now - 3_600_000, kind: SessionEvent.userMessageKind, blockID: "u-1",
                          body: .userMessage(UserMessagePayload(text: "Add OTLP traces to the API."))),

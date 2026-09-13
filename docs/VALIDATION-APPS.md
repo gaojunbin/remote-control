@@ -1160,6 +1160,58 @@ machines to whichever account signs in, because scoping devices to their owner i
 work and is tested there; what the app was checked for is that it asks as one account, shows that
 account and its role, and offers 3.9 only to the admin.
 
+**Round 18 — three more agents, and what an agent does not have (A25)** (iPhone 17 on iOS 27.0,
+2026-09-14, against the offline demo). `mac-studio-office` now advertises all five agents, copied
+from `protocol/fixtures/objects/agent.grok.json`, `agent.cursor.json` and `agent.pi.json` to the
+letter, and carries one session of each new one: a Grok Build session a terminal holds, a Cursor
+session and a pi session.
+
+**The new-session sheet's agent control** drew five segments — `C X G Cu π` — and the run read
+their accessible names back as exactly `["Claude Code", "Codex", "Grok Build", "Cursor", "pi"]`, so
+the mark is for the eye and the name is still what a screen reader says. Five names side by side
+had not fit one row across a phone; five marks leave room to spare (`82-new-session-agents.png`).
+The line under the control names the chosen agent and then, in the monospace face, what the device
+detected: "pi 0.85.1 · Claude Sonnet 4.5". **What an agent does not have was not drawn**: choosing
+pi took the whole Permissions section out of the form, leaving Device, Agent, Model, Effort and
+then Working directory (`83-new-session-pi.png`); choosing Cursor took Effort out and left
+Permissions (`84-new-session-cursor.png`). The assertions are on `.exists` from the top of the
+sheet, which a probe run first established is a true discriminator here — Codex shows all four
+rows there, Cursor shows two.
+
+**In the chat**, the pi composer row held the microphone, the model card reading "Claude Sonnet 4.5
+Medium", the dictation language and Send, and no permission chip at all — the card's own popover
+still carried the thinking-level slider, because pi does have levels (`85-pi-composer.png`,
+`86-pi-model-card.png`). The Cursor card read "Auto" alone with no effort word and no slider on the
+popover, while its permission chip stayed ("Ask when needed", `87-cursor-model-card.png`). The Grok
+Build session a terminal holds opened read-only — "Controlled by the terminal", the field disabled —
+with one static chip, "Grok 4.6 High", where a Claude session shows two: its update log carries a
+model and a level but never a permission mode, so nothing claims one (`88-grok-terminal-composer.png`).
+
+Two existing tests had to change because the demo list grew by three rows, and neither change was
+cosmetic. `testTerminalSessionExplainsHowToAttach` now scrolls to its row, which sits on the second
+machine and is below the fold. `testSessionsListShowsEveryStatusTone` claimed all five tones were in
+frame together; with five agents' sessions on the live machine they are not, so it now proves the
+four on that machine are in frame and reaches the fifth — the grey one, in another machine's
+Archive — by scrolling, with a screenshot of each.
+
+```
+cd ios && export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+swift run RCVerify    → PASS, 1095 checks over 155 fixtures
+swift run RCUIVerify  → PASS, 211 UI checks
+swift test            → 242 tests in 22 suites passed
+xcodebuild test-without-building … -only-testing:RemoteControlUITests
+                      → 45 tests, 4 skipped (the real-gateway smoke tests), 0 failures
+```
+
+Screenshots are run artefacts under `…/scratchpad/ios-agents/named/`, not checked into the
+repository.
+
+Not verified on the phone this round: any of the three agents against a real device. The client
+adapters landed in the same round, so every shape above came from the demo fixtures and from
+`protocol/fixtures/objects/`. A Grok Build approval card was not seen either — the demo never
+raises one on that session — and no session of a new agent has been started on a device from the
+sheet.
+
 ## 3. Attached terminal sessions (A10) in the apps
 
 Amendment A10 landed after the run above. This section records what each app does with

@@ -91,7 +91,9 @@ struct SessionsView: View {
             Menu {
                 filterChoice(nil, label: L10n.string("All"))
                 ForEach(options, id: \.self) { agent in
-                    filterChoice(agent, label: AgentLabel.name(agent))
+                    // `docs/DESIGN.md` § "Agents": the mark, then the name. A
+                    // menu row is wide enough to carry both, so it does.
+                    filterChoice(agent, label: "\(AgentLabel.mark(agent)) \(AgentLabel.name(agent))")
                 }
             } label: {
                 HStack(spacing: Theme.Space.hair + 2) {
