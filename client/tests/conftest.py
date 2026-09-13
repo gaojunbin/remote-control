@@ -9,7 +9,9 @@ from pathlib import Path
 
 import pytest
 
+from rc_client.agents.cursor import runtime as cursor_runtime
 from rc_client.agents.grok import runtime as grok_runtime
+from rc_client.agents.pi import runtime as pi_runtime
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +23,22 @@ def grok_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """
     home = tmp_path / "grok-home"
     monkeypatch.setattr(grok_runtime, "home", lambda: home)
+
+
+@pytest.fixture(autouse=True)
+def cursor_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point Cursor's state directory at a scratch path: `~/.cursor/hooks.json` is another
+    product's file on a developer machine, and setup must never merge into the real one."""
+    home = tmp_path / "cursor-home"
+    monkeypatch.setattr(cursor_runtime, "home", lambda: home)
+
+
+@pytest.fixture(autouse=True)
+def pi_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point pi's state directory at a scratch path, so detection never reads a person's
+    own `~/.pi/agent/settings.json`."""
+    home = tmp_path / "pi-home"
+    monkeypatch.setattr(pi_runtime, "home", lambda: home)
 
 
 @pytest.fixture(autouse=True)

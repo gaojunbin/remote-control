@@ -1,0 +1,13 @@
+{"type":"system","subtype":"init","apiKeySource":"login","cwd":"/tmp/work","session_id":"9f1c0f4e-1d1c-4a1e-9d6f-2f0f1f7c2c31","model":"Claude Sonnet 4.5","permissionMode":"default"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Reply with exactly OK"}]},"session_id":"9f1c0f4e-1d1c-4a1e-9d6f-2f0f1f7c2c31"}
+{"type":"thinking","subtype":"delta","text":"The user wants ","session_id":"9f1c0f4e-1d1c-4a1e-9d6f-2f0f1f7c2c31","timestamp_ms":1757000000001}
+{"type":"thinking","subtype":"delta","text":"one word back.","session_id":"9f1c0f4e-1d1c-4a1e-9d6f-2f0f1f7c2c31","timestamp_ms":1757000000002}
+{"type":"thinking","subtype":"completed","session_id":"9f1c0f4e-1d1c-4a1e-9d6f-2f0f1f7c2c31","timestamp_ms":1757000000003}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Let me "}]},"session_id":"9f1c0f4e-1d1c-4a1e-9d6f-2f0f1f7c2c31","timestamp_ms":1757000000004}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"look first."}]},"session_id":"9f1c0f4e-1d1c-4a1e-9d6f-2f0f1f7c2c31","timestamp_ms":1757000000005}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Let me look first."}]},"session_id":"9f1c0f4e-1d1c-4a1e-9d6f-2f0f1f7c2c31","model_call_id":"mc-1","timestamp_ms":1757000000006}
+{"type":"tool_call","subtype":"started","call_id":"call-1","tool_call":{"shellToolCall":{"args":{"command":"ls -la"}}},"model_call_id":"mc-1","session_id":"9f1c0f4e-1d1c-4a1e-9d6f-2f0f1f7c2c31","timestamp_ms":1757000000007}
+{"type":"tool_call","subtype":"completed","call_id":"call-1","tool_call":{"shellToolCall":{"args":{"command":"ls -la"},"result":{"success":{"stdout":"total 0\n","exit_code":0}}}},"model_call_id":"mc-1","session_id":"9f1c0f4e-1d1c-4a1e-9d6f-2f0f1f7c2c31","timestamp_ms":1757000000207}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"OK"}]},"session_id":"9f1c0f4e-1d1c-4a1e-9d6f-2f0f1f7c2c31","timestamp_ms":1757000000208}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"OK"}]},"session_id":"9f1c0f4e-1d1c-4a1e-9d6f-2f0f1f7c2c31"}
+{"type":"result","subtype":"success","is_error":false,"duration_ms":1234,"duration_api_ms":1100,"result":"Let me look first.OK","session_id":"9f1c0f4e-1d1c-4a1e-9d6f-2f0f1f7c2c31","request_id":"req-1","usage":{"inputTokens":120,"outputTokens":8,"cacheReadTokens":4000,"cacheWriteTokens":50}}

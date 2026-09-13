@@ -28,7 +28,7 @@ if TYPE_CHECKING:  # pragma: no cover - imported for types only
     from .codex.daemon.service import CodexDaemonService
 
 # Detection order, and the order `hello` reports agents in.
-AGENT_IDS = ("claude", "codex", "grok")
+AGENT_IDS = ("claude", "codex", "grok", "cursor", "pi")
 
 TurnEndCallback = Callable[[], Awaitable[None]]
 SessionIdCallback = Callable[[str], Awaitable[None]]

@@ -156,15 +156,19 @@ class SessionHub:
 
         `permission_mode` and `effort` are closed enumerations (PROTOCOL.md section 8), and an
         unknown value would only surface later as a CLI that refuses to start. `model` stays open:
-        model ids are the agents' own and the detected catalogue can lag a new release.
+        model ids are the agents' own and the detected catalogue can lag a new release. An agent
+        that advertises no values at all has no such setting — pi has no permission system, Cursor
+        no effort — so any value for it is `unsupported` (A25, PROTOCOL.md 4.2).
         """
         for field_name, allowed in (
             ("permission_mode", info.permission_modes),
             ("effort", info.efforts),
         ):
             value = params.get(field_name)
-            if value is None or not allowed:
+            if value is None:
                 continue
+            if not allowed:
+                raise RcError("unsupported", f"{info.agent} has no {field_name} setting")
             if value not in {choice.id for choice in allowed}:
                 raise RcError("bad_request", f"unknown {field_name} for {info.agent}: {value}")
 
