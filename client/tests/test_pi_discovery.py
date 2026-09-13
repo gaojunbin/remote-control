@@ -1,9 +1,10 @@
 """What the device advertises for pi, and where each part of it comes from.
 
-pi is not installed on the machine this was written on, so the table
-`tests/fixtures/pi/list-models.txt` was recorded from `pi --list-models` in a
-scratch install (0.85.1) with throwaway provider keys; everything else comes
-from the shipped documentation.
+`tests/fixtures/pi/list-models.txt` was recorded from `pi --list-models` on an
+install (0.85.1) with several providers logged in. Detection runs against a
+shim, never the real binary: `PATH`, `$HOME` and the system prefixes are all
+redirected, because this machine does have a pi and finding it would make the
+results depend on whoever is logged in to it.
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ from pathlib import Path
 import pytest
 
 from rc_client.agents.pi import catalog as pi_catalog
+from rc_client.agents.pi import install as pi_install
+from rc_client.agents.pi import paths as pi_paths
 from rc_client.agents.pi import runtime as pi_runtime
 from rc_client.agents.pi.plugin import detect
 from rc_client.agents.registry import DetectContext
@@ -57,8 +60,10 @@ def pi_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     (home / "agent").mkdir(parents=True)
     monkeypatch.setattr(pi_runtime, "home", lambda: home)
     # The absolute fallbacks (`~/.local/bin/pi` and friends) are not on PATH, so
-    # the real home has to move as well or a test could find a real pi.
+    # the real home has to move as well or a test could find a real pi, and the
+    # system prefixes have to go with it.
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(pi_runtime, "SYSTEM_PREFIXES", ())
     monkeypatch.delenv("RC_PI_BIN", raising=False)
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     pi_catalog.model_cache.forget()
@@ -179,16 +184,29 @@ async def test_what_pi_advertises_matches_the_protocol_fixture(
     assert payload["version"] == expected["version"]
     assert payload["models"] == expected["models"]
     assert payload["default_model"] == expected["default_model"]
-    # pi has no permission system at all, which is what the empty list means.
-    assert payload["permission_modes"] == []
-    assert payload["default_permission_mode"] is None
     assert payload["efforts"] == expected["efforts"]
     assert payload["default_effort"] == expected["default_effort"]
     assert payload["capabilities"] == expected["capabilities"]
-    assert payload["attach"] is None
-    assert payload["attach_ready"] is False
-    assert not payload["shared_interrupt"]
-    assert not payload["shared_settings"]
-    assert not payload["shared_attachments"]
+    # A26: the modes are the device's own, enforced by its extension.
+    assert payload["permission_modes"] == expected["permission_modes"]
+    assert payload["default_permission_mode"] == expected["default_permission_mode"]
+    assert payload["attach"] == "extension"
+    assert payload["shared_interrupt"] is True
+    assert payload["shared_settings"] is True
+    assert payload["shared_attachments"] is True
     assert payload["speeds"] == []
     assert payload["path"] == str(binary)
+
+
+async def test_attach_ready_follows_the_installed_extension(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pi_home: Path
+) -> None:
+    """`attach_ready` is the extension being there, at this build, and nothing else."""
+    binary = fake_pi(tmp_path / "bin", "0.85.1", NO_MODELS)
+    monkeypatch.setenv("PATH", str(binary.parent))
+    assert (await detect(DetectContext())).attach_ready is False
+    pi_install.install()
+    assert (await detect(DetectContext())).attach_ready is True
+    # A copy from an older build is not the one this device would load.
+    pi_paths.installed_extension().write_text("// stale\n", encoding="utf-8")
+    assert (await detect(DetectContext())).attach_ready is False

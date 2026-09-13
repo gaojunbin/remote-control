@@ -2,8 +2,8 @@
 
 The peer is a real child process speaking real JSONL
 (`tests/fixtures/pi/fake_pi.py`), so the spawn, the framing and the reader task
-are exercised end to end. Its replies come from pi's shipped documentation, not
-from a recorded session: pi needs a provider key this machine has not given it.
+are exercised end to end. Its replies are shaped after a session recorded from
+the real pi 0.85.1 (see `docs/VALIDATION.md` section 18).
 """
 
 from __future__ import annotations
@@ -17,6 +17,8 @@ from typing import Any
 
 import pytest
 
+from rc_client.agents.pi import install as pi_install
+from rc_client.agents.pi import paths as pi_paths
 from rc_client.agents.pi.adapter import PiRunner
 from rc_client.errors import RcError
 from rc_client.models import Session
@@ -97,6 +99,7 @@ def build(tmp_path: Path, mode: str) -> tuple[PiRunner, Recorder, Peer]:
         session_id=SESSION,
         model="anthropic/claude-sonnet-4-5",
         effort="medium",
+        permission_mode="on-request",
     )
     return runner, recorder, peer
 
@@ -135,7 +138,12 @@ async def test_a_turn_streams_the_agent_s_own_events(tmp_path: Path) -> None:
 
 
 def test_the_session_id_and_the_settings_ride_on_the_process(tmp_path: Path) -> None:
-    """pi takes its model and thinking level as flags; `--session-id` upserts."""
+    """pi takes its model and thinking level as flags; `--session-id` upserts.
+
+    The extension is not installed in a test home, so the device passes its
+    bundled copy with `-e`; an installed one at this build is loaded by pi on
+    its own and the flag disappears.
+    """
     runner, _, _ = build(tmp_path, "turn")
     assert runner._spawn_args() == [
         "--session-id",
@@ -145,7 +153,19 @@ def test_the_session_id_and_the_settings_ride_on_the_process(tmp_path: Path) -> 
         "anthropic/claude-sonnet-4-5",
         "--thinking",
         "medium",
+        "-e",
+        str(pi_paths.bundled_extension()),
     ]
+    pi_install.install()
+    assert "-e" not in runner._spawn_args()
+
+
+def test_the_child_is_told_where_to_dial_and_what_to_enforce(tmp_path: Path) -> None:
+    """The extension inside the child needs both, and gets neither by guessing."""
+    runner, _, _ = build(tmp_path, "turn")
+    env = runner._child_env()
+    assert env[pi_paths.SOCKET_ENV] == str(pi_paths.socket_path())
+    assert env[pi_paths.MODE_ENV] == "on-request"
 
 
 async def test_the_session_reports_what_pi_is_actually_running(tmp_path: Path) -> None:
@@ -269,31 +289,39 @@ async def test_a_model_pi_does_not_know_is_reported_rather_than_swallowed(
     assert caught.value.code == "bad_request"
 
 
-async def test_a_permission_mode_and_a_speed_tier_are_both_unsupported(tmp_path: Path) -> None:
-    runner, _, peer = build(tmp_path, "turn")
+async def test_a_speed_tier_is_unsupported_and_a_permission_mode_is_not(tmp_path: Path) -> None:
+    """A26: the modes are the device's, so `session.set` applies them."""
+    runner, recorder, peer = build(tmp_path, "turn")
     await runner.start()
-    with pytest.raises(RcError) as mode:
-        await runner.apply_settings(None, "plan", None)
     with pytest.raises(RcError) as speed:
         await runner.apply_settings(None, None, None, speed="priority")
+    await runner.apply_settings(None, "untrusted", None)
     await runner.close()
-    assert mode.value.code == "unsupported"
     assert speed.value.code == "unsupported"
+    assert runner.permission_mode == "untrusted"
+    assert any(event.get("permission_mode") == "untrusted" for event in recorder.events("meta"))
     # A refused setting changes nothing: pi was never asked.
     assert "set_thinking_level" not in peer.names()
 
 
-async def test_attachments_are_refused_rather_than_silently_dropped(tmp_path: Path) -> None:
-    runner, _, _ = build(tmp_path, "turn")
+async def test_an_image_rides_on_the_prompt_and_nothing_else_does(tmp_path: Path) -> None:
+    """A26: pi takes images through `prompt.images`, in its own content shape."""
+    runner, _, peer = build(tmp_path, "turn")
     await runner.start()
+    await runner.send("look", [{"name": "shot.png", "mime": "image/png", "data": "aGk="}])
     with pytest.raises(RcError) as caught:
-        await runner.send("look", [{"name": "shot.png", "mime": "image/png", "data": "aGk="}])
+        await runner.send(
+            "read", [{"name": "notes.pdf", "mime": "application/pdf", "data": "aGk="}]
+        )
     await runner.close()
+    assert peer.of("prompt")[0]["images"] == [
+        {"type": "image", "data": "aGk=", "mimeType": "image/png"}
+    ]
     assert caught.value.code == "unsupported"
 
 
-async def test_nothing_is_ever_waiting_for_an_approval(tmp_path: Path) -> None:
-    """pi has no permission system, so a session runs with pi's own permissions."""
+async def test_an_approval_nobody_raised_cannot_be_answered(tmp_path: Path) -> None:
+    """Questions come from the extension; pi itself never asks anything."""
     runner, _, _ = build(tmp_path, "turn")
     await runner.start()
     assert await runner.approve("whatever", "allow", None) is False

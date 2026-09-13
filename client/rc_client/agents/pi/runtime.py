@@ -14,6 +14,10 @@ import re
 import shutil
 from pathlib import Path
 
+# The prefixes npm and Homebrew install into without `sudo`, tried after PATH.
+# A test points this at nothing so the machine's own pi is never found.
+SYSTEM_PREFIXES = (Path("/opt/homebrew/bin/pi"), Path("/usr/local/bin/pi"))
+
 VERSION_TIMEOUT = 5.0
 MODELS_TIMEOUT = 10.0
 _VERSION_RE = re.compile(r"(?<!\d)(\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?)")
@@ -42,8 +46,7 @@ def candidate_paths() -> list[str]:
         for path in (
             Path.home() / ".local/bin/pi",
             Path.home() / ".npm-global/bin/pi",
-            Path("/opt/homebrew/bin/pi"),
-            Path("/usr/local/bin/pi"),
+            *SYSTEM_PREFIXES,
         )
     )
     return candidates

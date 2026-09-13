@@ -21,6 +21,7 @@ import httpx
 from . import __version__, linkstate, pairing, qr
 from . import config as config_module
 from .agents.codex.daemon import setup as codex_setup
+from .agents.pi import commands as pi_commands
 from .agents.registry import detect_all
 from .build import read_build
 from .channel import commands as shim_commands
@@ -85,6 +86,10 @@ def build_parser() -> argparse.ArgumentParser:
     codex_parser.add_argument(
         "--no-install", action="store_true", help="never run the official Codex installer"
     )
+    pi_parser = sub.add_parser(
+        "pi", help="manage the pi extension that lets the apps drive pi sessions"
+    )
+    pi_parser.add_argument("action", choices=["setup", "status", "remove"])
 
     sub.add_parser("status", help="print configuration and service status")
     sub.add_parser("agents", help="print detected agents as JSON")
@@ -155,6 +160,18 @@ async def _cmd_codex(args: argparse.Namespace) -> int:
     return EXIT_OK if ok else EXIT_FAILURE
 
 
+def _cmd_pi(args: argparse.Namespace) -> int:
+    if args.action == "setup":
+        lines = pi_commands.setup()
+    elif args.action == "remove":
+        lines = pi_commands.remove()
+    else:
+        lines = pi_commands.status()
+    for line in lines:
+        print(line)
+    return EXIT_OK
+
+
 async def _cmd_status(args: argparse.Namespace) -> int:
     if not config_exists():
         print(f"not enrolled (no {config_path()})")
@@ -173,6 +190,7 @@ async def _cmd_status(args: argparse.Namespace) -> int:
     if link is not None:
         print(f"gateway link   {link.summary()}")
     print(f"codex daemon   {(await codex_setup.status()).summary()}")
+    print(f"pi extension   {pi_commands.summary()}")
     return EXIT_OK
 
 
@@ -219,6 +237,8 @@ def _cmd_uninstall(args: argparse.Namespace) -> int:
     print("service removed")
     codex_supervision.uninstall()
     print("codex daemon supervision removed (Codex itself is left alone)")
+    for line in pi_commands.remove():
+        print(line)
     for line in shim_commands.remove(shell_rc=not args.no_shell_rc):
         print(line)
     if args.purge:
@@ -251,6 +271,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_service(args)
         if args.command == "shim":
             return _cmd_shim(args)
+        if args.command == "pi":
+            return _cmd_pi(args)
         if args.command == "channel":
             return int(channel_main())
         if args.command == "hook":

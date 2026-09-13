@@ -15,6 +15,8 @@ from ..agents.base import SessionRunner
 from ..agents.claude import transcripts
 from ..agents.codex.daemon.service import CodexDaemonService
 from ..agents.codex.models import catalog_cache
+from ..agents.pi.adapter import PiRunner
+from ..agents.pi.service import PiExtensionService
 from ..agents.registry import RunnerSpec, runner_for
 from ..errors import RcError
 from ..git import create_worktree, session_git, slugify
@@ -78,6 +80,8 @@ class SessionHub:
         # Set by the daemon once the shared Codex app-server answers a handshake
         # (amendment A11); absent means the per-session spawn path.
         self.codex_daemon: CodexDaemonService | None = None
+        # Set by the daemon when the pi extension socket is listening (A26).
+        self.pi_extensions: PiExtensionService | None = None
         # The session each terminal CLI last said it was in, by its own pid.
         self._terminals: dict[int, SessionStart] = {}
         # Removals the device made on its own initiative, and the link each
@@ -268,7 +272,7 @@ class SessionHub:
         async def on_session_id(real_id: str) -> None:
             await self.rekey(entry, real_id)
 
-        return await runner_for(
+        runner = await runner_for(
             info.agent,
             RunnerSpec(
                 entry=entry,
@@ -279,6 +283,11 @@ class SessionHub:
                 codex_daemon=self.codex_daemon,
             ),
         )
+        if isinstance(runner, PiRunner) and self.pi_extensions is not None:
+            # The child's extension dials the socket while `start` is still
+            # running, so the service has to know whose link it is by then.
+            self.pi_extensions.expect(runner)
+        return runner
 
     async def rekey(self, entry: SessionEntry, real_id: str) -> None:
         old_id = entry.session.session_id

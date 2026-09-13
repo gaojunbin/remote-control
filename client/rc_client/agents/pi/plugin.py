@@ -7,19 +7,21 @@ from ...models import AgentInfo
 from ..base import SessionRunner
 from ..registry import DetectContext, RunnerSpec
 from . import catalog as catalogue
-from . import runtime
+from . import install, runtime
 from .adapter import PiRunner
 
 AGENT = "pi"
 
-# No `attachments`: pi's `prompt` takes images, but nothing else in a pi
-# session is remote-controlled well enough yet to be worth carrying bytes for.
-# No `takeover`: a human's pi has no IPC surface to take anything over from.
+# `attachments` is images and nothing else: pi's `prompt` and its extension both
+# take base64 image content, and any other attachment is refused (A26).
+# No `takeover`: a pi the device is attached to is already shared, and one it is
+# not attached to has no IPC surface to take anything over from.
 CAPABILITIES = [
     "worktree",
     "interrupt",
     "queue",
     "steer",
+    "attachments",
     "effort",
     "history",
 ]
@@ -36,21 +38,20 @@ async def detect(context: DetectContext) -> AgentInfo:
         path=path,
         models=list(catalog.models),
         default_model=catalog.default_model,
-        # pi has no permission system at all (A25): an empty list is what tells
-        # an app to draw no permission picker.
-        permission_modes=[],
-        default_permission_mode=None,
+        # pi has no permission system of its own; these three are the device's,
+        # enforced by the extension it installs (A26).
+        permission_modes=list(catalogue.PERMISSION_MODES),
+        default_permission_mode=catalogue.DEFAULT_PERMISSION_MODE,
         efforts=list(catalog.efforts),
         default_effort=catalog.default_effort,
         capabilities=list(CAPABILITIES),
-        # pi runs one process per client with no daemon, no socket and no
-        # server mode, so a session a person started in a terminal cannot be
-        # attached to or driven from here.
-        attach=None,
-        attach_ready=False,
-        shared_interrupt=False,
-        shared_settings=False,
-        shared_attachments=False,
+        # The extension runs inside the pi process, so an attached session can
+        # be interrupted, re-modelled and handed images like any other.
+        attach="extension",
+        attach_ready=install.ready(),
+        shared_interrupt=True,
+        shared_settings=True,
+        shared_attachments=True,
     )
 
 
@@ -67,6 +68,7 @@ async def build_runner(spec: RunnerSpec) -> SessionRunner:
         session_id=spec.resume or session.session_id,
         model=session.model,
         effort=session.effort,
+        permission_mode=session.permission_mode or catalogue.DEFAULT_PERMISSION_MODE,
         on_turn_end=spec.on_turn_end,
         on_session_id=spec.on_session_id,
     )

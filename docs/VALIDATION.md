@@ -1233,23 +1233,57 @@ plan from a live run (one prompt that answers "OK" makes none of those), the lea
 Tool, plan and diff translation is tested against rows built from the shapes the owner's own session
 logs show, and is marked as constructed in the test module.
 
-## 18. pi adapter (2026-09-14, A25)
+## 18. pi, attached through the device's own extension (2026-09-14, A26)
 
-pi could not run a turn on this machine: pi 0.85.1 (`@earendil-works/pi-coding-agent`, installed
-into a scratch directory with a redirected `HOME`) has no provider credential. The adapter is
-therefore built to the documented stream shapes and tested against a fake peer,
-`client/tests/fixtures/pi/fake_pi.py`, with the fixtures under `client/tests/fixtures/pi/` stating
-where each field came from.
+pi 0.85.1 at `/opt/homebrew/bin/pi`, an xAI credential in `~/.pi/agent/auth.json`, default model
+`xai/grok-4.6`. Nine short prompts were sent to a real model, all in a scratch working directory
+outside the repository. The `~/.pi/agent/` files of this machine were read and never written, apart
+from `extensions/remote-control.ts`, which `rc-client pi setup` installed and `rc-client pi remove`
+took out again cleanly at the end.
 
-What was exercised against the real binary: `--version`; `--list-models`, both the table the parser
-reads and the sentence it prints when nothing is logged in; `get_state`;
-`get_available_thinking_levels`; `set_thinking_level`, which accepts a level the model does not
-expose; `set_model`, which refuses an unknown id; `abort`; `clear_queue`; `get_session_stats`; a
-`prompt` refused with `success: false`; and `--session-id` creating an unknown session with a
-warning on stderr.
+**The extension loads and speaks.** A `pi --mode rpc` child with `-e <bundled file>` produced no
+`extension_error` on any run. The `hello` it sends carries pi's session id, session file, cwd, pid,
+`ctx.mode`, `provider/model`, the thinking level and the branch. 37 `message_update` deltas of one
+turn crossed the socket and reassembled into the same blocks the stdout path produces. The events
+the translator reads were recorded from that run rather than taken from the documentation: the
+delta types, `tool_execution_start/_update/_end` with `partialResult` as the accumulated output,
+`message_end` with `stopReason` and `errorMessage`, and `agent_settled` ending the turn.
 
-Not verified: a live stream, every streaming event shape, and whether `abort` always settles — pi
-ends the turn itself after sixty seconds.
+**Approvals, both ways.** In `on-request` mode a `bash` call raised an `approval` block offering
+`allow`, `allow_session` and `deny`. Answered `allow` from the device, the tool ran and returned
+`from-terminal\n`. Answered `deny`, pi finalised the call as `isError: true` with the text
+`Denied from Remote Control` and carried on with the turn rather than ending it.
+
+**A real terminal pi, attached.** `pi` was started inside a pty, with the extension installed
+globally and no `-e`. It registered as `control: "shared"` with its real cwd, `xai/grok-4.6`,
+thinking level `low` and permission mode `on-request`. A prompt typed at the keyboard opened a turn
+with trigger `terminal` and a `user_message` with `source: "terminal"`; its tool call was approved
+from the device (`decision {option_id: allow, by: remote}`) and the turn ended `completed` with real
+totals — 6037 tokens, $0.00705, 3032 of a 500k context window. A `session.send` from the device was
+accepted `sent`, appeared as `source: "remote"` under the id the request carried, and its tool call
+was answered at the keyboard instead: the block resolved as
+`{option_id: elsewhere, by: terminal}`, which is A20's rule. Ctrl-D dropped the session to
+`control: "none"` with the runner released.
+
+**Resume.** `pi --mode rpc --session-id <the terminal session's id>` in the same cwd reopened that
+conversation with all 12 branch entries, which is the path a `control: "none"` pi session takes when
+an app sends to it again.
+
+**Images.** An image sent as pi's own `ImageContent` — `{type: "image", data, mimeType}` — reached
+the model, which named the colour correctly. The nested `source: {type: "base64", mediaType, data}`
+form that `docs/extensions.md` shows is not what the running binary accepts; the flat shape is, and
+is what the device sends both on `prompt.images` and through the extension. An 8x8 test image was
+refused by xAI for being under its 512-pixel minimum, which is the provider's rule and not pi's.
+
+**Session totals on an attached session** are summed by the extension from the branch's assistant
+messages; the figures above came back through the socket's `stats` command in the same shape
+`get_session_stats` returns.
+
+Not verified against the real binary: `/tree`, `/fork` and `/clone` inside an attached TUI; a
+compaction on an attached session; steering an attached terminal session from an app; stopping one;
+two devices attached to one pi; whether `abort` always settles, for which the device ends the turn
+itself after sixty seconds. Each of those paths has a test against a fake extension client in
+`client/tests/test_pi_extension.py`.
 
 ## Smoke procedure
 

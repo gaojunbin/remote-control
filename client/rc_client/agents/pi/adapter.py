@@ -1,46 +1,37 @@
 """Drive one pi session over its RPC mode on a private `pi --mode rpc` child.
 
-pi has no permission system: every tool it decides to run, it runs. A session
-this device drives therefore has pi's own full permissions, which is why
-`AgentInfo.permission_modes` is empty (4.2) and `session.set` refuses a
-permission mode rather than pretending to apply one.
+The child loads the device's own extension, which is what gives the session
+approvals and its permission mode (A26): pi itself asks nothing. The extension
+reaches the daemon over `pi-extension.sock` like any other, announces itself as
+an `rpc` session and is told not to stream — the events already arrive on this
+process's stdout — so the only traffic on that link is the questions and the
+answers to them.
 """
 
 from __future__ import annotations
 
-import asyncio
-import time
-import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from typing import Any
 
 from ...child_env import sanitized_child_env
 from ...errors import RcError
 from ...logging_setup import logger
-from ...models import UNSET, SpeedSetting, now_ms
+from ...models import UNSET, SpeedSetting
 from ...sessions.channel import SessionChannel
-from ..base import Emit
 from . import catalog as catalogue
+from . import install, paths
+from .approvals import PiApprovals
 from .rpc import DRAIN_TIMEOUT, PiProcess
-from .translate import QUEUE, PiTranslator
+from .stream import PiStream, Steer, bubble_id
 
 log = logger("rc_client.pi")
-
-# A running tool's output is republished at most this often, so a noisy build
-# cannot flood the link with replacement events.
-OUTPUT_THROTTLE = 0.5
 
 TurnEndCallback = Callable[[], Awaitable[None]]
 SessionIdCallback = Callable[[str], Awaitable[None]]
 
-
-@dataclass(slots=True, frozen=True)
-class _Steer:
-    """A message sent into a running turn, and the block it is owed under."""
-
-    text: str
-    block_id: str
+# pi's `prompt` takes base64 images and nothing else, so any other attachment
+# is refused rather than silently dropped.
+IMAGE_PREFIX = "image/"
 
 
 class PiRunner:
@@ -55,6 +46,7 @@ class PiRunner:
         session_id: str,
         model: str | None = None,
         effort: str | None = None,
+        permission_mode: str | None = None,
         on_turn_end: TurnEndCallback | None = None,
         on_session_id: SessionIdCallback | None = None,
     ) -> None:
@@ -64,28 +56,33 @@ class PiRunner:
         self._session_id = session_id
         self._model = model
         self._effort = effort
-        self._on_turn_end = on_turn_end
+        self._permission_mode = permission_mode
         self._on_session_id = on_session_id
         self._process: PiProcess | None = None
-        self._translator = PiTranslator()
+        self._stream = PiStream(channel, usage=self._usage, on_turn_end=on_turn_end)
+        self.approvals = PiApprovals(channel, self._answer)
         self._context_window: int | None = None
-        self._streaming = False
-        self._interrupting = False
-        self._turn_started_at = 0
-        self._turn_done = asyncio.Event()
-        self._turn_done.set()
-        self._steers: list[_Steer] = []
-        self._last_output_flush: dict[str, float] = {}
+        # Set by the extension service while an extension is attached to this
+        # child; the questions travel on it and nothing else does.
+        self.link: Any | None = None
 
     # ------------------------------------------------------------- lifecycle
+
+    @property
+    def session_id(self) -> str:
+        return self._session_id
+
+    @property
+    def permission_mode(self) -> str | None:
+        return self._permission_mode
 
     async def start(self) -> None:
         process = PiProcess(
             self._binary,
             cwd=self._cwd,
             args=self._spawn_args(),
-            env=sanitized_child_env(),
-            on_event=self._on_event,
+            env=self._child_env(),
+            on_event=self._stream.event,
             on_closed=self._on_closed,
         )
         await process.start()
@@ -98,13 +95,24 @@ class PiRunner:
         `--no-approve` keeps the device from trusting a project's own pi
         settings, resources and extensions: a remote session must not start
         running code that happens to be checked into the working directory.
+        `-e` is passed only when the installed copy of our own extension is not
+        the one in this build; the file refuses to act twice in one process.
         """
         args = ["--session-id", self._session_id, "--no-approve"]
         if self._model:
             args.extend(["--model", self._model])
         if self._effort:
             args.extend(["--thinking", self._effort])
+        if not install.ready():
+            args.extend(["-e", str(paths.bundled_extension())])
         return args
+
+    def _child_env(self) -> dict[str, str]:
+        """Tell the extension where to dial and what it is enforcing."""
+        env = sanitized_child_env()
+        env[paths.SOCKET_ENV] = str(paths.socket_path())
+        env[paths.MODE_ENV] = self._permission_mode or "never"
+        return env
 
     async def _adopt_state(self, state: dict[str, Any]) -> None:
         """Report what pi actually runs with, which A17 says apps show."""
@@ -130,98 +138,21 @@ class PiRunner:
     async def close(self) -> None:
         process = self._process
         self._process = None
+        await self.approvals.expire()
         if process is not None:
             await process.close()
 
-    # ------------------------------------------------------------- streaming
-
-    async def _on_event(self, event: dict[str, Any]) -> None:
-        completion: dict[str, Any] | None = None
-        for emit in self._translator.event(event):
-            if emit.kind == "turn_completed":
-                completion = dict(emit.fields)
-                continue
-            if emit.kind == QUEUE:
-                await self._apply_queue(emit.fields)
-                continue
-            await self._apply(emit)
-        if completion is not None:
-            await self._finish_turn(completion)
-
     async def _on_closed(self) -> None:
-        """pi left while a turn was running: end it rather than stream forever."""
-        if self.channel.session.turn is None:
-            return
-        for emit in self._translator.close_streams():
-            await self._apply(emit)
-        await self.channel.error("the pi process exited before the turn completed")
-        await self._finish_turn({"stop_reason": "error"})
+        await self.approvals.expire()
+        await self._stream.torn_down("the pi process exited before the turn completed")
 
-    async def _apply(self, emit: Emit) -> None:
-        if emit.delta:
-            fields = dict(emit.fields)
-            block_id = str(fields.pop("block_id"))
-            delta = str(fields.pop("delta", ""))
-            await self.channel.emit_delta(emit.kind, block_id, delta, **fields)
-            return
-        if emit.kind == "tool_call" and emit.fields.get("status") == "running":
-            block_id = str(emit.fields.get("block_id") or "")
-            now = time.monotonic()
-            if emit.fields.get("output") and now - self._last_output_flush.get(block_id, 0.0) < (
-                OUTPUT_THROTTLE
-            ):
-                return
-            self._last_output_flush[block_id] = now
-        await self.channel.emit(emit.kind, **emit.fields)
+    # ------------------------------------------------------------- approvals
 
-    async def _apply_queue(self, fields: dict[str, Any]) -> None:
-        """Publish the bubble of every steered message pi has now taken (A14).
-
-        pi reports its whole steering queue whenever it changes, so a message
-        that has left the queue is one the agent read, and that is where its
-        `user_message` belongs. Nothing is taken while an interrupt is clearing
-        the queue; those messages were never read and are published at the end
-        of the turn instead.
-        """
-        if self._interrupting:
-            return
-        queued = list(fields.get("steering") or [])
-        for steer in list(self._steers):
-            if steer.text in queued:
-                queued.remove(steer.text)
-                continue
-            self._steers.remove(steer)
-            await self._publish_steer(steer)
-
-    async def _publish_steer(self, steer: _Steer) -> None:
-        await self.channel.emit(
-            "user_message", block_id=steer.block_id, text=steer.text, source="remote"
-        )
-
-    async def _publish_unread(self, stop_reason: str) -> None:
-        """Show the steered messages this turn ended without ever reading."""
-        unread = list(self._steers)
-        self._steers.clear()
-        for steer in unread:
-            await self._publish_steer(steer)
-            if stop_reason == "interrupted":
-                await self.channel.notice(
-                    "warn", "the agent was stopped before it read your message"
-                )
-
-    async def _finish_turn(self, completion: dict[str, Any]) -> None:
-        if self.channel.session.turn is None:
-            return
-        reason = "interrupted" if self._interrupting else str(completion.get("stop_reason"))
-        self._interrupting = False
-        self._streaming = False
-        self._last_output_flush.clear()
-        await self._publish_unread(reason)
-        duration = max(0, now_ms() - self._turn_started_at)
-        await self.channel.end_turn(reason, duration, await self._usage())
-        self._turn_done.set()
-        if self._on_turn_end is not None:
-            await self._on_turn_end()
+    async def _answer(self, ask_id: str, option_id: str) -> None:
+        """Post an app's decision back to the extension holding the tool call."""
+        link = self.link
+        if link is not None:
+            await link.answer(ask_id, option_id)
 
     async def _usage(self) -> dict[str, Any] | None:
         """pi counts the whole session itself, cost and context window included."""
@@ -232,33 +163,13 @@ class PiRunner:
             stats = await process.command("get_session_stats")
         except RcError:
             return None
-        tokens = stats.get("tokens")
-        if not isinstance(tokens, dict):
-            return None
-        usage: dict[str, Any] = {
-            "input_tokens": int(tokens.get("input") or 0),
-            "output_tokens": int(tokens.get("output") or 0),
-            "total_tokens": int(tokens.get("total") or 0),
-        }
-        cost = stats.get("cost")
-        if isinstance(cost, int | float) and cost > 0:
-            usage["cost_usd"] = round(float(cost), 8)
-        context = stats.get("contextUsage")
-        context = context if isinstance(context, dict) else {}
-        used = context.get("tokens")
-        if isinstance(used, int):
-            usage["context_used"] = used
-        window = context.get("contextWindow")
-        window = window if isinstance(window, int) else self._context_window
-        if window:
-            usage["context_window"] = window
-        return usage
+        return usage_from_stats(stats, self._context_window)
 
     # --------------------------------------------------------------- driving
 
     @property
     def busy(self) -> bool:
-        return self._streaming
+        return self._stream.streaming
 
     @property
     def supports_steer(self) -> bool:
@@ -273,21 +184,13 @@ class PiRunner:
         block_id: str | None = None,
     ) -> None:
         process = self._require_process()
-        if attachments:
-            # pi's `prompt` takes images, but this device does not advertise
-            # `attachments` for it; the hub refuses before this is reached.
-            raise RcError("unsupported", "pi sessions cannot carry attachments")
+        images = pi_images(attachments or [])
         await self.channel.emit(
-            "user_message",
-            block_id=block_id or f"user:{uuid.uuid4()}",
-            text=text,
-            source=source,
+            "user_message", block_id=bubble_id(block_id), text=text, source=source
         )
-        await self._prompt(process, text)
-        self._streaming = True
-        self._turn_started_at = now_ms()
-        self._turn_done.clear()
-        await self.channel.begin_turn(source)
+        extra: dict[str, Any] = {"images": images} if images else {}
+        await self._prompt(process, text, **extra)
+        await self._stream.begin(source)
 
     async def _prompt(self, process: PiProcess, text: str, **extra: Any) -> None:
         try:
@@ -298,7 +201,7 @@ class PiRunner:
 
     async def steer(self, text: str, block_id: str | None = None) -> bool:
         process = self._process
-        if process is None or not self._streaming:
+        if process is None or not self._stream.streaming:
             return False
         try:
             await process.command("prompt", message=text, streamingBehavior="steer")
@@ -306,14 +209,14 @@ class PiRunner:
             return False
         # Amendment A14: the bubble waits for pi to take the message off its
         # steering queue, which is the step that reads it.
-        self._steers.append(_Steer(text, block_id or f"user:{uuid.uuid4()}"))
+        self._stream.remember(Steer(text, bubble_id(block_id)))
         return True
 
     async def interrupt(self) -> bool:
         process = self._process
-        if process is None or not self._streaming:
+        if process is None or not self._stream.streaming:
             return False
-        self._interrupting = True
+        self._stream.interrupting = True
         await self.channel.set_state("running", "interrupting")
         try:
             # Stopping means stopping: `abort` alone resumes with whatever is
@@ -322,12 +225,10 @@ class PiRunner:
             await process.command("abort", timeout=DRAIN_TIMEOUT)
         except RcError:
             log.warning("pi refused the abort; waiting for the turn to settle")
-        try:
-            await asyncio.wait_for(self._turn_done.wait(), timeout=DRAIN_TIMEOUT)
-        except TimeoutError:
+        if not await self._stream.settle(DRAIN_TIMEOUT):
             log.warning("pi did not settle after abort; ending the turn")
             await self.channel.notice("warn", "the agent did not stop in time")
-            await self._finish_turn({"stop_reason": "interrupted"})
+            await self._stream.finish({"stop_reason": "interrupted"})
         return True
 
     async def apply_settings(
@@ -337,8 +238,6 @@ class PiRunner:
         effort: str | None,
         speed: SpeedSetting = UNSET,
     ) -> None:
-        if permission_mode is not None:
-            raise RcError("unsupported", "pi has no permission modes")
         if speed is not UNSET and speed is not None:
             raise RcError("unsupported", "pi has no speed tiers")
         process = self._require_process()
@@ -351,12 +250,22 @@ class PiRunner:
             await process.command("set_thinking_level", level=effort)
             self._effort = effort
             await self.channel.set_meta(effort=effort)
+        if permission_mode is not None:
+            await self._set_permission_mode(permission_mode)
+
+    async def _set_permission_mode(self, mode: str) -> None:
+        """The mode is the extension's to enforce, so it is told first."""
+        link = self.link
+        if link is not None:
+            await link.command("set_permission_mode", mode=mode)
+        self._permission_mode = mode
+        await self.channel.set_meta(permission_mode=mode)
 
     async def approve(self, request_id: str, option_id: str, message: str | None) -> bool:
-        """pi never asks: it has no permission system, so nothing is ever waiting."""
-        return False
+        return await self.approvals.approve(request_id, option_id)
 
     async def answer(self, request_id: str, answers: dict[str, Any]) -> bool:
+        """pi asks nothing but tool approvals; there is no question to answer."""
         return False
 
     def _require_process(self) -> PiProcess:
@@ -364,3 +273,45 @@ class PiRunner:
         if process is None:
             raise RcError("agent_unavailable", "the pi session is not connected")
         return process
+
+
+def pi_images(attachments: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """`prompt.images`, which is the only attachment pi takes (A26).
+
+    The shape is pi's own `ImageContent`: `{type, data, mimeType}`, verified
+    against a live session rather than taken from the documentation, which also
+    shows an older nested `source` form that pi no longer accepts.
+    """
+    images: list[dict[str, str]] = []
+    for item in attachments:
+        mime = str(item.get("mime") or item.get("mime_type") or "")
+        data = str(item.get("data") or "")
+        if not mime.startswith(IMAGE_PREFIX) or not data:
+            raise RcError("unsupported", "pi sessions take images and no other attachment")
+        images.append({"type": "image", "data": data, "mimeType": mime})
+    return images
+
+
+def usage_from_stats(stats: dict[str, Any], window: int | None) -> dict[str, Any] | None:
+    """A turn's totals, from pi's `get_session_stats` or the extension's `stats`."""
+    tokens = stats.get("tokens")
+    if not isinstance(tokens, dict):
+        return None
+    usage: dict[str, Any] = {
+        "input_tokens": int(tokens.get("input") or 0),
+        "output_tokens": int(tokens.get("output") or 0),
+        "total_tokens": int(tokens.get("total") or 0),
+    }
+    cost = stats.get("cost")
+    if isinstance(cost, int | float) and cost > 0:
+        usage["cost_usd"] = round(float(cost), 8)
+    context = stats.get("contextUsage")
+    context = context if isinstance(context, dict) else {}
+    used = context.get("tokens")
+    if isinstance(used, int):
+        usage["context_used"] = used
+    reported = context.get("contextWindow")
+    reported = reported if isinstance(reported, int) else window
+    if reported:
+        usage["context_window"] = reported
+    return usage

@@ -13,6 +13,9 @@ from . import __version__
 from . import config as config_module
 from .agents.codex.daemon.service import CodexDaemonService
 from .agents.codex.runtime import resolve_binary as resolve_codex
+from .agents.pi import paths as pi_paths
+from .agents.pi.link import PiExtensionServer
+from .agents.pi.service import PiExtensionService
 from .agents.registry import DetectContext, detect_all
 from .build import as_digest, read_build
 from .channel import paths as channel_paths
@@ -51,6 +54,9 @@ class Daemon:
         self.hub.codex_daemon = self.codex
         self.mirror = MirrorService(self.hub, config.mirror, codex_daemon=self.codex)
         self.attach = AttachServer(channel_paths.socket_path(), self.hub)
+        self.pi = PiExtensionService(self.hub)
+        self.hub.pi_extensions = self.pi
+        self.pi_socket = PiExtensionServer(pi_paths.socket_path(), self.pi)
         self.link = GatewayLink(
             config.device_ws_url,
             config.device_token,
@@ -97,6 +103,10 @@ class Daemon:
             await self.attach.start()
         except OSError as exc:
             log.warning("terminal attachment unavailable", error=str(exc))
+        try:
+            await self.pi_socket.start()
+        except OSError as exc:
+            log.warning("pi attachment unavailable", error=str(exc))
 
     async def _wait_for_stop(self) -> None:
         """Block until the process is asked to stop, so shutdown actually runs."""
@@ -127,6 +137,7 @@ class Daemon:
         await self.mirror.stop()
         await self.codex.stop()
         await self.attach.stop()
+        await self.pi_socket.stop()
         await self.hub.close()
         await self.link.stop()
         self.registry.close()

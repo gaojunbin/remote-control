@@ -226,14 +226,14 @@ class PiTranslator:
             tool = _Tool(
                 block_id=call_id,
                 tool=name,
-                tool_kind=_TOOL_KINDS.get(name, "other"),
-                title=_title(args, name),
+                tool_kind=tool_kind(name),
+                title=tool_title(args, name),
                 started_at=now_ms(),
             )
             self._tools[call_id] = tool
         if args:
             tool.input = args
-            tool.title = _title(args, tool.tool)
+            tool.title = tool_title(args, tool.tool)
         return tool
 
     # ------------------------------------------------------------- turn state
@@ -281,7 +281,13 @@ class PiTranslator:
         return [Emit("error", {"message": message[:2000]})]
 
 
-def _title(args: dict[str, Any], name: str) -> str:
+def tool_kind(name: str) -> str:
+    """The protocol kind of one of pi's tools; anything unknown is an extension's."""
+    return _TOOL_KINDS.get(name, "other")
+
+
+def tool_title(args: dict[str, Any], name: str) -> str:
+    """What the call is about, from the argument the tool names its subject with."""
     for key in _TITLE_KEYS:
         value = args.get(key)
         if isinstance(value, str) and value.strip():

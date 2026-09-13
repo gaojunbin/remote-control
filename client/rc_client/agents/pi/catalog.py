@@ -38,6 +38,15 @@ THINKING_LABELS = {
 ADVERTISED_LEVELS = ("off", "low", "medium", "high")
 DEFAULT_LEVEL = "medium"
 
+# pi has no permission system of its own; these three are the device's, enforced
+# by the extension it loads into every pi session (A26, PROTOCOL.md 4.3).
+PERMISSION_MODES = [
+    Choice("untrusted", "Ask for everything"),
+    Choice("on-request", "Ask when needed"),
+    Choice("never", "Never ask"),
+]
+DEFAULT_PERMISSION_MODE = "on-request"
+
 # What a device with no provider logged in offers, which is what
 # `fixtures/objects/agent.pi.json` says.
 FALLBACK_MODELS = [

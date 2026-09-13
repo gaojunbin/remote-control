@@ -59,6 +59,7 @@ fails, mint a fresh code or run the installer again.
 | `rc-client service install\|uninstall\|start\|stop\|status` | Manage the background service |
 | `rc-client shim install\|remove\|status [--no-shell-rc]` | Manage the `claude` shim that makes terminal sessions attachable |
 | `rc-client codex setup\|status [--no-install]` | Bring up and check the shared Codex app-server daemon that makes terminal Codex sessions attachable |
+| `rc-client pi setup\|status\|remove` | Install, inspect and remove the pi extension that makes terminal pi sessions attachable |
 | `rc-client channel` | The channel bridge Claude Code spawns; never run it by hand |
 | `rc-client hook session-start\|permission-request` | The hooks Claude Code runs; never run them by hand |
 | `rc-client uninstall [--purge] [--no-shell-rc]` | Remove the service and the shim, and with `--purge` the config, state and logs |
@@ -81,6 +82,7 @@ directory to your `PATH` to call it by name.
   state/claude-mcp.json     the channel server definition the shim passes to Claude Code
   state/claude-settings.json  the two hooks the shim passes to Claude Code
   state/channel.sock        where channel bridges register (see below)
+  state/pi-extension.sock   where pi extensions register (see "pi")
   state/link.json           what the gateway link last said about itself
   bin/claude                the shim that starts an attachable Claude session
   logs/                     rc-client.out.log and rc-client.err.log (macOS)
@@ -156,7 +158,7 @@ the gateway gives up after five minutes and marks the device failed on its own.
 
 Every agent the device can drive is a package under `rc_client/agents/<id>/` with a `plugin.py` that
 exposes three names: `AGENT`, `detect(context)` and `build_runner(spec)`. `rc_client/agents/registry.py`
-holds the only list of ids — `("claude", "codex", "grok")` — gathers detection concurrently in that
+holds the only list of ids — `("claude", "codex", "grok", "pi")` — gathers detection concurrently in that
 order and dispatches a new session to the right adapter; an id that is not in the tuple is answered
 with `unsupported`, which is what a session frame for an unknown agent returns. Teaching the device a
 new agent is a new package and a new name in that tuple: the daemon, the hub and the CLI are
@@ -190,11 +192,11 @@ What each agent advertises:
 | | Claude Code | Codex | Grok Build | pi |
 | --- | --- | --- | --- | --- |
 | Models | `default`, `fable`, `opus`, `sonnet`, `haiku`, most capable first. `default` means "do not pass a model"; the real id arrives from the SDK and is reported as `meta.model` | Read live from the CLI's `model/list` and cached for ten minutes | Read from `~/.grok/models_cache.json`, in the order the file lists them, hidden models skipped. No cache file means the two ids `agent.grok.json` names | Read from `pi --list-models` and cached for ten minutes: one `provider/model` id per row of the table it prints, in its order. Nothing logged in means no table, and the two ids `agent.pi.json` names |
-| Permission modes | `default` (Ask before edits), `acceptEdits` (Auto-accept edits), `plan` (Plan mode), `bypassPermissions` (Bypass permissions) | `untrusted` (Ask for everything), `on-request` (Ask when needed), `never` (Never ask) | `default` (Ask when needed), `acceptEdits` (Auto-accept edits), `auto` (Auto mode), `dontAsk` (Deny unless allowed), `plan` (Plan mode), `bypassPermissions` (Bypass permissions) | **none.** pi has no permission system, so the list is empty, apps draw no picker, and `session.set` answers `unsupported` for a permission mode |
+| Permission modes | `default` (Ask before edits), `acceptEdits` (Auto-accept edits), `plan` (Plan mode), `bypassPermissions` (Bypass permissions) | `untrusted` (Ask for everything), `on-request` (Ask when needed), `never` (Never ask) | `default` (Ask when needed), `acceptEdits` (Auto-accept edits), `auto` (Auto mode), `dontAsk` (Deny unless allowed), `plan` (Plan mode), `bypassPermissions` (Bypass permissions) | `untrusted` (Ask for everything), `on-request` (Ask when needed, the default), `never` (Never ask). pi has none of its own; these are the device's, enforced by the extension it loads into every pi session (A26) |
 | Efforts | `low`, `medium`, `high`, `xhigh`, `max` | Whatever the catalogue reports, clamped per model, from `minimal` to `ultra` | The union of the models' `reasoning_efforts`, weakest first, clamped per model when a session runs | pi's thinking levels: `off`, `low`, `medium`, `high`. `minimal`, `xhigh` and `max` exist too, but pi only says which of them a model exposes once a session is running, so they are advertised only when one of them is the person's own saved default |
 | Speeds | none | The `serviceTiers` the catalogue lists, in catalogue order and with their own labels: `priority` ("Fast") today. `AgentInfo.speeds` is the union over every model; a model that lists none can run at no tier | none | none |
-| Capabilities | `takeover`, `interrupt`, `queue`, `attachments`, `effort`, `history`, `worktree` | `interrupt`, `queue`, `steer`, `history`, `worktree`, `attachments`, `effort` | `worktree`, `interrupt`, `queue`, `effort`, `history` | `worktree`, `interrupt`, `queue`, `steer`, `effort`, `history` |
-| Attachment | `attach: "channel"`, `attach_ready` from the shim, `shared_interrupt`, `shared_settings` and `shared_attachments` all false | `attach: "daemon"`, `attach_ready` from a real handshake on the daemon socket, `shared_interrupt`, `shared_settings` and `shared_attachments` all true | `attach: null`: a terminal session is mirrored and resumed, never attached | `attach: null`: pi has no daemon, no socket and no server mode, so a terminal session can be neither attached nor mirrored |
+| Capabilities | `takeover`, `interrupt`, `queue`, `attachments`, `effort`, `history`, `worktree` | `interrupt`, `queue`, `steer`, `history`, `worktree`, `attachments`, `effort` | `worktree`, `interrupt`, `queue`, `effort`, `history` | `worktree`, `interrupt`, `queue`, `steer`, `attachments`, `effort`, `history`. `attachments` is images alone: pi takes them as base64 content on the prompt and refuses everything else |
+| Attachment | `attach: "channel"`, `attach_ready` from the shim, `shared_interrupt`, `shared_settings` and `shared_attachments` all false | `attach: "daemon"`, `attach_ready` from a real handshake on the daemon socket, `shared_interrupt`, `shared_settings` and `shared_attachments` all true | `attach: null`: a terminal session is mirrored and resumed, never attached | `attach: "extension"`, `attach_ready` when the device's extension is installed in pi's global extension directory at this build, `shared_interrupt`, `shared_settings` and `shared_attachments` all true: the extension runs inside the pi process and can do all three |
 
 Defaults follow the person's own configuration where there is one: pi's `default_model` and
 `default_effort` come from `defaultProvider`, `defaultModel` and `defaultThinkingLevel` in
@@ -787,21 +789,35 @@ and no change to anybody's configuration.
 
 ## pi
 
-pi is driven over its RPC mode: one long-lived
-`pi --mode rpc --session-id <uuid> --no-approve [--model <provider/id>] [--thinking <level>]` child
-per session, speaking JSONL on its stdin and stdout. The session id is the device's own — pi's
-`--session-id` creates the session when it does not exist and reopens it when it does, so starting
-and resuming take the same path and nothing is rekeyed. `--no-approve` is deliberate: it stops pi
-trusting the working directory's own `.pi` settings, resources and extensions, so a remote session
-never starts running code that happens to be checked into the repository.
+pi is the only agent this device extends rather than merely drives. `rc-client pi setup` copies one
+file — `remote-control.ts`, shipped inside the wheel — into `~/.pi/agent/extensions/`, which pi
+discovers on its own without the person's `settings.json` ever being opened. From then on every pi
+process on the machine loads it, and that extension is what `attach: "extension"` names: it dials a
+socket in the device home, says which session it is in, streams pi's own events out and carries out
+what an app sends back. A pi somebody starts in a terminal is therefore a `shared` session, exactly
+as a Codex TUI under the shared daemon is (A26).
 
-**A pi session runs with pi's full permissions.** pi has no permission system at all — no
-`PreToolUse` equivalent, no approval event, no allow/deny rules — and its own documentation says so:
-"Pi runs with all permissions by default". Every tool the model decides to run, it runs, and no
-approval is ever raised to the phone. That is what the empty `permission_modes` means on the wire,
-and it is the one thing to know before starting a pi session from an app. pi's own containment story
-is process-level (containers), not per-tool consent; the one approval-shaped channel it has is the
-extension UI protocol, which would mean writing and shipping a pi extension that gates tools.
+Three rules hold the extension to its place. It never breaks pi: every handler is wrapped, and the
+`tool_call` handler twice over, because an error thrown there would block the tool. It does nothing
+at all when no daemon is listening — no dialog, no status line, no output — so a machine that has
+never been enrolled keeps the pi it has always had, and the permission modes below apply only while
+an app is actually there to answer. And it writes nowhere but the socket.
+
+`attach_ready` is the installed file being byte-equal to the one in the running wheel. Nothing else
+counts as current: an `rc-client` update that changes the extension makes `attach_ready` false until
+`pi setup` runs again, and until then the device passes its own copy to the sessions it starts with
+`pi -e <bundled path>`. A `globalThis` marker inside the file makes the second load of a double-loaded
+process a no-op.
+
+### Sessions this device starts
+
+One long-lived `pi --mode rpc --session-id <uuid> --no-approve [--model <provider/id>]
+[--thinking <level>]` child per session, speaking JSONL on its stdin and stdout. The session id is
+the device's own — pi's `--session-id` creates the session when it does not exist and reopens it
+when it does, so starting and resuming take the same path and nothing is rekeyed. `--no-approve`
+is deliberate: it stops pi trusting the working directory's own `.pi` settings, resources and
+extensions, so a remote session never starts running code that happens to be checked into the
+repository.
 
 Framing is strict: LF is the *only* record delimiter, because U+2028 and U+2029 are valid inside
 pi's JSON strings. The device reads the stream as bytes, where `readline` splits on 0x0A alone and
@@ -813,11 +829,100 @@ are fetched when it ends.
 
 | Command | Used for |
 | --- | --- |
-| `prompt` | a turn. Sent mid-turn with `streamingBehavior: "steer"`, which is the `steer` capability |
+| `prompt` | a turn. `images` carries an attachment; sent mid-turn with `streamingBehavior: "steer"`, which is the `steer` capability |
 | `clear_queue`, then `abort` | Stop. That order is pi's own: `abort` alone resumes with whatever is still queued |
 | `set_model` (provider and id apart), `set_thinking_level` | live setting changes |
 | `get_state` | at startup: the model pi actually resolved, the thinking level, and the session id, published as `meta` (A17) |
 | `get_session_stats` | at the end of every turn: tokens, real cost in dollars, and context usage |
+
+Even here the extension is loaded, because approvals have nowhere else to come from: the child's
+link announces itself as an `rpc` session, is told not to stream — the events are already arriving
+on stdout — and carries the questions and their answers and nothing else.
+
+### The socket
+
+`state/pi-extension.sock` in the device home, beside the channel socket and under the same rules:
+owner-only, and a home deep enough to overflow the 104-byte `sun_path` limit falls back to a short
+per-user directory under the system temporary directory. Anything that can write to it can inject
+prompts into a live agent and approve its tool calls. Children this device starts are told the path
+in `RC_PI_SOCKET`; a terminal pi derives the same default for itself from `RC_CLIENT_HOME` or
+`~/.rc-client`.
+
+JSONL, LF only, one object per line. Both ends are ours, so the vocabulary is closed.
+
+| From the extension | Carries |
+| --- | --- |
+| `hello` | the opening frame: pi's session id, session file, cwd, pid, `ctx.mode` (`tui` or `rpc`), model, thinking level, session name, and the branch the session already holds. Re-sent on every reconnect, with the branch as it stands then |
+| `event` | one of pi's agent events, verbatim, so the same translator serves terminal and RPC sessions. `agent_end` and `turn_end` are trimmed to their stop reason, because both otherwise repeat the whole run's messages |
+| `input` | a prompt pi accepted: `source` `interactive` (the keyboard), `extension` (one this device injected, with the app's own `block_id`) or `rpc` |
+| `ask` | a tool call the extension has stopped, waiting for a decision |
+| `ask_closed` | the terminal's own dialog answered first |
+| `reply` | the answer to one `command` |
+| `bye` | `session_shutdown`: pi is going |
+
+| From the device | Carries |
+| --- | --- |
+| `welcome` | the session's permission mode, and whether this link should stream events |
+| `command` `send` | text, `block_id`, optional `images`, optional `deliver: "steer"` |
+| `command` `abort` | `ctx.abort()` |
+| `command` `set_model`, `set_thinking`, `set_permission_mode` | live setting changes |
+| `command` `stats` | the session's totals, summed from the branch, in the shape `get_session_stats` returns |
+| `answer` | an app's decision on an `ask` |
+
+The reading of that socket and the handling of it are separate tasks. A handler sends commands of
+its own — a turn's totals when it ends — and only the reader can deliver the reply, so handling a
+frame on the reading task would make it wait for itself.
+
+### Approvals
+
+pi runs every tool it decides to run; it has no permission system, no approval event and no
+allow/deny rules. The three modes an app sees are therefore the device's own, enforced by the
+extension in its `tool_call` handler (A26, PROTOCOL.md 4.3):
+
+| Mode | Asks before |
+| --- | --- |
+| `untrusted` | every tool |
+| `on-request` (default) | `bash`, `edit`, `write`, and every tool that is not one of pi's built-in readers `read`, `grep`, `find`, `ls` |
+| `never` | nothing, which is pi's own behaviour |
+
+Asking publishes an ordinary `approval` block offering Allow, Allow for this session and Deny. Allow
+returns nothing and the tool runs; Deny returns `{ block: true, reason: "Denied from Remote
+Control" }`, which pi reports to the model as a failed tool result without ending the turn; Allow for
+this session remembers the tool name for the life of that pi process.
+
+In a terminal session the extension opens pi's own dialog as well and races it against the app
+(A20): whichever answers first wins, the loser is dismissed, and a question the terminal took
+resolves in the apps as `elsewhere`. In an RPC session there is no terminal at all, so the question
+goes to the daemon alone — calling `ctx.ui` there would make pi raise a second copy of it through
+its extension UI protocol.
+
+### Terminal sessions
+
+A `hello` from a `tui` process creates or revives a session keyed by pi's own session id, with
+`control: "shared"`, the cwd, model and thinking level the frame carries, and the branch replayed
+once as history in the entries' own timestamps — so an app opening a conversation somebody started
+an hour ago reads it from the beginning. Everything an app can do on a Codex shared session works
+here: send, steer, stop, model, thinking level, permission mode, images and approvals, all of it
+through the socket. A message an app sends gets its bubble when pi's own `input` event comes back,
+which is where the terminal shows it too and under the id the app already drew; a steered one waits
+for pi to take it off the steering queue, as amendment A14 requires.
+
+`session_shutdown`, or the socket closing, drops the session to `control: "none"` — pi has exited,
+and the next `session.send` resumes it with `pi --mode rpc --session-id <id>` in the same working
+directory, which reopens the same conversation with its history intact. `/new`, `/resume` and
+`/fork` in the TUI are a `session_shutdown` and then a `hello` under another id: two sessions, not a
+rename. A terminal pi started before the daemon came up still appears, because the extension retries
+the socket with backoff and sends its `hello` when it connects.
+
+### Steering
+
+pi delivers a steered message "after the current assistant turn finishes executing its tool calls,
+before the next LLM call", and reports its whole steering queue in `queue_update` whenever it
+changes. A message that has left the queue is one the agent read, and that is where amendment A14
+says its `user_message` belongs, so the bubble is published then — after the output that preceded
+it, not where it was sent. A message the turn ended without ever reading is published at the end of
+the turn, with a warning `notice` when the turn was interrupted. Stop clears the queue first, so a
+message cleared out of it counts as never read.
 
 ### What the stream carries
 
@@ -829,10 +934,11 @@ are fetched when it ends.
 | `tool_execution_start` / `_update` / `_end` | one `tool_call` block keyed by `toolCallId`. `partialResult` is the output so far, not a delta, so it replaces rather than appends; a running call's output is republished at most twice a second |
 | `tool_execution_end` of an `edit` | the `diff` block: pi returns the unified patch it applied in `result.details.patch` |
 | `message_end` with `stopReason: "error"` | an `error` event carrying pi's own message |
-| `queue_update` | not published. It is how a steered message's bubble is placed (below) |
+| `agent_start` | the turn, when nobody here opened one — a prompt typed in the terminal, or a retry pi began on its own |
+| `queue_update` | not published. It is how a steered message's bubble is placed (above) |
 | `compaction_end`, `auto_retry_start` | `notice` |
 | `agent_settled` | `turn_completed` |
-| `agent_start`, `turn_start`, `turn_end`, `agent_end`, `bash_execution_update`, everything else | nothing |
+| `turn_start`, `turn_end`, `agent_end`, `bash_execution_update`, everything else | nothing |
 
 `message_update` is delta-only: it carries neither the cumulative message nor the partial content,
 so a block's text is assembled from its deltas under the `contentIndex` the delta names.
@@ -846,38 +952,29 @@ Tool kinds come from pi's built-in tool names: `read` and `ls` are `read`, `bash
 `shell`, `edit` `edit`, `write` `write`, `grep` and `find` `search`. Anything else is an extension's
 own tool and is `other`; its title is the first string argument it was given.
 
-### Steering
+### Attachments
 
-pi delivers a steered message "after the current assistant turn finishes executing its tool calls,
-before the next LLM call", and reports its whole steering queue in `queue_update` whenever it
-changes. A message that has left the queue is one the agent read, and that is where amendment A14
-says its `user_message` belongs, so the bubble is published then — after the output that preceded
-it, not where it was sent. A message the turn ended without ever reading is published at the end of
-the turn, with a warning `notice` when the turn was interrupted. Stop clears the queue first, so a
-message cleared out of it counts as never read.
+pi takes images and nothing else. An image rides on the prompt as pi's own `ImageContent` —
+`{type: "image", data, mimeType}` — on `prompt.images` for an RPC session and inside the message
+content for an attached one; the nested `source` form pi's documentation also shows is not what the
+running binary accepts. Any other attachment is refused with `unsupported` rather than dropped.
 
 ### What is not covered
 
-- **No live turn was ever recorded.** pi needs a provider credential this machine has not given it,
-  so every event shape above comes from pi's shipped documentation (`docs/rpc.md`, `docs/json.md`,
-  0.85.1) and from the package's own type declarations, not from a recording. What *was* exercised
-  against the real binary: `--version`, `--list-models` (the table the model parser reads),
-  `get_state`, `get_available_thinking_levels`, `set_thinking_level`, `set_model`, `abort`,
-  `clear_queue`, `get_session_stats`, a refused `prompt`, and the fact that `--session-id` with an
-  unknown id creates the session and warns on stderr.
-- **Terminal sessions are not mirrored.** pi has no daemon, no socket and no server mode: RPC mode
-  is one subprocess per client. A human's pi could only be followed by tailing
-  `~/.pi/agent/sessions/--<path>--/*.jsonl`, whose entries form a *tree* — `id`/`parentId`, with
-  `/tree`, `/fork` and `/clone` moving a person between branches — which the flat v1 transcript has
-  no way to render. Nothing can be injected into a running pi TUI either. So pi sessions are the
-  ones this device starts, and no others.
-- **Attachments.** pi's `prompt` takes base64 images, but the capability is not advertised and an
-  attachment sent anyway is refused.
-- **Thinking levels are not clamped.** pi accepts `set_thinking_level` for a level the current model
-  does not expose, verified against the real binary, and decides for itself what it means;
-  `get_available_thinking_levels` would say which are real, but only for a model already loaded.
+- **`/tree`, `/fork` and `/clone` move the branch, and only the branch is replayed.** A pi session
+  is a tree, and `hello` carries `getBranch()`, which is the path the session is on at that moment.
+  Navigating to another branch inside the TUI is not republished; the app keeps the transcript it
+  already has.
+- **Totals on an attached session are summed by the extension** from the assistant messages of the
+  branch, because the socket has no `get_session_stats` of its own. Usage a compaction or a branch
+  summary billed is not in that sum.
+- **Thinking levels are not clamped.** pi accepts a level the current model does not expose and
+  decides for itself what it means; a session started with `--thinking off` on a model whose floor is
+  higher reports the level pi actually settled on.
 - **Whether `abort` always settles.** The turn is ended on `agent_settled`; if it does not arrive
   within sixty seconds of the abort, the device ends the turn itself with a warning.
+- **A second device on the same machine** would install the same extension at the same path and
+  both would be dialled, one socket each. Nothing shares a session between them.
 
 ## Attachments
 
@@ -942,9 +1039,10 @@ rc-client uninstall           # stop and remove the service and the shim, keep t
 rc-client uninstall --purge   # also delete config, state and logs
 ```
 
-`uninstall` also deletes `bin/claude` and `state/claude-settings.json`, and strips the
-`# >>> remote-control >>>` block from your shell startup file. Pass `--no-shell-rc` to leave that
-file alone.
+`uninstall` also deletes `bin/claude` and `state/claude-settings.json`, takes the pi extension back
+out of `~/.pi/agent/extensions/`, and strips the `# >>> remote-control >>>` block from your shell
+startup file. Pass `--no-shell-rc` to leave that file alone. pi, Claude Code and Codex themselves are
+left exactly as they were.
 
 or, from the gateway's own script:
 
