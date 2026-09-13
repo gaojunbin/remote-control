@@ -266,6 +266,7 @@ export const en = {
     deliveryAbsorbed: 'will be re-sent',
     attachHintChannel: 'Start claude through the Remote Control shim to control it from here',
     attachHintDaemon: 'Start the Codex app-server daemon on this device to control it from here',
+    attachHintExtension: 'Run rc-client pi setup on the device to attach its pi sessions',
     attachHintRestart:
       'This terminal session was started without the attachment; restart it to control it from here',
     queuedRemove: 'Remove from queue',
@@ -501,33 +502,16 @@ export const strings: StringTable = new Proxy({} as StringTable, {
   has: (_target, key) => key in table(),
 });
 
-/** Product names, never translated. A25 added the last three. */
+/** Product names, never translated. A25 added the last two. */
 export const agentLabels: Record<string, string> = {
   claude: 'Claude Code',
   codex: 'Codex',
   grok: 'Grok Build',
-  cursor: 'Cursor',
   pi: 'pi',
-};
-
-const agentMarks: Record<string, string> = {
-  claude: 'C',
-  codex: 'X',
-  grok: 'G',
-  cursor: 'Cu',
-  pi: 'π',
 };
 
 export function agentLabel(agent: string): string {
   return agentLabels[agent] ?? agent;
-}
-
-/**
- * The one- or two-letter mark the agent picker and the filter menu draw where a
- * name does not fit. An agent nobody knows is marked by its own first letter.
- */
-export function agentMark(agent: string): string {
-  return agentMarks[agent] ?? agent.charAt(0).toUpperCase();
 }
 
 /** The two interface languages, each written in its own script. */

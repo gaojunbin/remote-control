@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { AgentLogo } from '../../components/AgentLogo';
 import { Button } from '../../components/Button';
 import { Drawer } from '../../components/Modal';
 import { Menu } from '../../components/Popover';
@@ -8,7 +9,7 @@ import { Switch } from '../../components/Switch';
 import { OnlineDot } from '../../components/StatusDot';
 import { latency, relativeAgo, tildePath } from '../../lib/format';
 import { rpc } from '../../lib/gateway';
-import { agentLabel, agentMark, strings } from '../../strings';
+import { agentLabel, strings } from '../../strings';
 import { useDevices } from '../../stores/devices';
 import { useSessions } from '../../stores/sessions';
 import type { AgentInfo, Choice, Device } from '../../protocol/types';
@@ -214,9 +215,9 @@ function NewSessionForm({ devices, presetDeviceId, onClose }: FormProps) {
 
       <section>
         <span className="label">{strings.newSession.agent}</span>
-        {/* A25: five agents no longer fit side by side, so each one is its mark
-            and the line under the row names the one that is chosen
-            (`docs/DESIGN.md` § "Agents"). */}
+        {/* A25: the agents no longer fit side by side under their names, so each
+            one is its logo and the line under the row names the one that is
+            chosen (`docs/DESIGN.md` § "Agents"). */}
         <Segmented<string>
           ariaLabel={strings.newSession.agent}
           value={agent?.agent ?? ''}
@@ -230,11 +231,7 @@ function NewSessionForm({ devices, presetDeviceId, onClose }: FormProps) {
             name: a.available
               ? agentLabel(a.agent)
               : `${agentLabel(a.agent)} · ${strings.newSession.agentUnavailable}`,
-            label: (
-              <span className="agent-mark" aria-hidden>
-                {agentMark(a.agent)}
-              </span>
-            ),
+            label: <AgentLogo agent={a.agent} />,
           }))}
         />
         {agent ? (

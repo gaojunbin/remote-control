@@ -46,9 +46,11 @@ export type Capability =
 
 /**
  * How a terminal-started session can be attached (amendment A10).
- * `channel` is the Claude channel shim, `daemon` the Codex shared app-server.
+ * `channel` is the Claude channel shim, `daemon` the Codex shared app-server,
+ * and `extension` the device's own extension that pi loads into every one of
+ * its sessions (A26).
  */
-export type AttachMode = 'channel' | 'daemon';
+export type AttachMode = 'channel' | 'daemon' | 'extension';
 
 export interface AgentInfo {
   agent: AgentId;

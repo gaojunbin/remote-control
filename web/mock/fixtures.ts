@@ -107,10 +107,11 @@ export const codexNoDaemon: AgentInfo = {
 };
 
 /**
- * A25 — the three agents the apps met last, copied from
- * `protocol/fixtures/objects/agent.grok.json`, `agent.cursor.json` and
- * `agent.pi.json`. Grok Build leaves an update log on disk, so its terminal
- * sessions are mirrored; none of the three can be attached.
+ * A25/A26 — the two agents the apps met last, copied from
+ * `protocol/fixtures/objects/agent.grok.json` and `agent.pi.json`. Grok Build
+ * leaves an update log on disk, so its terminal sessions are mirrored but
+ * cannot be attached; pi's are attached through the extension the device
+ * installs into it.
  */
 export const grokAgent: AgentInfo = {
   agent: 'grok',
@@ -146,36 +147,10 @@ export const grokAgent: AgentInfo = {
   shared_attachments: false,
 };
 
-/** A25: no effort levels at all, so no slider and no word beside the model. */
-export const cursorAgent: AgentInfo = {
-  agent: 'cursor',
-  available: true,
-  version: '2026.09.02-c22c1a3',
-  path: '/Users/me/.local/bin/cursor-agent',
-  models: [
-    { id: 'auto', label: 'Auto' },
-    { id: 'gpt-5', label: 'GPT-5' },
-    { id: 'sonnet-4-thinking', label: 'Sonnet 4 Thinking' },
-  ],
-  default_model: 'auto',
-  permission_modes: [
-    { id: 'default', label: 'Ask when needed' },
-    { id: 'force', label: 'Never ask' },
-    { id: 'plan', label: 'Plan mode' },
-    { id: 'ask', label: 'Ask, read only' },
-  ],
-  default_permission_mode: 'default',
-  efforts: [],
-  default_effort: null,
-  capabilities: ['worktree', 'interrupt', 'queue', 'history'],
-  attach: null,
-  attach_ready: false,
-  shared_interrupt: false,
-  shared_settings: false,
-  shared_attachments: false,
-};
-
-/** A25: no permission system at all, so no picker and no permission row. */
+/**
+ * A26: the device's own extension gives pi three permission modes, images and a
+ * terminal presence, so an app draws its permission picker exactly as Codex's.
+ */
 export const piAgent: AgentInfo = {
   agent: 'pi',
   available: true,
@@ -186,8 +161,12 @@ export const piAgent: AgentInfo = {
     { id: 'openai/gpt-5', label: 'GPT-5' },
   ],
   default_model: 'anthropic/claude-sonnet-4-5',
-  permission_modes: [],
-  default_permission_mode: null,
+  permission_modes: [
+    { id: 'untrusted', label: 'Ask for everything' },
+    { id: 'on-request', label: 'Ask when needed' },
+    { id: 'never', label: 'Never ask' },
+  ],
+  default_permission_mode: 'on-request',
   efforts: [
     { id: 'off', label: 'Off' },
     { id: 'low', label: 'Low' },
@@ -195,12 +174,12 @@ export const piAgent: AgentInfo = {
     { id: 'high', label: 'High' },
   ],
   default_effort: 'medium',
-  capabilities: ['worktree', 'interrupt', 'queue', 'steer', 'effort', 'history'],
-  attach: null,
-  attach_ready: false,
-  shared_interrupt: false,
-  shared_settings: false,
-  shared_attachments: false,
+  capabilities: ['worktree', 'interrupt', 'queue', 'steer', 'attachments', 'effort', 'history'],
+  attach: 'extension',
+  attach_ready: true,
+  shared_interrupt: true,
+  shared_settings: true,
+  shared_attachments: true,
 };
 
 /**
@@ -226,9 +205,9 @@ export const devices: Device[] = [
     last_seen: now,
     created_at: minutes(60 * 24 * 9),
     latency_ms: 18,
-    // A25: the one device that knows all five, so the picker, the card and a
+    // A25: the one device that knows all four, so the picker, the card and a
     // session of each can be seen in development.
-    agents: [claudeAgent, codexAgent, grokAgent, cursorAgent, piAgent],
+    agents: [claudeAgent, codexAgent, grokAgent, piAgent],
   },
   {
     device_id: 'dev-ci',
@@ -480,29 +459,15 @@ export const sessions: Session[] = [
     git: { branch: 'feat/grok-mirror', dirty: true, ahead: 1, behind: 0, worktree: false },
   }),
   session({
-    // A25: Cursor lists no effort levels, so its model card reads the model
-    // alone and the new-session form offers no effort row.
-    session_id: 'ses-cursor',
-    device_id: 'dev-mac',
-    title: 'Port the diff view to the new tokens',
-    cwd: '/Users/me/dev/remote-control/web',
-    agent: 'cursor',
-    model: 'sonnet-4-thinking',
-    permission_mode: 'default',
-    effort: null,
-    state: 'idle',
-    updated_at: minutes(16),
-  }),
-  session({
-    // A25: pi has no permission system, so nothing in the composer or the form
-    // mentions permissions for it.
+    // A26: pi asks through the device's extension, so it has the three
+    // permission modes and the composer draws a picker for them.
     session_id: 'ses-pi',
     device_id: 'dev-mac',
     title: 'Sketch the RPC event assembler',
     cwd: '/Users/me/dev/remote-control/client',
     agent: 'pi',
     model: 'anthropic/claude-sonnet-4-5',
-    permission_mode: null,
+    permission_mode: 'on-request',
     effort: 'high',
     state: 'idle',
     updated_at: minutes(22),
@@ -576,8 +541,6 @@ export function historyFor(sessionId: string): SessionEvent[] {
       return codexHistory();
     case 'ses-grok-terminal':
       return grokTerminalHistory();
-    case 'ses-cursor':
-      return cursorHistory();
     case 'ses-pi':
       return piHistory();
     default:
@@ -644,65 +607,10 @@ function grokTerminalHistory(): SessionEvent[] {
   ];
 }
 
-/** A25: Cursor streams text and tool calls, and reports no thinking. */
-function cursorHistory(): SessionEvent[] {
-  const base = minutes(18);
-  return [
-    {
-      seq: 1,
-      ts: base,
-      kind: 'user_message',
-      block_id: 'cu-u1',
-      source: 'remote',
-      text: 'Move the diff view onto the shared colour tokens.',
-    },
-    {
-      seq: 2,
-      ts: base + 2_600,
-      kind: 'tool_call',
-      block_id: 'cu-t1',
-      tool: 'edit',
-      tool_kind: 'edit',
-      title: 'src/features/chat/blocks/DiffView.tsx',
-      status: 'succeeded',
-      started_at: base + 1_900,
-      ended_at: base + 2_600,
-      duration_ms: 700,
-      diff: {
-        path: 'src/features/chat/blocks/DiffView.tsx',
-        additions: 2,
-        deletions: 2,
-        patch: [
-          '@@ -18,8 +18,8 @@',
-          ' .diff-line.add {',
-          '-  background: #eefaf3;',
-          '-  color: #1f7a4d;',
-          '+  background: var(--diff-add-bg);',
-          '+  color: var(--diff-add);',
-          ' }',
-        ].join('\n'),
-      },
-    },
-    {
-      seq: 3,
-      ts: base + 4_000,
-      kind: 'assistant_text',
-      block_id: 'cu-a1',
-      done: true,
-      text: 'The added and removed rows now read `--diff-add` and `--diff-del`, so the view follows the theme rather than its own two hex values.',
-    },
-    {
-      seq: 4,
-      ts: base + 4_200,
-      kind: 'turn_completed',
-      turn_id: 'cursor-turn-1',
-      stop_reason: 'completed',
-      duration_ms: 4_100,
-    },
-  ];
-}
-
-/** A25: pi runs with its own permissions, so nothing here asks to approve. */
+/**
+ * A26: a pi turn that read and wrote nothing, so `on-request` had nothing to
+ * ask about. The picker for its three modes is in the composer all the same.
+ */
 function piHistory(): SessionEvent[] {
   const base = minutes(24);
   return [

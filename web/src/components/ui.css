@@ -383,11 +383,32 @@
   color: #9c2c21;
 }
 
+/* A26: the agent's own logo, monochrome in whatever ink its surroundings set.
+   One em square on the cap height of the line beside it, so it reads as the
+   same size as the name. An agent with no vector shows its first letter in the
+   same box. `docs/DESIGN.md` § "Agents". */
+.agent-logo {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+  flex: none;
+}
+
+span.agent-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-weight: 600;
+}
+
 /* Which agent a session runs. One quiet tint for every agent, no border, one
-   per row: the name is what tells them apart, never a colour per vendor. */
+   per row: the logo and the name are what tell them apart, never a colour per
+   vendor. */
 .agent-chip {
   display: inline-flex;
   align-items: center;
+  gap: 5px;
   height: 18px;
   padding: 0 7px;
   border-radius: var(--r-pill);

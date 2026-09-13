@@ -6,7 +6,7 @@
  * What else the attachment carries is per agent: the device reports
  * `shared_interrupt`, `shared_settings` and `shared_attachments`, each
  * defaulting to false. The Claude channel carries none of them; the Codex
- * app-server daemon carries all three.
+ * app-server daemon and pi's extension carry all three.
  */
 import { strings } from '../../strings';
 import type { AgentInfo, Session } from '../../protocol/types';
@@ -50,9 +50,10 @@ export function attachHint(agent: AgentInfo | null): string | null {
   if (!agent?.attach) return null;
   if (agent.attach_ready === true) return strings.chat.attachHintRestart;
   if (agent.attach_ready === false) {
-    return agent.attach === 'daemon'
-      ? strings.chat.attachHintDaemon
-      : strings.chat.attachHintChannel;
+    if (agent.attach === 'daemon') return strings.chat.attachHintDaemon;
+    // A26: pi's attachment is an extension the device installs into pi itself.
+    if (agent.attach === 'extension') return strings.chat.attachHintExtension;
+    return strings.chat.attachHintChannel;
   }
   return null;
 }

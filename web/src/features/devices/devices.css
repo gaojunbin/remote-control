@@ -99,6 +99,11 @@
   gap: 6px;
 }
 
+/* A26: each agent is its logo and then its name and version. */
+.device-agents .badge {
+  gap: 5px;
+}
+
 .device-menu-trigger {
   width: 28px;
   height: 28px;

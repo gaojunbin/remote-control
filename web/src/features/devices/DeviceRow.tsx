@@ -1,4 +1,5 @@
 import { MoreHorizontal } from 'lucide-react';
+import { AgentLogo } from '../../components/AgentLogo';
 import { Popover } from '../../components/Popover';
 import { OnlineDot } from '../../components/StatusDot';
 import { cx } from '../../lib/cx';
@@ -84,8 +85,8 @@ export function DeviceRow({
         ) : (
           agents.map((agent) => (
             <span className="badge" key={agent.agent}>
-              {agentLabel(agent.agent)}
-              {agent.version ? ` ${agent.version}` : ''}
+              <AgentLogo agent={agent.agent} />
+              {agent.version ? `${agentLabel(agent.agent)} ${agent.version}` : agentLabel(agent.agent)}
             </span>
           ))
         )}

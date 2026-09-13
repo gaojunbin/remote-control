@@ -4,7 +4,7 @@ import { Plus, Search } from 'lucide-react';
 import { ArchiveGroupHeader, DeviceGroupHeader } from '../../components/GroupHeader';
 import { Button } from '../../components/Button';
 import { Menu } from '../../components/Popover';
-import { agentLabel, strings } from '../../strings';
+import { strings } from '../../strings';
 import { useDevices } from '../../stores/devices';
 import { selectAgents, selectSessionLayout, useSessions } from '../../stores/sessions';
 import { useSettings } from '../../stores/settings';
@@ -86,7 +86,7 @@ export function SessionsPage() {
             // No filter is the "All agents" row, which the menu then marks.
             value={agentFilter ?? ALL}
             onSelect={(id) => setAgentFilter(id === ALL ? null : id)}
-            label={agentFilter ? agentLabel(agentFilter) : strings.sessions.allAgents}
+            label={agentFilter ? <AgentOption agent={agentFilter} /> : strings.sessions.allAgents}
             options={[
               { id: ALL, label: strings.sessions.allAgents },
               ...agents.map((agent) => ({ id: agent, label: <AgentOption agent={agent} /> })),

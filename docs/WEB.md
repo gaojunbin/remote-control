@@ -39,16 +39,16 @@ cd web && npm ci
 
 `mock/server.ts` implements the app-facing half of the protocol — the HTTP API, `WS /ws/app` and
 `WS /ws/stt` — so the whole UI can be developed with no gateway and no device. It ships two devices
-and nineteen sessions covering running, needs-approval, needs-input, errored, idle,
+and eighteen sessions covering running, needs-approval, needs-input, errored, idle,
 terminal-controlled, shared through the Claude channel, shared through the Codex daemon, Codex,
 terminal sessions on a device that has neither the shim nor the Codex daemon, three sessions whose
 CLI exited (`control: "none"`) and two archived by hand, spread over both devices so every device
 group has both halves of an Archive under it. Between them they show all five status-dot tones.
-One of the two devices advertises all five agents (A25) — the three newest copied from
-`protocol/fixtures/objects/agent.grok.json`, `agent.cursor.json` and `agent.pi.json`, which
-`tests/agents.test.tsx` asserts they still equal — and carries one session of each: a Grok Build
-session a terminal holds, the only new agent whose terminal sessions the device mirrors, a Cursor
-session whose model card has no effort to show and a pi session with no permission picker at all.
+One of the two devices advertises all four agents (A25, A26) — the two newest copied from
+`protocol/fixtures/objects/agent.grok.json` and `agent.pi.json`, which `tests/agents.test.tsx`
+asserts they still equal — and carries one session of each: a Grok Build session a terminal holds,
+whose transcript the device mirrors but cannot write to, and a pi session on the `on-request`
+permission mode its extension enforces.
 Opening the running session plays a scripted turn: streamed thinking, streamed Markdown, tool rows
 with a live output box, a failing shell run, two diffs, an approval and a question. Both drive the
 turn to completion. The shared session plays the A10 path end to end: a send while the terminal is
@@ -233,21 +233,27 @@ Nothing of this reaches the gateway.
 - **The agent filter** is `agentFilter` in the sessions store rather than in a page, so the Sessions
   page and the chat sidebar always show the same slice. It is not persisted, and its options come
   from `selectAgents`, the agents the loaded sessions actually run. A25 turned it from a segmented
-  control into a menu beside the device one: six segments reading `All · Claude Code · Codex ·
-  Cursor · Grok Build · pi` were 27 px wider than a 400 px viewport, and a menu holds any number of
-  agents at any width.
-- **Five agents, and what an agent does not have is not drawn** (A25). `agentLabels` and
-  `agentMarks` in `src/strings.ts` name the five and mark them — C, X, G, Cu and π — and an id
-  neither table knows is drawn as itself with its own first letter as its mark. The mark is what
-  the new-session form's agent control shows, because five names do not fit side by side; the line
-  under the row names the one that is chosen, and each segment carries its agent's name as its
-  accessible name and its tooltip. Everything else reads the agent's own lists and draws nothing
-  for an empty one: no permission picker in the composer and no permission row in the form for an
-  agent whose `permission_modes` is empty (pi), no effort slider and no effort word beside the
-  model for one whose `efforts` is empty (Cursor), so its model card reads the model alone. Those
-  three branches were already in `Composer.tsx` and `NewSessionDrawer.tsx` for the agents that
-  list nothing; `tests/agents.test.tsx` is what holds them there. Agent chips share one quiet tint
-  — the name tells them apart, never a colour per vendor.
+  control into a menu beside the device one: an "All" segment plus one per agent was 27 px wider
+  than a 400 px viewport, and a menu holds any number of agents at any width. With a filter on, the
+  button shows that agent's logo and name.
+- **Four agents, each drawn as its own logo** (A25, A26). `agentLabels` in `src/strings.ts` names
+  Claude Code, Codex, Grok Build and pi, and an id it does not know is drawn as itself. The mark
+  beside or instead of a name is `src/components/AgentLogo.tsx`: one inline `<svg>` per agent with
+  the vendor's published vector (Simple Icons for Claude and OpenAI, pi.dev for pi, the Grok mark),
+  `fill="currentColor"` and no colour of its own, in a box one em square sitting on the cap height
+  of its line, so a logo is the size of the text it stands beside and inherits its ink. An agent
+  with no vector falls back to the first letter of its id in the same box, which is what Cursor now
+  gets (A26 withdrew it). The component is used in the new-session form's agent control, where the
+  logo stands alone because the names do not fit side by side and the line under the row names the
+  one that is chosen, in the agent filter's rows and its button, on the session-row chip and in a
+  device row's agent list; every segment still carries its agent's name as its accessible name and
+  its tooltip. Everything else reads the agent's own lists and draws nothing for an empty one: no
+  permission picker in the composer and no permission row in the form for an agent whose
+  `permission_modes` is empty, no effort slider and no effort word beside the model for one whose
+  `efforts` is empty, so its model card reads the model alone. No shipped agent is empty since A26
+  gave pi the three modes its extension enforces, so `tests/agents.test.tsx` holds those branches
+  with an agent of its own that lists neither. Agent chips share one quiet tint — the logo and the
+  name tell them apart, never a colour per vendor.
 - **Popovers and menus** render in a portal on `document.body` and are placed against the viewport,
   flipping to the other side when the one asked for cannot hold the panel and clamping to the
   window's edges. Anchoring them to the trigger instead let a rounded list surface or a scrolling
@@ -501,12 +507,15 @@ screen in the frame after the click, the device's echo replaces it in place on t
 queued paths, and the queued message is dequeued under its own id with no second bubble. The dated
 entry is in `docs/VALIDATION-APPS.md`.
 
-The three agents of A25 were driven in the installed Chrome against the mock gateway at 1280 px and
-400 px: the five marks in the new-session form's agent control, the form dropping its permission row
-for pi and its effort row for Cursor, a pi composer with no permission picker, a Cursor model card
-reading "Sonnet 4 Thinking" with no effort word, a terminal-held Grok Build session that reads but
-does not write, and the agent filter as a menu naming all five. The dated entry is in
-`docs/VALIDATION-APPS.md`.
+The agents of A25 were driven in the installed Chrome against the mock gateway at 1280 px and
+400 px: the marks in the new-session form's agent control, the form dropping a row for a setting
+the agent does not list, a terminal-held Grok Build session that reads but does not write, and the
+agent filter as a menu naming every agent. The dated entry is in `docs/VALIDATION-APPS.md`.
+
+The logos of A26 were driven the same way, at 1280 px and 400 px: the four logos in the
+new-session form's agent control, in the open agent filter and on the session-row chips, and pi's
+permission picker in both the form and the composer now that the device's extension enforces its
+three modes.
 
 ## Not verified
 

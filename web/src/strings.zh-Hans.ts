@@ -6,9 +6,9 @@
  * Only the app's own words live here. Everything the device reported — agent
  * output, device names, paths, branches, model, effort, permission and speed
  * labels — arrives translated by nobody and is drawn as it came. The product
- * name and every agent's name — "Claude Code", "Codex", "Grok Build", "Cursor"
- * and "pi" — stay as their makers write them, and each of the two interface
- * languages is always named in its own script.
+ * name and every agent's name — "Claude Code", "Codex", "Grok Build" and "pi"
+ * — stay as their makers write them, and each of the two interface languages is
+ * always named in its own script.
  */
 import type { StringTable } from './strings';
 
@@ -258,6 +258,7 @@ export const zhHans: StringTable = {
     deliveryAbsorbed: '将重新发送',
     attachHintChannel: '通过 Remote Control 垫片启动 claude，才能从这里控制它',
     attachHintDaemon: '在此设备上启动 Codex app-server 守护进程，才能从这里控制它',
+    attachHintExtension: '在该设备上运行 rc-client pi setup，才能附着它的 pi 会话',
     attachHintRestart: '这个终端会话启动时没有附着；重启它才能从这里控制',
     queuedRemove: '从队列中移除',
     approvalNeeded: '需要你的批准',
