@@ -1,5 +1,7 @@
 /** Thin fetch wrapper for the gateway HTTP API (PROTOCOL-FROZEN.md §2). */
-import type { Device, Session, WireError } from '../protocol/types';
+import type { Device, Session, User, UserRecord, UserRole, UserState, WireError } from '../protocol/types';
+
+export type { User, UserRecord, UserRole, UserState };
 
 export class ApiError extends Error {
   readonly status: number;
@@ -50,8 +52,10 @@ export interface HealthResponse {
   ok: boolean;
   version: string;
   protocol: number;
-  auth: { mode: string };
+  /** A24: `registration_open` says whether `POST /api/register` takes accounts. */
+  auth: { mode: string; registration_open: boolean };
 }
+
 
 /** A22: the client wheel the gateway serves. Absent in a developer checkout. */
 export interface ClientBuildInfo {
@@ -70,7 +74,7 @@ export interface ConfigResponse {
 
 export interface SessionResponse {
   ok: boolean;
-  user: { username: string };
+  user: User;
   exp: number;
 }
 
@@ -78,7 +82,19 @@ export interface LoginResponse {
   ok: boolean;
   token: string;
   exp: number;
-  user: { username: string };
+  user: User;
+}
+
+/** A24: `GET /api/users`, the admin's list. */
+export interface UserListResponse {
+  users: UserRecord[];
+  registration_open: boolean;
+}
+
+export interface UserPatch {
+  state?: UserState;
+  role?: UserRole;
+  password?: string;
 }
 
 export interface PairingResponse {
@@ -97,9 +113,25 @@ export const api = {
   health: () => get<HealthResponse>('/api/health'),
   config: () => get<ConfigResponse>('/api/config'),
   session: () => get<SessionResponse>('/api/session'),
-  login: (password: string, username?: string) =>
-    post<LoginResponse>('/api/login', username ? { password, username } : { password }),
+  login: (username: string, password: string) =>
+    post<LoginResponse>('/api/login', { username, password }),
+  register: (username: string, password: string) =>
+    post<LoginResponse>('/api/register', { username, password }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    post<{ ok: boolean }>('/api/password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
   logout: () => post<{ ok: boolean }>('/api/logout'),
+
+  users: () => get<UserListResponse>('/api/users'),
+  createUser: (username: string, password: string, role: UserRole) =>
+    post<{ user: UserRecord }>('/api/users', { username, password, role }),
+  patchUser: (username: string, body: UserPatch) =>
+    patch<{ user: UserRecord }>(`/api/users/${encodeURIComponent(username)}`, body),
+  deleteUser: (username: string) =>
+    del<{ ok: boolean }>(`/api/users/${encodeURIComponent(username)}`),
+  setRegistration: (open: boolean) => patch<{ open: boolean }>('/api/registration', { open }),
 
   devices: () => get<{ devices: Device[] }>('/api/devices'),
   renameDevice: (deviceId: string, name: string) =>

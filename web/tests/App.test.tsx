@@ -89,9 +89,12 @@ describe('App routing', () => {
     );
 
     await waitFor(() => expect(screen.getByText(strings.login.subtitle)).toBeInTheDocument());
-    // Give any mount effect of a protected page the chance to fire.
+    // Give any mount effect of a protected page the chance to fire. Both paths
+    // the login screen touches are the unauthenticated ones of PROTOCOL.md §3.1:
+    // the session probe, and the health call that says whether this gateway
+    // takes registrations (A24).
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(requested).toEqual(['/api/session']);
+    expect(requested.sort()).toEqual(['/api/health', '/api/session']);
   });
 });
 

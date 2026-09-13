@@ -26,6 +26,24 @@ import {
   sessions,
 } from './fixtures';
 import {
+  MEMBER_PASSWORD,
+  MEMBER_USERNAME,
+  createAccount,
+  deleteAccount,
+  getAccount,
+  isRegistrationOpen,
+  listAccounts,
+  recordView,
+  seedAccounts,
+  setRegistrationOpen,
+  userView,
+  validPassword,
+  validUsername,
+  type Account,
+  type Role,
+  type State,
+} from './accounts';
+import {
   ECHO_DELAY_MS,
   afterAnswer,
   afterApproval,
@@ -53,10 +71,18 @@ const state = {
   pairings: new Map<string, { expires_at: number; timers: NodeJS.Timeout[] }>(),
   /** A23: claim tokens a host asked for; `code` appears once an app claims it. */
   claims: new Map<string, { expires_at: number; code?: string }>(),
-  tokens: new Set<string>(),
+  /** A24: the account each login token belongs to. */
+  tokens: new Map<string, string>(),
+  /** A24: who enrolled each device. The scripted ones are the admin's. */
+  deviceOwner: new Map<string, string>(),
+  /** A24: who asked for each outstanding pairing code. */
+  pairingOwner: new Map<string, string>(),
   /** A10: messages the device accepted but could not inject yet, per session. */
   held: new Map<string, { block_id: string; text: string; queued_id: string }[]>(),
 };
+
+seedAccounts(PASSWORD);
+for (const device of state.devices) state.deviceOwner.set(device.device_id, 'admin');
 
 for (const session of state.sessions) {
   const history = historyFor(session.session_id);
@@ -97,6 +123,8 @@ function nextSeq(sessionId: string): number {
 
 interface AppConn {
   socket: WebSocket;
+  /** A24: the account this socket signed in as. */
+  username: string;
   subscriptions: Set<string>;
 }
 
@@ -106,9 +134,41 @@ const send = (socket: WebSocket, frame: unknown): void => {
   if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(frame));
 };
 
-function broadcast(frame: unknown): void {
-  for (const conn of conns) send(conn.socket, frame);
+/**
+ * A24: every pushed frame belongs to the account that owns the device it is
+ * about, so the owner is read from the frame rather than from every call site.
+ */
+function ownerOfFrame(frame: unknown): string | undefined {
+  const f = frame as {
+    type?: string;
+    device?: { device_id?: string };
+    device_id?: string;
+    session?: { device_id?: string };
+    code?: string;
+  };
+  if (f.type === 'pairing.progress') return state.pairingOwner.get(String(f.code));
+  const deviceId = f.device?.device_id ?? f.session?.device_id ?? f.device_id;
+  return deviceId ? state.deviceOwner.get(deviceId) : undefined;
 }
+
+function broadcast(frame: unknown): void {
+  const owner = ownerOfFrame(frame);
+  for (const conn of conns) {
+    if (owner === undefined || conn.username === owner) send(conn.socket, frame);
+  }
+}
+
+/** The devices and sessions one account may see. */
+const devicesOf = (username: string) =>
+  state.devices.filter((d) => state.deviceOwner.get(d.device_id) === username);
+
+const sessionsOf = (username: string) =>
+  state.sessions.filter((s) => state.deviceOwner.get(s.device_id) === username);
+
+const ownsSession = (username: string, sessionId: string): boolean => {
+  const session = findSession(sessionId);
+  return session !== undefined && state.deviceOwner.get(session.device_id) === username;
+};
 
 function emit(sessionId: string, event: SessionEvent): void {
   const list = state.events.get(sessionId) ?? [];
@@ -211,13 +271,30 @@ const unauthorized = (res: ServerResponse): void =>
 
 const failure = (code: string, message: string) => ({ ok: false, error: { code, message } });
 
-function authed(req: IncomingMessage): boolean {
+/** A24: the account a request carries, by cookie or by bearer, or nobody. */
+function caller(req: IncomingMessage): Account | undefined {
   const cookie = req.headers.cookie ?? '';
-  const token = /rc_session=([^;]+)/.exec(cookie)?.[1];
-  if (token && state.tokens.has(token)) return true;
-  const bearer = req.headers.authorization?.replace(/^Bearer\s+/i, '');
-  return Boolean(bearer && state.tokens.has(bearer));
+  const token =
+    /rc_session=([^;]+)/.exec(cookie)?.[1] ??
+    req.headers.authorization?.replace(/^Bearer\s+/i, '');
+  const username = token ? state.tokens.get(token) : undefined;
+  return username ? getAccount(username) : undefined;
 }
+
+/** Signs an account in: a token, the cookie header, and the `LoginResponse`. */
+function signIn(res: ServerResponse, account: Account): void {
+  const token = randomUUID();
+  state.tokens.set(token, account.username);
+  account.last_login_at = Date.now();
+  json(
+    res,
+    200,
+    { ok: true, token, exp: Date.now() + 30 * 86_400_000, user: userView(account) },
+    { 'Set-Cookie': `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000` },
+  );
+}
+
+const deviceCount = (username: string): number => devicesOf(username).length;
 
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
@@ -261,7 +338,8 @@ function lookupClaim(token: string): ClaimLookup {
   return { status: 'live', request };
 }
 
-function startPairing(code: string): void {
+function startPairing(code: string, owner: string): void {
+  state.pairingOwner.set(code, owner);
   const timers: NodeJS.Timeout[] = [];
   const emitStep = (delay: number, step: 'waiting' | 'enrolled' | 'online' | 'agents', withDevice = false) =>
     timers.push(
@@ -281,6 +359,7 @@ function startPairing(code: string): void {
   timers.push(
     setTimeout(() => {
       const device = newDevice(code);
+      state.deviceOwner.set(device.device_id, owner);
       if (!state.devices.some((d) => d.device_id === device.device_id)) state.devices.push(device);
       broadcast({ type: 'device.updated', device });
     }, 6_100),
@@ -314,24 +393,53 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
   const method = req.method ?? 'GET';
 
   if (path === '/api/health') {
-    json(res, 200, { ok: true, version: GATEWAY_VERSION, protocol: 1, auth: { mode: 'password' } });
+    json(res, 200, {
+      ok: true,
+      version: GATEWAY_VERSION,
+      protocol: 1,
+      auth: { mode: 'password', registration_open: isRegistrationOpen() },
+    });
     return;
   }
 
   if (path === '/api/login' && method === 'POST') {
     const body = await readBody(req);
-    if (body.password !== PASSWORD) {
-      json(res, 401, { ok: false, error: { code: 'unauthorized', message: 'wrong password' } });
+    const username = typeof body.username === 'string' ? body.username.toLowerCase() : '';
+    if (username.length === 0) {
+      json(res, 400, failure('bad_request', 'username is required'));
       return;
     }
-    const token = randomUUID();
-    state.tokens.add(token);
-    json(
-      res,
-      200,
-      { ok: true, token, exp: Date.now() + 30 * 86_400_000, user: { username: 'admin' } },
-      { 'Set-Cookie': `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000` },
-    );
+    const account = getAccount(username);
+    if (!account || account.password !== body.password) {
+      json(res, 401, failure('unauthorized', 'wrong username or password'));
+      return;
+    }
+    if (account.state === 'disabled') {
+      json(res, 403, failure('forbidden', 'this account is disabled'));
+      return;
+    }
+    signIn(res, account);
+    return;
+  }
+
+  // A24: registering makes a member account and signs it in.
+  if (path === '/api/register' && method === 'POST') {
+    const body = await readBody(req);
+    const username = typeof body.username === 'string' ? body.username.toLowerCase() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (!isRegistrationOpen()) {
+      json(res, 403, failure('forbidden', 'registration is closed'));
+      return;
+    }
+    if (!validUsername(username) || !validPassword(password)) {
+      json(res, 400, failure('bad_request', 'username or password outside the rules'));
+      return;
+    }
+    if (getAccount(username)) {
+      json(res, 409, failure('conflict', 'that username is taken'));
+      return;
+    }
+    signIn(res, createAccount(username, password, 'member'));
     return;
   }
 
@@ -374,7 +482,8 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
     return;
   }
 
-  if (!authed(req)) {
+  const account = caller(req);
+  if (!account) {
     unauthorized(res);
     return;
   }
@@ -393,19 +502,47 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
     }
     const code = pairingCode();
     lookup.request.code = code;
-    startPairing(code);
+    startPairing(code, account.username);
     json(res, 200, { code, expires_at: Date.now() + 10 * 60_000 });
     return;
   }
 
   if (path === '/api/logout' && method === 'POST') {
-    state.tokens.clear();
+    for (const [token, username] of state.tokens) {
+      if (username === account.username) state.tokens.delete(token);
+    }
     json(res, 200, { ok: true }, { 'Set-Cookie': `${COOKIE}=; Path=/; Max-Age=0` });
     return;
   }
 
   if (path === '/api/session') {
-    json(res, 200, { ok: true, user: { username: 'admin' }, exp: Date.now() + 86_400_000 });
+    json(res, 200, { ok: true, user: userView(account), exp: Date.now() + 86_400_000 });
+    return;
+  }
+
+  // A24: the caller's own password. `admin`'s is RC_PASSWORD, so it is refused.
+  if (path === '/api/password' && method === 'POST') {
+    const body = await readBody(req);
+    if (account.role === 'admin') {
+      json(res, 403, failure('forbidden', "the admin's password is RC_PASSWORD"));
+      return;
+    }
+    if (body.current_password !== account.password) {
+      json(res, 401, failure('unauthorized', 'wrong current password'));
+      return;
+    }
+    const next = typeof body.new_password === 'string' ? body.new_password : '';
+    if (!validPassword(next)) {
+      json(res, 400, failure('bad_request', 'password outside the rules'));
+      return;
+    }
+    account.password = next;
+    json(res, 200, { ok: true });
+    return;
+  }
+
+  if (path.startsWith('/api/users') || path === '/api/registration') {
+    await handleAccountRoutes(req, res, account, path, method);
     return;
   }
 
@@ -421,14 +558,14 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
   }
 
   if (path === '/api/devices' && method === 'GET') {
-    json(res, 200, { devices: state.devices });
+    json(res, 200, { devices: devicesOf(account.username) });
     return;
   }
 
   if (path.startsWith('/api/devices/pairing')) {
     if (method === 'POST') {
       const code = pairingCode();
-      startPairing(code);
+      startPairing(code, account.username);
       json(res, 200, {
         code,
         expires_at: Date.now() + 10 * 60_000,
@@ -451,7 +588,7 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
   const deviceMatch = /^\/api\/devices\/([^/]+)$/.exec(path);
   if (deviceMatch) {
     const deviceId = decodeURIComponent(deviceMatch[1] ?? '');
-    const device = state.devices.find((d) => d.device_id === deviceId);
+    const device = devicesOf(account.username).find((d) => d.device_id === deviceId);
     if (!device) {
       json(res, 404, { ok: false, error: { code: 'not_found', message: 'no such device' } });
       return;
@@ -467,6 +604,7 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
       state.devices = state.devices.filter((d) => d.device_id !== deviceId);
       state.sessions = state.sessions.filter((s) => s.device_id !== deviceId);
       broadcast({ type: 'device.removed', device_id: deviceId });
+      state.deviceOwner.delete(deviceId);
       json(res, 200, { ok: true });
       return;
     }
@@ -476,7 +614,7 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
     const deviceId = url.searchParams.get('device_id');
     const archived = url.searchParams.get('archived');
     json(res, 200, {
-      sessions: state.sessions
+      sessions: sessionsOf(account.username)
         .filter((s) => (deviceId ? s.device_id === deviceId : true))
         .filter((s) => (archived === null ? true : String(s.archived) === archived)),
     });
@@ -496,6 +634,130 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
   json(res, 404, { ok: false, error: { code: 'not_found', message: `no route for ${path}` } });
 }
 
+/* --------------------------------------------------------------- accounts */
+
+/** A24 §3.9: the admin's account routes. Everyone else gets `403`. */
+async function handleAccountRoutes(
+  req: IncomingMessage,
+  res: ServerResponse,
+  account: Account,
+  path: string,
+  method: string,
+): Promise<void> {
+  if (account.role !== 'admin') {
+    json(res, 403, failure('forbidden', 'admin only'));
+    return;
+  }
+
+  if (path === '/api/registration' && method === 'PATCH') {
+    const body = await readBody(req);
+    setRegistrationOpen(body.open === true);
+    json(res, 200, { open: isRegistrationOpen() });
+    return;
+  }
+
+  if (path === '/api/users' && method === 'GET') {
+    json(res, 200, {
+      users: listAccounts().map((a) => recordView(a, deviceCount(a.username))),
+      registration_open: isRegistrationOpen(),
+    });
+    return;
+  }
+
+  if (path === '/api/users' && method === 'POST') {
+    const body = await readBody(req);
+    const username = typeof body.username === 'string' ? body.username.toLowerCase() : '';
+    const password = typeof body.password === 'string' ? body.password : '';
+    const role: Role = body.role === 'admin' ? 'admin' : 'member';
+    if (!validUsername(username) || !validPassword(password)) {
+      json(res, 400, failure('bad_request', 'username or password outside the rules'));
+      return;
+    }
+    if (getAccount(username)) {
+      json(res, 409, failure('conflict', 'that username is taken'));
+      return;
+    }
+    const created = createAccount(username, password, role);
+    json(res, 200, { user: recordView(created, 0) });
+    return;
+  }
+
+  const target = /^\/api\/users\/([^/]+)$/.exec(path);
+  const subject = target ? getAccount(decodeURIComponent(target[1] ?? '')) : undefined;
+  if (!target) {
+    json(res, 404, failure('not_found', `no route for ${path}`));
+    return;
+  }
+  if (!subject) {
+    json(res, 404, failure('not_found', 'no such account'));
+    return;
+  }
+
+  if (method === 'PATCH') {
+    const body = await readBody(req);
+    const demoting = body.role !== undefined && body.role !== 'admin';
+    const disabling = body.state !== undefined && body.state !== 'active';
+    if (subject.username === 'admin' && (demoting || disabling || body.password !== undefined)) {
+      json(res, 409, failure('conflict', 'the admin account cannot be changed'));
+      return;
+    }
+    if (body.password !== undefined) {
+      if (typeof body.password !== 'string' || !validPassword(body.password)) {
+        json(res, 400, failure('bad_request', 'password outside the rules'));
+        return;
+      }
+      subject.password = body.password;
+    }
+    if (body.role === 'admin' || body.role === 'member') subject.role = body.role as Role;
+    if (body.state === 'active' || body.state === 'disabled') {
+      subject.state = body.state as State;
+      // A24: disabling signs the account out everywhere.
+      if (subject.state === 'disabled') signOutEverywhere(subject.username);
+    }
+    json(res, 200, { user: recordView(subject, deviceCount(subject.username)) });
+    return;
+  }
+
+  if (method === 'DELETE') {
+    if (subject.username === 'admin') {
+      json(res, 409, failure('conflict', 'the admin account cannot be deleted'));
+      return;
+    }
+    removeAccount(subject.username);
+    json(res, 200, { ok: true });
+    return;
+  }
+
+  json(res, 404, failure('not_found', `no route for ${path}`));
+}
+
+/** Closes every app socket of an account and drops its login tokens. */
+function signOutEverywhere(username: string): void {
+  for (const [token, owner] of state.tokens) {
+    if (owner === username) state.tokens.delete(token);
+  }
+  for (const conn of conns) {
+    if (conn.username === username) conn.socket.close(4401, 'account disabled');
+  }
+}
+
+/** A24: deleting takes the devices, their sessions and the pairing codes too. */
+function removeAccount(username: string): void {
+  signOutEverywhere(username);
+  for (const device of devicesOf(username)) {
+    state.deviceOwner.delete(device.device_id);
+    state.sessions = state.sessions.filter((s) => s.device_id !== device.device_id);
+  }
+  state.devices = state.devices.filter((d) => state.deviceOwner.has(d.device_id));
+  for (const [code, owner] of state.pairingOwner) {
+    if (owner !== username) continue;
+    state.pairings.get(code)?.timers.forEach(clearTimeout);
+    state.pairings.delete(code);
+    state.pairingOwner.delete(code);
+  }
+  deleteAccount(username);
+}
+
 /* ---------------------------------------------------------------- ws/app */
 
 const appWss = new WebSocketServer({ noServer: true });
@@ -504,7 +766,12 @@ const sttWss = new WebSocketServer({ noServer: true });
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url ?? '/', `http://127.0.0.1:${PORT}`);
   if (url.pathname === '/ws/app') {
-    appWss.handleUpgrade(req, socket, head, (ws) => onAppSocket(ws));
+    const account = caller(req);
+    if (!account) {
+      socket.destroy();
+      return;
+    }
+    appWss.handleUpgrade(req, socket, head, (ws) => onAppSocket(ws, account));
     return;
   }
   if (url.pathname === '/ws/stt') {
@@ -514,17 +781,17 @@ server.on('upgrade', (req, socket, head) => {
   socket.destroy();
 });
 
-function onAppSocket(socket: WebSocket): void {
-  const conn: AppConn = { socket, subscriptions: new Set() };
+function onAppSocket(socket: WebSocket, account: Account): void {
+  const conn: AppConn = { socket, username: account.username, subscriptions: new Set() };
   conns.add(conn);
 
   send(socket, {
     type: 'hello',
     protocol: 1,
     gateway_version: GATEWAY_VERSION,
-    user: { username: 'admin' },
-    devices: state.devices,
-    sessions: state.sessions,
+    user: userView(account),
+    devices: devicesOf(account.username),
+    sessions: sessionsOf(account.username),
     stt: { enabled: true, languages: ['auto', 'zh', 'en'] },
     server_time: Date.now(),
   });
@@ -557,6 +824,17 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
   const id = frame.id;
   const type = String(frame.type ?? '');
   const sessionId = String(frame.session_id ?? '');
+  const deviceId = String(frame.device_id ?? '');
+
+  // A24: another account's session or device is answered exactly like one that
+  // does not exist. A session or device this gateway has never heard of falls
+  // through to the handler, which words its own `not_found`.
+  const foreignSession = findSession(sessionId) !== undefined && !ownsSession(conn.username, sessionId);
+  const foreignDevice =
+    state.deviceOwner.has(deviceId) && state.deviceOwner.get(deviceId) !== conn.username;
+  if (type !== 'pong' && (foreignSession || foreignDevice)) {
+    return replyError(conn, id, 'not_found', 'no such session');
+  }
 
   switch (type) {
     case 'pong':
@@ -1164,5 +1442,7 @@ function onSttSocket(socket: WebSocket): void {
 }
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`mock gateway listening on http://127.0.0.1:${PORT} (password: ${PASSWORD})`);
+  console.log(`mock gateway listening on http://127.0.0.1:${PORT}`);
+  console.log(`  admin / ${PASSWORD} — two devices, five sessions, the Users screen`);
+  console.log(`  ${MEMBER_USERNAME} / ${MEMBER_PASSWORD} — a member: no devices, no Users screen`);
 });

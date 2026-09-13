@@ -2,13 +2,20 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button } from '../../components/Button';
 import { Menu } from '../../components/Popover';
-import { interfaceLanguageLabels, languageLabel, strings, timelineDetailLabel } from '../../strings';
+import {
+  interfaceLanguageLabels,
+  languageLabel,
+  roleLabel,
+  strings,
+  timelineDetailLabel,
+} from '../../strings';
 import { useAuth } from '../../stores/auth';
 import { useConnection } from '../../stores/connection';
 import { INTERFACE_LANGUAGES, useSettings } from '../../stores/settings';
 import type { InterfaceLanguage } from '../../stores/settings';
 import type { TimelineDetail } from '../../stores/timeline';
 import { currentPushState, disablePush, enablePush, type PushState } from '../../push/webpush';
+import { ChangePasswordModal } from './ChangePasswordModal';
 import './settings.css';
 
 /** In the order Settings offers them; Simple is the default. */
@@ -16,6 +23,7 @@ const DETAIL_LEVELS: TimelineDetail[] = ['simple', 'detailed'];
 
 export function SettingsPage() {
   const username = useAuth((s) => s.username);
+  const role = useAuth((s) => s.role);
   const config = useAuth((s) => s.config);
   const version = useAuth((s) => s.version);
   const logout = useAuth((s) => s.logout);
@@ -33,6 +41,7 @@ export function SettingsPage() {
 
   const [push, setPush] = useState<PushState>('unsupported');
   const [pushBusy, setPushBusy] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -59,12 +68,32 @@ export function SettingsPage() {
           <div className="settings-group surface">
             <div className="settings-row">
               <span>{strings.settings.signedInAs}</span>
-              <strong>{username ?? '—'}</strong>
+              <span className="settings-identity">
+                <strong>{username ?? '—'}</strong>
+                {role ? <span className="hint">{roleLabel(role)}</span> : null}
+              </span>
             </div>
             <div className="settings-row">
               <span>{strings.settings.connection}</span>
               <span className="hint">{connection}</span>
             </div>
+            {role === 'admin' ? (
+              <button
+                type="button"
+                className="settings-row settings-action"
+                onClick={() => navigate('/users')}
+              >
+                {strings.users.title}
+              </button>
+            ) : role === 'member' ? (
+              <button
+                type="button"
+                className="settings-row settings-action"
+                onClick={() => setChangingPassword(true)}
+              >
+                {strings.settings.changePassword}
+              </button>
+            ) : null}
             <button
               type="button"
               className="settings-row settings-action"
@@ -196,6 +225,10 @@ export function SettingsPage() {
           </div>
         </section>
       </div>
+
+      {changingPassword ? (
+        <ChangePasswordModal onClose={() => setChangingPassword(false)} />
+      ) : null}
     </>
   );
 }

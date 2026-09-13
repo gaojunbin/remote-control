@@ -46,3 +46,20 @@
   color: var(--danger);
   font-size: var(--fs-13);
 }
+
+/** A24: the one line under the button that swaps the card for the other form. */
+.login-switch {
+  margin-top: var(--sp-4);
+  align-self: center;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--fs-13);
+  cursor: pointer;
+}
+
+.login-switch:hover {
+  text-decoration: underline;
+}

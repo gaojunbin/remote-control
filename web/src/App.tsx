@@ -8,13 +8,15 @@ import { PairPage } from './features/devices/PairPage';
 import { SessionsPage } from './features/sessions/SessionsPage';
 import { ChatPage } from './features/chat/ChatPage';
 import { SettingsPage } from './features/settings/SettingsPage';
+import { UsersPage } from './features/users/UsersPage';
 import { useServiceWorkerNavigation } from './push/useServiceWorkerNavigation';
 import { useAuth } from './stores/auth';
 import { useConnection } from './stores/connection';
-import { useSettings } from './stores/settings';
+import { readSettingsFor, useSettings } from './stores/settings';
 
 export function App() {
   const status = useAuth((s) => s.status);
+  const username = useAuth((s) => s.username);
   const check = useAuth((s) => s.check);
   const markSignedOut = useAuth((s) => s.markSignedOut);
   const connect = useConnection((s) => s.connect);
@@ -35,6 +37,12 @@ export function App() {
   useEffect(() => {
     void check();
   }, [check]);
+
+  // A24: what this app remembers is the signed-in account's, not the browser's,
+  // so two people who share one browser keep their own choices.
+  useEffect(() => {
+    readSettingsFor(username);
+  }, [username]);
 
   const onUnauthorized = useCallback(() => {
     markSignedOut();
@@ -77,6 +85,7 @@ export function App() {
         <Route path="/pair" element={<PairPage />} />
         <Route path="/sessions" element={<SessionsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/users" element={<UsersPage />} />
       </Route>
       <Route path="/" element={<Landing />} />
       <Route path="*" element={<Landing />} />

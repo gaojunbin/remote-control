@@ -9,12 +9,13 @@ hand-written CSS with no framework. It talks only to the gateway and follows
 | Route | What it does |
 | --- | --- |
 | `/` | Decides where an open lands and goes there; the `*` fallback does the same |
-| `/login` | Password sign-in against the gateway |
+| `/login` | Username and password sign-in against the gateway, and **Create an account** when the gateway takes registrations (A24) |
 | `/devices` | Device list with online state, agents, session counts and the client build; Rename, Update and Revoke on every row; **Add device** with the copyable one-liner, the pairing code, its expiry, live handshake steps, and the scan flow beside them |
 | `/pair` | Claims the token a host printed as a QR code and shows the same handshake (A23) |
 | `/sessions` | Every session across every device: one collapsible group per device, its active rows and then its own collapsed **Archive**, a search, an agent filter and a device filter, and **New session** in a right-hand drawer |
 | `/sessions/:deviceId/:sessionId` | The chat: sidebar, timeline, composer, status line |
-| `/settings` | Grouped settings — account and sign out, browser notifications, voice language and push-to-talk, and an About group with the gateway origin, both versions and the connection state |
+| `/settings` | Grouped settings — the account with its role, **Change password** for a member or **Users** for an admin, sign out, browser notifications, voice language and push-to-talk, and an About group with the gateway origin, both versions and the connection state |
+| `/users` | The admin's accounts screen: the registration switch, one row per account, Reset password / Disable / Delete, and **Add user** (A24). A member who types it lands on Sessions |
 
 ## Commands
 
@@ -25,7 +26,7 @@ cd web && npm ci
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Vite on 5173, proxying `/api` and `/ws` to `http://127.0.0.1:8787` |
-| `npm run dev:mock` | The same server plus the bundled mock gateway. Sign in with `dev` |
+| `npm run dev:mock` | The same server plus the bundled mock gateway. Sign in as `admin` / `dev`, or as the member `alice` / `devdevdev` |
 | `npm run mock` | Only the mock gateway, on 8787 |
 | `npm run build` | Typecheck, then build to `web/dist` |
 | `npm test` | Vitest |
@@ -58,7 +59,12 @@ four daemon decisions. Its history carries a request the TUI answered first, so 
 request id, the way a device behaves (A12), so the pending bubble is visible in development; a
 message queued during a turn is dequeued when that turn ends and keeps its id, while a turn the mock
 starts itself, such as a `first_message`, mints its own block id and exercises the app's fallback.
-Pairing walks
+It knows two accounts (A24), `admin` / `dev` and the member `alice` / `devdevdev`, with the
+registration switch closed and the account routes of 3.9 behind the admin's role, so the sign-in
+form, registration, the Users screen and a member's Settings can all be driven with no gateway. The
+scripted devices are the admin's: a member's `hello`, device list and session list come back empty,
+a subscribe naming one of the admin's sessions answers `not_found`, and a pushed frame reaches only
+the account that owns the device it is about. Pairing walks
 `waiting → enrolled → online → agents` over about six seconds, and the speech socket returns
 scripted partials and a final transcript. One of the two devices runs the build `/api/config`
 reports and the other the one before it, so the list shows a row with nothing to do beside a row
@@ -79,7 +85,7 @@ src/
   stores/      zustand stores; timeline.ts is the pure event -> renderable-items reducer
   components/  buttons, modal, drawer, popover, segmented control, status dots
   layout/      the signed-in shell, the mark, and the landing rule
-  features/    login, devices, sessions, chat, voice, settings
+  features/    login, devices, sessions, chat, voice, settings, users
   push/        Web Push subscription and service worker registration
   styles/      tokens.css and base.css
 mock/          the mock gateway
@@ -94,8 +100,8 @@ table beside it is `src/strings.zh-Hans.ts`.
 The app speaks English or 中文 (`Settings → Language`), and it starts in English whatever
 `navigator.language` says — a developer whose system is Chinese still reads the agent in English,
 and a surprise translation at first launch reads as a different product. The choice is
-`language` in the settings store, persisted under `rc.settings` with the other preferences, and
-`<html lang>` follows it.
+`language` in the settings store, persisted with the other preferences under the signed-in
+account's key (`rc.settings.<username>`, A24), and `<html lang>` follows it.
 
 `strings` is not a table but a view on one: a proxy that reads `stringTables[language]` on every
 property access, so a component keeps writing `strings.composer.send` and needs to know nothing.
@@ -148,6 +154,49 @@ cache-first for hashed assets under `/assets/`, and bypasses `/api`, `/ws`, `/in
 the offline shell. A push payload carries only a device name and a reason; clicking the notification
 focuses an open tab or opens `/sessions/<device_id>/<session_id>`.
 
+## Accounts
+
+Every person on a gateway has an account (A24), and what an account sees is its own: its devices,
+their sessions, its pairing codes. The app never has to filter anything — the gateway answers only
+what belongs to the caller — so the work here is the three screens the amendment adds and one rule
+about what this browser remembers.
+
+**Signing in** asks for a username and a password. The username is remembered in `localStorage`
+under `rc.username` and prefilled next time, so the second sign-in is the password alone;
+`localStorage` is already scoped to the gateway's origin, which is what makes one key enough.
+A `403` reads "This account is disabled." and a `401` says only that one of the two was wrong.
+`LoginPage` is the only screen that reads `GET /api/health`'s `auth.registration_open`, because it
+is the only screen that offers **Create an account**: the link appears under the button when the
+gateway takes registrations, swaps the card for username, password and **Create account**, and puts
+"Sign in instead" beneath it. Registering is a sign-in. A refusal is worded from its status —
+`409` taken, `400` the username and password rules, `403` registration closed, which also removes
+the link.
+
+**The Account group in Settings** shows the username with its role word under it, then the one row
+that account has: **Change password** for a member (a modal asking the current password and the new
+one; `401` reads "That is not your current password.") or **Users** for an admin. `admin`'s password
+is the gateway's `RC_PASSWORD`, so an admin is offered no password row at all. **Sign out** stays
+last.
+
+**`/users`** is `src/features/users/`, gated on the role in the auth store: a member who types the
+address is sent to `/sessions` before anything is fetched. The registration switch sits at the top
+and answers the tap before the `PATCH /api/registration` lands, going back if the gateway refuses
+it. Each row carries the username, `role · state`, the device count and the last sign-in as a
+relative time or "never"; the `admin` row is given no menu, because none of its three actions is
+allowed. Delete names what goes with the account ("…and its 2 devices"). Every dialog surfaces its
+own refusal, read from `error.code` by `userErrorText` in `src/lib/accountErrors.ts`; `conflict`
+means a taken username on `POST /api/users` and a refusal to touch `admin` everywhere else, so each
+caller supplies that one sentence. The list is `src/stores/users.ts`: nothing pushes accounts over
+the socket, so it is whatever the last `GET /api/users` said, and every write re-reads it.
+
+**The app's own preferences belong to the account, not to the browser.** The settings store
+persists under `rc.settings.<username>`, and `readSettingsFor` in `src/stores/settings.ts` points
+it at the signed-in account whenever that changes — `App` calls it from the auth store's username.
+The persist `merge` lays the defaults under whatever was stored, so an account that has chosen
+nothing reads the defaults rather than inheriting the last person's language, dictation language or
+timeline detail. The login screen, where nobody is signed in, keeps its own key, `rc.settings`.
+Nothing of this reaches the gateway.
+
 ## Behaviour worth knowing
 
 - **Where an open lands** is `src/layout/Landing.tsx`, the element behind `/` and behind the `*`
@@ -170,7 +219,7 @@ focuses an open tab or opens `/sessions/<device_id>/<session_id>`.
   and the search text `selectSessionLayout` matches on all read it, so an unnamed thread never
   draws a blank line above its meta and is still found by those words.
 - **Collapse state** is two arrays of device ids in the settings store, `collapsedDevices` and
-  `archiveExpanded`, persisted with the rest of the preferences under `rc.settings`. Device groups
+  `archiveExpanded`, persisted with the rest of the preferences under the signed-in account's key. Device groups
   are open by default, Archives shut. A non-empty search overrides both — it opens every device
   group and every Archive holding a match, without writing either array, and clearing the query
   hands the list back to what was stored. There is no global "show archived" toggle: it only ever
@@ -417,6 +466,12 @@ were checked over the socket against the mock. Screenshots are not checked into 
 The approval path was re-verified on the fixed device daemon: the card stays pending until it is
 answered, Allow writes the file, Deny leaves it absent, and both decisions are recorded against the
 remote user.
+
+The accounts of A24 were driven in the installed Chrome against the mock gateway: the sign-in card
+with and without the registration link, the registration card and its three refusals, the Users
+screen with its switch, its rows and its dialogs, a member's Settings and its password modal, a
+member typing `/users` and landing on Sessions, and two accounts on one browser keeping their own
+language and timeline detail. The dated entry is in `docs/VALIDATION-APPS.md`.
 
 The A12 send path was driven in the installed Chrome against the mock gateway: the bubble is on
 screen in the frame after the click, the device's echo replaces it in place on the idle, steered and

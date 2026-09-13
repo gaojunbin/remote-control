@@ -62,14 +62,34 @@ function memoryStorage(): StateStorage {
 
 const storage = browserStorage() ?? memoryStorage();
 
+/**
+ * A24: what this app remembers belongs to the person signed in, not to the
+ * browser. `localStorage` is already scoped to the gateway's origin, so the
+ * username is all the key still needs; two people on one browser find their own
+ * language, dictation language and notification choices. Nobody is signed in on
+ * the login screen, which is why the signed-out key exists at all.
+ */
+const SIGNED_OUT_KEY = 'rc.settings';
+
+const keyFor = (username: string | null): string =>
+  username === null ? SIGNED_OUT_KEY : `${SIGNED_OUT_KEY}.${username}`;
+
+/** What an account that has chosen nothing yet reads. */
+const defaults = (): Pick<
+  SettingsState,
+  'language' | 'sttLanguage' | 'timelineDetail' | 'collapsedDevices' | 'archiveExpanded'
+> => ({
+  language: 'en',
+  sttLanguage: 'auto',
+  timelineDetail: 'simple',
+  collapsedDevices: [],
+  archiveExpanded: [],
+});
+
 export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
-      language: 'en',
-      sttLanguage: 'auto',
-      timelineDetail: 'simple',
-      collapsedDevices: [],
-      archiveExpanded: [],
+      ...defaults(),
       setLanguage: (language) => set({ language }),
       setSttLanguage: (sttLanguage) => set({ sttLanguage }),
       setTimelineDetail: (timelineDetail) => set({ timelineDetail }),
@@ -78,6 +98,34 @@ export const useSettings = create<SettingsState>()(
       toggleArchiveExpanded: (deviceId) =>
         set((s) => ({ archiveExpanded: toggle(s.archiveExpanded, deviceId) })),
     }),
-    { name: 'rc.settings', version: 1, storage: createJSONStorage(() => storage) },
+    {
+      name: SIGNED_OUT_KEY,
+      version: 1,
+      storage: createJSONStorage(() => storage),
+      // The defaults go under whatever the account stored, so switching to an
+      // account that has chosen nothing does not inherit the last person's
+      // choices. Without this, a rehydrate with nothing to read leaves the
+      // previous account's state in place.
+      merge: (persisted, current) => ({
+        ...current,
+        ...defaults(),
+        ...(persisted as Partial<SettingsState> | undefined),
+      }),
+    },
   ),
 );
+
+/** The account the store is currently reading and writing. */
+let account: string | null = null;
+
+/**
+ * Point the store at one account's preferences: writes go to that account's key
+ * from here on, and the rehydrate reads back what it chose before, or the
+ * defaults when it has chosen nothing.
+ */
+export function readSettingsFor(username: string | null): void {
+  if (username === account) return;
+  account = username;
+  useSettings.persist.setOptions({ name: keyFor(username) });
+  void useSettings.persist.rehydrate();
+}

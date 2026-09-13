@@ -12,6 +12,7 @@ import type {
   SessionEvent,
   Usage,
 } from '../src/protocol/types';
+import type { User, UserRecord } from '../src/protocol/types';
 import type { HelloFrame, Reply, SubscribeResult } from '../src/protocol/frames';
 import { toolCategory } from '../src/features/chat/blocks/toolCategory';
 import { fixturesAvailable, listFixtures, readFixture } from './fixtures';
@@ -45,6 +46,24 @@ const TOOL_KINDS = new Set([
   'todo',
   'other',
 ]);
+
+/** A24: the username rule of PROTOCOL.md §3.1, and the two closed lists. */
+const USERNAME = /^[a-z0-9][a-z0-9._-]{2,31}$/;
+const ROLES = new Set(['admin', 'member']);
+const STATES = new Set(['active', 'disabled']);
+
+function assertUser(user: User): void {
+  expect(user.username).toMatch(USERNAME);
+  expect(ROLES.has(user.role)).toBe(true);
+}
+
+function assertUserRecord(record: UserRecord): void {
+  assertUser(record);
+  expect(STATES.has(record.state)).toBe(true);
+  expect(typeof record.created_at).toBe('number');
+  expect(record.last_login_at === null || typeof record.last_login_at === 'number').toBe(true);
+  expect(record.devices).toBeGreaterThanOrEqual(0);
+}
 
 function assertUsage(usage: Usage): void {
   // Amendment A2: only the three token counts are required.
@@ -310,6 +329,56 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
     expect(pairing.code).toMatch(/^RC-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/);
     expect(pairing.install.macos).toContain(pairing.code);
     expect(pairing.install.linux).toContain(pairing.code);
+  });
+
+  it('decodes the account bodies of A24', () => {
+    const health = readFixture<{ auth: { mode: string; registration_open: boolean } }>(
+      'http/health.response.json',
+    );
+    // The login screen offers registration only when this is true.
+    expect(typeof health.auth.registration_open).toBe('boolean');
+
+    const login = readFixture<{ user: User }>('http/login.response.json');
+    const request = readFixture<{ username: string; password: string }>('http/login.request.json');
+    expect(request.username).toMatch(USERNAME);
+    assertUser(login.user);
+    assertUser(readFixture<{ user: User }>('http/auth.session.response.json').user);
+    assertUser(readFixture<HelloFrame>('app/hello.json').user);
+
+    const register = readFixture<{ username: string; password: string }>(
+      'http/register.request.json',
+    );
+    expect(register.username).toMatch(USERNAME);
+    expect(register.password.length).toBeGreaterThanOrEqual(8);
+
+    const password = readFixture<{ current_password: string; new_password: string }>(
+      'http/password.request.json',
+    );
+    expect(password.new_password.length).toBeGreaterThanOrEqual(8);
+
+    const list = readFixture<{ users: UserRecord[]; registration_open: boolean }>(
+      'http/users.list.response.json',
+    );
+    expect(typeof list.registration_open).toBe('boolean');
+    list.users.forEach(assertUserRecord);
+    assertUserRecord(readFixture<{ user: UserRecord }>('http/users.response.json').user);
+
+    const create = readFixture<{ username: string; password: string; role?: string }>(
+      'http/users.create.request.json',
+    );
+    expect(create.username).toMatch(USERNAME);
+    expect(create.role === undefined || ROLES.has(create.role)).toBe(true);
+
+    const patch = readFixture<{ state?: string; role?: string; password?: string }>(
+      'http/users.patch.request.json',
+    );
+    expect(Object.keys(patch).length).toBeGreaterThan(0);
+    if (patch.state !== undefined) expect(STATES.has(patch.state)).toBe(true);
+
+    expect(readFixture<{ open: boolean }>('http/registration.patch.request.json').open).toBe(true);
+    expect(typeof readFixture<{ open: boolean }>('http/registration.response.json').open).toBe(
+      'boolean',
+    );
   });
 
   it('decodes the device update request and its reply (A22)', () => {

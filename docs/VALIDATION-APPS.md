@@ -549,6 +549,52 @@ Not verified in this pass: Firefox and Safari — the transparent track and the 
 all three engines but only Chrome was driven — a refusal of `session.set` against a real device, the
 mock having accepted everything it was sent, and touch, since the drag was a mouse.
 
+### Round 17 — every person on a gateway has their own account (A24)
+
+2026-09-13, in the installed Google Chrome driven by `playwright-core` against the bundled mock
+(`npm run dev:mock`, here on 8799 with Vite on 5199) at 1280 px and 400 px. The mock gained the
+accounts the amendment describes: `admin` / `dev`, the member `alice` / `devdevdev`, the
+registration switch closed on a fresh start, and the routes of 3.9 behind the admin's role.
+**Signing in** now asks for both halves: `POST /api/login` carried `{username, password}`, a `403`
+read "This account is disabled." and a `401` read "Wrong username or password.", which says nothing
+about which half was wrong. **Registration** was absent while the gateway was closed — the card
+drew two fields and no link — and the link appeared as "Create an account" the moment
+`GET /api/health` reported `registration_open: true`, swapping the card for username, password,
+**Create account** and "Sign in instead"; registering as `admin` was refused with "That username is
+taken." in the card that asked. **The Users screen** listed `admin` as "Admin · Active · 2 devices ·
+last sign-in just now" and `alice` as "Member · Active · 0 devices · last sign-in 4h ago", drew one
+row menu rather than two because the `admin` row has no actions, and offered Reset password /
+Disable / Delete on `alice`, whose delete confirmation named what goes with the account. **Add
+user** opened with username, password and a Member / Admin segmented control, Member selected.
+**Settings** read "admin · Admin · Connection · Users · Sign out" for the admin and "alice · Member
+· Connection · Change password · Sign out" for the member, and the member's modal answered a wrong
+current password with "That is not your current password." Typing `/users` as `alice` landed on
+Sessions with no `GET /api/users` issued. **Two people on one browser keep their own settings**:
+the admin chose 中文 and Detailed, which wrote `rc.settings.admin` alone; signing out returned the
+login card to English and prefilled `admin` from `rc.username`; `alice` then read Settings in
+English at Simple and her own choice wrote `rc.settings.alice`; signing back in as `admin` restored
+设置 and Detailed. No horizontal overflow at 400 px (`document.scrollWidth` 400). The only
+browser-logged errors were the 401 on the pre-login `GET /api/session` probe and the 409 the taken
+username is supposed to be. The gateway side was exercised with `curl` against the mock in the same
+run: login without a username 400, register while closed 403, taken 409, `Bo` 400, `/api/users` as a
+member 403, `/api/password` as `admin` 403 and with a wrong current password 401, disabling `admin`
+409, deleting `admin` 409, disabling `alice` then signing in as her 403, and deleting an account
+whose token then answered 401. Screenshots under `…/scratchpad/web-users/shots/`:
+`login-closed-1280.png`, `login-open-1280.png`, `register-1280.png`, `register-taken-1280.png`,
+`users-1280.png`, `users-add-1280.png`, `users-menu-1280.png`, `users-delete-1280.png`,
+`settings-admin-1280.png`, `settings-member-1280.png`, `settings-member-password-1280.png`,
+`login-open-400.png` and `users-400.png`. Run artefacts, not checked into the repository.
+
+```
+cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
+→ 33 files / 394 tests passed, tsc clean, eslint clean, built in 1.89 s
+```
+
+Not verified in this pass: the real gateway — every screen above ran against the mock, whose
+account store is in memory and whose passwords are compared in the clear; a member with devices of
+its own, the mock giving both scripted devices to `admin`; the rate limiter behind the `429` wording
+on both cards, which the mock does not implement; and Firefox and Safari.
+
 ## 2. iOS, in the simulator, against the same gateway
 
 `ios/UITests/RealGatewaySmokeTests.swift` is new. It skips unless the runner is given a gateway, so

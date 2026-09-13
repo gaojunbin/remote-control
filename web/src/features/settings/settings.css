@@ -32,6 +32,14 @@
   text-align: right;
 }
 
+/* A24: the account name with its role word under it. */
+.settings-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
 /* A row that is itself the action, the way a grouped settings list does it. */
 .settings-action {
   width: 100%;

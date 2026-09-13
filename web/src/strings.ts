@@ -49,16 +49,63 @@ export const en = {
     of: 'of',
   },
 
+  /** A24: the words about an account, wherever one is named or typed. */
+  account: {
+    username: 'Username',
+    password: 'Password',
+    currentPassword: 'Current password',
+    newPassword: 'New password',
+    role: 'Role',
+    rules:
+      'Usernames are 3 to 32 characters: lower-case letters, digits, dots, underscores and hyphens. Passwords are 8 characters or more.',
+    taken: 'That username is taken.',
+    disabled: 'This account is disabled.',
+    wrongCurrentPassword: 'That is not your current password.',
+    notAllowed: 'This account cannot be changed.',
+    gone: 'That account no longer exists.',
+  },
+
   login: {
     title: 'Remote Control',
     subtitle: 'Sign in to reach your devices.',
-    password: 'Gateway password',
+    registerSubtitle: 'Create an account on this gateway.',
+    usernamePlaceholder: 'Username',
     passwordPlaceholder: 'Password',
     submit: 'Sign in',
     signingIn: 'Signing in…',
-    failed: 'Wrong password.',
+    createAccount: 'Create account',
+    creating: 'Creating…',
+    createAccountLink: 'Create an account',
+    signInInstead: 'Sign in instead',
+    failed: 'Wrong username or password.',
+    registrationClosed: 'Registration is closed.',
     unreachable: 'Cannot reach the gateway.',
     rateLimited: 'Too many attempts. Wait a minute and try again.',
+  },
+
+  /** A24: the admin's accounts screen. */
+  users: {
+    title: 'Users',
+    registration: 'Registration',
+    registrationCaption: 'Anyone with the gateway address can create an account',
+    add: 'Add user',
+    meta: (role: string, state: string) => `${role} · ${state}`,
+    deviceCount: (n: number) => `${n} ${n === 1 ? 'device' : 'devices'}`,
+    lastSignIn: (rel: string) => `last sign-in ${rel}`,
+    never: 'never',
+    resetPassword: 'Reset password',
+    resetPasswordTitle: (username: string) => `Reset password for ${username}`,
+    disable: 'Disable',
+    enable: 'Enable',
+    deleteAction: 'Delete',
+    deleteTitle: 'Delete account',
+    deleteBody: (username: string) =>
+      `Delete ${username}? Its sign-ins stop working at once and nothing of it is kept.`,
+    deleteBodyDevices: (username: string, n: number) =>
+      `Delete ${username} and its ${n} ${n === 1 ? 'device' : 'devices'}? The devices are revoked and their sessions leave this gateway. The machines keep their agents and transcripts.`,
+    deleteConfirm: 'Delete account',
+    loadFailed: 'Could not load the accounts.',
+    registrationFailed: 'Could not change that setting.',
   },
 
   devices: {
@@ -306,6 +353,7 @@ export const en = {
     title: 'Settings',
     account: 'Account',
     signedInAs: 'Signed in as',
+    changePassword: 'Change password',
     signOut: 'Sign out',
     notifications: 'Notifications',
     pushEnable: 'Push notifications',
@@ -405,6 +453,9 @@ export const en = {
     } as Record<string, string>,
     /** The two timeline detail levels, in the order Settings offers them. */
     timelineDetail: { simple: 'Simple', detailed: 'Detailed' } as Record<TimelineDetail, string>,
+    /** A24: what an account is and whether it may sign in. */
+    role: { admin: 'Admin', member: 'Member' } as Record<string, string>,
+    userState: { active: 'Active', disabled: 'Disabled' } as Record<string, string>,
     terminal: 'terminal',
     terminalAttached: 'terminal · attached',
     terminalBusy: (state: string) => `terminal · ${state}`,
@@ -488,6 +539,16 @@ export function languageLabel(code: string): string {
 
 export function timelineDetailLabel(detail: TimelineDetail): string {
   return strings.labels.timelineDetail[detail];
+}
+
+/** A24: "Admin" or "Member", and the id itself for a role this app is too old for. */
+export function roleLabel(role: string): string {
+  return strings.labels.role[role] ?? role;
+}
+
+/** A24: "Active" or "Disabled". */
+export function userStateLabel(state: string): string {
+  return strings.labels.userState[state] ?? state;
 }
 
 /**

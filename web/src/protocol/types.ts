@@ -86,6 +86,26 @@ export interface AgentInfo {
   shared_attachments?: boolean;
 }
 
+/** A24: what the account routes of 3.9 are gated on. */
+export type UserRole = 'admin' | 'member';
+
+/** A24: a disabled account cannot sign in and its devices are refused. */
+export type UserState = 'active' | 'disabled';
+
+/** A24 (4.10): the account an app signed in as. */
+export interface User {
+  username: string;
+  role: UserRole;
+}
+
+/** A24 (4.10): one account as the admin lists it. */
+export interface UserRecord extends User {
+  state: UserState;
+  created_at: number;
+  last_login_at: number | null;
+  devices: number;
+}
+
 /** A22: where an app-requested client update stands. Absent means `idle`. */
 export type DeviceUpdateState = 'idle' | 'updating' | 'failed';
 

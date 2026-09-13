@@ -9,6 +9,7 @@ import type {
   QueuedMessage,
   Session,
   SessionEvent,
+  User,
   WireError,
 } from './types';
 
@@ -30,7 +31,7 @@ export interface HelloFrame {
   type: 'hello';
   protocol: number;
   gateway_version: string;
-  user: { username: string };
+  user: User;
   devices: Device[];
   sessions: Session[];
   stt: { enabled: boolean; languages: string[] };

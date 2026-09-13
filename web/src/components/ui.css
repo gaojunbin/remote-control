@@ -235,6 +235,22 @@
   font-size: var(--fs-13);
 }
 
+/* Why a form was refused, under the fields it belongs to. */
+.form-error {
+  color: var(--danger);
+  font-size: var(--fs-13);
+  line-height: 1.5;
+}
+
+/* A short stack of labelled fields in a dialog. */
+.form-stack .field + .label {
+  margin-top: var(--sp-4);
+}
+
+.form-stack .form-error:not(:first-child) {
+  margin-top: var(--sp-3);
+}
+
 .dot {
   display: inline-block;
   width: 7px;
