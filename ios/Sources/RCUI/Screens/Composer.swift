@@ -16,7 +16,6 @@ import RCCore
 struct Composer: View {
     let chat: ChatStore
     @Binding var showsQueue: Bool
-    @Binding var showsSettings: Bool
 
     @Environment(AppModel.self) private var model
     @State private var voice: InlineVoiceDraftSession?
@@ -226,9 +225,7 @@ struct Composer: View {
             HStack(spacing: Theme.Space.tight) {
                 if chat.allowsSettingsChanges {
                     ModelCardChip(chat: chat, agent: agent)
-                    settingsChip(agent?.permissionModeLabel(chat.session.permissionMode)
-                                 ?? L10n.string("Permissions"),
-                                 identifier: "composer.permissions")
+                    permissionChip
                 } else {
                     ForEach(chat.terminalSettings) { setting in terminalChip(setting) }
                 }
@@ -274,10 +271,32 @@ struct Composer: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func settingsChip(_ label: String, identifier: String) -> some View {
-        Button { showsSettings = true } label: { Text(label) }
-            .buttonStyle(ChipButtonStyle())
-            .accessibilityIdentifier(identifier)
+    /// What the session may do, as a plain list of the agent's own modes with
+    /// the current one marked and nothing else on it. What runs and how hard
+    /// is the model card's; this is the chip after it.
+    @ViewBuilder
+    private var permissionChip: some View {
+        let modes = agent?.permissionModes ?? []
+        Menu {
+            Picker("Permissions", selection: permissionBinding) {
+                ForEach(modes) { option in Text(option.label).tag(option.id) }
+            }
+        } label: {
+            Text(agent?.permissionModeLabel(chat.session.permissionMode)
+                 ?? L10n.string("Permissions"))
+        }
+        .menuStyle(.button)
+        .buttonStyle(ChipButtonStyle())
+        .disabled(modes.isEmpty)
+        .accessibilityLabel("Permissions")
+        .accessibilityValue(agent?.permissionModeLabel(chat.session.permissionMode)
+                            ?? chat.session.permissionMode ?? "")
+        .accessibilityIdentifier("composer.permissions")
+    }
+
+    private var permissionBinding: Binding<String> {
+        Binding(get: { chat.session.permissionMode ?? agent?.defaultPermissionMode ?? "" },
+                set: { value in Task { await chat.set(permissionMode: value) } })
     }
 
     /// Amendment A17: what the terminal chose, where its control would have
@@ -461,125 +480,5 @@ private struct VoiceBinding: ViewModifier {
         } else {
             content
         }
-    }
-}
-
-/// Model, permission mode, effort and the STT language, all from what the
-/// device said it supports.
-///
-/// Amendment A11: the sheet is reached only from the composer's chips, and
-/// those exist only where this app may retune the session, so nothing here is
-/// ever locked to the terminal.
-struct SessionSettingsSheet: View {
-    let chat: ChatStore
-    let agent: AgentInfo?
-    @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        @Bindable var settings = model.settings
-        NavigationStack {
-            Form {
-                if let agent, !agent.models.isEmpty {
-                    Section {
-                        Picker("Model", selection: modelBinding) {
-                            ForEach(agent.models) { option in Text(option.label).tag(option.id) }
-                        }
-                        .accessibilityIdentifier("session.model")
-                    } header: { FieldLabel("Model") }
-                }
-                if let agent, agent.supports(.effort), !agent.efforts.isEmpty {
-                    Section {
-                        Picker("Effort", selection: effortBinding) {
-                            ForEach(agent.efforts) { option in Text(option.label).tag(option.id) }
-                        }
-                        .accessibilityIdentifier("session.effort")
-                    } header: { FieldLabel("Effort") }
-                }
-                if let agent, !agent.permissionModes.isEmpty {
-                    Section {
-                        Picker("Permissions", selection: permissionBinding) {
-                            ForEach(agent.permissionModes) { option in Text(option.label).tag(option.id) }
-                        }
-                        .accessibilityIdentifier("session.permissions")
-                    } header: { FieldLabel("Permissions") }
-                }
-                if let agent, !agent.speeds.isEmpty {
-                    Section {
-                        SpeedPicker(speeds: agent.speeds, selection: speedBinding)
-                            .accessibilityIdentifier("session.speed")
-                    } header: { FieldLabel("Speed") }
-                }
-                Section {
-                    Picker("Dictation language", selection: $settings.voiceLanguage) {
-                        Text("Automatic").tag("auto")
-                        ForEach(languages, id: \.self) { code in
-                            Text(languageName(code)).tag(code)
-                        }
-                    }
-                    .accessibilityIdentifier("session.sttLanguage")
-                } header: {
-                    FieldLabel("Voice")
-                } footer: {
-                    Text(model.settings.voiceBackend.explanation).font(.caption)
-                }
-            }
-            .scrollContentBackground(.hidden)
-            .pageBackground()
-            .navigationTitle("Session settings")
-            .inlineNavigationTitle()
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-        }
-        .sheetSize()
-    }
-
-    private var languages: [String] {
-        model.connection.stt.languages.filter { $0 != "auto" }
-    }
-
-    private func languageName(_ code: String) -> String {
-        Locale.current.localizedString(forLanguageCode: code) ?? code
-    }
-
-    private var modelBinding: Binding<String> {
-        Binding(get: { chat.session.model ?? agent?.defaultModel ?? "" },
-                set: { value in Task { await chat.set(model: value) } })
-    }
-
-    private var permissionBinding: Binding<String> {
-        Binding(get: { chat.session.permissionMode ?? agent?.defaultPermissionMode ?? "" },
-                set: { value in Task { await chat.set(permissionMode: value) } })
-    }
-
-    private var effortBinding: Binding<String> {
-        Binding(get: { chat.session.effort ?? agent?.defaultEffort ?? "" },
-                set: { value in Task { await chat.set(effort: value) } })
-    }
-
-    private var speedBinding: Binding<SpeedChange> {
-        Binding(get: { SpeedChange(id: chat.session.speed) },
-                set: { value in Task { await chat.set(speed: value) } })
-    }
-}
-
-/// Amendment A21: the standard speed and every tier the agent lists, as one
-/// list picker. Forms use it; the composer's card uses the lightning toggle.
-struct SpeedPicker: View {
-    let speeds: [AgentOption]
-    @Binding var selection: SpeedChange
-
-    var body: some View {
-        Picker("Speed", selection: $selection) {
-            Text("Standard").tag(SpeedChange.standard)
-            ForEach(speeds) { option in Text(option.label).tag(SpeedChange.tier(option.id)) }
-        }
-    }
-}
-
-#Preview("Session settings") {
-    DemoPreview {
-        SessionSettingsSheet(
-            chat: ChatStore(session: demoSession(), channel: DemoGateway()),
-            agent: DemoFixtures.claude)
     }
 }

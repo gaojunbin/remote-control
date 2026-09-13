@@ -80,6 +80,29 @@ Other launch arguments: `--ui-testing`, `--reset-state`, and in debug builds `--
 which swaps in a scripted speech platform so a UI test never opens the microphone. The listening
 state, the full-screen glow included, is screenshotted through it.
 
+## The shell: three tabs, one order, one landing rule
+
+`MainShell` in `RootView.swift` lists **Devices**, **Sessions**, **Settings**, in that order — the
+same three the web app puts in its sidebar, in the same order, so neither app teaches a different
+shape. `AppModel.Tab` keeps its cases; only the `TabView` does the ordering.
+
+Which one opens is decided once per sign-in, from the first device list that arrives:
+`AppModel.decideLandingTab()` waits for `ConnectionStore.hasSnapshot` — the flag the `hello`
+raises — and then takes `AppModel.landingTab(hasDevices:)`, Sessions when the account has at
+least one machine and Devices when it has none. A new account's first job is enrolling a machine;
+everyone else's is the conversation. The shell asks for the decision with `.onChange(of:
+connection.hasSnapshot, initial: true)`, which also covers a relaunch on a connection that had
+already synced.
+
+It is decided once and no more. The one-shot is spent only by a decision that actually ran, so a
+call that arrives before the snapshot does not consume it; a later `device.updated` that empties or
+fills the list moves nobody; and a tab chosen by hand afterwards is not bounced back. A
+notification link settles it too — `handle(_ link:)` forces `.sessions` and marks the rule done, so
+the first device list cannot pull the tab out from under an opening session. Signing out resets it.
+`VerificationUI/main.swift` covers both branches of the rule, "not decided until the list arrives"
+and "decided once"; `testTabsReadDevicesSessionsSettingsAndLandOnSessions` reads the tab order off
+the screen.
+
 ## The session list
 
 One group per device, and the rule that builds them lives in `RCCore` as
@@ -151,6 +174,14 @@ once.
 `Tests/RCCoreTests/SessionGroupingTests.swift` covers the rule on hand-built sessions;
 `Verification/StoreChecks.swift` covers it against the demo fixtures.
 
+The list ends the way the Devices list ends: one primary button in the bottom bar, **New session**
+(`sessions.new`), drawn exactly as `DevicesView` draws **Add device** — the same
+`PrimaryButtonStyle`, the same paddings, the same `barBackground()` — and disabled while no device
+is online. The inventory summary that used to hold that bar is now the list's last row, a centred
+footnote in the secondary ink under the identifier it always had, `sessions.summary`.
+`testSessionsListEndsWithTheNewSessionButtonInTheBottomBar` measures the two bars against each
+other rather than trusting a screenshot.
+
 ## New session
 
 Device, agent, model, effort, permissions, speed, working directory and git. The sheet does not ask
@@ -163,9 +194,21 @@ so choosing Codex where Claude was selected re-reads every list. Its section hea
 
 One row per enrolled machine: name and latency, the dot with `online`/`offline` and the host, the
 agents it detected, and the client line. Every row offers the same three actions the web menu
-offers — **Rename**, **Update**, **Remove** — from a trailing swipe (Rename, Remove), a leading
-swipe (Update) and the context menu, which carries all three. Identifiers `device.rename`,
-`device.update`, `device.remove`. Each action opens the same alert whichever way it was reached.
+offers, with the same words in the same order — **Rename**, **Update**, **Revoke** — from one
+trailing swipe holding all three and from the context menu. Identifiers `device.rename`,
+`device.update`, `device.revoke`. Each action opens the same alert whichever way it was reached.
+
+SwiftUI lays a trailing swipe out from the edge inwards, so the buttons are listed Revoke, Update,
+Rename and the row reads Rename · Update · Revoke from left to right; Rename is grey, Update is the
+accent and Revoke is the destructive red. There is no leading swipe any more: three actions on one
+gesture beat two gestures to find them.
+
+**Revoke, not Remove.** Taking a machine's token away is called the same thing on both apps: the
+swipe and the menu say "Revoke", the alert is headed "Revoke device", its message is the web's
+(`Revoke <name>? Its token stops working and its sessions leave this gateway. The machine keeps its
+agents and transcripts.`), and the destructive confirm reads "Revoke device". `Localizable.xcstrings`
+carries 吊销 and 吊销设备, the words `web/src/strings.zh-Hans.ts` uses. A queue row still says
+Remove, because removing a held message is not revoking anything.
 
 Every confirmation reads the row it acts on while the tap is still being handled, never inside the
 task it starts: dismissing an alert clears the `@State` that holds the device, and it does so before
@@ -240,7 +283,7 @@ truncates in the middle, so a gateway origin keeps its scheme and its host.
 controls" allows no `text-transform` anywhere, and the app broke that rule in two ways at once: a
 group caption called `.uppercased()` on the words itself, and a `Section` inside a `Form` re-cases
 whatever it is handed as a header regardless. So `FieldLabel` — the one label every form section in
-the app is headed with, Settings, the session settings sheet and the new-session sheet alike — spells
+the app is headed with, Settings and the new-session sheet alike — spells
 the words as they were written and carries `.textCase(nil)` on its own outer `HStack`, which is the
 view the `Section` re-cases. One place, no modifier at any call site.
 `testSettingsSectionHeadersAreSentenceCase` reads the headers back: a re-cased header carries the
@@ -323,14 +366,14 @@ device that never heard of them grants nothing:
 
 | Field | What it opens on a `shared` session | `ChatStore` |
 | --- | --- | --- |
-| `shared_settings` | the model, permission and effort chips, and the session settings sheet behind them | `allowsSettingsChanges` |
+| `shared_settings` | the model card and the permission-mode picker | `allowsSettingsChanges` |
 | `shared_attachments` | the attachment button, so photos and files go into the live thread | `allowsAttachments` |
 
 Both are read straight off `AgentInfo`; nothing in the app branches on the agent id. Stop is
 unaffected and still needs capability `interrupt` plus `shared_interrupt`. A `terminal` session
-takes no input whatever it reports, so `allowsAttachments` stays false there. The session settings
-sheet is reached only from the chips, so it never opens on a session it could not change and carries
-no locked state of its own.
+takes no input whatever it reports, so `allowsAttachments` stays false there. Both the card and the
+permission picker are chips on the composer row and are drawn only where they are live, so neither
+ever opens on a session it could not change.
 
 Codex behind a running app-server daemon reports `attach: "daemon"`, `attach_ready: true` and all
 three booleans true; a Claude channel reports all three false. A device whose daemon is not running
@@ -431,26 +474,56 @@ phone and not a sheet — with two rows:
   tinted while a tier is on, cycling standard → each tier → standard through `ChatStore.nextSpeed`
   and one `session.set {speed}`; then the model name with the effort word after it and a chevron
   that discloses the model list, one row per `AgentInfo.models` entry with the current one ticked;
-- the effort slider, one stop per `AgentInfo.efforts` entry, the track tinted to the thumb in
-  `Theme.accent` and nothing else on it. The word in the first row follows the thumb and
-  `session.set {effort}` is sent on release, so dragging across four levels is one request rather
-  than four. `.sensoryFeedback(.selection, trigger:)` on the stop index gives one selection haptic
-  per stop the thumb crosses, which is what lets the levels be counted without looking. An agent
-  with one effort level or none draws no slider: there is nothing to slide.
+- the effort slider, one stop per `AgentInfo.efforts` entry. It is `StopSlider`
+  (`Sources/RCUI/Design/StopSlider.swift`), not `Slider`: a 28 pt pill track in `Theme.quietFill`
+  filled to the thumb in `Theme.accent`, one 6 pt dot at every stop — `Theme.inkTertiary` on the
+  unfilled part, white at 60 % on the filled part — and a 24 pt white disc with a soft shadow that
+  snaps to the stops under a `DragGesture(minimumDistance: 0)` on a `GeometryReader`, so a tap on a
+  stop moves there too. Nothing else is drawn: no numbers, no labels under the track. The word in
+  the first row follows the thumb and `session.set {effort}` is sent on the drag's end, so dragging
+  across four levels is one request rather than four. `.sensoryFeedback(.selection, trigger:)` on
+  the stop index gives one selection haptic per stop the thumb crosses, which is what lets the
+  levels be counted without looking. VoiceOver reaches it as one adjustable element with an
+  `.accessibilityAdjustableAction` for increment and decrement. An agent with one effort level or
+  none draws no slider: there is nothing to slide.
 
-The accessible names are "Model", "Effort" and "Speed", with the value on each; the identifiers are
-`composer.modelCard`, `composer.model`, `composer.effort` and `composer.speed`. A terminal-held
-session shows the same words as one static chip, `composer.readonly.modelCard`, that opens nothing,
-with the tier's glyph on it and the tier's name spelled out in its accessibility value — the glyph
-says "faster tier" to the eye and nothing at all to a screen reader. The permission-mode chip
-follows the card in the row. `ModelCard.swift` holds all of it; `TerminalSetting.modelCardText`
-words the session once, so the live chip and the read-only chip can never disagree.
+**A width that never changes.** The chip and the card's name row are as wide as the widest
+model-and-effort combination the agent offers, so nothing beside them shifts while a level is
+chosen or a model is picked. The width is measured, not guessed: `ModelCardSizing.pairs(for:model:)`
+returns every `models × efforts` pair — the fallback name standing in where the agent lists no
+model — and `ModelCardSizer` stacks one hidden label per pair behind the visible one in a `ZStack`,
+with `.hidden()`, which keeps the layout and drops the drawing, and `.accessibilityHidden(true)`.
+The chip measures `ModelCardLabel`, with the lightning's width reserved wherever the agent lists a
+tier; the name row measures `ModelNameLabel`, the same two fonts and the same spacing it draws.
+The card's own `frame` is `minWidth: 280` — the name row sizes it now, and it is never narrower
+than it was.
 
-Forms keep list pickers. The session settings sheet and the new-session sheet both list Model,
-Effort, Permissions in that order, with a Speed picker after them where the agent offers a tier;
-the new-session sheet sends `model`, `permission_mode`, `effort` and `speed` in `session.create`,
-starting from the agent's own defaults so a sheet sent untouched asks for what the device would
-have chosen anyway.
+**Drawn at once.** `ChatStore.set(...)` applies the patch to `session` before the request leaves,
+so the lightning fills, the effort word changes and the model name switches on the tap rather than
+on the reply. The device's reply confirms it; a refusal puts the previous value back with the
+error, unless a newer session replaced the optimistic one meanwhile — a `sessionGeneration` counter
+bumped by `session.updated`, by a `meta` event carrying settings and by every reply says which.
+`Tests/RCCoreTests/SessionSetTests.swift` covers all three outcomes.
+
+The accessible names are "Model", "Effort", "Speed" and "Permissions", with the value on each; the
+identifiers are `composer.modelCard`, `composer.model`, `composer.effort`, `composer.speed` and
+`composer.permissions`. A terminal-held session shows the same words as one static chip,
+`composer.readonly.modelCard`, that opens nothing, with the tier's glyph on it and the tier's name
+spelled out in its accessibility value — the glyph says "faster tier" to the eye and nothing at all
+to a screen reader. `ModelCard.swift` holds all of it; `TerminalSetting.modelCardText` words the
+session once, so the live chip and the read-only chip can never disagree.
+
+**After the card, the permission picker.** `composer.permissions` is a `Menu` holding a `Picker` of
+`AgentInfo.permissionModes` with the current one marked, built the way the dictation-language chip
+beside it is; choosing one calls `chat.set(permissionMode:)` and is drawn at once. A plain list and
+nothing else: what runs and how hard comes first, what it may do second.
+
+Forms keep list pickers. The new-session sheet lists Model, Effort, Permissions in that order, with
+a `SpeedPicker` after them where the agent offers a tier; it sends `model`, `permission_mode`,
+`effort` and `speed` in `session.create`, starting from the agent's own defaults so a sheet sent
+untouched asks for what the device would have chosen anyway. There is no session settings sheet:
+model, effort and speed are the card's, permissions are the picker's, and the dictation language
+has a picker of its own.
 
 
 Amendment A20: while the transcript holds a question nobody has answered yet, the one primary in the
@@ -782,8 +855,10 @@ reviewed — the palette defines dark values, but v1 is designed light. CI, sign
 upload have never run.
 
 The selection haptic on the effort slider cannot be asserted from a UI test — nothing in XCTest
-observes `UIFeedbackGenerator` — so the test drags the thumb one stop and asserts the word that
-follows it instead, and the haptic itself has been read only from the code. The launch rule is
+observes `UIFeedbackGenerator` — so the test taps the last stop and asserts the word that follows
+the thumb instead, and the haptic itself has been read only from the code. `StopSlider` is not a
+`UISlider`, so the runner drives it by a coordinate tap rather than
+`adjust(toNormalizedSliderPosition:)`; the drag path itself is exercised only by hand. The launch rule is
 proved against the demo account rather than against a stored keychain token, for the reason below.
 
 Keychain restore is a harness limitation rather than an open question about the code.

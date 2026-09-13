@@ -20,11 +20,9 @@ final class RemoteControlUITests: XCTestCase {
         let sessions = app.staticTexts["Sessions"]
         XCTAssertTrue(sessions.waitForExistence(timeout: 20), "the sessions screen appears")
 
-        let summary = app.staticTexts["sessions.summary"]
-        XCTAssertTrue(summary.waitForExistence(timeout: 10), "the device summary is shown")
-
         let newSession = app.buttons["sessions.new"]
-        XCTAssertTrue(newSession.exists, "the new-session button is prominent and labelled")
+        XCTAssertTrue(newSession.waitForExistence(timeout: 10),
+                      "the new-session button is prominent and labelled")
 
         attach(name: "01-sessions")
 
@@ -531,24 +529,23 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(app.buttons["approval.danger"].exists, "with Deny kept apart from Allow")
         attach(name: "12-codex-shared")
 
-        // The settings sheet opens, because the daemon retunes the live thread.
-        app.buttons["composer.permissions"].tap()
-        let picker = app.descendants(matching: .any)["session.model"]
-        XCTAssertTrue(picker.waitForExistence(timeout: 10),
-                      "shared_settings reopens the session settings sheet")
-        let speed = app.descendants(matching: .any)["session.speed"]
-        XCTAssertTrue(speed.exists, "with the speed tier after the three list pickers (A21)")
-        for (above, below) in [("session.model", "session.effort"),
-                               ("session.effort", "session.permissions"),
-                               ("session.permissions", "session.speed")] {
-            XCTAssertLessThan(app.descendants(matching: .any)[above].frame.minY,
-                              app.descendants(matching: .any)[below].frame.minY,
-                              "\(above) stands above \(below)")
-        }
-        attach(name: "13-codex-settings")
-        app.buttons["Done"].firstMatch.tap()
+        // `docs/DESIGN.md` § "The model card": after the card comes the
+        // permission-mode picker, a plain list of the agent's modes with the
+        // current one marked and nothing else. There is no settings sheet.
+        let permissions = app.buttons["composer.permissions"]
+        XCTAssertEqual(permissions.value as? String, "Ask when needed",
+                       "the chip reads the mode the daemon is on")
+        permissions.tap()
+        let never = app.buttons["Never ask"]
+        XCTAssertTrue(never.waitForExistence(timeout: 10),
+                      "shared_settings opens the agent's own modes")
+        XCTAssertTrue(app.buttons["Ask for everything"].exists, "every one it lists")
+        attach(name: "13-codex-permissions")
+        never.tap()
+        XCTAssertTrue(waitFor { app.buttons["composer.permissions"].value as? String == "Never ask" },
+                      "and choosing one is drawn at once")
 
-        XCTAssertTrue(allow.waitForExistence(timeout: 10), "the card is still there after the sheet")
+        XCTAssertTrue(allow.waitForExistence(timeout: 10), "the card is still there after the menu")
         allow.tap()
         XCTAssertTrue(allow.waitForNonExistence(timeout: 15), "answering resolves the request")
         attach(name: "14-codex-answered")
@@ -611,11 +608,11 @@ final class RemoteControlUITests: XCTestCase {
 
         // One measured drag to lift the first row towards the top of the list,
         // then short ones until every row is reachable. The five rows and the
-        // two strips above and below them — the connection banner and the
-        // device summary — are together taller than this screen, so the old pair
-        // of pixel margins could not both hold once the rows grew; what "in
-        // frame together" means is that the reader can see and reach all five,
-        // and a fling would land anywhere.
+        // bar below them are together about as tall as this screen, so the
+        // first row is taken right up under the search field and there is no
+        // pixel margin left to spare; what "in frame together" means is that
+        // the reader can see and reach all five, and a fling would land
+        // anywhere.
         let list = sessionList()
         let tones = [("demo-session-vite", "amber, waiting on the user"),
                      ("demo-session-auth", "blue, a turn running"),
@@ -623,7 +620,7 @@ final class RemoteControlUITests: XCTestCase {
                      ("demo-session-toolchain", "red, stopped on an error"),
                      ("demo-session-otlp", "grey, owned by nothing")]
         let rows = tones.map { app.buttons["session.\($0.0)"] }
-        drag(list, by: rows[0].frame.minY - list.frame.minY - 94)
+        drag(list, by: rows[0].frame.minY - list.frame.minY - 52)
         for _ in 0..<6 where !rows.allSatisfy({ $0.isHittable }) { drag(list, by: 24) }
 
         for (row, tone) in zip(rows, tones) {
@@ -740,6 +737,51 @@ final class RemoteControlUITests: XCTestCase {
             app.swipeUp()
         }
         return element.exists && element.isHittable
+    }
+
+    /// `docs/DESIGN.md` § "Three tabs, one order, one landing rule": Devices,
+    /// Sessions, Settings, in that order on both apps. The demo account has
+    /// machines, so the app opens on the conversation.
+    func testTabsReadDevicesSessionsSettingsAndLandOnSessions() {
+        app.launch()
+        let devices = app.tabBars.buttons["Devices"]
+        XCTAssertTrue(devices.waitForExistence(timeout: 20), "the shell is up")
+        let sessions = app.tabBars.buttons["Sessions"]
+        let settings = app.tabBars.buttons["Settings"]
+        XCTAssertLessThan(devices.frame.minX, sessions.frame.minX, "Devices stands first")
+        XCTAssertLessThan(sessions.frame.minX, settings.frame.minX,
+                          "then Sessions, then Settings")
+        XCTAssertTrue(sessions.isSelected,
+                      "an account with a machine lands where the conversation is")
+        XCTAssertTrue(app.buttons["sessions.new"].exists, "on the sessions list itself")
+    }
+
+    /// `docs/DESIGN.md` § "The three screens": on the phone the Sessions list
+    /// ends the way the Devices list ends — one primary button in the bottom
+    /// bar, exactly where Devices puts Add device — and the inventory summary
+    /// is the list's own last row rather than a strip under it.
+    func testSessionsListEndsWithTheNewSessionButtonInTheBottomBar() {
+        app.launch()
+
+        let newSession = app.buttons["sessions.new"]
+        XCTAssertTrue(newSession.waitForExistence(timeout: 20), "the button is on the Sessions list")
+        let sessionsBar = newSession.frame
+
+        let summary = app.staticTexts["sessions.summary"]
+        XCTAssertTrue(scrollDown(to: summary), "the summary is a row inside the list")
+        XCTAssertLessThan(summary.frame.maxY, sessionsBar.minY,
+                          "and sits above the bar rather than in it")
+        attach(name: "69-sessions-bottom-bar")
+
+        app.tabBars.buttons["Devices"].tap()
+        let addDevice = app.buttons["devices.add"]
+        XCTAssertTrue(addDevice.waitForExistence(timeout: 15), "Devices puts its primary there too")
+        XCTAssertEqual(sessionsBar.minY, addDevice.frame.minY, accuracy: 1,
+                       "both bars stand at the same height")
+        XCTAssertEqual(sessionsBar.height, addDevice.frame.height, accuracy: 1,
+                       "and are drawn to the same size")
+        XCTAssertEqual(sessionsBar.minX, addDevice.frame.minX, accuracy: 1,
+                       "with the same page padding")
     }
 
     func testNewSessionSheetOffersDeviceAndAgent() {
@@ -897,11 +939,14 @@ final class RemoteControlUITests: XCTestCase {
         let speed = app.buttons["composer.speed"]
         XCTAssertTrue(speed.waitForExistence(timeout: 10), "the card opens on the speed toggle")
         XCTAssertEqual(speed.value as? String, "Standard", "which starts at the standard speed")
-        let slider = app.sliders["composer.effort"]
+        let slider = app.descendants(matching: .any)["composer.effort"].firstMatch
         XCTAssertTrue(slider.exists, "with the effort slider under it")
+        let chipWidth = chip.frame.width
         attach(name: "44-model-card")
 
-        slider.adjust(toNormalizedSliderPosition: 1)
+        // A tap on a stop moves there. The last stop is the far end of the
+        // track, so the tap lands on it whatever width the card took.
+        slider.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
         XCTAssertTrue(waitFor { (slider.value as? String) == "High" },
                       "the slider snaps to the agent's own levels")
         XCTAssertTrue(app.staticTexts["High"].waitForExistence(timeout: 10),
@@ -909,8 +954,13 @@ final class RemoteControlUITests: XCTestCase {
 
         speed.tap()
         XCTAssertTrue(waitFor { (speed.value as? String) == "Fast" },
-                      "one tap raises the tier the agent named")
+                      "one tap raises the tier the agent named, drawn before the device answers")
         attach(name: "45-model-card-fast")
+
+        // `docs/DESIGN.md` § "The model card": the chip is as wide as the
+        // widest model-and-effort combination, so nothing beside it shifts.
+        XCTAssertEqual(chip.frame.width, chipWidth, accuracy: 0.5,
+                       "the chip keeps its width through a level and a tier change")
     }
 
     /// An agent that lists no tier draws no speed control at all, rather than a
@@ -976,23 +1026,52 @@ final class RemoteControlUITests: XCTestCase {
     // MARK: - Devices (amendments A22 and A23)
 
     /// `docs/DESIGN.md` § "Devices": every row offers the same three actions on
-    /// both apps, and on the phone a swipe is where they live.
-    func testDeviceRowSwipesToRenameAndRemove() {
+    /// both apps, with the same words in the same order, and on the phone one
+    /// trailing swipe holds all three.
+    func testDeviceRowSwipeHoldsRenameUpdateAndRevoke() {
         openDevices()
         let row = deviceRow(DemoDevices.laptop)
         XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
 
         row.swipeLeft()
         let rename = app.buttons["device.rename"]
-        let remove = app.buttons["device.remove"]
-        XCTAssertTrue(rename.waitForExistence(timeout: 10), "a swipe offers Rename")
-        XCTAssertTrue(remove.exists, "and Remove beside it")
+        let update = app.buttons["device.update"]
+        let revoke = app.buttons["device.revoke"]
+        XCTAssertTrue(rename.waitForExistence(timeout: 10), "one swipe offers Rename")
+        XCTAssertTrue(update.exists, "Update")
+        XCTAssertTrue(revoke.exists, "and Revoke")
+        XCTAssertLessThan(rename.frame.minX, update.frame.minX,
+                          "read left to right the row says Rename, then Update")
+        XCTAssertLessThan(update.frame.minX, revoke.frame.minX,
+                          "and Revoke last, nearest the edge")
         attach(name: "60-device-swipe-actions")
 
         rename.tap()
         XCTAssertTrue(app.alerts["Rename device"].waitForExistence(timeout: 10),
                       "and Rename opens the same sheet the menu opens")
         app.alerts["Rename device"].buttons["Cancel"].tap()
+    }
+
+    /// The word for taking a machine's token away is Revoke on both apps, and
+    /// the alert says what it costs before it acts.
+    func testRevokingADeviceIsConfirmedByThatName() {
+        openDevices()
+        let row = deviceRow(DemoDevices.laptop)
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
+
+        row.swipeLeft()
+        let revoke = app.buttons["device.revoke"]
+        XCTAssertTrue(revoke.waitForExistence(timeout: 10), "the swipe offers Revoke, not Remove")
+        revoke.tap()
+
+        let alert = app.alerts["Revoke device"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), "which confirms under the same word")
+        XCTAssertTrue(alert.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS %@", "token stops working")).firstMatch.exists,
+                      "and says what the machine loses")
+        XCTAssertTrue(alert.buttons["Revoke device"].exists, "with the confirm named for the act")
+        attach(name: "70-device-revoke-confirm")
+        alert.buttons["Cancel"].tap()
     }
 
     /// Amendment A22: the row says an update is available, the action confirms
@@ -1005,9 +1084,9 @@ final class RemoteControlUITests: XCTestCase {
                       "a device on an older build says so under its name")
         attach(name: "61-device-update-available")
 
-        row.swipeRight()
+        row.swipeLeft()
         let update = app.buttons["device.update"]
-        XCTAssertTrue(update.waitForExistence(timeout: 10), "the leading swipe offers Update")
+        XCTAssertTrue(update.waitForExistence(timeout: 10), "the one swipe offers Update")
         update.tap()
 
         let alert = app.alerts["Update device"]

@@ -17,6 +17,9 @@ public enum Theme {
     public static let border = dynamic(light: 0xE6E5E1, dark: 0x33332F)
     public static let ink = dynamic(light: 0x111111, dark: 0xF2F2F0)
     public static let inkSecondary = dynamic(light: 0x6B6B6B, dark: 0xA0A09B)
+    /// The quietest ink there is: a mark that has to be visible without being
+    /// read, such as a stop on the effort slider's unfilled track.
+    public static let inkTertiary = ink.opacity(0.28)
     public static let accent = dynamic(light: 0x111111, dark: 0xF2F2F0)
     public static let onAccent = dynamic(light: 0xFFFFFF, dark: 0x111111)
 

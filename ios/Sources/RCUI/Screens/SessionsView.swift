@@ -11,22 +11,6 @@ struct SessionsView: View {
         @Bindable var sessions = model.sessions
         let groups = model.sessions.groups(model.connection.sessions, devices: model.connection.devices)
         List {
-            Section {
-                Button {
-                    isCreating = true
-                } label: {
-                    Label("New session", systemImage: "plus")
-                        .font(.body.weight(.medium))
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .listRowInsets(EdgeInsets(top: Theme.Space.small, leading: Theme.Space.page,
-                                          bottom: Theme.Space.small, trailing: Theme.Space.page))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .disabled(model.connection.onlineDevices.isEmpty)
-                .accessibilityIdentifier("sessions.new")
-            }
-
             ForEach(groups) { group in
                 Section {
                     if !group.collapsed {
@@ -53,6 +37,17 @@ struct SessionsView: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             }
+
+            // What the account adds up to, as the last thing in the list. It
+            // used to hold the bottom bar, which is where the primary action
+            // belongs on both screens.
+            Text(model.connection.inventorySummary)
+                .font(Theme.Text.caption)
+                .foregroundStyle(Theme.inkSecondary)
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .accessibilityIdentifier("sessions.summary")
         }
         .groupedList()
         .scrollContentBackground(.hidden)
@@ -64,14 +59,20 @@ struct SessionsView: View {
                 Task { await model.connection.reconnect() }
             }
         }
+        // The list ends the way the Devices list ends: one primary button in
+        // the bottom bar, exactly where Devices puts Add device.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            Text(model.connection.inventorySummary)
-                .font(Theme.Text.caption)
-                .foregroundStyle(Theme.inkSecondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, Theme.Space.tight)
-                .barBackground()
-                .accessibilityIdentifier("sessions.summary")
+            Button {
+                isCreating = true
+            } label: {
+                Label("New session", systemImage: "plus")
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .padding(.horizontal, Theme.Space.page)
+            .padding(.vertical, Theme.Space.small)
+            .barBackground()
+            .disabled(model.connection.onlineDevices.isEmpty)
+            .accessibilityIdentifier("sessions.new")
         }
         .toolbar {
             ToolbarItem(placement: .trailingBar) { agentFilter }

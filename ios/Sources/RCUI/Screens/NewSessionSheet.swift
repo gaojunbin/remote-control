@@ -282,6 +282,20 @@ struct NewSessionSheet: View {
     }
 }
 
+/// Amendment A21: the standard speed and every tier the agent lists, as one
+/// list picker. Forms use it; the composer's card uses the lightning toggle.
+struct SpeedPicker: View {
+    let speeds: [AgentOption]
+    @Binding var selection: SpeedChange
+
+    var body: some View {
+        Picker("Speed", selection: $selection) {
+            Text("Standard").tag(SpeedChange.standard)
+            ForEach(speeds) { option in Text(option.label).tag(SpeedChange.tier(option.id)) }
+        }
+    }
+}
+
 #Preview("New session") {
     DemoPreview { NewSessionSheet() }
 }

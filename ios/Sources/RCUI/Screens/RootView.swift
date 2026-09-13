@@ -85,6 +85,12 @@ private struct MainShell: View {
     var body: some View {
         @Bindable var model = model
         TabView(selection: $model.tab) {
+            NavigationStack {
+                DevicesView()
+            }
+            .tabItem { Label("Devices", systemImage: "desktopcomputer") }
+            .tag(AppModel.Tab.devices)
+
             NavigationStack(path: $model.path) {
                 SessionsView()
                     .navigationDestination(for: String.self) { key in
@@ -95,16 +101,16 @@ private struct MainShell: View {
             .tag(AppModel.Tab.sessions)
 
             NavigationStack {
-                DevicesView()
-            }
-            .tabItem { Label("Devices", systemImage: "desktopcomputer") }
-            .tag(AppModel.Tab.devices)
-
-            NavigationStack {
                 SettingsView()
             }
             .tabItem { Label("Settings", systemImage: "gearshape") }
             .tag(AppModel.Tab.settings)
+        }
+        // The landing rule reads the first device list, which arrives with the
+        // hello. `initial` covers the shell appearing after the snapshot is
+        // already in — a relaunch on a warm connection.
+        .onChange(of: model.connection.hasSnapshot, initial: true) { _, _ in
+            model.decideLandingTab()
         }
     }
 }

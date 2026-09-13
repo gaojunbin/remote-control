@@ -18,6 +18,23 @@ struct ModelCardLabel: View {
     }
 }
 
+/// The model name with the effort word after it, as the card's first row draws
+/// it. The sizer behind that row stacks this same view, so the box it measures
+/// is the box the words land in.
+private struct ModelNameLabel: View {
+    let model: String
+    let effort: String?
+
+    var body: some View {
+        HStack(spacing: Theme.Space.tight) {
+            Text(model).font(Theme.Text.label).foregroundStyle(Theme.ink)
+            if let effort {
+                Text(effort).font(Theme.Text.meta).foregroundStyle(Theme.inkSecondary)
+            }
+        }
+    }
+}
+
 /// Amendment A21: the composer's one control for what runs and how hard.
 ///
 /// The chip reads the model label with the effort word after it; a tap opens a
@@ -31,8 +48,14 @@ struct ModelCardChip: View {
 
     var body: some View {
         Button { isOpen = true } label: {
-            ModelCardLabel(text: ModelCardText.words(for: chat.session, agent: agent),
-                           isFast: chat.session.speed != nil)
+            ModelCardSizer(pairs: ModelCardSizing.pairs(for: agent,
+                                                        model: AgentLabel.name(chat.session.agent))) { pair in
+                ModelCardLabel(text: pair.joined,
+                               isFast: ModelCardSizing.reservesLightning(for: agent))
+            } content: {
+                ModelCardLabel(text: ModelCardText.words(for: chat.session, agent: agent),
+                               isFast: chat.session.speed != nil)
+            }
         }
         .buttonStyle(ChipButtonStyle())
         .accessibilityLabel("Model")
@@ -61,13 +84,65 @@ enum ModelCardText {
     }
 }
 
+/// `docs/DESIGN.md` § "The model card": the chip and the card's name row are as
+/// wide as the widest model-and-effort combination the agent offers, so nothing
+/// beside them shifts while a level is chosen or a model is picked.
+///
+/// The width is measured, not guessed: every `models × efforts` pair is stacked
+/// behind the visible label with `.hidden()`, which keeps the layout and drops
+/// the drawing, so the box takes the widest of them.
+private struct ModelCardSizer<Sizer: View, Content: View>: View {
+    let pairs: [ModelCardSizing.Pair]
+    @ViewBuilder let sizer: (ModelCardSizing.Pair) -> Sizer
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        ZStack {
+            ForEach(pairs, id: \.self) { pair in
+                sizer(pair).hidden().accessibilityHidden(true)
+            }
+            content()
+        }
+    }
+}
+
+/// The combinations a sizer measures. An agent with no efforts or no models
+/// measures whatever it has, which is what the row would draw for it.
+enum ModelCardSizing {
+    struct Pair: Hashable {
+        let model: String
+        let effort: String?
+
+        /// The two words as one string, exactly the way
+        /// `TerminalSetting.modelCardText` words a session for the chip.
+        var joined: String { effort.map { "\(model) \($0)" } ?? model }
+    }
+
+    /// Whether the lightning glyph takes a place on the row. It is reserved
+    /// wherever the agent lists a tier, so turning the tier on moves nothing.
+    static func reservesLightning(for agent: AgentInfo?) -> Bool {
+        agent?.speeds.isEmpty == false
+    }
+
+    /// Every model label with every effort label after it. The fallback stands
+    /// in where the agent lists no model, because that is what the row draws
+    /// there.
+    static func pairs(for agent: AgentInfo?, model fallback: String) -> [Pair] {
+        let models = agent?.models.map(\.label) ?? []
+        let efforts = agent?.supports(.effort) == true ? agent?.efforts.map(\.label) ?? [] : []
+        let names = models.isEmpty ? [fallback] : models
+        guard !efforts.isEmpty else { return names.map { Pair(model: $0, effort: nil) } }
+        return names.flatMap { name in efforts.map { Pair(model: name, effort: $0) } }
+    }
+}
+
 /// The card itself: speed and model on the first row, the effort slider on the
 /// second, and the model list under them once the name is tapped.
 private struct ModelCard: View {
     let chat: ChatStore
     let agent: AgentInfo?
 
-    @State private var stop: Double = 0
+    @State private var stop = 0
     @State private var showsModels = false
 
     /// One stop per level the agent offers, and nothing to slide when it
@@ -90,14 +165,18 @@ private struct ModelCard: View {
         }
         .padding(.horizontal, Theme.Space.medium)
         .padding(.vertical, Theme.Space.small)
-        .frame(width: 280)
-        .onAppear { stop = Double(currentEffortIndex) }
-        .onChange(of: chat.session.effort) { _, _ in stop = Double(currentEffortIndex) }
+        // The name row sizes itself to the widest combination, so the card
+        // takes its width from its content and never less than it had.
+        .frame(minWidth: 280)
+        .onAppear { stop = currentEffortIndex }
+        .onChange(of: chat.session.effort) { _, _ in stop = currentEffortIndex }
     }
 
     // MARK: - Row one
 
-    /// A tap cycles standard → each tier the agent lists → standard.
+    /// A tap cycles standard → each tier the agent lists → standard. The
+    /// lightning fills on the tap, because the store draws the change before
+    /// the request leaves.
     private var speedToggle: some View {
         Button {
             guard let next = chat.nextSpeed else { return }
@@ -119,9 +198,10 @@ private struct ModelCard: View {
     private var modelButton: some View {
         Button { showsModels.toggle() } label: {
             HStack(spacing: Theme.Space.tight) {
-                Text(modelLabel).font(Theme.Text.label).foregroundStyle(Theme.ink)
-                if let effortLabel {
-                    Text(effortLabel).font(Theme.Text.meta).foregroundStyle(Theme.inkSecondary)
+                ModelCardSizer(pairs: ModelCardSizing.pairs(for: agent, model: modelLabel)) { pair in
+                    ModelNameLabel(model: pair.model, effort: pair.effort)
+                } content: {
+                    ModelNameLabel(model: modelLabel, effort: effortLabel)
                 }
                 Spacer(minLength: Theme.Space.tight)
                 Image(systemName: showsModels ? "chevron.up" : "chevron.down")
@@ -143,14 +223,11 @@ private struct ModelCard: View {
     /// The word above follows the thumb; the request waits for the release, so
     /// dragging across four levels is one `session.set` and not four.
     private var effortSlider: some View {
-        Slider(value: $stop, in: 0...Double(efforts.count - 1), step: 1) { editing in
-            guard !editing, let option = efforts[safe: effortIndex] else { return }
+        StopSlider(stops: efforts.count, index: $stop, value: effortLabel ?? "") { landed in
+            guard let option = efforts[safe: landed] else { return }
             Task { await chat.set(effort: option.id) }
         }
-        .tint(Theme.accent)
-        .sensoryFeedback(.selection, trigger: effortIndex)
         .accessibilityLabel("Effort")
-        .accessibilityValue(effortLabel ?? "")
         .accessibilityIdentifier("composer.effort")
     }
 
@@ -192,13 +269,11 @@ private struct ModelCard: View {
         agent?.modelLabel(currentModelID) ?? currentModelID ?? AgentLabel.name(chat.session.agent)
     }
 
-    private var effortIndex: Int { min(max(0, Int(stop.rounded())), max(0, efforts.count - 1)) }
-
     /// The level the thumb is on while it is moving, and the session's own
     /// level when there is no slider to move.
     private var effortLabel: String? {
         guard !efforts.isEmpty else { return agent?.effortLabel(chat.session.effort) }
-        return efforts[safe: effortIndex]?.label
+        return efforts[safe: stop]?.label
     }
 
     private var currentEffortIndex: Int {

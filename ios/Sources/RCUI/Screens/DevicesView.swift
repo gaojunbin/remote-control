@@ -4,8 +4,8 @@ import RCCore
 /// The machines this gateway knows about, and how to add another one.
 ///
 /// Every row offers the same three actions the web offers — Rename, Update and
-/// Remove — from a swipe and from the context menu, so nothing is reachable on
-/// one app and not the other (`docs/DESIGN.md` § "Devices").
+/// Revoke — from one trailing swipe and from the context menu, so nothing is
+/// reachable on one app and not the other (`docs/DESIGN.md` § "Devices").
 struct DevicesView: View {
     @Environment(AppModel.self) private var model
     @State private var isAdding = false
@@ -24,9 +24,13 @@ struct DevicesView: View {
                     .sessionRowLayout()
                     .accessibilityIdentifier("device.\(device.deviceID)")
                     .contextMenu { actions(for: device) }
-                    .swipeActions(edge: .leading) { updateAction(for: device) }
+                    // One swipe carries all three. SwiftUI lays a trailing
+                    // swipe out from the edge inwards, so the first listed is
+                    // the one nearest the edge and the row reads
+                    // Rename · Update · Revoke from left to right.
                     .swipeActions(edge: .trailing) {
-                        removeAction(for: device)
+                        revokeAction(for: device)
+                        updateAction(for: device)
                         renameAction(for: device)
                     }
             }
@@ -80,13 +84,13 @@ struct DevicesView: View {
                 "Update %@ to the gateway's client? Its service restarts; sessions it drives are stopped.",
                 updating?.name ?? L10n.string("This device")))
         }
-        .alert("Remove this device?", isPresented: Binding(get: { revoking != nil },
-                                                           set: { if !$0 { revoking = nil } })) {
+        .alert("Revoke device", isPresented: Binding(get: { revoking != nil },
+                                                     set: { if !$0 { revoking = nil } })) {
             Button("Cancel", role: .cancel) { revoking = nil }
-            Button("Remove", role: .destructive) { revoke() }
+            Button("Revoke device", role: .destructive) { revoke() }
         } message: {
             Text(L10n.string(
-                "%@ loses its access token and its sessions disappear from this gateway. Agent transcripts on the machine are untouched.",
+                "Revoke %@? Its token stops working and its sessions leave this gateway. The machine keeps its agents and transcripts.",
                 revoking?.name ?? L10n.string("This device")))
         }
     }
@@ -96,20 +100,23 @@ struct DevicesView: View {
     private func actions(for device: Device) -> some View {
         renameAction(for: device)
         updateAction(for: device)
-        removeAction(for: device)
+        revokeAction(for: device)
     }
 
     private func renameAction(for device: Device) -> some View {
         Button { renaming = device; newName = device.name } label: { Label("Rename", systemImage: "pencil") }
-            .tint(Theme.accent)
+            .tint(Theme.inkSecondary)
             .accessibilityIdentifier("device.rename")
     }
 
-    private func removeAction(for device: Device) -> some View {
+    /// The tint is explicit: the app sets its own `.tint` at the root, and a
+    /// destructive swipe button takes that over the system red without it.
+    private func revokeAction(for device: Device) -> some View {
         Button(role: .destructive) { revoking = device } label: {
-            Label("Remove", systemImage: "trash")
+            Label("Revoke", systemImage: "trash")
         }
-        .accessibilityIdentifier("device.remove")
+        .tint(Theme.danger)
+        .accessibilityIdentifier("device.revoke")
     }
 
     /// Amendment A22. The action stays on the row whatever state the device is
@@ -118,7 +125,7 @@ struct DevicesView: View {
     private func updateAction(for device: Device) -> some View {
         let blocked = DeviceUpdate.block(for: device, servedBuild: model.connection.config.servedBuild)
         return Button { updating = device } label: { Label("Update", systemImage: "arrow.down.circle") }
-            .tint(Theme.resting)
+            .tint(Theme.accent)
             .disabled(blocked != nil)
             .accessibilityHint(blocked.map(Self.reason) ?? "")
             .accessibilityIdentifier("device.update")

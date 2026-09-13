@@ -123,10 +123,10 @@ final class RealGatewaySmokeTests: XCTestCase {
         relaunched.launchArguments = ["--ui-testing"]
         relaunched.launch()
 
-        let restored = relaunched.staticTexts["sessions.summary"]
+        let restored = relaunched.tabBars.buttons["Sessions"]
         let origin = relaunched.textFields["login.gateway"]
         XCTAssertTrue(restored.waitForExistence(timeout: 20) || origin.waitForExistence(timeout: 20),
-                      "the relaunched app shows either the session list or the login screen")
+                      "the relaunched app shows either the main screens or the login screen")
         if !restored.exists {
             XCTAssertEqual(origin.value as? String, gateway,
                            "the login screen prefills the gateway that worked last time")
@@ -151,8 +151,14 @@ final class RealGatewaySmokeTests: XCTestCase {
         XCTAssertTrue(connect.isEnabled, "connect is enabled once both fields are filled")
         connect.tap()
 
-        XCTAssertTrue(app.staticTexts["sessions.summary"].waitForExistence(timeout: 40),
-                      "signing in lands on the sessions list: \(app.staticTexts["login.error"].label)")
+        // The landing rule picks the tab from the first device list, so the
+        // proof of a sign-in is the shell, and the list is asked for by name.
+        let sessions = app.tabBars.buttons["Sessions"]
+        XCTAssertTrue(sessions.waitForExistence(timeout: 40),
+                      "signing in lands on the app: \(app.staticTexts["login.error"].label)")
+        sessions.tap()
+        XCTAssertTrue(app.buttons["sessions.new"].waitForExistence(timeout: 20),
+                      "and the sessions list is there")
     }
 
     /// The session row to open: by id when the runner names one, otherwise the

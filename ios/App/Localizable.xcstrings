@@ -52,23 +52,6 @@
         }
       }
     },
-    "%@ loses its access token and its sessions disappear from this gateway. Agent transcripts on the machine are untouched.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ loses its access token and its sessions disappear from this gateway. Agent transcripts on the machine are untouched."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 的访问令牌将被吊销，其会话会从本网关消失。机器上的 agent 记录不受影响。"
-          }
-        }
-      }
-    },
     "%@ · %lld waiting": {
       "extractionState": "manual",
       "localizations": {
@@ -2704,23 +2687,6 @@
         }
       }
     },
-    "Remove this device?": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remove this device?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "移除这台设备？"
-          }
-        }
-      }
-    },
     "Rename": {
       "extractionState": "manual",
       "localizations": {
@@ -2802,6 +2768,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "重试"
+          }
+        }
+      }
+    },
+    "Revoke": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoke"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "吊销"
+          }
+        }
+      }
+    },
+    "Revoke %@? Its token stops working and its sessions leave this gateway. The machine keeps its agents and transcripts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoke %@? Its token stops working and its sessions leave this gateway. The machine keeps its agents and transcripts."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "吊销 %@？它的令牌会失效，它的会话也会离开本网关。机器上的 agent 和记录都会保留。"
+          }
+        }
+      }
+    },
+    "Revoke device": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoke device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "吊销设备"
           }
         }
       }
@@ -2955,23 +2972,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "会话"
-          }
-        }
-      }
-    },
-    "Session settings": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Session settings"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "会话设置"
           }
         }
       }

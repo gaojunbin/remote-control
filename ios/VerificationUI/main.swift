@@ -35,6 +35,33 @@ func run() async -> (passed: Int, failures: [String]) {
     expect(model.isDemo, "the demo launch argument enters demo mode")
     expect(model.connection.hasSnapshot, "the demo hello arrives")
     equal(model.connection.devices.count, 3, "the demo serves three devices")
+
+    // MARK: - Three tabs, one order, one landing rule
+    //
+    // `docs/DESIGN.md` § "Three tabs, one order, one landing rule".
+    equal(AppModel.landingTab(hasDevices: true), .sessions,
+          "an account with a machine lands on the conversation")
+    equal(AppModel.landingTab(hasDevices: false), .devices,
+          "and a new account lands where its first job is")
+
+    // Nothing is decided before the first device list: the one-shot is not
+    // spent by a call that arrives while the snapshot is still in flight.
+    let waiting = AppModel(arguments: [])
+    waiting.tab = .settings
+    waiting.decideLandingTab()
+    equal(waiting.tab, .settings, "the rule does not run until the device list has arrived")
+    await waiting.enterDemo()
+    await settle { waiting.connection.hasSnapshot }
+    waiting.decideLandingTab()
+    equal(waiting.tab, .sessions, "and runs on the first list that does arrive")
+
+    // Decided once. A tab chosen by hand afterwards is not bounced back.
+    waiting.tab = .devices
+    waiting.decideLandingTab()
+    equal(waiting.tab, .devices, "the landing rule runs once per sign-in and no more")
+    await waiting.signOut()
+
+    model.decideLandingTab()
     equal(model.tab, .sessions, "the app opens on the sessions tab")
 
     // Opening a session installs a chat store and pushes navigation.

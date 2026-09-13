@@ -10,7 +10,6 @@ struct ChatView: View {
     @Environment(AppModel.self) private var model
     @State private var showsTodos = false
     @State private var showsQueue = false
-    @State private var showsSettings = false
     @State private var elapsed = ""
 
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -69,12 +68,9 @@ struct ChatView: View {
             }
             Transcript(chat: chat)
             StatusLine(chat: chat)
-            Composer(chat: chat, showsQueue: $showsQueue, showsSettings: $showsSettings)
+            Composer(chat: chat, showsQueue: $showsQueue)
         }
         .sheet(isPresented: $showsQueue) { QueueSheet(chat: chat) }
-        .sheet(isPresented: $showsSettings) {
-            SessionSettingsSheet(chat: chat, agent: model.agent(for: chat.session))
-        }
     }
 
     @ToolbarContentBuilder

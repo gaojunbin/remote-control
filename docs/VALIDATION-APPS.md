@@ -990,6 +990,41 @@ dismissing an alert clears that state before the task runs: Update silently did 
 time the UI test drove it, and Rename and Remove were written the same way. All three now read the
 row while the tap is still being handled and start the request with it.
 
+**Round 16 — the shell in one order, and a model card that answers at once** (iPhone 17 on iOS 27.0,
+the offline demo, 2026-09-13). `RemoteControlUITests` runs 32 demo tests, 4 skipped (the
+real-gateway smoke tests) and 0 failures; `swift run RCVerify` 1044 checks, `swift run RCUIVerify`
+165, `swift test` 208 tests in 20 suites. Screenshots are run artefacts under
+`…/scratchpad/ios-shell/named/`. **Three tabs, one order, one landing rule**: the bar reads Devices,
+Sessions, Settings, and `testTabsReadDevicesSessionsSettingsAndLandOnSessions` reads that order off
+the frames rather than out of the source, then checks the demo account — which has three machines —
+lands on Sessions. The rule itself is decided once per sign-in from the first device list;
+`VerificationUI/main.swift` drives both branches, the "nothing decided until the list arrives" case
+and the "decided once, a tab chosen by hand is not bounced back" case, on a second `AppModel`.
+**New session at the bottom**: `69-sessions-bottom-bar.png` shows the primary button in the bottom
+bar with the inventory summary as the list's last row above it, and
+`testSessionsListEndsWithTheNewSessionButtonInTheBottomBar` measures that button against Devices'
+**Add device** — same height, same top edge, same page padding — rather than trusting the shot.
+Moving the summary into the list cost `testSessionsListShowsEveryStatusTone` its margin: the bottom
+bar is about 40 pt taller than the caption strip it replaced, so the five tone rows no longer share
+a screen from where they used to start, and the test now lifts the first row to 52 pt under the
+search field instead of 94. **Rename · Update · Revoke** ride one trailing swipe
+(`60-device-swipe-actions.png`); SwiftUI lays a trailing swipe out from the edge inwards, so the
+buttons are listed Revoke, Update, Rename and the test asserts the reading order by `minX` rather
+than by the declaration. Every device "Remove" became "Revoke", the word the web table uses, down to
+the alert (`70-device-revoke-confirm.png`) and 吊销 in `Localizable.xcstrings`. **The permission
+picker** replaced the session settings sheet: `13-codex-permissions.png` is the plain list of the
+daemon's three modes with the current one ticked, and the sheet, `SpeedPicker`'s old home, the
+`showsSettings` binding and every `session.*` identifier are gone. **The model card**:
+`44-model-card.png` shows `StopSlider` — the thick pill, the dots, the white disc — and
+`45-model-card-fast.png` the lightning filled on the tap rather than on the reply.
+
+Two things this round could not measure. `StopSlider` is not a `UISlider`, so
+`adjust(toNormalizedSliderPosition:)` does not drive it; the test taps the last stop by coordinate
+and the drag path itself has been exercised only by hand. And the swipe's Revoke came back black
+rather than red in the first run: the app sets its own `.tint` at the root and a destructive swipe
+button takes that over the system red, so the tint is now written out explicitly. The alert's
+destructive confirm was red all along.
+
 ## 3. Attached terminal sessions (A10) in the apps
 
 Amendment A10 landed after the run above. This section records what each app does with

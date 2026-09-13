@@ -36,6 +36,11 @@ public final class AppModel {
     @ObservationIgnored private let drafts = DraftStore()
     @ObservationIgnored private let isUITesting: Bool
     @ObservationIgnored private var pendingLink: SessionLink?
+    /// Whether the landing rule has already run for this sign-in. It decides
+    /// from the first device list and never again, so a `device.updated` that
+    /// empties or fills the list moves nobody, and neither does a tab chosen
+    /// by hand afterwards.
+    @ObservationIgnored private var hasChosenLandingTab = false
     /// The demo, when the launch arguments asked for one. `restoreOrPrompt`
     /// waits on it rather than racing it, so nothing draws the form in between.
     @ObservationIgnored private var launch: Task<Void, Never>?
@@ -119,8 +124,23 @@ public final class AppModel {
         push.detach()
         await closeChat()
         path.removeAll()
+        hasChosenLandingTab = false
         await connection.signOut()
     }
+
+    /// `docs/DESIGN.md` § "Three tabs, one order, one landing rule": Sessions
+    /// when the account has at least one device, Devices when it has none — a
+    /// new account's first job is enrolling a machine, everyone else's is the
+    /// conversation. Nothing is decided until the first device list has
+    /// arrived, and nothing is decided twice.
+    public func decideLandingTab() {
+        guard !hasChosenLandingTab, connection.hasSnapshot else { return }
+        hasChosenLandingTab = true
+        tab = Self.landingTab(hasDevices: !connection.devices.isEmpty)
+    }
+
+    /// The rule itself, with nothing around it.
+    public static func landingTab(hasDevices: Bool) -> Tab { hasDevices ? .sessions : .devices }
 
     public func lockIfNeeded() {
         guard settings.appLockEnabled, connection.isSignedIn, !connection.isDemo else { return }
@@ -187,6 +207,9 @@ public final class AppModel {
             toast = "That session is no longer on this gateway."
             return
         }
+        // A link is a destination, so it settles the landing rule too: the
+        // first device list must not move the tab out from under it.
+        hasChosenLandingTab = true
         tab = .sessions
         Task { await open(session) }
     }

@@ -80,6 +80,11 @@ public final class ChatStore {
 
     @ObservationIgnored private let channel: any GatewayChannel
     @ObservationIgnored private let onSessionChange: @MainActor (Session) -> Void
+    /// Bumped whenever the device's own copy of the session replaces this one:
+    /// a `session.updated` frame, a `meta` event carrying settings, or the
+    /// reply to a request. An optimistic change is rolled back only while this
+    /// has not moved.
+    @ObservationIgnored private var sessionGeneration = 0
 
     public var sessionID: String { session.sessionID }
     public var deviceID: String { session.deviceID }
@@ -429,11 +434,19 @@ public final class ChatStore {
         if let cwd = payload.cwd { session.cwd = cwd }
         if let git = payload.git { session.git = git }
         if let control = payload.control { session.control = control }
+        // What the device read off the agent itself replaces an optimistic
+        // value, so a refusal landing afterwards must not put the older one
+        // back over it.
+        if payload.model != nil || payload.permissionMode != nil
+            || payload.effort != nil || payload.speed != nil {
+            sessionGeneration += 1
+        }
         onSessionChange(session)
     }
 
     private func update(session value: Session) {
         session = value
+        sessionGeneration += 1
         onSessionChange(value)
     }
 
@@ -604,9 +617,19 @@ public final class ChatStore {
         }
     }
 
+    /// `docs/DESIGN.md` § "The model card": every change made from the card is
+    /// drawn the moment it is made. The patch is applied before the request
+    /// leaves, the device's reply confirms it, and a refusal puts the previous
+    /// value back with the error — unless a newer session replaced the
+    /// optimistic one while the request was in flight, in which case the older
+    /// value must not be written over it.
     public func set(model: String? = nil, permissionMode: String? = nil,
                     effort: String? = nil, speed: SpeedChange? = nil,
                     title: String? = nil) async {
+        let previous = session
+        applyLocally(model: model, permissionMode: permissionMode, effort: effort,
+                     speed: speed, title: title)
+        let generation = sessionGeneration
         do {
             let result = try await channel.request(
                 .set(sessionID: sessionID, model: model, permissionMode: permissionMode,
@@ -615,7 +638,22 @@ public final class ChatStore {
             update(session: result.session)
         } catch {
             errorMessage = describe(error)
+            guard sessionGeneration == generation else { return }
+            update(session: previous)
         }
+    }
+
+    /// The card's own copy of the change, drawn before the round trip. Only the
+    /// fields the request carries are touched, so one chip's change never
+    /// rewrites what another one says.
+    private func applyLocally(model: String?, permissionMode: String?, effort: String?,
+                              speed: SpeedChange?, title: String?) {
+        if let model { session.model = model }
+        if let permissionMode { session.permissionMode = permissionMode }
+        if let effort { session.effort = effort }
+        if let speed { session.speed = speed.id }
+        if let title { session.title = title }
+        onSessionChange(session)
     }
 
     public func takeover() async {
