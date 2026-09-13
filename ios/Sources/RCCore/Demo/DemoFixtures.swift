@@ -510,4 +510,27 @@ public enum DemoFixtures {
     public static var claimURL: String {
         "https://demo.remote-control.invalid/pair#\(claimToken)"
     }
+
+    // MARK: - Accounts (A24)
+
+    /// The demo signs in as the gateway's own operator, so every screen an
+    /// admin has — including the Users screen, where this row is the one with
+    /// no actions on it — is reachable from `--demo`.
+    public static let adminUsername = AccountRules.operatorUsername
+    /// A member, so signing in as one shows the Settings group without the
+    /// Users row and the account routes answering `403`.
+    public static let memberUsername = "alice"
+    /// A disabled account, so the sign-in form's `403` can be read.
+    public static let disabledUsername = "bob"
+
+    public static var users: [UserRecord] {
+        [
+            UserRecord(username: adminUsername, role: .admin, state: .active,
+                       createdAt: now - 8_640_000, lastLoginAt: now - 120_000, devices: 3),
+            UserRecord(username: memberUsername, role: .member, state: .active,
+                       createdAt: now - 4_320_000, lastLoginAt: now - 172_800_000, devices: 1),
+            UserRecord(username: disabledUsername, role: .member, state: .disabled,
+                       createdAt: now - 2_160_000, lastLoginAt: nil, devices: 0)
+        ]
+    }
 }

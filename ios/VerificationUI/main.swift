@@ -595,6 +595,123 @@ func run() async -> (passed: Int, failures: [String]) {
     expect(!expiring.isSignedIn, "a gateway that refuses the token sends the user back to the form")
     equal(expiring.errorMessage, "Your session expired. Sign in again.", "which says why it asked")
 
+    // MARK: - Accounts (A24)
+    //
+    // `docs/DESIGN.md` § "Accounts". The offline gateway is reached through the
+    // sign-in form rather than around it, so every answer the form has to tell
+    // apart — an unknown account, a disabled one, a member, an admin — is
+    // driven here without a gateway to reach.
+
+    let closed = AppModel(connection: .offlineDemo(),
+                          settings: SettingsStore(defaults: freshDefaults()),
+                          arguments: [])
+    expect(!(await closed.connection.registrationOpen(origin: "https://rc.example.com")),
+           "a gateway that is not taking accounts offers no way to create one")
+
+    await closed.signIn(origin: "https://rc.example.com",
+                        username: DemoFixtures.disabledUsername, password: "correct horse")
+    expect(!closed.isSignedIn, "a disabled account cannot sign in")
+    equal(closed.connection.errorMessage, "This account is disabled.", "and is told why")
+
+    await closed.signIn(origin: "https://rc.example.com",
+                        username: "nobody", password: "correct horse")
+    equal(closed.connection.errorMessage, "Wrong username or password.",
+          "while an unknown account is not told that it is unknown")
+
+    await closed.signIn(origin: "https://rc.example.com",
+                        username: DemoFixtures.memberUsername, password: "correct horse")
+    expect(closed.isSignedIn, "a member signs in")
+    equal(closed.connection.username, DemoFixtures.memberUsername, "as itself")
+    expect(!closed.connection.isAdmin, "a member is not an admin")
+    expect(closed.connection.usersStore() == nil, "so the accounts screen is not theirs to open")
+    equal(closed.settings.lastUsername, DemoFixtures.memberUsername,
+          "and the form remembers the username for next time")
+    await closed.signOut()
+
+    let open = AppModel(connection: .offlineDemo(registrationOpen: true),
+                        settings: SettingsStore(defaults: freshDefaults()),
+                        arguments: [])
+    expect(await open.connection.registrationOpen(origin: "https://rc.example.com"),
+           "a gateway taking accounts says so, which is what draws Create an account")
+    await open.register(origin: "https://rc.example.com", username: "Carol",
+                        password: "correct horse battery staple")
+    expect(open.isSignedIn, "creating an account signs it in")
+    equal(open.connection.username, "carol", "under the lower-cased name the gateway keeps")
+    equal(open.connection.user.role, .member, "as a member")
+    await open.register(origin: "https://rc.example.com", username: "carol",
+                        password: "correct horse battery staple")
+    equal(open.connection.errorMessage, "That username is taken.", "and a second time is refused by name")
+    await open.register(origin: "https://rc.example.com", username: "no",
+                        password: "correct horse battery staple")
+    equal(open.connection.errorMessage, AccountError.rules,
+          "while a name outside the rules is the one time the rule is stated")
+    await open.signOut()
+
+    // The admin's screen, driven through the store the screen reads.
+    let operating = AppModel(connection: .offlineDemo(),
+                             settings: SettingsStore(defaults: freshDefaults()),
+                             arguments: [])
+    await operating.signIn(origin: "https://rc.example.com",
+                           username: DemoFixtures.adminUsername, password: "correct horse")
+    expect(operating.connection.isAdmin, "the operator signs in as an admin")
+    if let users = operating.connection.usersStore() {
+        await users.load()
+        equal(users.users.count, 3, "the accounts screen lists every account")
+        expect(!users.registrationOpen, "with the registration switch where the gateway has it")
+        expect(users.users.first?.isOperator == true, "the operator is the first row")
+        try? await users.setRegistration(open: true)
+        expect(users.registrationOpen, "and the switch is what the gateway answered")
+
+        try? await users.create(username: "dave", password: "correct horse battery staple", role: .member)
+        equal(users.users.count, 4, "adding an account adds a row")
+        equal(users.users.last?.role, .member, "as a member unless an admin was chosen")
+
+        try? await users.setState(.disabled, of: DemoFixtures.memberUsername)
+        equal(users.users.first { $0.username == DemoFixtures.memberUsername }?.state, .disabled,
+              "disabling an account changes its row and nothing else")
+        try? await users.setState(.active, of: DemoFixtures.memberUsername)
+        equal(users.users.first { $0.username == DemoFixtures.memberUsername }?.state, .active,
+              "and enabling it puts it back")
+
+        try? await users.delete("dave")
+        equal(users.users.count, 3, "deleting an account takes its row with it")
+
+        // The operator's row has no actions on the screen; the gateway refuses
+        // them as well, so a race cannot do what the screen would not offer.
+        var refused: String?
+        do { try await users.setState(.disabled, of: DemoFixtures.adminUsername) } catch {
+            refused = AccountError.manage(error)
+        }
+        equal(refused, "This account cannot be changed.",
+              "the operator cannot be disabled even by asking directly")
+    } else {
+        expect(false, "an admin has an accounts screen")
+    }
+
+    // The app's own settings belong to the person, not to the phone.
+    let shared = freshDefaults()
+    let mine = SettingsStore(defaults: shared)
+    mine.remember(origin: "https://rc.example.com", username: "alice")
+    mine.language = .zhHans
+    mine.timelineDetail = .detailed
+    mine.notificationsEnabled = true
+    let yours = SettingsStore(defaults: shared)
+    yours.remember(origin: "https://rc.example.com", username: "bob")
+    equal(yours.language, .en, "signing in as someone else does not inherit their language")
+    equal(yours.timelineDetail, .simple, "nor their reading level")
+    expect(!yours.notificationsEnabled, "nor their notification choice")
+    yours.remember(origin: "https://rc.example.com", username: "alice")
+    equal(yours.language, .zhHans, "and coming back finds their own choices again")
+    equal(SettingsStore(defaults: shared).lastUsername, "alice",
+          "while the gateway and the account used there prefill the form on the next launch")
+    yours.remember(origin: "https://other.example.com", username: "bob")
+    equal(yours.username(for: "https://rc.example.com"), "alice",
+          "and each gateway keeps the username that signed in on it")
+    let cleared = SettingsStore(defaults: shared)
+    cleared.reset()
+    cleared.remember(origin: "https://rc.example.com", username: "alice")
+    equal(cleared.language, .en, "a reset forgets every account's preferences, not only the last one's")
+
     // MARK: - Sign out
 
     await model.signOut()
@@ -602,6 +719,13 @@ func run() async -> (passed: Int, failures: [String]) {
     expect(model.chat == nil, "signing out closes the open conversation")
 
     return (passed, failures)
+}
+
+/// A `UserDefaults` suite nothing else has written to, so a check reads what it
+/// put there and not what an earlier run left behind.
+@MainActor
+func freshDefaults() -> UserDefaults {
+    UserDefaults(suiteName: "rc-ui-verify-\(UUID().uuidString)")!
 }
 
 /// A platform that models what both speech backends do for a dictation with no
@@ -706,9 +830,26 @@ actor StoredAccountGateway: GatewayAPI, GatewayChannel {
     @discardableResult
     func request(_ request: GatewayRequest) async throws -> JSONValue { .object([:]) }
 
-    func login(password: String, username: String?) async throws -> LoginResponse {
+    func health() async throws -> HealthResponse { throw TransportError.notConnected }
+    func login(username: String, password: String) async throws -> LoginResponse {
         throw TransportError.notConnected
     }
+    func register(username: String, password: String) async throws -> LoginResponse {
+        throw TransportError.notConnected
+    }
+    func changePassword(current: String, new: String) async throws {
+        throw TransportError.notConnected
+    }
+    func users() async throws -> UserListResponse { throw TransportError.notConnected }
+    func createUser(username: String, password: String, role: UserRole) async throws -> UserRecord {
+        throw TransportError.notConnected
+    }
+    func patchUser(_ username: String, state: UserState?, role: UserRole?,
+                   password: String?) async throws -> UserRecord {
+        throw TransportError.notConnected
+    }
+    func deleteUser(_ username: String) async throws { throw TransportError.notConnected }
+    func setRegistration(open: Bool) async throws -> Bool { throw TransportError.notConnected }
     func logout() async throws {}
     func config() async throws -> GatewayConfig { throw TransportError.notConnected }
     func devices() async throws -> [Device] { throw TransportError.notConnected }

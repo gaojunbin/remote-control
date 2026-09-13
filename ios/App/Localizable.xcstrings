@@ -52,6 +52,23 @@
         }
       }
     },
+    "%@ signs in with this password from now on. Other sign-ins stay valid.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ signs in with this password from now on. Other sign-ins stay valid."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 以后用这个密码登录。其他已登录的会话仍然有效。"
+          }
+        }
+      }
+    },
     "%@ · %lld waiting": {
       "extractionState": "manual",
       "localizations": {
@@ -443,6 +460,57 @@
         }
       }
     },
+    "Accounts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accounts"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有账户"
+          }
+        }
+      }
+    },
+    "Active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正常"
+          }
+        }
+      }
+    },
+    "Add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加"
+          }
+        }
+      }
+    },
     "Add a device first, then start a session on it.": {
       "extractionState": "manual",
       "localizations": {
@@ -490,6 +558,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "添加设备"
+          }
+        }
+      }
+    },
+    "Add user": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add user"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加用户"
+          }
+        }
+      }
+    },
+    "Admin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admin"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理员"
           }
         }
       }
@@ -562,6 +664,23 @@
         }
       }
     },
+    "An admin sees every account on this gateway and can change them. A member sees only its own devices and sessions.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An admin sees every account on this gateway and can change them. A member sees only its own devices and sessions."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理员可以看到并修改这个网关上的所有账户；成员只能看到自己的设备和会话。"
+          }
+        }
+      }
+    },
     "Another app took over this connection.": {
       "extractionState": "manual",
       "localizations": {
@@ -609,6 +728,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "已回答"
+          }
+        }
+      }
+    },
+    "Anyone with the gateway address can create an account": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anyone with the gateway address can create an account"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任何知道网关地址的人都可以创建账户"
           }
         }
       }
@@ -711,6 +847,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "已归档"
+          }
+        }
+      }
+    },
+    "At least 8 characters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At least 8 characters"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "至少 8 个字符"
           }
         }
       }
@@ -881,6 +1034,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "取消"
+          }
+        }
+      }
+    },
+    "Change password": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change password"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修改密码"
           }
         }
       }
@@ -1068,6 +1238,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法访问钥匙串。请解锁设备后重试。"
+          }
+        }
+      }
+    },
+    "Create account": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create account"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建账户"
+          }
+        }
+      }
+    },
+    "Create an account": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create an account"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建一个账户"
+          }
+        }
+      }
+    },
+    "Current password": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current password"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前密码"
+          }
+        }
+      }
+    },
+    "Delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除"
+          }
+        }
+      }
+    },
+    "Delete %@ and its %lld device? The token stops working and its sessions leave this gateway. The machine keeps its agents and transcripts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete %@ and its %lld device? The token stops working and its sessions leave this gateway. The machine keeps its agents and transcripts."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除 %@ 及其 %lld 台设备？该设备的令牌将失效，它的会话会离开这个网关。机器本身保留 agent 和记录。"
+          }
+        }
+      }
+    },
+    "Delete %@ and its %lld devices? Their tokens stop working and their sessions leave this gateway. The machines keep their agents and transcripts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete %@ and its %lld devices? Their tokens stop working and their sessions leave this gateway. The machines keep their agents and transcripts."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除 %@ 及其 %lld 台设备？这些设备的令牌将失效，它们的会话会离开这个网关。机器本身保留 agent 和记录。"
+          }
+        }
+      }
+    },
+    "Delete %@? The account, its sign-ins and its push registrations go with it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete %@? The account, its sign-ins and its push registrations go with it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除 %@？该账户、它的登录会话和推送注册都会一并删除。"
+          }
+        }
+      }
+    },
+    "Delete account": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete account"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除账户"
           }
         }
       }
@@ -1395,6 +1701,40 @@
         }
       }
     },
+    "Disable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停用"
+          }
+        }
+      }
+    },
+    "Disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disabled"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停用"
+          }
+        }
+      }
+    },
     "Dismiss": {
       "extractionState": "manual",
       "localizations": {
@@ -1480,6 +1820,23 @@
         }
       }
     },
+    "Enable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用"
+          }
+        }
+      }
+    },
     "Ended with an error after %@": {
       "extractionState": "manual",
       "localizations": {
@@ -1493,6 +1850,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 后出错结束"
+          }
+        }
+      }
+    },
+    "Enter a username and a password.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a username and a password."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入用户名和密码。"
           }
         }
       }
@@ -1922,6 +2296,23 @@
         }
       }
     },
+    "Member": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Member"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成员"
+          }
+        }
+      }
+    },
     "Message": {
       "extractionState": "manual",
       "localizations": {
@@ -2020,6 +2411,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "名称"
+          }
+        }
+      }
+    },
+    "New password": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New password"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新密码"
           }
         }
       }
@@ -2500,6 +2908,23 @@
         }
       }
     },
+    "Pick a username and a password for this gateway.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick a username and a password for this gateway."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为这个网关选一个用户名和密码。"
+          }
+        }
+      }
+    },
     "Platform": {
       "extractionState": "manual",
       "localizations": {
@@ -2636,6 +3061,40 @@
         }
       }
     },
+    "Registration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registration"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注册"
+          }
+        }
+      }
+    },
+    "Registration is closed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registration is closed."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注册未开放。"
+          }
+        }
+      }
+    },
     "Remote Control": {
       "extractionState": "manual",
       "localizations": {
@@ -2755,6 +3214,23 @@
         }
       }
     },
+    "Reset password": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset password"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置密码"
+          }
+        }
+      }
+    },
     "Retry": {
       "extractionState": "manual",
       "localizations": {
@@ -2819,6 +3295,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "吊销设备"
+          }
+        }
+      }
+    },
+    "Role": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Role"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "角色"
           }
         }
       }
@@ -3010,6 +3503,23 @@
         }
       }
     },
+    "Set password": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set password"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置密码"
+          }
+        }
+      }
+    },
     "Settings": {
       "extractionState": "manual",
       "localizations": {
@@ -3125,6 +3635,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "显示源码"
+          }
+        }
+      }
+    },
+    "Sign in instead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in instead"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改为登录"
           }
         }
       }
@@ -3452,6 +3979,23 @@
         }
       }
     },
+    "That account no longer exists.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That account no longer exists."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该账户已不存在。"
+          }
+        }
+      }
+    },
     "That code belongs to a different gateway": {
       "extractionState": "manual",
       "localizations": {
@@ -3520,6 +4064,23 @@
         }
       }
     },
+    "That is not your current password.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That is not your current password."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前密码不正确。"
+          }
+        }
+      }
+    },
     "That message is longer than 64 KB. Shorten it or attach a file.": {
       "extractionState": "manual",
       "localizations": {
@@ -3550,6 +4111,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "响应内容过大，无法加载。"
+          }
+        }
+      }
+    },
+    "That username is taken.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That username is taken."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该用户名已被占用。"
           }
         }
       }
@@ -3839,6 +4417,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "思考中"
+          }
+        }
+      }
+    },
+    "This account cannot be changed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account cannot be changed."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该账户不能被修改。"
+          }
+        }
+      }
+    },
+    "This account is disabled.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account is disabled."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该账户已被停用。"
           }
         }
       }
@@ -4574,6 +5186,57 @@
         }
       }
     },
+    "Username": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Username"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用户名"
+          }
+        }
+      }
+    },
+    "Usernames are 3 to 32 characters: lower-case letters, digits, dots, underscores and hyphens. Passwords are 8 characters or more.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usernames are 3 to 32 characters: lower-case letters, digits, dots, underscores and hyphens. Passwords are 8 characters or more."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用户名为 3 到 32 个字符：小写字母、数字、点、下划线和连字符。密码至少 8 个字符。"
+          }
+        }
+      }
+    },
+    "Users": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Users"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用户"
+          }
+        }
+      }
+    },
     "Version": {
       "extractionState": "manual",
       "localizations": {
@@ -4744,6 +5407,23 @@
         }
       }
     },
+    "Wrong username or password.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wrong username or password."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用户名或密码错误。"
+          }
+        }
+      }
+    },
     "You can attach at most %lld files to one message.": {
       "extractionState": "manual",
       "localizations": {
@@ -4778,6 +5458,23 @@
         }
       }
     },
+    "You stay signed in here and anywhere else you are signed in.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You stay signed in here and anywhere else you are signed in."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在这里以及其他已登录的地方都会保持登录状态。"
+          }
+        }
+      }
+    },
     "Your answer": {
       "extractionState": "manual",
       "localizations": {
@@ -4791,6 +5488,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "你的回答"
+          }
+        }
+      }
+    },
+    "Your password": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your password"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的密码"
           }
         }
       }
@@ -5067,6 +5781,23 @@
         }
       }
     },
+    "never": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "never"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从未"
+          }
+        }
+      }
+    },
     "now": {
       "extractionState": "manual",
       "localizations": {
@@ -5271,6 +6002,23 @@
         }
       }
     },
+    "their username": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "their username"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对方的用户名"
+          }
+        }
+      }
+    },
     "will be re-sent": {
       "extractionState": "manual",
       "localizations": {
@@ -5301,6 +6049,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "昨天"
+          }
+        }
+      }
+    },
+    "you": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "you"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你"
           }
         }
       }

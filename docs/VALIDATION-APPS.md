@@ -1071,6 +1071,59 @@ rather than red in the first run: the app sets its own `.tint` at the root and a
 button takes that over the system red, so the tint is now written out explicitly. The alert's
 destructive confirm was red all along.
 
+**Round 17 — accounts: a username on the form, a role in Settings, and the admin's Users screen
+(A24)** (iPhone 17 on iOS 27.0, 2026-09-13). `RemoteControlUITests` runs 37 demo tests, 4 skipped
+(the real-gateway smoke tests) and 0 failures; `swift run RCVerify` 1095 checks,
+`swift run RCUIVerify` 198, `swift test` 228 tests in 21 suites. Screenshots are run artefacts
+under `…/scratchpad/ios-users/named/`. The five new tests run against the offline gateway placed
+*behind* the sign-in form — the new `--demo-account` argument, with `--registration-open` for the
+half that needs a gateway taking accounts — so every answer the form has to tell apart is driven
+with no gateway to reach. **Sign in** asks for the gateway, the username and the password in that
+order (`71-sign-in-form.png`), and a closed gateway offers no way to create an account;
+`testDisabledAccountIsToldSoAndAWrongOneIsNot` signs in as the demo's disabled account, reads "This
+account is disabled." off the form (`72-disabled-account.png`), then turns that same name into one
+nobody has and watches the sentence become "Wrong username or password." — the form never says
+which half it did not recognise. **Registration** appears under the button only when
+`GET /api/health` says it is open (`73-registration-offered.png`), and the test asserts it sits
+below Connect by frame rather than by reading the source; tapping it swaps the card for the same
+three fields with "Sign in instead" beneath (`74-registration-form.png`), and creating the account
+lands in the app. **Role** decides two Settings rows:
+`testOnlyAnAdminIsOfferedTheUsersScreen` signs in as the operator and finds Users but no Change
+password, because the admin's password is the gateway's own (`75-settings-admin.png`), then signs
+out and back in as a member and finds the opposite (`76-settings-member.png`). **Users**
+(`77-users-screen.png`) draws the registration switch with its caption, three account rows carrying
+`role · state`, the device count and the last sign-in — "never" on the account that has not been
+here — and Add user in the bottom bar, measured against the row above it. The `admin` row offers
+nothing; a member's swipes open Reset password · Disable · Delete, asserted by `minX` because
+SwiftUI lays a trailing swipe out from the edge inwards (`78-users-swipe-actions.png`). **Delete**
+asks first and names what goes with the account — "and its 1 device"
+(`79-users-delete-confirm.png`) — and the row then goes. **Add user** asks for a username, a
+password and a role with Member selected (`80-add-user-sheet.png`), and the account it makes is a
+row (`81-users-after-add.png`).
+
+Two things came out of the round rather than out of reading. `clear()` in the UI tests tapped the
+middle of a prefilled field, which leaves the caret in the middle of the text, so the deletes
+removed the head and the new address was typed onto the tail — Settings showed
+`https://rc.test.exampleexample` and the test still passed. It now taps the trailing edge and
+`typeGateway` asserts the field holds exactly what was typed, so the same mistake is loud. And
+`--reset-state` had to grow: preferences are now keyed per account, so clearing only the current
+one would have let a run inherit the language or the reading level another account left behind.
+`SettingsStore.reset()` removes every `preference.` and `gateway.` key, and `--language=` pins the
+language for the run so signing in as an account that stored another one cannot move the app out
+from under a test.
+
+Two things were settled with the web rather than decided here. The refusal sentences are the web's,
+copied from its own table, so a person told "That username is taken." in a browser reads the same
+words on the phone; the one that reads differently on each app would be the bug. And the remembered
+username is filed per gateway address, not once per phone, because the form's promise is that the
+next sign-in on a gateway is the password alone, and a single slot breaks that for anyone who uses
+two.
+
+Not verified on the phone this round: the gateway's own isolation. The demo serves the same three
+machines to whichever account signs in, because scoping devices to their owner is the gateway's
+work and is tested there; what the app was checked for is that it asks as one account, shows that
+account and its role, and offers 3.9 only to the admin.
+
 ## 3. Attached terminal sessions (A10) in the apps
 
 Amendment A10 landed after the run above. This section records what each app does with

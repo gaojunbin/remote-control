@@ -6,6 +6,7 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var showsDiagnostics = false
     @State private var confirmSignOut = false
+    @State private var showsPassword = false
 
     private var push: PushController { model.push }
 
@@ -14,9 +15,28 @@ struct SettingsView: View {
         Form {
             Section {
                 SettingsRow("Gateway", value: model.connection.endpoint?.origin ?? "Demo", mono: true)
-                SettingsRow("Signed in as", value: model.connection.username)
+                // The account and what it is allowed to do, in that order: the
+                // role is the reason the rows under it differ (A24).
+                AccountRow(user: model.connection.user)
                 if !model.connection.gatewayVersion.isEmpty {
                     SettingsRow("Gateway version", value: model.connection.gatewayVersion)
+                }
+                // The admin's password is the gateway's own `RC_PASSWORD`, so
+                // there is nothing here that could change it.
+                if !model.connection.isAdmin {
+                    Button("Change password") { showsPassword = true }
+                        .font(Theme.Text.label)
+                        .settingsRowLayout()
+                        .accessibilityIdentifier("settings.changePassword")
+                }
+                if model.connection.isAdmin {
+                    NavigationLink {
+                        UsersView().environment(model)
+                    } label: {
+                        Text("Users").font(Theme.Text.label)
+                    }
+                    .settingsRowLayout()
+                    .accessibilityIdentifier("settings.users")
                 }
                 Button("Sign out", role: .destructive) { confirmSignOut = true }
                     .font(Theme.Text.label)
@@ -137,6 +157,9 @@ struct SettingsView: View {
         .sheet(isPresented: $showsDiagnostics) {
             DiagnosticsView(report: report)
         }
+        .sheet(isPresented: $showsPassword) {
+            PasswordSheet().environment(model)
+        }
         .confirmationDialog("Sign out of this gateway?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) { Task { await model.signOut() } }
             Button("Cancel", role: .cancel) {}
@@ -181,6 +204,31 @@ struct SettingsView: View {
 
     static var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
+    }
+}
+
+/// Who is signed in, with what they are allowed to do under it (A24). Two lines
+/// rather than two rows: the role explains the rows below and is not a setting.
+struct AccountRow: View {
+    let user: UserIdentity
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Theme.Space.medium) {
+            Text("Signed in as").font(Theme.Text.label).foregroundStyle(Theme.ink)
+            Spacer(minLength: Theme.Space.small)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(user.username)
+                    .font(Theme.Text.meta)
+                    .foregroundStyle(Theme.inkSecondary)
+                    .lineLimit(1)
+                Text(user.role.title)
+                    .font(Theme.Text.caption)
+                    .foregroundStyle(Theme.inkSecondary)
+                    .accessibilityIdentifier("settings.role")
+            }
+        }
+        .settingsRowLayout()
+        .accessibilityElement(children: .combine)
     }
 }
 

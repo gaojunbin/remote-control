@@ -76,9 +76,72 @@ against is there in the demo: one demo machine runs an older build and the demo 
 `device.update`, reports the device as updating and brings it back on the new build a few seconds
 later (A22). It also claims one printed pairing token, which is what the scan flow is driven with.
 
-Other launch arguments: `--ui-testing`, `--reset-state`, and in debug builds `--voice-preview`,
-which swaps in a scripted speech platform so a UI test never opens the microphone. The listening
-state, the full-screen glow included, is screenshotted through it.
+Other launch arguments: `--ui-testing`, `--reset-state`, `--demo-account`, `--registration-open`,
+and in debug builds `--voice-preview`, which swaps in a scripted speech platform so a UI test never
+opens the microphone. The listening state, the full-screen glow included, is screenshotted through
+it.
+
+`--demo-account` puts the same in-memory gateway *behind* the sign-in form instead of around it:
+`ConnectionStore.offlineDemo(registrationOpen:)` builds the store with the demo as both its HTTP
+client and its socket, so the form signs in for real against it. That is how every answer the form
+has to tell apart — an unknown account, a disabled one, a member, an admin — is driven with no
+gateway to reach. `--registration-open` starts that gateway taking registrations.
+
+## Accounts
+
+Every person on a gateway has an account (protocol A24), and the app shows one person what is
+theirs. `docs/DESIGN.md` § "Accounts" is the contract; this is where it lives.
+
+**Sign in.** `LoginView` asks for the gateway, the username and the password, in that order. The
+username is prefilled from `SettingsStore.username(for:)`, which files one account per gateway
+address, so the next sign-in on a gateway is the password alone and alternating between two of them
+offers the right name on each.
+
+Under the button, **Create an account** is drawn only when `GET /api/health` reports
+`registration_open`. The form asks for that itself — `ConnectionStore.registrationOpen(origin:)`,
+debounced 400 ms behind a `.task(id: origin)`, because the address is typed and asking on every
+keystroke would be one request per character. This screen is the only place in the app that reads
+the flag. Tapping the link swaps the card for the same three fields, a **Create account** button
+and **Sign in instead**; `POST /api/register` answers exactly what login answers, so creating an
+account is a sign-in.
+
+**Every refusal is one sentence, and the sentence is the web's.** `AccountError` holds them, one
+function per route, because a status means different things on different routes: a `409` is a taken
+username on `POST /api/users` and an account refusing to be touched on `PATCH`. Signing in reads
+"This account is disabled." on `403` and "Wrong username or password." on `401`, which never says
+which half was wrong. The strings are copied from `web/src/strings.ts`: the one that read
+differently on each app would be the bug.
+
+**Account, in Settings.** `UserIdentity` carries the `role`, so `AccountRow` draws the username
+with Admin or Member under it. A member gets **Change password** (`PasswordSheet`, two fields,
+`POST /api/password`; a `401` reads "That is not your current password."). An admin does not: the
+operator's password is the gateway's own `RC_PASSWORD` and there is nothing on a phone that could
+change it. An admin gets **Users** instead.
+
+**Users** (`UsersView`) is the admin's screen. `ConnectionStore.usersStore()` returns nil for
+anyone else, so a member has no way to build one. The registration switch sits at the top with its
+caption, then one row per account: the username, `role · state`, the device count and the last
+sign-in as a relative time or "never". Reset password, Disable or Enable, and Delete ride one
+trailing swipe and the context menu, listed Delete · Disable · Reset so the row reads Reset ·
+Disable · Delete from the inside out. The `admin` row offers none of them — `UserRecord.isOperator`
+— and the gateway refuses them with `409` as well, which `AccountError.manage` words. **Add user**
+is the bottom-bar primary button, drawn exactly as Add device and New session are.
+
+Each alert and sheet shows the failure it caused, never the page: the add sheet keeps its own
+error, and a refused password reset re-opens its alert with the sentence in the message.
+
+**The app's own settings are per account.** `SettingsStore` keys every preference —
+notifications, app lock, voice backend, dictation language, timeline detail, interface language —
+under `<name>@<origin>|<username>`, and `adopt(origin:username:)` re-reads them on every sign-in.
+The gateway address is the one global value, because there is nobody to scope it to until someone
+has signed in; the username is filed under the gateway it signed in on. `--reset-state` calls
+`reset()`, which removes every `preference.` and `gateway.` key rather than only the current
+account's, so a run never inherits the shape an earlier one left. `--language=` pins the language
+for the run through `pinLanguage(_:)`, so signing in as an account that stored another language does
+not move the app out from under a test.
+
+Nothing here is scoped by the app alone: the gateway sends one account's devices and sessions and
+answers `not_found` for anyone else's, so `hello` is already the whole of what this person has.
 
 ## The shell: three tabs, one order, one landing rule
 
@@ -853,6 +916,12 @@ neither Apple's own limit nor the gateway's has been reached in practice. APNs d
 exercised, the app has never run on a physical device, and dark mode and VoiceOver have not been
 reviewed — the palette defines dark values, but v1 is designed light. CI, signing and TestFlight
 upload have never run.
+
+The account screens are proved against the offline gateway behind the form (`--demo-account`), so
+signing in with a username, registering, the role gate and the whole Users screen have run end to
+end, but never against a real gateway's accounts. Cross-account isolation is not among them: the
+demo serves the same three machines to whichever account signs in, because scoping devices to their
+owner is the gateway's work and is tested there.
 
 The selection haptic on the effort slider cannot be asserted from a UI test — nothing in XCTest
 observes `UIFeedbackGenerator` — so the test taps the last stop and asserts the word that follows

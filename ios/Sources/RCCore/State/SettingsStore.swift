@@ -57,12 +57,23 @@ public enum TimelineDetail: String, Sendable, Codable, CaseIterable {
 
 /// Preferences that outlive one connection. Everything here is a plain value in
 /// `UserDefaults`; the bearer token lives in the keychain instead.
+///
+/// `docs/DESIGN.md` § "Accounts": the app's own settings belong to the person
+/// signed in, not to the app. Every preference below is stored under a key that
+/// carries the gateway origin and the username, so two people who share one
+/// phone find their own language, dictation language and notification choices.
+/// The gateway address is the exception and stays global: it is how the form is
+/// prefilled and there is nobody to scope it to until someone has signed in.
+/// The username is kept per gateway, so alternating between two of them
+/// prefills each with the account that was used there.
 @MainActor
 @Observable
 public final class SettingsStore {
     private enum Key {
+        static let gateway = "gateway."
         static let origin = "gateway.origin"
         static let username = "gateway.username"
+        static let prefix = "preference."
         static let notifications = "preference.notifications"
         static let appLock = "preference.appLock"
         static let voiceBackend = "preference.voiceBackend"
@@ -72,42 +83,116 @@ public final class SettingsStore {
     }
 
     @ObservationIgnored private let defaults: UserDefaults
+    /// Whose preferences are being read and written: `<origin>|<username>`, or
+    /// nothing at all before anyone has signed in on this install.
+    @ObservationIgnored public private(set) var scope = ""
+    /// A launch argument fixes the language for the whole run, so a test reads
+    /// the app in the language it asked for whichever account signs in.
+    @ObservationIgnored private var pinnedLanguage: InterfaceLanguage?
 
     public var lastOrigin: String { didSet { defaults.set(lastOrigin, forKey: Key.origin) } }
-    public var lastUsername: String { didSet { defaults.set(lastUsername, forKey: Key.username) } }
-    public var notificationsEnabled: Bool { didSet { defaults.set(notificationsEnabled, forKey: Key.notifications) } }
-    public var appLockEnabled: Bool { didSet { defaults.set(appLockEnabled, forKey: Key.appLock) } }
-    public var voiceBackend: VoiceBackend { didSet { defaults.set(voiceBackend.rawValue, forKey: Key.voiceBackend) } }
+    public var notificationsEnabled: Bool { didSet { write(notificationsEnabled, Key.notifications) } }
+    public var appLockEnabled: Bool { didSet { write(appLockEnabled, Key.appLock) } }
+    public var voiceBackend: VoiceBackend { didSet { write(voiceBackend.rawValue, Key.voiceBackend) } }
     /// A BCP-47 code, or "auto" to let the gateway decide.
-    public var voiceLanguage: String { didSet { defaults.set(voiceLanguage, forKey: Key.voiceLanguage) } }
+    public var voiceLanguage: String { didSet { write(voiceLanguage, Key.voiceLanguage) } }
     /// How much of a transcript is drawn. Simple is the default: most of what an
     /// agent does is not addressed to the reader.
     public var timelineDetail: TimelineDetail {
-        didSet { defaults.set(timelineDetail.rawValue, forKey: Key.timelineDetail) }
+        didSet { write(timelineDetail.rawValue, Key.timelineDetail) }
     }
     /// Which language the app writes its own words in. Changing it moves the
     /// table every string outside a `Text` is looked up in, so the whole app
     /// follows the next time it draws, which is at once.
     public var language: InterfaceLanguage {
         didSet {
-            defaults.set(language.rawValue, forKey: Key.language)
+            write(language.rawValue, Key.language)
             L10n.use(language)
         }
     }
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        lastOrigin = defaults.string(forKey: Key.origin) ?? ""
-        lastUsername = defaults.string(forKey: Key.username) ?? ""
-        notificationsEnabled = defaults.bool(forKey: Key.notifications)
-        appLockEnabled = defaults.bool(forKey: Key.appLock)
-        voiceBackend = VoiceBackend(rawValue: defaults.string(forKey: Key.voiceBackend) ?? "") ?? .onDevice
-        voiceLanguage = defaults.string(forKey: Key.voiceLanguage) ?? "auto"
-        timelineDetail = TimelineDetail(rawValue: defaults.string(forKey: Key.timelineDetail) ?? "") ?? .simple
+        let origin = defaults.string(forKey: Key.origin) ?? ""
+        let username = defaults.string(forKey: "\(Key.username)@\(origin)") ?? ""
+        lastOrigin = origin
+        notificationsEnabled = false
+        appLockEnabled = false
+        voiceBackend = .onDevice
+        voiceLanguage = "auto"
+        timelineDetail = .simple
+        language = .en
+        // The account the app is about to come back to owns the preferences it
+        // reads on launch, so the first screen is already in their language.
+        scope = Self.scope(origin: origin, username: username)
+        readScopedValues()
+        L10n.use(language)
+    }
+
+    // MARK: - Who the form is prefilled with
+
+    /// The account that last signed in on one gateway, which is what the form
+    /// offers when that gateway is typed. Empty where nobody has.
+    public func username(for origin: String) -> String {
+        origin.isEmpty ? "" : defaults.string(forKey: "\(Key.username)@\(origin)") ?? ""
+    }
+
+    /// The account on the gateway the app comes back to, which is the one the
+    /// keychain token is filed under.
+    public var lastUsername: String { username(for: lastOrigin) }
+
+    // MARK: - Scoping
+
+    private static func scope(origin: String, username: String) -> String {
+        origin.isEmpty && username.isEmpty ? "" : "\(origin)|\(username)"
+    }
+
+    private func key(_ name: String) -> String { scope.isEmpty ? name : "\(name)@\(scope)" }
+
+    private func write(_ value: Any, _ name: String) { defaults.set(value, forKey: key(name)) }
+
+    /// Read every preference from the current scope, falling back to the value
+    /// a fresh install has. A launch-pinned language wins over what was stored.
+    private func readScopedValues() {
+        notificationsEnabled = defaults.bool(forKey: key(Key.notifications))
+        appLockEnabled = defaults.bool(forKey: key(Key.appLock))
+        voiceBackend = VoiceBackend(rawValue: defaults.string(forKey: key(Key.voiceBackend)) ?? "") ?? .onDevice
+        voiceLanguage = defaults.string(forKey: key(Key.voiceLanguage)) ?? "auto"
+        timelineDetail = TimelineDetail(rawValue: defaults.string(forKey: key(Key.timelineDetail)) ?? "")
+            ?? .simple
         // English whatever the phone is set to: the default is the product's
         // own language and not a guess from `Locale.preferredLanguages`.
-        language = InterfaceLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .en
-        L10n.use(language)
+        language = pinnedLanguage
+            ?? InterfaceLanguage(rawValue: defaults.string(forKey: key(Key.language)) ?? "")
+            ?? .en
+    }
+
+    /// Point the preferences at one account. Called on every sign-in, including
+    /// the restore on launch, so signing in as someone else changes what the
+    /// app remembers rather than inheriting the last person's choices.
+    public func adopt(origin: String, username: String) {
+        let next = Self.scope(origin: origin, username: username)
+        guard next != scope else { return }
+        scope = next
+        readScopedValues()
+    }
+
+    /// Fix the interface language for this run, whatever any account stored.
+    public func pinLanguage(_ value: InterfaceLanguage) {
+        pinnedLanguage = value
+        language = value
+    }
+
+    /// Start as a fresh install: every account's preferences, not only the
+    /// current one's, so a run never inherits the shape an earlier run left.
+    public func reset() {
+        for name in defaults.dictionaryRepresentation().keys
+        where name.hasPrefix(Key.prefix) || name.hasPrefix(Key.gateway) {
+            defaults.removeObject(forKey: name)
+        }
+        lastOrigin = ""
+        scope = ""
+        readScopedValues()
     }
 
     /// The locale handed to `SFSpeechRecognizer`, resolved from the preference.
@@ -115,9 +200,11 @@ public final class SettingsStore {
         voiceLanguage == "auto" ? Locale.current.identifier : voiceLanguage
     }
 
+    /// Remember who signed in where, and read their preferences.
     public func remember(origin: String, username: String) {
         lastOrigin = origin
-        lastUsername = username
+        if !origin.isEmpty { defaults.set(username, forKey: "\(Key.username)@\(origin)") }
+        adopt(origin: origin, username: username)
     }
 
     /// A diagnostic report built from an explicit allowlist.

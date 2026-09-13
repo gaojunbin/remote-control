@@ -40,7 +40,9 @@ public enum ConnectionPhase: Sendable, Equatable {
 public final class ConnectionStore {
     public private(set) var phase: ConnectionPhase = .signedOut
     public private(set) var endpoint: GatewayEndpoint?
-    public private(set) var username = ""
+    /// The account this connection signed in as, and its role (protocol 4.10).
+    /// Everything the socket ever reports belongs to it and to nobody else.
+    public private(set) var user = UserIdentity(username: "")
     public private(set) var gatewayVersion = ""
     public private(set) var config: GatewayConfig = .empty
     public private(set) var stt: STTConfig = .disabled
@@ -69,9 +71,23 @@ public final class ConnectionStore {
         self.makeChannel = makeChannel
     }
 
+    /// A store whose gateway is the offline demo, reached through the sign-in
+    /// form rather than around it. It is how the account screens — signing in
+    /// with a username, registering, the admin's Users screen — are driven
+    /// without a gateway to reach.
+    public static func offlineDemo(registrationOpen: Bool = false) -> ConnectionStore {
+        let gateway = DemoGateway(registrationOpen: registrationOpen)
+        return ConnectionStore(makeAPI: { _ in gateway }, makeChannel: { _ in gateway })
+    }
+
     // MARK: - Derived views
 
     public var isSignedIn: Bool { phase != .signedOut }
+
+    public var username: String { user.username }
+
+    /// Whether the accounts screen of 3.9 is this person's to see (A24).
+    public var isAdmin: Bool { user.role.isAdmin }
 
     public var account: String { "\(endpoint?.origin ?? "demo")|\(username)" }
 
@@ -93,18 +109,42 @@ public final class ConnectionStore {
 
     // MARK: - Authentication
 
-    public func signIn(origin: String, password: String, username: String?) async {
+    /// Whether this gateway is taking registrations, asked before anyone has an
+    /// account (A24). The sign-in form is the only caller: "Create an account"
+    /// is offered where the gateway says it can be, and nowhere else.
+    public func registrationOpen(origin: String) async -> Bool {
+        guard let endpoint = try? GatewayEndpoint(origin) else { return false }
+        return (try? await makeAPI(endpoint).health().registrationOpen) ?? false
+    }
+
+    public func signIn(origin: String, username: String, password: String) async {
+        await authenticate(origin: origin, describe: AccountError.signIn) { api in
+            try await api.login(username: username, password: password)
+        }
+    }
+
+    /// `POST /api/register` (A24). Creating an account signs it in, so this is
+    /// a sign-in with one different route and one different set of refusals.
+    public func register(origin: String, username: String, password: String) async {
+        await authenticate(origin: origin, describe: AccountError.register) { api in
+            try await api.register(username: username, password: password)
+        }
+    }
+
+    private func authenticate(origin: String,
+                              describe: @escaping (any Error) -> String,
+                              call: (any GatewayAPI) async throws -> LoginResponse) async {
         errorMessage = nil
         do {
             let endpoint = try GatewayEndpoint(origin)
             let api = makeAPI(endpoint)
-            let response = try await api.login(password: password, username: username)
+            let response = try await call(api)
             guard !Task.isCancelled else { return }
-            adopt(api: api, endpoint: endpoint, username: response.user.username)
+            adopt(api: api, endpoint: endpoint, user: response.user)
             await start()
         } catch {
             phase = .signedOut
-            errorMessage = message(for: error)
+            errorMessage = describe(error)
         }
     }
 
@@ -119,7 +159,10 @@ public final class ConnectionStore {
         guard let endpoint = try? GatewayEndpoint(origin) else { return false }
         let api = makeAPI(endpoint)
         guard await api.restoreToken(username: username) else { return false }
-        adopt(api: api, endpoint: endpoint, username: username)
+        // The role is not in the keychain. `/api/session` behind these screens
+        // carries it, and until it lands the app draws a member's Settings —
+        // one row short rather than one row nobody is allowed to open.
+        adopt(api: api, endpoint: endpoint, user: UserIdentity(username: username))
         await start()
         Task { [weak self] in await self?.confirmStoredAccount(api: api) }
         return true
@@ -131,7 +174,7 @@ public final class ConnectionStore {
         do {
             let info = try await api.session()
             guard !Task.isCancelled, !info.user.username.isEmpty else { return }
-            username = info.user.username
+            user = info.user
         } catch TransportError.unauthorized {
             phase = .expired
             await endSession(message: L10n.string("Your session expired. Sign in again."))
@@ -144,7 +187,9 @@ public final class ConnectionStore {
     public func enterDemo(api: any GatewayAPI, channel: any GatewayChannel) async {
         isDemo = true
         endpoint = api.endpoint
-        username = "demo"
+        // The sample gateway names its own account, and it is the operator's,
+        // so every screen an admin has is reachable from the demo.
+        user = (try? await api.session().user) ?? UserIdentity(username: "")
         self.api = api
         self.channel = channel
         await start(channel: channel)
@@ -166,16 +211,29 @@ public final class ConnectionStore {
         channel = nil
         devices = []
         sessions = []
+        user = UserIdentity(username: "")
         hasSnapshot = false
         isDemo = false
         phase = .signedOut
     }
 
-    private func adopt(api: any GatewayAPI, endpoint: GatewayEndpoint, username: String) {
+    private func adopt(api: any GatewayAPI, endpoint: GatewayEndpoint, user: UserIdentity) {
         self.api = api
         self.endpoint = endpoint
-        self.username = username
+        self.user = user
         isDemo = false
+    }
+
+    /// The admin's accounts screen, built on this connection's own credential.
+    public func usersStore() -> UsersStore? {
+        guard let api, isAdmin else { return nil }
+        return UsersStore(api: api)
+    }
+
+    /// `POST /api/password`: the signed-in person changing their own.
+    public func changePassword(current: String, new: String) async throws {
+        guard let api else { throw TransportError.notConnected }
+        try await api.changePassword(current: current, new: new)
     }
 
     // MARK: - Connection scope
@@ -324,7 +382,7 @@ public final class ConnectionStore {
         switch frame {
         case .hello(let hello):
             gatewayVersion = hello.gatewayVersion
-            username = hello.user.username.isEmpty ? username : hello.user.username
+            if !hello.user.username.isEmpty { user = hello.user }
             devices = hello.devices
             sessions = hello.sessions
             stt = hello.stt
@@ -371,12 +429,7 @@ public final class ConnectionStore {
         }
     }
 
-    public func message(for error: any Error) -> String {
-        if let transport = error as? TransportError { return transport.errorDescription ?? "\(transport)" }
-        if let gateway = error as? GatewayErrorBody { return gateway.message }
-        if let failure = error as? ProtocolFailure { return failure.errorDescription ?? "\(failure)" }
-        return error.localizedDescription
-    }
+    public func message(for error: any Error) -> String { GatewayMessage.text(for: error) }
 
     public func clearError() { errorMessage = nil }
 }

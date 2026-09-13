@@ -19,6 +19,12 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     private let resumeDelay: Duration?
     private var devices = DemoFixtures.devices
     private var sessionList = DemoFixtures.sessions
+    /// Amendment A24: the gateway's accounts, and which of them this app is.
+    /// `--demo` never signs in, so it starts as the operator; the sign-in form
+    /// replaces it with whichever account it was given.
+    private var accounts = DemoFixtures.users
+    private var signedIn = DemoFixtures.users[0]
+    private var registrationOpen: Bool
     private var transcripts: [String: [SessionEvent]] = [:]
     private var cursors: [String: Int] = [:]
     private var scripted: Task<Void, Never>?
@@ -68,9 +74,11 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     private static let updateDelay = Duration.seconds(4)
 
     public init(echoDelay: Duration = DemoGateway.defaultEchoDelay,
-                resumeDelay: Duration? = DemoGateway.defaultResumeDelay) {
+                resumeDelay: Duration? = DemoGateway.defaultResumeDelay,
+                registrationOpen: Bool = false) {
         self.echoDelay = echoDelay
         self.resumeDelay = resumeDelay
+        self.registrationOpen = registrationOpen
         endpoint = (try? GatewayEndpoint("https://demo.remote-control.invalid"))
             ?? GatewayEndpoint.placeholder
         let stream = AsyncStream<GatewayEvent>.makeStream(bufferingPolicy: .bufferingOldest(512))
@@ -91,7 +99,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             sessionList[index].lastSeq = cursors[sessionList[index].sessionID] ?? 0
         }
         let hello = HelloFrame(protocolVersion: RemoteProtocol.version, gatewayVersion: "0.1.0-demo",
-                               user: UserIdentity(username: "demo"), devices: devices,
+                               user: signedIn.identity, devices: devices,
                                sessions: sessionList, stt: DemoFixtures.config.stt,
                                serverTime: DemoFixtures.now)
         continuation.yield(.state(.connected))
@@ -152,11 +160,59 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
 
     // MARK: - GatewayAPI
 
-    public func login(password: String, username: String?) async throws -> LoginResponse {
-        LoginResponse(token: "demo", exp: DemoFixtures.now + 86_400_000, user: UserIdentity(username: "demo"))
+    public func health() async throws -> HealthResponse {
+        HealthResponse(version: "0.1.0-demo", protocolVersion: RemoteProtocol.version,
+                       registrationOpen: registrationOpen)
     }
+
+    /// A demo holds no secrets, so any password of the length the gateway
+    /// demands is accepted. What it does model is the three answers the form
+    /// has to tell apart: an unknown account, a disabled one, and a sign-in.
+    public func login(username: String, password: String) async throws -> LoginResponse {
+        let name = username.lowercased()
+        guard AccountRules.isPasswordLongEnough(password),
+              let account = accounts.first(where: { $0.username == name }) else {
+            throw TransportError.unauthorized
+        }
+        guard account.isActive else { throw TransportError.http(status: 403, code: "forbidden") }
+        signedIn = account
+        return signIn(as: account)
+    }
+
+    public func register(username: String, password: String) async throws -> LoginResponse {
+        let name = username.lowercased()
+        guard registrationOpen else { throw TransportError.http(status: 403, code: "forbidden") }
+        guard isWellFormed(name), AccountRules.isPasswordLongEnough(password) else {
+            throw TransportError.http(status: 400, code: "bad_request")
+        }
+        guard !accounts.contains(where: { $0.username == name }) else {
+            throw TransportError.http(status: 409, code: "conflict")
+        }
+        let account = UserRecord(username: name, role: .member, state: .active,
+                                 createdAt: DemoFixtures.now, lastLoginAt: DemoFixtures.now, devices: 0)
+        accounts.append(account)
+        signedIn = account
+        return signIn(as: account)
+    }
+
+    public func changePassword(current: String, new: String) async throws {
+        guard !signedIn.isOperator else { throw TransportError.http(status: 403, code: "forbidden") }
+        guard AccountRules.isPasswordLongEnough(current) else { throw TransportError.unauthorized }
+        guard AccountRules.isPasswordLongEnough(new) else {
+            throw TransportError.http(status: 400, code: "bad_request")
+        }
+    }
+
+    private func signIn(as account: UserRecord) -> LoginResponse {
+        LoginResponse(token: "demo", exp: DemoFixtures.now + 86_400_000, user: account.identity)
+    }
+
+    private func isWellFormed(_ username: String) -> Bool {
+        username.range(of: "^[a-z0-9][a-z0-9._-]{2,31}$", options: .regularExpression) != nil
+    }
+
     public func session() async throws -> SessionInfoResponse {
-        SessionInfoResponse(user: UserIdentity(username: "demo"), exp: DemoFixtures.now + 86_400_000)
+        SessionInfoResponse(user: signedIn.identity, exp: DemoFixtures.now + 86_400_000)
     }
     public func logout() async throws {}
     public func config() async throws -> GatewayConfig { DemoFixtures.config }
@@ -192,6 +248,69 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     public func sessions(deviceID: String?, archived: Bool?) async throws -> [Session] {
         sessionList.filter { deviceID == nil || $0.deviceID == deviceID }
     }
+    // MARK: - Accounts (protocol 3.9)
+
+    public func users() async throws -> UserListResponse {
+        try requireAdmin()
+        return UserListResponse(users: accounts, registrationOpen: registrationOpen)
+    }
+
+    public func createUser(username: String, password: String, role: UserRole) async throws -> UserRecord {
+        try requireAdmin()
+        let name = username.lowercased()
+        guard isWellFormed(name), AccountRules.isPasswordLongEnough(password) else {
+            throw TransportError.http(status: 400, code: "bad_request")
+        }
+        guard !accounts.contains(where: { $0.username == name }) else {
+            throw TransportError.http(status: 409, code: "conflict")
+        }
+        let record = UserRecord(username: name, role: role, state: .active,
+                                createdAt: DemoFixtures.now, lastLoginAt: nil, devices: 0)
+        accounts.append(record)
+        return record
+    }
+
+    public func patchUser(_ username: String, state: UserState?, role: UserRole?,
+                          password: String?) async throws -> UserRecord {
+        try requireAdmin()
+        let existing = try account(username)
+        // The operator cannot be disabled, demoted or re-passworded: its
+        // password is the gateway's own and it is the account that runs it.
+        if existing.isOperator { throw TransportError.http(status: 409, code: "conflict") }
+        if let password, !AccountRules.isPasswordLongEnough(password) {
+            throw TransportError.http(status: 400, code: "bad_request")
+        }
+        let record = UserRecord(username: existing.username, role: role ?? existing.role,
+                                state: state ?? existing.state, createdAt: existing.createdAt,
+                                lastLoginAt: existing.lastLoginAt, devices: existing.devices)
+        accounts = accounts.map { $0.username == record.username ? record : $0 }
+        return record
+    }
+
+    public func deleteUser(_ username: String) async throws {
+        try requireAdmin()
+        let existing = try account(username)
+        if existing.isOperator { throw TransportError.http(status: 409, code: "conflict") }
+        accounts.removeAll { $0.username == existing.username }
+    }
+
+    public func setRegistration(open: Bool) async throws -> Bool {
+        try requireAdmin()
+        registrationOpen = open
+        return registrationOpen
+    }
+
+    private func requireAdmin() throws {
+        guard signedIn.role.isAdmin else { throw TransportError.http(status: 403, code: "forbidden") }
+    }
+
+    private func account(_ username: String) throws -> UserRecord {
+        guard let found = accounts.first(where: { $0.username == username.lowercased() }) else {
+            throw TransportError.http(status: 404, code: "not_found")
+        }
+        return found
+    }
+
     public func registerPush(_ registration: APNSRegistration) async throws {}
     public func unregisterPush(token: String) async throws {}
     public func restoreToken(username: String) async -> Bool { true }

@@ -45,25 +45,30 @@ public final class AppModel {
     /// waits on it rather than racing it, so nothing draws the form in between.
     @ObservationIgnored private var launch: Task<Void, Never>?
 
-    public init(connection: ConnectionStore = ConnectionStore(),
+    public init(connection: ConnectionStore? = nil,
                 settings: SettingsStore = SettingsStore(),
                 push: PushController? = nil,
                 arguments: [String] = ProcessInfo.processInfo.arguments) {
-        self.connection = connection
+        // `--demo-account` puts the offline gateway behind the sign-in form
+        // instead of around it, which is how the account screens are driven
+        // with no gateway to reach.
+        self.connection = connection ?? (arguments.contains("--demo-account")
+            ? ConnectionStore.offlineDemo(registrationOpen: arguments.contains("--registration-open"))
+            : ConnectionStore())
         self.settings = settings
         self.push = push ?? PushController(platform: SystemNotifications.shared)
         isUITesting = arguments.contains("--ui-testing")
         if arguments.contains("--reset-state") {
-            self.settings.remember(origin: "", username: "")
-            self.settings.timelineDetail = .simple
-            self.settings.language = .en
+            self.settings.reset()
             self.sessions.forgetListState()
         }
         // After the reset, so a test can launch straight into the language it
-        // is about to read: `--reset-state --language=zh-Hans`.
+        // is about to read: `--reset-state --language=zh-Hans`. It is pinned,
+        // so signing in as an account that stored another language does not
+        // take the run out from under the test.
         if let argument = arguments.first(where: { $0.hasPrefix("--language=") }),
            let language = InterfaceLanguage(rawValue: String(argument.dropFirst("--language=".count))) {
-            self.settings.language = language
+            self.settings.pinLanguage(language)
         }
         let entersDemo = arguments.contains("--demo")
         // The demo is an account like any other: the app is coming back to
@@ -111,8 +116,20 @@ public final class AppModel {
         }
     }
 
-    public func signIn(origin: String, password: String, username: String?) async {
-        await connection.signIn(origin: origin, password: password, username: username)
+    public func signIn(origin: String, username: String, password: String) async {
+        await connection.signIn(origin: origin, username: username, password: password)
+        adoptAccount()
+    }
+
+    /// Creating an account signs it in, so it ends exactly where a sign-in does.
+    public func register(origin: String, username: String, password: String) async {
+        await connection.register(origin: origin, username: username, password: password)
+        adoptAccount()
+    }
+
+    /// The app's own settings belong to whoever just signed in, so they are
+    /// re-read before any screen draws (`docs/DESIGN.md` § "Accounts").
+    private func adoptAccount() {
         if connection.isSignedIn, let endpoint = connection.endpoint {
             settings.remember(origin: endpoint.origin, username: connection.username)
         }

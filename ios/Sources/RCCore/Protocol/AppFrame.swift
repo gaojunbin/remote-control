@@ -33,11 +33,6 @@ public struct GatewayErrorBody: Codable, Sendable, Hashable, Error {
     }
 }
 
-public struct UserIdentity: Codable, Sendable, Hashable {
-    public let username: String
-    public init(username: String) { self.username = username }
-}
-
 public struct STTConfig: Codable, Sendable, Hashable {
     public let enabled: Bool
     public let languages: [String]

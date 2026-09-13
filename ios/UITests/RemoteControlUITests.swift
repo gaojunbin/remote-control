@@ -1165,6 +1165,249 @@ final class RemoteControlUITests: XCTestCase {
         self.attach(name: "68-photos-picker")
     }
 
+    // MARK: - Accounts (A24)
+
+    /// `docs/DESIGN.md` § "Accounts": the form asks for the gateway, the
+    /// username and the password, and offers no way to create an account on a
+    /// gateway that is not taking them.
+    func testSignInAsksForAUsernameAndOffersNoRegistrationWhenItIsClosed() {
+        launchSignedOut()
+
+        let gateway = app.textFields["login.gateway"]
+        XCTAssertTrue(gateway.waitForExistence(timeout: 20), "the form asks for a gateway")
+        XCTAssertTrue(app.textFields["login.username"].exists, "and for a username")
+        XCTAssertTrue(app.secureTextFields["login.password"].exists, "and for a password")
+        XCTAssertTrue(app.textFields["login.username"].frame.minY > gateway.frame.minY,
+                      "in that order, gateway first")
+        attach(name: "71-sign-in-form")
+
+        typeGateway()
+        XCTAssertFalse(app.buttons["login.register"].waitForExistence(timeout: 5),
+                       "a gateway that is not taking accounts offers no way to create one")
+    }
+
+    /// A disabled account is told so, and a wrong password is not told which
+    /// half was wrong.
+    func testDisabledAccountIsToldSoAndAWrongOneIsNot() {
+        launchSignedOut()
+        signIn(username: "bob", password: "correct horse")
+
+        let error = app.staticTexts["login.error"]
+        XCTAssertTrue(error.waitForExistence(timeout: 15), "a refused sign-in says why")
+        XCTAssertEqual(error.label, "This account is disabled.")
+        attach(name: "72-disabled-account")
+
+        // "bobby" is nobody on this gateway, which reads the same as a wrong
+        // password: the form never says which half it did not recognise.
+        let name = app.textFields["login.username"]
+        name.tap()
+        name.typeText("by")
+        app.buttons["login.connect"].tap()
+        XCTAssertTrue(waitFor(error, label: "Wrong username or password.", timeout: 15),
+                      "and an unknown account is not told that it is unknown")
+    }
+
+    /// "Create an account" appears only when the gateway reports registration
+    /// open, and swaps the card for the registration form.
+    func testRegistrationLinkAppearsOnlyWhenTheGatewayIsOpen() {
+        launchSignedOut(extra: ["--registration-open"])
+        typeGateway()
+
+        let create = app.buttons["login.register"]
+        XCTAssertTrue(create.waitForExistence(timeout: 15),
+                      "a gateway taking accounts offers to create one")
+        XCTAssertTrue(create.frame.minY > app.buttons["login.connect"].frame.minY,
+                      "under the button, where the design puts it")
+        attach(name: "73-registration-offered")
+
+        create.tap()
+        let back = app.buttons["login.signInInstead"]
+        XCTAssertTrue(back.waitForExistence(timeout: 10), "with a way back to signing in")
+        XCTAssertTrue(app.textFields["login.username"].exists, "the card asks for a username")
+        XCTAssertTrue(app.secureTextFields["login.password"].exists, "and a password")
+        attach(name: "74-registration-form")
+
+        app.textFields["login.username"].tap()
+        app.textFields["login.username"].typeText("carol")
+        app.secureTextFields["login.password"].tap()
+        app.secureTextFields["login.password"].typeText("correct horse battery staple")
+        app.buttons["login.connect"].tap()
+
+        XCTAssertTrue(app.tabBars.buttons["Settings"].waitForExistence(timeout: 25),
+                      "creating an account signs it in")
+    }
+
+    /// The accounts screen is the admin's and nobody else's: a member never
+    /// sees the row, and gets the row an admin does not.
+    func testOnlyAnAdminIsOfferedTheUsersScreen() {
+        launchSignedOut()
+        signIn(username: "admin", password: "correct horse")
+        openSettingsTab()
+
+        XCTAssertTrue(app.buttons["settings.users"].waitForExistence(timeout: 20),
+                      "an admin is offered the accounts screen")
+        XCTAssertFalse(app.buttons["settings.changePassword"].exists,
+                       "and not a password it cannot change, because it is the gateway's own")
+        XCTAssertTrue(app.staticTexts["settings.role"].exists, "the role is under the username")
+        attach(name: "75-settings-admin")
+
+        app.buttons["settings.signOut"].tap()
+        // The confirmation is its own sheet; the row behind it carries the same
+        // words, so the button is taken from the sheet rather than by label.
+        let confirm = app.sheets.buttons["Sign out"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "signing out asks first")
+        confirm.tap()
+
+        signIn(username: "alice", password: "correct horse")
+        openSettingsTab()
+        XCTAssertTrue(app.buttons["settings.changePassword"].waitForExistence(timeout: 20),
+                      "a member can change its own password")
+        XCTAssertFalse(app.buttons["settings.users"].exists,
+                       "and is never offered the accounts screen")
+        attach(name: "76-settings-member")
+    }
+
+    /// The screen itself: the switch at the top, one row per account, the
+    /// actions on a swipe, and Add user in the bottom bar where Add device and
+    /// New session sit.
+    func testUsersScreenListsAccountsAndAddsOne() {
+        launchSignedOut()
+        signIn(username: "admin", password: "correct horse")
+        openSettingsTab()
+        app.buttons["settings.users"].tap()
+
+        let registration = app.switches["users.registration"]
+        XCTAssertTrue(registration.waitForExistence(timeout: 20), "the registration switch is at the top")
+        let operatorRow = app.descendants(matching: .any)["user.admin"].firstMatch
+        XCTAssertTrue(operatorRow.waitForExistence(timeout: 10), "the operator has a row")
+        XCTAssertTrue(app.descendants(matching: .any)["user.alice"].firstMatch.exists,
+                      "and so does every other account")
+        XCTAssertTrue(operatorRow.frame.minY > registration.frame.minY,
+                      "with the accounts under the switch")
+        let add = app.buttons["users.add"]
+        XCTAssertTrue(add.exists, "Add user is the screen's primary button")
+        XCTAssertTrue(add.frame.minY > operatorRow.frame.minY, "in the bottom bar")
+        attach(name: "77-users-screen")
+
+        // The operator's row offers nothing; another account's offers three.
+        operatorRow.swipeLeft()
+        XCTAssertFalse(app.buttons["user.delete"].waitForExistence(timeout: 3),
+                       "the admin row has no actions to swipe to")
+
+        app.descendants(matching: .any)["user.alice"].firstMatch.swipeLeft()
+        XCTAssertTrue(app.buttons["user.delete"].waitForExistence(timeout: 10),
+                      "a member's row swipes to Delete")
+        XCTAssertTrue(app.buttons["user.disable"].exists, "Disable")
+        XCTAssertTrue(app.buttons["user.reset"].exists, "and Reset password")
+        XCTAssertTrue(app.buttons["user.reset"].frame.minX < app.buttons["user.delete"].frame.minX,
+                      "reading Reset · Disable · Delete from the inside out")
+        attach(name: "78-users-swipe-actions")
+
+        // Deleting asks first and names what goes with the account. The row is
+        // read while the tap is still being handled, because dismissing an
+        // alert clears the state a task started from it would have read.
+        app.buttons["user.delete"].tap()
+        let confirm = app.alerts.buttons["Delete account"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "deleting asks first")
+        let named = app.alerts.staticTexts.allElementsBoundByIndex
+            .contains { $0.label.contains("alice") && $0.label.contains("1 device") }
+        XCTAssertTrue(named, "and names the account and the devices that go with it")
+        attach(name: "79-users-delete-confirm")
+        confirm.tap()
+        XCTAssertTrue(waitForAbsence(app.descendants(matching: .any)["user.alice"].firstMatch,
+                                     timeout: 15),
+                      "and the row goes")
+
+        add.tap()
+        let username = app.textFields["addUser.username"]
+        XCTAssertTrue(username.waitForExistence(timeout: 10), "the sheet asks for a username")
+        XCTAssertTrue(app.secureTextFields["addUser.password"].exists, "a password")
+        XCTAssertTrue(app.segmentedControls["addUser.role"].exists, "and a role")
+        attach(name: "80-add-user-sheet")
+
+        username.tap()
+        username.typeText("dave")
+        app.secureTextFields["addUser.password"].tap()
+        app.secureTextFields["addUser.password"].typeText("correct horse battery staple")
+        app.buttons["addUser.add"].tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["user.dave"].firstMatch.waitForExistence(timeout: 15),
+                      "and the account it made is a row on the screen")
+        attach(name: "81-users-after-add")
+    }
+
+    /// The sign-in form is reached with the offline gateway behind it, so every
+    /// account answer can be driven without a gateway to reach.
+    private func launchSignedOut(extra: [String] = []) {
+        app.launchArguments = ["--ui-testing", "--demo-account", "--reset-state"] + extra
+        app.launch()
+    }
+
+    /// The gateway the offline account tests sign in to. It is deliberately not
+    /// the field's own placeholder, so an empty field can be told from a filled
+    /// one: `value` reports the placeholder when there is nothing in it.
+    private static let testGateway = "https://rc.test.example"
+
+    private func typeGateway() {
+        let gateway = app.textFields["login.gateway"]
+        XCTAssertTrue(gateway.waitForExistence(timeout: 20), "the form is up")
+        clear(gateway)
+        gateway.typeText(Self.testGateway)
+        XCTAssertEqual(gateway.value as? String, Self.testGateway,
+                       "the address field holds exactly what was typed")
+    }
+
+    /// Signing in after signing out meets a form that remembers the gateway and
+    /// the last username, which is the point of it, so both are cleared first.
+    private func signIn(username: String, password: String) {
+        typeGateway()
+        let name = app.textFields["login.username"]
+        clear(name)
+        name.typeText(username)
+        let secret = app.secureTextFields["login.password"]
+        secret.tap()
+        secret.typeText(password)
+        app.buttons["login.connect"].tap()
+    }
+
+    /// Tapping the middle of a filled field leaves the caret in the middle of
+    /// the text, and a delete only removes what is behind it, so the field ends
+    /// up holding the tail of the old value and the whole of the new one. The
+    /// trailing edge puts the caret after the last character.
+    private func clear(_ field: XCUIElement) {
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
+        let value = (field.value as? String) ?? ""
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: value.count))
+    }
+
+    private func openSettingsTab() {
+        let settings = app.tabBars.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 25), "the app is up")
+        settings.tap()
+    }
+
+    /// Wait for an element to go away. A row is removed by a reply from the
+    /// gateway, so it is still on screen when the tap returns.
+    private func waitForAbsence(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !element.exists { return true }
+            _ = element.waitForNonExistence(timeout: 0.4)
+        }
+        return !element.exists
+    }
+
+    /// Wait for one element's label to become what it should be. A refusal
+    /// replaces the sentence in place, so existence alone proves nothing.
+    private func waitFor(_ element: XCUIElement, label: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists, element.label == label { return true }
+            _ = element.waitForExistence(timeout: 0.4)
+        }
+        return false
+    }
+
     /// The demo device ids, which are the row identifiers.
     private enum DemoDevices {
         static let studio = "demo-mac-studio"

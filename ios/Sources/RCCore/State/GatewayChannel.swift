@@ -21,7 +21,10 @@ extension GatewaySocket: GatewayChannel {}
 /// The HTTP surface the stores depend on.
 public protocol GatewayAPI: Sendable {
     var endpoint: GatewayEndpoint { get }
-    func login(password: String, username: String?) async throws -> LoginResponse
+    func health() async throws -> HealthResponse
+    func login(username: String, password: String) async throws -> LoginResponse
+    func register(username: String, password: String) async throws -> LoginResponse
+    func changePassword(current: String, new: String) async throws
     func session() async throws -> SessionInfoResponse
     func logout() async throws
     func config() async throws -> GatewayConfig
@@ -32,6 +35,12 @@ public protocol GatewayAPI: Sendable {
     func cancelPairing(code: String) async throws
     func claimPairingRequest(token: String) async throws -> PairingClaim
     func sessions(deviceID: String?, archived: Bool?) async throws -> [Session]
+    func users() async throws -> UserListResponse
+    func createUser(username: String, password: String, role: UserRole) async throws -> UserRecord
+    func patchUser(_ username: String, state: UserState?, role: UserRole?,
+                   password: String?) async throws -> UserRecord
+    func deleteUser(_ username: String) async throws
+    func setRegistration(open: Bool) async throws -> Bool
     func registerPush(_ registration: APNSRegistration) async throws
     func unregisterPush(token: String) async throws
     func restoreToken(username: String) async -> Bool

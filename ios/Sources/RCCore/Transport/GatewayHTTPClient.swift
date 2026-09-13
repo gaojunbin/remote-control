@@ -87,17 +87,33 @@ public actor GatewayHTTPClient {
 
     // MARK: - Routes
 
-    public func health() async throws -> JSONValue {
-        try await send(.get, "/api/health", authenticated: false)
+    public func health() async throws -> HealthResponse {
+        try await send(.get, "/api/health", authenticated: false).decode(HealthResponse.self)
     }
 
-    public func login(password: String, username: String?) async throws -> LoginResponse {
-        var body: [String: JSONValue] = ["password": .string(password)]
-        if let username, !username.isEmpty { body["username"] = .string(username) }
-        let value = try await send(.post, "/api/login", body: .object(body), authenticated: false)
-        let response = try value.decode(LoginResponse.self)
+    public func login(username: String, password: String) async throws -> LoginResponse {
+        try await signIn(at: "/api/login", username: username, password: password)
+    }
+
+    /// `POST /api/register` (A24). It answers exactly what login answers and is
+    /// a sign-in, so the token is adopted the same way.
+    public func register(username: String, password: String) async throws -> LoginResponse {
+        try await signIn(at: "/api/register", username: username, password: password)
+    }
+
+    private func signIn(at path: String, username: String, password: String) async throws -> LoginResponse {
+        let body: JSONValue = .object(["username": .string(username), "password": .string(password)])
+        let response = try await send(.post, path, body: body, authenticated: false)
+            .decode(LoginResponse.self)
         await storeToken(response.token, username: response.user.username)
         return response
+    }
+
+    /// `POST /api/password` (A24): the caller's own password, never anyone
+    /// else's. Other sign-ins of the account stay valid.
+    public func changePassword(current: String, new: String) async throws {
+        _ = try await send(.post, "/api/password",
+                           body: ["current_password": .string(current), "new_password": .string(new)])
     }
 
     public func session() async throws -> SessionInfoResponse {
@@ -147,6 +163,38 @@ public actor GatewayHTTPClient {
         if let deviceID { query.append(.init(name: "device_id", value: deviceID)) }
         if let archived { query.append(.init(name: "archived", value: archived ? "true" : "false")) }
         return try await send(.get, "/api/sessions", query: query).decode(SessionListResponse.self).sessions
+    }
+
+    // MARK: - Accounts (protocol 3.9, admin only)
+
+    public func users() async throws -> UserListResponse {
+        try await send(.get, "/api/users").decode(UserListResponse.self)
+    }
+
+    public func createUser(username: String, password: String, role: UserRole) async throws -> UserRecord {
+        let body: JSONValue = .object(["username": .string(username),
+                                       "password": .string(password),
+                                       "role": .string(role.rawValue)])
+        return try await send(.post, "/api/users", body: body).decode(UserResponse.self).user
+    }
+
+    public func patchUser(_ username: String, state: UserState? = nil,
+                          role: UserRole? = nil, password: String? = nil) async throws -> UserRecord {
+        var body: [String: JSONValue] = [:]
+        if let state { body["state"] = .string(state.rawValue) }
+        if let role { body["role"] = .string(role.rawValue) }
+        if let password { body["password"] = .string(password) }
+        return try await send(.patch, "/api/users/\(escape(username))", body: .object(body))
+            .decode(UserResponse.self).user
+    }
+
+    public func deleteUser(_ username: String) async throws {
+        _ = try await send(.delete, "/api/users/\(escape(username))")
+    }
+
+    public func setRegistration(open: Bool) async throws -> Bool {
+        try await send(.patch, "/api/registration", body: ["open": .bool(open)])
+            .decode(RegistrationResponse.self).open
     }
 
     public func registerPush(_ registration: APNSRegistration) async throws {
