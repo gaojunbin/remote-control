@@ -7,11 +7,13 @@ options:
 packages:
   RemoteControlIOS:
     path: .
+configFiles:
+  Debug: Signing.xcconfig
+  Release: Signing.xcconfig
 settings:
   base:
     SWIFT_VERSION: '6.0'
     ENABLE_USER_SCRIPT_SANDBOXING: YES
-    DEVELOPMENT_TEAM: ''
 targets:
   RemoteControl:
     type: application

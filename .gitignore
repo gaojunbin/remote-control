@@ -34,3 +34,6 @@ data/
 *.cer
 *.certSigningRequest
 *.mobileprovision
+
+# Personal signing settings (see ios/Signing.xcconfig)
+ios/Signing.local.xcconfig

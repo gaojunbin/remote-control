@@ -44,6 +44,11 @@ xcodebuild -project RemoteControl.xcodeproj -scheme RemoteControl \
   CODE_SIGNING_ALLOWED=NO build
 ```
 
+To install on a real iPhone, write your Team ID into `Signing.local.xcconfig`
+(`DEVELOPMENT_TEAM = XXXXXXXXXX`) beside `Signing.xcconfig`, which includes it
+when present. The local file is ignored by git and is not touched by
+`xcodegen generate`, so the project itself never carries anyone's team id.
+
 The UI test target runs against a booted simulator:
 
 ```

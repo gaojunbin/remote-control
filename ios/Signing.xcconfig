@@ -1,0 +1,10 @@
+// Signing settings that belong to the person building, not to the repository.
+//
+// The simulator and every automated check build unsigned, so nothing here is
+// needed for them. Installing on a real iPhone needs a development team: put
+// `DEVELOPMENT_TEAM = <your 10-character Team ID>` in Signing.local.xcconfig
+// beside this file. That file is ignored by git and survives `xcodegen generate`,
+// which regenerates the project from project.yml and would drop a team id typed
+// into the project itself. CI passes DEVELOPMENT_TEAM on the command line, which
+// overrides both files.
+#include? "Signing.local.xcconfig"
