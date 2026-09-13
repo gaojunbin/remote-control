@@ -135,7 +135,8 @@
           "steer",
           "attachments",
           "effort",
-          "history"
+          "history",
+          "commands"
         ]
       }
     ]
