@@ -225,6 +225,9 @@ struct SharedControlTests {
         #expect(store(state: .readonly, control: .terminal).attachHint == .restartSession)
         let codex = AgentInfo(agent: "codex", available: true, attach: .daemon)
         #expect(store(state: .readonly, control: .terminal, agent: codex).attachHint == .startDaemon)
+        // Amendment A26: pi attaches through the extension the device installs.
+        let pi = AgentInfo(agent: "pi", available: true, attach: .extension)
+        #expect(store(state: .readonly, control: .terminal, agent: pi).attachHint == .installExtension)
     }
 
     @Test("An agent that cannot be attached says nothing about it")

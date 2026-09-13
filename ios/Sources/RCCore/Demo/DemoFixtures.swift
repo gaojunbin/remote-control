@@ -29,11 +29,9 @@ public enum DemoFixtures {
     /// Amendment A25: a Grok Build session a terminal started, mirrored from
     /// the update log Grok keeps, so the app reads it and cannot write to it.
     public static let grokSessionID = "demo-session-migrations"
-    /// Amendment A25: a Cursor session. Cursor exposes no effort levels, so its
-    /// model card reads the model alone and offers no slider.
-    public static let cursorSessionID = "demo-session-storybook"
-    /// Amendment A25: a pi session. pi has no permission system, so its
-    /// composer row carries no permission chip at all.
+    /// Amendment A26: a pi session. pi's permission modes are the device's own,
+    /// enforced by the extension it loads, so the composer row carries the
+    /// permission chip exactly as Codex's does.
     public static let piSessionID = "demo-session-parser"
 
     public static var now: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
@@ -126,27 +124,10 @@ public enum DemoFixtures {
             capabilities: [.worktree, .interrupt, .queue, .effort, .history])
     }
 
-    /// Amendment A25: the Cursor agent CLI, which exposes no effort levels at
-    /// all — so its model card reads the model alone and draws no slider.
-    /// Exactly what `protocol/fixtures/objects/agent.cursor.json` advertises.
-    public static var cursor: AgentInfo {
-        AgentInfo(
-            agent: "cursor", available: true, version: "2026.09.02-c22c1a3",
-            path: "/Users/me/.local/bin/cursor-agent",
-            models: [AgentOption(id: "auto", label: "Auto"),
-                     AgentOption(id: "gpt-5", label: "GPT-5"),
-                     AgentOption(id: "sonnet-4-thinking", label: "Sonnet 4 Thinking")],
-            defaultModel: "auto",
-            permissionModes: [AgentOption(id: "default", label: "Ask when needed"),
-                              AgentOption(id: "force", label: "Never ask"),
-                              AgentOption(id: "plan", label: "Plan mode"),
-                              AgentOption(id: "ask", label: "Ask, read only")],
-            defaultPermissionMode: "default",
-            capabilities: [.worktree, .interrupt, .queue, .history])
-    }
-
-    /// Amendment A25: the pi coding agent, which has no permission system at
-    /// all — so no permission chip and no permission row are drawn for it.
+    /// Amendment A26: the pi coding agent behind the device's own extension,
+    /// which pi loads into every session it runs. The extension enforces pi's
+    /// three permission modes and carries an interrupt, the session settings
+    /// and image inputs, so a `shared` pi session keeps every control.
     /// Exactly what `protocol/fixtures/objects/agent.pi.json` advertises.
     public static var pi: AgentInfo {
         AgentInfo(
@@ -154,12 +135,18 @@ public enum DemoFixtures {
             models: [AgentOption(id: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5"),
                      AgentOption(id: "openai/gpt-5", label: "GPT-5")],
             defaultModel: "anthropic/claude-sonnet-4-5",
+            permissionModes: [AgentOption(id: "untrusted", label: "Ask for everything"),
+                              AgentOption(id: "on-request", label: "Ask when needed"),
+                              AgentOption(id: "never", label: "Never ask")],
+            defaultPermissionMode: "on-request",
             efforts: [AgentOption(id: "off", label: "Off"),
                       AgentOption(id: "low", label: "Low"),
                       AgentOption(id: "medium", label: "Medium"),
                       AgentOption(id: "high", label: "High")],
             defaultEffort: "medium",
-            capabilities: [.worktree, .interrupt, .queue, .steer, .effort, .history])
+            capabilities: [.worktree, .interrupt, .queue, .steer, .attachments, .effort, .history],
+            attach: .extension, attachReady: true, sharedInterrupt: true,
+            sharedSettings: true, sharedAttachments: true)
     }
 
     /// Amendment A22: the build this demo gateway serves, and the older one the
@@ -173,9 +160,9 @@ public enum DemoFixtures {
                    hostname: "mac-studio.local", arch: "arm64", clientVersion: "0.1.0",
                    clientBuild: servedBuild,
                    online: true, lastSeen: now, createdAt: now - 8_640_000, latencyMS: 18,
-                   // Amendment A25: one machine with all five agents on it, so
+                   // Amendment A26: one machine with all four agents on it, so
                    // the picker, the card and a session of each can be seen.
-                   agents: [claude, codex, grok, cursor, pi]),
+                   agents: [claude, codex, grok, pi]),
             Device(deviceID: laptopDeviceID, name: "macbook-air", platform: .macos,
                    hostname: "macbook-air.local", arch: "arm64", clientVersion: "0.1.0",
                    clientBuild: outdatedBuild,
@@ -280,21 +267,14 @@ public enum DemoFixtures {
                     state: .readonly, origin: .terminal, control: .terminal,
                     model: "grok-4.6", effort: "high",
                     createdAt: now - 3_000_000, updatedAt: now - 240_000, lastSeq: 0),
-            // Amendment A25: Cursor lists no effort levels, so the model card
-            // reads the model alone. Its permission modes are its own.
-            Session(sessionID: cursorSessionID, deviceID: macDeviceID, agent: "cursor",
-                    title: "Wire up the Storybook build", cwd: "/Users/me/dev/remote-control/web",
-                    git: GitInfo(branch: "storybook", dirty: false),
-                    state: .idle, origin: .remote, control: .remote,
-                    model: "auto", permissionMode: "default",
-                    createdAt: now - 1_500_000, updatedAt: now - 180_000, lastSeq: 0),
-            // Amendment A25: pi has no permission system, so the composer row
-            // carries the model card and nothing where the picker would be.
+            // Amendment A26: pi's permission modes are the device's own, so the
+            // composer row carries the model card and the permission chip.
             Session(sessionID: piSessionID, deviceID: macDeviceID, agent: "pi",
                     title: "Rewrite the config parser", cwd: "/Users/me/dev/remote-control/client",
                     git: GitInfo(branch: "config-parser", dirty: true, ahead: 3),
                     state: .idle, origin: .remote, control: .remote,
-                    model: "anthropic/claude-sonnet-4-5", effort: "medium",
+                    model: "anthropic/claude-sonnet-4-5", permissionMode: "on-request",
+                    effort: "medium",
                     createdAt: now - 1_200_000, updatedAt: now - 150_000, lastSeq: 0),
             Session(sessionID: doneSessionID, deviceID: ciDeviceID, agent: "codex",
                     title: "Add OTLP traces", cwd: "/work/api",
@@ -531,24 +511,6 @@ public enum DemoFixtures {
         ]
     }
 
-    /// Amendment A25: a Cursor turn. Cursor's print mode carries no thinking
-    /// and no token usage, so neither appears here.
-    public static func cursorHistory(base: Int64 = now - 1_500_000) -> [SessionEvent] {
-        [
-            SessionEvent(seq: 1, ts: base, kind: SessionEvent.userMessageKind, blockID: "u-1",
-                         body: .userMessage(UserMessagePayload(
-                            text: "Add a Storybook build to the web package and run it in CI."))),
-            SessionEvent(seq: 2, ts: base + 1_800, kind: SessionEvent.assistantTextKind, blockID: "a-1",
-                         body: .assistantText(StreamTextPayload(
-                            text: "Added the `storybook` script and a job that builds it on every push.",
-                            done: true))),
-            SessionEvent(seq: 3, ts: base + 1_900, kind: SessionEvent.turnCompletedKind,
-                         body: .turnCompleted(TurnCompletedPayload(turnID: "demo-turn-cursor",
-                                                                   stopReason: .completed,
-                                                                   durationMS: 26_000)))
-        ]
-    }
-
     /// Amendment A25: a pi turn. pi reports its usage and its cost at the end
     /// of a turn, and asks for no approvals on the way.
     public static func piHistory(base: Int64 = now - 1_200_000) -> [SessionEvent] {
@@ -613,7 +575,6 @@ public enum DemoFixtures {
         case erroredSessionID: erroredHistory()
         case revivedSessionID: revivedHistory()
         case grokSessionID: grokHistory()
-        case cursorSessionID: cursorHistory()
         case piSessionID: piHistory()
         default: [
             SessionEvent(seq: 1, ts: now - 3_600_000, kind: SessionEvent.userMessageKind, blockID: "u-1",

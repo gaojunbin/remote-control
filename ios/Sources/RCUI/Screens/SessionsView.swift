@@ -91,14 +91,15 @@ struct SessionsView: View {
             Menu {
                 filterChoice(nil, label: L10n.string("All agents"))
                 ForEach(options, id: \.self) { agent in
-                    // `docs/DESIGN.md` § "Agents": the mark, then the name. A
+                    // `docs/DESIGN.md` § "Agents": the logo, then the name. A
                     // menu row is wide enough to carry both, so it does.
-                    filterChoice(agent, label: "\(AgentLabel.mark(agent)) \(AgentLabel.name(agent))")
+                    filterChoice(agent, label: AgentLabel.name(agent), logo: agent)
                 }
             } label: {
                 HStack(spacing: Theme.Space.hair + 2) {
                     Image(systemName: "line.3.horizontal.decrease")
                     if let agent = model.sessions.agentFilter {
+                        AgentLogo(agent: agent, tint: nil)
                         Text(AgentLabel.name(agent)).font(Theme.Text.meta)
                     }
                 }
@@ -111,12 +112,17 @@ struct SessionsView: View {
         }
     }
 
-    private func filterChoice(_ agent: String?, label: String) -> some View {
+    /// A menu row carries one image, so the chosen row spends it on the
+    /// checkmark and the others on the agent's logo. The toolbar button beside
+    /// the menu is where the chosen agent's logo is drawn instead.
+    private func filterChoice(_ agent: String?, label: String, logo: String? = nil) -> some View {
         Button {
             model.sessions.agentFilter = agent
         } label: {
             if model.sessions.agentFilter == agent {
                 Label(label, systemImage: "checkmark")
+            } else if let logo, let image = AgentLogo.image(logo) {
+                Label { Text(label) } icon: { image.renderingMode(.template) }
             } else {
                 Text(label)
             }

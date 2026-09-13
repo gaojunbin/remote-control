@@ -1,35 +1,27 @@
 import Foundation
 
-/// The name an agent id is shown under, and the mark that stands in for it
-/// where a name does not fit. A `Session` carries only the id, so the list and
-/// the chip need the mapping without a full `AgentInfo` at hand.
+/// The name an agent id is shown under. A `Session` carries only the id, so the
+/// list and the chip need the mapping without a full `AgentInfo` at hand.
 /// An id nobody knows renders as itself rather than as "Unknown".
+///
+/// What stands in for an agent where a name does not fit is its logo, which is
+/// a drawing rather than a string: `AgentLogo` in `RCUI` holds it.
 public enum AgentLabel {
-    /// Product names, never translated. Amendment A25 added the last three.
+    /// Product names, never translated. Amendment A26 withdrew Cursor.
     public static func name(_ agent: String) -> String {
         switch agent {
         case "claude": "Claude Code"
         case "codex": "Codex"
         case "grok": "Grok Build"
-        case "cursor": "Cursor"
         case "pi": "pi"
         default: agent
         }
     }
 
-    /// The one- or two-letter mark the new-session form's agent control and the
-    /// filter menu draw. `docs/DESIGN.md` § "Agents": the mark and the name tell
-    /// the agents apart, not a colour per vendor. An agent nobody knows is
-    /// marked by its own first letter.
-    public static func mark(_ agent: String) -> String {
-        switch agent {
-        case "claude": "C"
-        case "codex": "X"
-        case "grok": "G"
-        case "cursor": "Cu"
-        case "pi": "π"
-        default: agent.prefix(1).uppercased()
-        }
+    /// The letter an agent with no logo of its own is marked by: the first of
+    /// its id, upper-cased. `docs/DESIGN.md` § "Agents".
+    public static func initial(_ agent: String) -> String {
+        agent.prefix(1).uppercased()
     }
 }
 

@@ -199,9 +199,21 @@ struct DeviceRow: View {
                 Spacer(minLength: 0)
             }
             if !device.availableAgents.isEmpty {
-                Text(device.availableAgents.map(\.displayName).joined(separator: " · "))
-                    .font(Theme.Text.caption)
-                    .foregroundStyle(Theme.inkSecondary)
+                // `docs/DESIGN.md` § "Agents": the logo, then the name, for each
+                // agent this machine detected.
+                HStack(spacing: Theme.Space.tight) {
+                    ForEach(Array(device.availableAgents.enumerated()), id: \.element.id) { index, info in
+                        if index > 0 {
+                            Text("·").font(Theme.Text.caption).foregroundStyle(Theme.inkSecondary)
+                        }
+                        AgentLogo(agent: info.agent)
+                        Text(info.displayName)
+                            .font(Theme.Text.caption)
+                            .foregroundStyle(Theme.inkSecondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .lineLimit(1)
             }
             clientLine
         }

@@ -2,40 +2,40 @@ import Testing
 import Foundation
 @testable import RCCore
 
-/// Amendment A25: three more agents, and two shapes the app had not met — an
-/// agent with no permission system (pi) and one with no effort levels (Cursor).
-/// Nothing on the wire changed, so what is checked here is what the app makes
-/// of an `AgentInfo`: the name it draws, the mark that stands in for it, and
-/// the controls an empty list takes away.
-@Suite("Agents (A25)")
+/// Amendments A25 and A26: the agents beside Claude and Codex, and the shape
+/// the app had not met — an agent with no effort levels of its own. Nothing on
+/// the wire changed, so what is checked here is what the app makes of an
+/// `AgentInfo`: the name it draws and the controls an empty list takes away.
+/// Amendment A26 withdrew Cursor and gave pi the device's own permission modes.
+@Suite("Agents (A25, A26)")
 struct AgentsTests {
-    // MARK: - Names and marks
+    // MARK: - Names
 
     @Test("Every agent the device knows is named", arguments: [
-        ("claude", "Claude Code"), ("codex", "Codex"), ("grok", "Grok Build"),
-        ("cursor", "Cursor"), ("pi", "pi")
+        ("claude", "Claude Code"), ("codex", "Codex"), ("grok", "Grok Build"), ("pi", "pi")
     ])
     func names(agent: String, name: String) {
         #expect(AgentLabel.name(agent) == name)
     }
 
-    @Test("And marked where a name does not fit", arguments: [
-        ("claude", "C"), ("codex", "X"), ("grok", "G"), ("cursor", "Cu"), ("pi", "π")
-    ])
-    func marks(agent: String, mark: String) {
-        #expect(AgentLabel.mark(agent) == mark)
-    }
-
     @Test("An agent nobody knows renders as itself, marked by its first letter")
     func unknownAgent() {
         #expect(AgentLabel.name("aider") == "aider")
-        #expect(AgentLabel.mark("aider") == "A")
-        #expect(AgentLabel.mark("") == "")
+        #expect(AgentLabel.initial("aider") == "A")
+        #expect(AgentLabel.initial("") == "")
+    }
+
+    /// Amendment A26: Cursor is no longer an agent id a device reports, so it
+    /// falls through to the rule for an id nobody knows.
+    @Test("Cursor is gone, and reads as any other unknown id would")
+    func cursorIsWithdrawn() {
+        #expect(AgentLabel.name("cursor") == "cursor")
+        #expect(AgentLabel.initial("cursor") == "C")
     }
 
     // MARK: - What the device advertises
 
-    @Test("The three new agents decode exactly as the protocol's worked examples")
+    @Test("The two new agents decode exactly as the protocol's worked examples")
     func fixturesDecode() throws {
         let grok = try agentFixture("agent.grok.json")
         #expect(grok.agent == "grok")
@@ -47,24 +47,24 @@ struct AgentsTests {
         #expect(grok.supports(.effort))
         #expect(grok.attach == nil)
 
-        let cursor = try agentFixture("agent.cursor.json")
-        #expect(cursor.permissionModes.map(\.id) == ["default", "force", "plan", "ask"])
-        #expect(cursor.efforts.isEmpty)
-        #expect(cursor.defaultEffort == nil)
-        #expect(!cursor.supports(.effort))
-
+        // Amendment A26: pi's three permission modes are the device's own, and
+        // the extension that enforces them attaches its terminal sessions too.
         let pi = try agentFixture("agent.pi.json")
-        #expect(pi.permissionModes.isEmpty)
-        #expect(pi.defaultPermissionMode == nil)
+        #expect(pi.permissionModes.map(\.id) == ["untrusted", "on-request", "never"])
+        #expect(pi.defaultPermissionMode == "on-request")
         #expect(pi.efforts.map(\.id) == ["off", "low", "medium", "high"])
         #expect(pi.supports(.steer))
+        #expect(pi.supports(.attachments))
+        #expect(pi.attach == .extension)
+        #expect(pi.attachReady)
+        #expect(pi.sharedInterrupt && pi.sharedSettings && pi.sharedAttachments)
     }
 
-    @Test("The demo device advertises all five, exactly as the fixtures do")
-    func demoDeviceCarriesFive() throws {
+    @Test("The demo device advertises all four, exactly as the fixtures do")
+    func demoDeviceCarriesFour() throws {
         let mac = try #require(DemoFixtures.devices.first { $0.deviceID == DemoFixtures.macDeviceID })
-        #expect(mac.availableAgents.map(\.agent) == ["claude", "codex", "grok", "cursor", "pi"])
-        for name in ["agent.grok.json", "agent.cursor.json", "agent.pi.json"] {
+        #expect(mac.availableAgents.map(\.agent) == ["claude", "codex", "grok", "pi"])
+        for name in ["agent.grok.json", "agent.pi.json"] {
             let fixture = try agentFixture(name)
             let demo = try #require(mac.agent(fixture.agent))
             #expect(demo.models == fixture.models)
@@ -74,6 +74,8 @@ struct AgentsTests {
             #expect(demo.efforts == fixture.efforts)
             #expect(demo.defaultEffort == fixture.defaultEffort)
             #expect(demo.capabilities == fixture.capabilities)
+            #expect(demo.attach == fixture.attach)
+            #expect(demo.attachReady == fixture.attachReady)
         }
     }
 
@@ -86,46 +88,60 @@ struct AgentsTests {
         #expect(grok.origin == .terminal)
         #expect(grok.permissionMode == nil)
 
-        let cursor = try #require(sessions.first { $0.sessionID == DemoFixtures.cursorSessionID })
-        #expect(cursor.agent == "cursor")
-        #expect(cursor.effort == nil)
-
         let pi = try #require(sessions.first { $0.sessionID == DemoFixtures.piSessionID })
         #expect(pi.agent == "pi")
-        #expect(pi.permissionMode == nil)
+        #expect(pi.permissionMode == "on-request")
+    }
+
+    @Test("And no session of an agent the protocol withdrew")
+    func noCursorSessionSurvives() {
+        #expect(!DemoFixtures.sessions.contains { $0.agent == "cursor" })
+        #expect(!DemoFixtures.devices.contains { $0.agents.contains { $0.agent == "cursor" } })
     }
 
     // MARK: - What an empty list takes away
 
-    @Test("An agent with no permission system shows no permission chip")
-    func piHasNoPermissionChip() {
-        let session = Session(sessionID: "s", deviceID: "d", agent: "pi", title: "Parser",
-                              cwd: "/tmp", control: .terminal,
-                              model: "anthropic/claude-sonnet-4-5", effort: "medium",
-                              updatedAt: 0)
+    /// Amendment A26: pi's modes are the device's own, so the chip an earlier
+    /// round drew nothing for is now drawn exactly as Codex's is — and by the
+    /// same code, with nothing in the app to change.
+    @Test("pi now shows its permission chip, and its picker")
+    func piShowsThePermissionControl() throws {
+        let session = try #require(DemoFixtures.sessions
+            .first { $0.sessionID == DemoFixtures.piSessionID })
         let chips = TerminalSetting.all(for: session, agent: DemoFixtures.pi)
-        #expect(chips.map(\.id) == ["modelCard"])
-        #expect(chips.map(\.text) == ["Claude Sonnet 4.5 Medium"])
-        #expect(TerminalSetting.permissionText(for: session, agent: DemoFixtures.pi) == nil)
+        #expect(chips.map(\.id) == ["modelCard", "permissionMode"])
+        #expect(chips.map(\.text) == ["Claude Sonnet 4.5 Medium", "Ask when needed"])
+        #expect(TerminalSetting.permissionText(for: session, agent: DemoFixtures.pi)
+                == "Ask when needed")
+        #expect(!DemoFixtures.pi.permissionModes.isEmpty,
+                "which is what the new-session form reads before it draws its Permissions row")
     }
 
-    @Test("Even when a session somehow carries one")
-    func piIgnoresAStrayPermissionMode() {
-        let session = Session(sessionID: "s", deviceID: "d", agent: "pi", title: "Parser",
-                              cwd: "/tmp", control: .terminal, permissionMode: "default",
-                              updatedAt: 0)
-        #expect(TerminalSetting.permissionText(for: session, agent: DemoFixtures.pi) == nil)
-        #expect(TerminalSetting.all(for: session, agent: DemoFixtures.pi).isEmpty)
+    /// Amendment A17 is unchanged: an agent that lists no modes still draws no
+    /// chip, whatever the session reports.
+    @Test("An agent with no permission system still shows no chip")
+    func anEmptyListStillTakesTheChipAway() {
+        let bare = AgentInfo(agent: "aider", available: true,
+                             models: [AgentOption(id: "m", label: "M")], defaultModel: "m")
+        let session = Session(sessionID: "s", deviceID: "d", agent: "aider", title: "Port",
+                              cwd: "/tmp", control: .terminal, model: "m",
+                              permissionMode: "default", updatedAt: 0)
+        #expect(TerminalSetting.permissionText(for: session, agent: bare) == nil)
+        #expect(TerminalSetting.all(for: session, agent: bare).map(\.id) == ["modelCard"])
     }
 
     @Test("An agent with no effort levels reads the model alone")
-    func cursorReadsTheModelAlone() {
-        let session = Session(sessionID: "s", deviceID: "d", agent: "cursor", title: "Storybook",
+    func anAgentWithoutEffortsReadsTheModelAlone() {
+        let bare = AgentInfo(agent: "aider", available: true,
+                             models: [AgentOption(id: "auto", label: "Auto")], defaultModel: "auto",
+                             permissionModes: [AgentOption(id: "default", label: "Ask when needed")],
+                             defaultPermissionMode: "default")
+        let session = Session(sessionID: "s", deviceID: "d", agent: "aider", title: "Storybook",
                               cwd: "/tmp", control: .terminal, model: "auto",
                               permissionMode: "default", effort: "high", updatedAt: 0)
-        #expect(TerminalSetting.effortText(for: session, agent: DemoFixtures.cursor) == nil)
-        #expect(TerminalSetting.modelCardText(for: session, agent: DemoFixtures.cursor) == "Auto")
-        #expect(TerminalSetting.all(for: session, agent: DemoFixtures.cursor).map(\.text)
+        #expect(TerminalSetting.effortText(for: session, agent: bare) == nil)
+        #expect(TerminalSetting.modelCardText(for: session, agent: bare) == "Auto")
+        #expect(TerminalSetting.all(for: session, agent: bare).map(\.text)
                 == ["Auto", "Ask when needed"])
     }
 
@@ -202,7 +218,7 @@ struct AgentsTests {
     @Test("The agent filter offers every agent the list runs, in label order")
     func filterOptions() {
         #expect(SessionListLayout.agents(in: DemoFixtures.sessions)
-                == ["claude", "codex", "cursor", "grok", "pi"])
+                == ["claude", "codex", "grok", "pi"])
     }
 
     @Test("And a session of a new agent is found by its name as well as its id")

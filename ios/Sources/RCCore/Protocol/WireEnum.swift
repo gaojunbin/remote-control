@@ -83,6 +83,9 @@ public struct AgentAttach: WireEnum {
     public static let channel = AgentAttach(rawValue: "channel")
     /// The Codex shared app-server daemon.
     public static let daemon = AgentAttach(rawValue: "daemon")
+    /// Amendment A26: the device's own extension, which pi loads into every
+    /// session it runs, terminal sessions included.
+    public static let `extension` = AgentAttach(rawValue: "extension")
 }
 
 /// Amendment A10: what became of a message sent into a `shared` session.

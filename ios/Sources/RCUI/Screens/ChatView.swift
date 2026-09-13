@@ -387,6 +387,8 @@ private struct AttachHintLine: View {
             Text("Start claude through the remote-control shim to control it from here")
         case .startDaemon:
             Text("Start the Codex app-server daemon on this device to control it from here")
+        case .installExtension:
+            Text("Run rc-client pi setup on the device to attach its pi sessions")
         case .restartSession:
             Text("This terminal session was started without the attachment; restart it to control it from here")
         }

@@ -143,30 +143,47 @@ not move the app out from under a test.
 Nothing here is scoped by the app alone: the gateway sends one account's devices and sessions and
 answers `not_found` for anyone else's, so `hello` is already the whole of what this person has.
 
-## Agents: five names, five marks, and nothing drawn for what an agent lacks
+## Agents: four names, four logos, and nothing drawn for what an agent lacks
 
-`AgentLabel` in `Sources/RCCore/Protocol/AgentLabel.swift` is the whole mapping, and both halves of
-it live there: `name(_:)` gives Claude Code, Codex, Grok Build, Cursor and pi (amendment A25), and
-`mark(_:)` gives the one- or two-letter mark — C, X, G, Cu, π — that stands in where a name does not
-fit. An id this build has never met renders as itself and is marked by its own first letter, so a
-sixth agent needs no release. `Session.agentLabel` is how a row asks for the name; the agent chip on
-a row and the filter's own button are always the full name, because both have room for it.
+`AgentLabel` in `Sources/RCCore/Protocol/AgentLabel.swift` holds the names: `name(_:)` gives Claude
+Code, Codex, Grok Build and pi (amendments A25 and A26, which withdrew Cursor). An id this build has
+never met renders as itself, so a fifth agent needs no release. `Session.agentLabel` is how a row
+asks for the name.
 
-Two places take the mark. The **new-session sheet's** agent control is a segmented `Picker`, and
-five names do not fit one across a phone: each segment draws `AgentLabel.mark` and carries
-`.accessibilityLabel(info.displayName)`, so a screen reader still reads "Grok Build" where the eye
-reads G. The line under the control names the agent that is chosen and then, in the monospace face,
-the version the device detected and the model that agent would start on — the same line the web
-draws under its own segmented control. The **filter menu** has room for both, so each row reads the
-mark and then the name.
+What stands in for an agent is its own logo, which is a drawing rather than a string, so it lives in
+`RCUI` instead: `AgentLogo(agent:)` in `Sources/RCUI/Design/AgentLogo.swift` draws the vector as a
+template image from `Sources/RCUI/Resources/Agents.xcassets` — image sets `agent-claude`,
+`agent-codex`, `agent-grok` and `agent-pi`, each one SVG with its vector representation preserved
+and its rendering intent set to template, so a single asset serves both appearances and every size.
+The view frames it square at `Theme.Mark.inline`, the cap height of the footnote line beside it, and
+`@ScaledMetric` carries that box through Dynamic Type; `Theme.Mark.control` is the larger box the
+agent control uses, where the logo stands alone with no word to match. The colour is `Theme.ink`
+unless the caller passes `tint: nil` to inherit whatever it has already set. An agent with no vector
+falls back to `AgentLabel.initial(_:)`, the first letter of its id, in the same box.
+
+Four places draw it. The **session row's chip** and the **device row's agent list** put the logo
+before the name. The **filter menu**, whose active choice the toolbar button repeats with its own
+logo, does the same — except on the chosen row, because a menu row carries one image and that one is
+spent on the checkmark. The **new-session sheet's** agent control is a segmented `Picker` where four
+names do not fit across a phone, so each segment is the logo alone with
+`.accessibilityLabel(info.displayName)`, and a screen reader reads "Grok Build" where the eye reads
+the spiral. That control and the menu are drawn by UIKit, which takes an `Image` and a `Text` and
+drops every other view, so both call `AgentLogo.image(_:)` for the bare vector rather than the view.
+The line under the control names the agent that is chosen and then, in the monospace face, the
+version the device detected and the model that agent would start on — the same line the web draws
+under its own segmented control.
 
 **What an agent does not have is not drawn.** The device's `AgentInfo` is the only authority, and an
 empty list means the agent has no such setting rather than that the app could not read one:
 
 | Empty list | What goes | Where |
 | --- | --- | --- |
-| `permission_modes` (pi) | the composer's `composer.permissions` chip, and the sheet's Permissions section | `Composer.permissionChip`, `NewSessionSheet.settingsSections` |
-| `efforts` (Cursor) | the card's `StopSlider`, the sheet's Effort section, and the effort word after the model name | `ModelCard`, `NewSessionSheet.settingsSections` |
+| `permission_modes` | the composer's `composer.permissions` chip, and the sheet's Permissions section | `Composer.permissionChip`, `NewSessionSheet.settingsSections` |
+| `efforts` | the card's `StopSlider`, the sheet's Effort section, and the effort word after the model name | `ModelCard`, `NewSessionSheet.settingsSections` |
+
+No shipped agent has an empty list today. pi's three modes arrived with A26 — they are the device's
+own, enforced by the extension pi loads into every session — and the app draws them exactly as it
+draws Codex's, with nothing changed in the app to do it.
 
 Nothing is greyed out and no caption explains the gap. The same rule reaches the read-only chips a
 terminal-held session draws (A17): `TerminalSetting.permissionText(for:agent:)` and
@@ -175,10 +192,10 @@ update log carries a model and a level but never a permission mode — shows one
 session shows two. A session whose agent this build has never met keeps A17's fallback and shows the
 raw ids, because with no `AgentInfo` at hand there is no list to say the setting does not exist.
 
-The demo device `mac-studio-office` advertises all five agents, copied from
-`protocol/fixtures/objects/agent.grok.json`, `agent.cursor.json` and `agent.pi.json` to the letter,
-and the demo list carries one session of each new agent: the Grok one terminal-held and mirrored,
-the Cursor and pi ones the app's own.
+The demo device `mac-studio-office` advertises all four agents, copied from
+`protocol/fixtures/objects/agent.grok.json` and `agent.pi.json` to the letter, and the demo list
+carries one session of each new agent: the Grok one terminal-held and mirrored, the pi one the
+app's own.
 
 ## The shell: three tabs, one order, one landing rule
 
@@ -229,8 +246,8 @@ small "Archived" mark so the two are told apart. Nothing is removed from the pro
 | An agent filter applies before the grouping, so a machine whose sessions all drop out disappears | `SessionStore.agentFilter` |
 
 The agent filter sits in the navigation bar as **All agents** and then every agent the list
-actually contains, each row reading its mark and then its name (A25). Every row's agent chip is the
-full name in the one quiet tint every agent shares; no agent has a colour of its own. It is a view of the list rather than a setting: it starts at
+actually contains, each row reading its logo and then its name (A26). Every row's agent chip is the
+logo and the full name in the one quiet tint every agent shares; no agent has a colour of its own. It is a view of the list rather than a setting: it starts at
 All on every launch and is never written to defaults. The device filter is a parameter of the
 same function, for the callers that narrow to one machine.
 
@@ -289,8 +306,8 @@ Device, agent, model, effort, permissions, speed, working directory and git. The
 for a first message, so `session.create` goes out without `first_message`; the protocol keeps the
 field. The four agent settings start at the agent's own defaults and change with the agent picker,
 so choosing Codex where Claude was selected re-reads every list — and a section whose list comes
-back empty is not drawn at all (A25): pi gets no Permissions row, Cursor no Effort row. The agent
-control itself is marked rather than named, as the Agents section above describes. Its section
+back empty is not drawn at all (A25); no agent ships an empty list today. The agent control itself
+carries logos rather than names, as the Agents section above describes. Its section
 headers use `FieldLabel`, the one label every form section in the app is headed with.
 
 ## Devices
@@ -445,6 +462,7 @@ driven by `ChatStore.attachHint`:
 | --- | --- |
 | `attach: "channel"`, `attach_ready: false` | Start claude through the remote-control shim to control it from here |
 | `attach: "daemon"`, `attach_ready: false` | Start the Codex app-server daemon on this device to control it from here |
+| `attach: "extension"`, `attach_ready: false` (A26) | Run rc-client pi setup on the device to attach its pi sessions |
 | `attach_ready: true` | This terminal session was started without the attachment; restart it to control it from here |
 
 Nothing is offered that the device cannot do: `session.takeover` is never shown on a `shared`
@@ -588,8 +606,8 @@ phone and not a sheet — with two rows:
   the stop index gives one selection haptic per stop the thumb crosses, which is what lets the
   levels be counted without looking. VoiceOver reaches it as one adjustable element with an
   `.accessibilityAdjustableAction` for increment and decrement. An agent with one effort level or
-  none draws no slider: there is nothing to slide. An agent that lists none at all (Cursor, A25)
-  loses the effort word after the model name as well, so its card reads the model alone.
+  none draws no slider: there is nothing to slide. An agent that lists none at all loses the effort
+  word after the model name as well, so its card reads the model alone.
 
 **A width that never changes.** The chip and the card's name row are as wide as the widest
 model-and-effort combination the agent offers, so nothing beside them shifts while a level is

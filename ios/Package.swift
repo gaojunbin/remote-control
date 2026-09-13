@@ -13,7 +13,8 @@ let package = Package(
     ],
     targets: [
         .target(name: "RCCore"),
-        .target(name: "RCUI", dependencies: ["RCCore"], resources: [.copy("Resources/Markdown")]),
+        .target(name: "RCUI", dependencies: ["RCCore"],
+                resources: [.copy("Resources/Markdown"), .process("Resources/Agents.xcassets")]),
         .executableTarget(name: "RCVerify", dependencies: ["RCCore"], path: "Verification"),
         .executableTarget(name: "RCUIVerify", dependencies: ["RCUI", "RCCore"], path: "VerificationUI"),
         .executableTarget(name: "RCPreview", dependencies: ["RCUI"]),

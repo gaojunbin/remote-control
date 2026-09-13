@@ -296,7 +296,7 @@ func run() async -> (passed: Int, failures: [String]) {
     let sessions = SessionStore(defaults: UserDefaults(suiteName: "rc-ui-verify-\(UUID().uuidString)")!)
     let groups = sessions.groups(helloSessions, devices: model.connection.devices)
     equal(groups.count, 3, "the list is grouped by device")
-    equal(groups.flatMap { $0.active + $0.archive }.count, 12, "every demo session is placed")
+    equal(groups.flatMap { $0.active + $0.archive }.count, 11, "every demo session is placed")
     equal(groups.first?.active.first?.state, .needsApproval,
           "a session waiting on the user sorts first")
     equal(groups.first?.name, "mac-studio-office", "the machine with live work leads the list")
@@ -315,23 +315,28 @@ func run() async -> (passed: Int, failures: [String]) {
            "and every row that remains runs the chosen agent")
     sessions.agentFilter = nil
 
-    // MARK: - Amendment A25, three more agents
+    // MARK: - Amendments A25 and A26, the agents beside Claude and Codex
     //
-    // `docs/DESIGN.md` § "Agents": five names, five marks, and no control at
+    // `docs/DESIGN.md` § "Agents": four names, four logos, and no control at
     // all where the agent advertises no such setting.
 
     equal(SessionListLayout.agents(in: helloSessions).map(AgentLabel.name),
-          ["Claude Code", "Codex", "Cursor", "Grok Build", "pi"],
-          "the filter names all five agents, in label order")
-    equal(SessionListLayout.agents(in: helloSessions).map(AgentLabel.mark),
-          ["C", "X", "Cu", "G", "π"],
-          "and marks each of them where a name would not fit")
+          ["Claude Code", "Codex", "Grok Build", "pi"],
+          "the filter names all four agents, in label order")
+    equal(SessionListLayout.agents(in: helloSessions).map(AgentLabel.initial),
+          ["C", "C", "G", "P"],
+          "and an agent with no logo of its own falls back to its first letter")
+    for agent in ["claude", "codex", "grok", "pi"] {
+        expect(AgentLogo.image(agent) != nil, "\(agent) is drawn by its own logo")
+    }
+    expect(AgentLogo.image("aider") == nil, "an agent nobody knows has no logo to draw")
 
     if let piSession = helloSessions.first(where: { $0.sessionID == DemoFixtures.piSessionID }) {
         let chat = ChatStore(session: piSession, channel: DemoGateway())
         chat.agent = model.agent(for: piSession)
-        expect(chat.agent?.permissionModes.isEmpty == true,
-               "pi advertises no permission modes at all")
+        equal(chat.agent?.permissionModes.map(\.id), ["untrusted", "on-request", "never"],
+              "A26: pi's permission modes are the device's own, enforced by the extension")
+        equal(chat.agent?.attach, AgentAttach.extension, "which pi loads into every session")
         expect(chat.allowsSettingsChanges, "a pi session the app started keeps its live controls")
         equal(ModelCardText.words(for: piSession, agent: chat.agent), "Claude Sonnet 4.5 Medium",
               "and its model card carries the model and the thinking level")
@@ -339,17 +344,6 @@ func run() async -> (passed: Int, failures: [String]) {
               "which the sizer measures as every model against every level")
     } else {
         expect(false, "the demo carries a pi session")
-    }
-
-    if let cursorSession = helloSessions.first(where: { $0.sessionID == DemoFixtures.cursorSessionID }) {
-        let agent = model.agent(for: cursorSession)
-        expect(agent?.efforts.isEmpty == true, "Cursor advertises no effort levels")
-        equal(ModelCardText.words(for: cursorSession, agent: agent), "Auto",
-              "so its model card reads the model alone")
-        equal(ModelCardSizing.pairs(for: agent, model: "Cursor").map(\.effort), [nil, nil, nil],
-              "and the sizer measures the models with no level after them")
-    } else {
-        expect(false, "the demo carries a Cursor session")
     }
 
     if let grokSession = helloSessions.first(where: { $0.sessionID == DemoFixtures.grokSessionID }) {

@@ -59,6 +59,18 @@ public enum Theme {
         public static let page: CGFloat = 20
     }
 
+    /// The square an agent's logo is drawn in. `docs/DESIGN.md` § "Agents": the
+    /// vectors are full-bleed, so the box is the cap height of the line beside
+    /// them and the mark stands exactly as tall as the capitals it sits next to.
+    public enum Mark {
+        /// Beside a word, on a chip or in a menu row: the cap height of the
+        /// `meta` line (13 pt footnote, SF's 0.705 cap ratio).
+        public static let inline: CGFloat = 9
+        /// Alone, in the new-session form's agent control, where there is no
+        /// word to match and the segment itself is the target.
+        public static let control: CGFloat = 17
+    }
+
     /// The minimum comfortable target, and the primary thumb target.
     public enum Touch {
         public static let minimum: CGFloat = 44

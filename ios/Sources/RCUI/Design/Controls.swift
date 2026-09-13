@@ -152,21 +152,25 @@ public struct StatusLabel: View {
     }
 }
 
-/// The agent a session runs, as a tinted pill. Tinted and never outlined, so a
-/// row keeps its one edge budget for the surface it sits on.
+/// The agent a session runs, as a tinted pill: its logo, then its name. Tinted
+/// and never outlined, so a row keeps its one edge budget for the surface it
+/// sits on, and no agent carries a colour of its own.
 public struct AgentChip: View {
     let agent: String
 
     public init(agent: String) { self.agent = agent }
 
     public var body: some View {
-        Text(AgentLabel.name(agent))
-            .font(Theme.Text.caption)
-            .foregroundStyle(Theme.inkSecondary)
-            .lineLimit(1)
-            .padding(.horizontal, Theme.Space.tight)
-            .padding(.vertical, 2)
-            .background(Theme.quietFill, in: Capsule())
+        HStack(spacing: Theme.Space.hair + 2) {
+            AgentLogo(agent: agent)
+            Text(AgentLabel.name(agent))
+                .font(Theme.Text.caption)
+                .foregroundStyle(Theme.inkSecondary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, Theme.Space.tight)
+        .padding(.vertical, 2)
+        .background(Theme.quietFill, in: Capsule())
     }
 }
 

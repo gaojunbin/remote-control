@@ -3350,6 +3350,23 @@
         }
       }
     },
+    "Run rc-client pi setup on the device to attach its pi sessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run rc-client pi setup on the device to attach its pi sessions"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在该设备上运行 rc-client pi setup，才能接管它的 pi 会话"
+          }
+        }
+      }
+    },
     "Save": {
       "extractionState": "manual",
       "localizations": {

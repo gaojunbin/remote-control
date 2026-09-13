@@ -99,15 +99,15 @@ struct NewSessionSheet: View {
         }
     }
 
-    /// `docs/DESIGN.md` § "Agents": five agents do not fit a segmented control
-    /// by name, so each segment carries the agent's mark and the line under the
-    /// control names the one that is chosen. The mark is for the eye only —
-    /// assistive technology reads the name.
+    /// `docs/DESIGN.md` § "Agents": four agents do not fit a segmented control
+    /// by name, so each segment carries the agent's logo alone and the line
+    /// under the control names the one that is chosen. The logo is for the eye
+    /// only — assistive technology reads the name.
     private var agentSection: some View {
         Section {
             Picker("Agent", selection: $agentID) {
                 ForEach(device?.availableAgents ?? []) { info in
-                    Text(AgentLabel.mark(info.agent))
+                    agentSegment(info)
                         .accessibilityLabel(info.displayName)
                         .tag(info.agent)
                 }
@@ -129,6 +129,18 @@ struct NewSessionSheet: View {
             }
         } header: {
             FieldLabel("Agent")
+        }
+    }
+
+    /// A segmented control is drawn by UIKit, which takes an image or a word
+    /// and nothing else, so the logo goes in bare and an agent with no vector
+    /// falls back to the first letter of its id.
+    @ViewBuilder
+    private func agentSegment(_ info: AgentInfo) -> some View {
+        if let image = AgentLogo.image(info.agent) {
+            image.renderingMode(.template)
+        } else {
+            Text(AgentLabel.initial(info.agent))
         }
     }
 

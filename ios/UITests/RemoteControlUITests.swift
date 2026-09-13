@@ -557,8 +557,8 @@ final class RemoteControlUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
-        // It is on the second machine, and five agents' worth of sessions on the
-        // first one (A25) put that machine's group below the fold.
+        // It is on the second machine, and four agents' worth of sessions on
+        // the first one (A26) put that machine's group below the fold.
         let row = app.buttons["session.demo-session-rename"]
         XCTAssertTrue(scrollDown(to: row), "the unattachable terminal session is listed")
         row.tap()
@@ -582,7 +582,7 @@ final class RemoteControlUITests: XCTestCase {
     ///
     /// The four on the live machine are in frame together, which is what the
     /// screenshot is for. The grey one is not: it lives in another machine's
-    /// Archive, and since the demo grew to five agents (A25) the rows in
+    /// Archive, and since the demo grew to four agents (A26) the rows in
     /// between are taller than a phone. It is reached by scrolling instead.
     func testSessionsListShowsEveryStatusTone() {
         app.launch()
@@ -749,9 +749,9 @@ final class RemoteControlUITests: XCTestCase {
 
     /// Scrolls the list until the element is on screen and can be tapped, so a
     /// lazy row at the foot of the page is never a matter of swipe distance.
-    /// `docs/DESIGN.md` § "Agents", amendment A25: five agents on one machine.
-    /// The segmented control carries each agent's mark rather than its name,
-    /// because five names do not fit a phone; assistive technology still reads
+    /// `docs/DESIGN.md` § "Agents", amendment A26: four agents on one machine.
+    /// The segmented control carries each agent's logo rather than its name,
+    /// because four names do not fit a phone; assistive technology still reads
     /// the name. And the form asks about nothing the agent does not have.
     func testNewSessionSheetMarksEveryAgentAndDrawsOnlyWhatItHas() {
         app.launch()
@@ -764,30 +764,23 @@ final class RemoteControlUITests: XCTestCase {
         let picker = app.segmentedControls.firstMatch
         XCTAssertTrue(picker.waitForExistence(timeout: 10), "the agent control is a segmented control")
         XCTAssertEqual(picker.buttons.allElementsBoundByIndex.map { $0.label },
-                       ["Claude Code", "Codex", "Grok Build", "Cursor", "pi"],
+                       ["Claude Code", "Codex", "Grok Build", "pi"],
                        "one segment per agent the machine reported, each named to a screen reader")
         attach(name: "82-new-session-agents")
 
-        // pi has no permission system at all, so there is no row for one.
+        // Amendment A26: pi's permission modes are the device's own, enforced
+        // by the extension it loads, so the form asks about them like any other.
         app.buttons["pi"].firstMatch.tap()
         XCTAssertTrue(app.descendants(matching: .any)["newsession.effort"].exists,
                       "pi offers the thinking levels it does have")
-        XCTAssertFalse(app.descendants(matching: .any)["newsession.permissions"].exists,
-                       "and no permission row, greyed out or otherwise")
-        attach(name: "83-new-session-pi")
-
-        // Cursor is the other way round: permission modes, no effort levels.
-        app.buttons["Cursor"].firstMatch.tap()
         XCTAssertTrue(app.descendants(matching: .any)["newsession.permissions"].exists,
-                      "Cursor offers its own four permission modes")
-        XCTAssertFalse(app.descendants(matching: .any)["newsession.effort"].exists,
-                       "and no effort row, because it has no levels to pick from")
-        attach(name: "84-new-session-cursor")
+                      "and the three permission modes the extension enforces (A26)")
+        attach(name: "83-new-session-pi")
     }
 
-    /// Amendment A25: pi has no permission system, so the composer row carries
-    /// the model card and nothing where the permission chip would stand.
-    func testPiSessionDrawsNoPermissionChip() {
+    /// Amendment A26: pi's permission modes are the device's own, so the
+    /// composer row carries the permission chip exactly as Codex's does.
+    func testPiSessionDrawsItsPermissionChip() {
         app.launch()
         let row = app.buttons["session.demo-session-parser"]
         XCTAssertTrue(row.waitForExistence(timeout: 20), "the pi demo session is listed")
@@ -798,8 +791,11 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertEqual(chip.label, "Model")
         XCTAssertEqual(chip.value as? String, "Claude Sonnet 4.5 Medium",
                        "reading the model and the thinking level pi is set to")
-        XCTAssertFalse(app.buttons["composer.permissions"].exists,
-                       "and nothing stands where the permission chip would be")
+        let permissions = app.buttons["composer.permissions"]
+        XCTAssertTrue(permissions.waitForExistence(timeout: 10),
+                      "and the permission chip stands beside it (A26)")
+        XCTAssertEqual(permissions.value as? String, "Ask when needed",
+                       "reading the mode the extension is enforcing")
         attach(name: "85-pi-composer")
 
         // The levels pi does have are still a slider on the card.
@@ -808,27 +804,6 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["composer.effort"].exists,
                       "with the thinking-level slider on it")
         attach(name: "86-pi-model-card")
-    }
-
-    /// Amendment A25: Cursor lists no effort levels, so its model card reads
-    /// the model alone and offers no slider to move.
-    func testCursorModelCardReadsTheModelAlone() {
-        app.launch()
-        let row = app.buttons["session.demo-session-storybook"]
-        XCTAssertTrue(row.waitForExistence(timeout: 20), "the Cursor demo session is listed")
-        row.tap()
-
-        let chip = app.buttons["composer.modelCard"]
-        XCTAssertTrue(chip.waitForExistence(timeout: 15))
-        XCTAssertEqual(chip.value as? String, "Auto", "the chip is the model and nothing after it")
-        XCTAssertTrue(app.buttons["composer.permissions"].exists,
-                      "Cursor does have permission modes, so that chip stays")
-
-        chip.tap()
-        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 10), "the card opens")
-        XCTAssertFalse(app.descendants(matching: .any)["composer.effort"].exists,
-                       "and carries no effort slider at all")
-        attach(name: "87-cursor-model-card")
     }
 
     /// Amendment A25: Grok Build writes its own update log, so a session a

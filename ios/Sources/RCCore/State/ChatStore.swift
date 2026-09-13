@@ -246,6 +246,8 @@ public final class ChatStore {
         case installShim
         /// Codex: the shared app-server daemon is not running.
         case startDaemon
+        /// Amendment A26: pi's extension is not installed on the device.
+        case installExtension
         /// The device is prepared, but this CLI was started without it.
         case restartSession
     }
@@ -253,7 +255,11 @@ public final class ChatStore {
     public var attachHint: AttachHint? {
         guard isReadOnly, let agent, let attach = agent.attach else { return nil }
         if agent.attachReady { return .restartSession }
-        return attach == .daemon ? .startDaemon : .installShim
+        switch attach {
+        case .daemon: return .startDaemon
+        case .extension: return .installExtension
+        default: return .installShim
+        }
     }
 
     /// Section 5: `auto` means "send now if idle, otherwise steer or queue".
