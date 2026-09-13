@@ -201,10 +201,10 @@ brings it back (A15). There is no global "show archived" switch: it only ever to
 hand-archived rows, which were already folded inside the collapsed Archive, so it read as a control
 that did nothing.
 
-**Agents are visible and filterable.** Every row carries a tinted agent chip on its meta line,
-"Claude Code" or "Codex", falling back to the raw agent id. The Sessions page adds an agent filter —
-`All · Claude Code · Codex`, offering only the agents actually present, defaulting to All and not
-persisted. It applies before the grouping, so a device whose sessions it removes disappears with
+**Agents are visible and filterable.** Every row carries an agent chip on its meta line — the
+agent's name from § "Agents", falling back to the raw agent id, in the one quiet tint every agent
+shares. The Sessions page adds an agent filter: a menu of "All agents" and the agents actually
+present, each with its mark and its name, defaulting to All and not persisted. It applies before the grouping, so a device whose sessions it removes disappears with
 them. The filter lives in the store both lists read, so the page and the chat sidebar never
 disagree.
 
@@ -326,7 +326,7 @@ means, then labels the button with the decision:
 | Running, agent supports steering | Send | "Codex is working · your message will steer the turn" |
 | Running, agent does not | Queue | "Claude Code is working · your message will be queued" |
 | A question is pending | Answer | "Waiting for your answer" |
-| Terminal-controlled | disabled | "Controlled by the terminal · take over to send" |
+| Terminal-controlled | disabled | "Controlled by the terminal", with " · take over to send" only when the agent has `takeover` |
 | Terminal, attached | Send | — (the header already says `terminal · attached`; the composer behaves as for a remote session) |
 | Device offline | disabled | "Device offline" |
 
