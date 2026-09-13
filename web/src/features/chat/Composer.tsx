@@ -224,12 +224,10 @@ export function Composer({
   // A10 §8: only a `terminal` session can be missing its attachment.
   const hint = terminalControlled ? attachHint(agent) : null;
 
-  // `docs/DESIGN.md` § "The composer": the field says who holds the session,
-  // and offers taking it over only where the agent can be taken over.
+  // `docs/DESIGN.md` § "The composer": the field only says who holds the
+  // session. Taking it over belongs to the status line, which has the button.
   const placeholder = terminalControlled
-    ? canTakeover
-      ? strings.composer.placeholderTerminalTakeover
-      : strings.composer.placeholderTerminal
+    ? strings.composer.placeholderTerminal
     : !deviceOnline
       ? strings.composer.placeholderOffline
       : answering

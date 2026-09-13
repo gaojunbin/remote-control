@@ -46,9 +46,11 @@ describe('StatusLine', () => {
     expect(screen.getByRole('button', { name: 'Take over' })).toBeInTheDocument();
   });
 
-  it('says the terminal is in control when it is idle', () => {
+  it('says the terminal is in control when it is idle, and how to write to it', () => {
     show({ control: 'terminal', state: 'readonly' });
-    expect(screen.getByText('Controlled by the terminal')).toBeInTheDocument();
+    expect(document.querySelector('.status-line')?.textContent).toBe(
+      'Controlled by the terminal · take over to sendTake over',
+    );
   });
 
   it('offers no takeover when the agent lacks the capability', () => {

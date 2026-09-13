@@ -295,6 +295,8 @@ export const en = {
     needsInput: 'Waiting for your answer',
     terminalControlled: 'Controlled by the terminal',
     terminalBusy: 'a turn is running there',
+    /** Added to the line above only where the agent can be taken over. */
+    takeOverToSend: 'take over to send',
     starting: 'Starting the agent…',
     stopped: 'Stopped',
     errored: 'Errored',
@@ -307,7 +309,6 @@ export const en = {
     placeholderQueued: 'Message will be queued…',
     placeholderSteer: 'Message will steer the turn…',
     placeholderTerminal: 'Controlled by the terminal',
-    placeholderTerminalTakeover: 'Controlled by the terminal · take over to send',
     placeholderOffline: 'Device is offline',
     send: 'Send',
     queue: 'Queue',

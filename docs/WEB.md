@@ -448,9 +448,10 @@ terminal", saying why this session cannot be driven from here:
 | either | `true` | "This terminal session was started without the attachment; restart it to control it from here" |
 
 The "Take over" button beside the hint follows the agent's `takeover` capability, in the composer
-bar and in the status line alike, and so does the field's own placeholder: it reads "Controlled by
-the terminal" for every held session and adds " · take over to send" only where there is a button to
-press. Grok Build and Codex advertise no `takeover`.
+bar and in the status line alike, and so do the words. The disabled field says only "Controlled by
+the terminal", whatever the agent is; the status line adds " · take over to send" where the button
+is, and stops at "Controlled by the terminal" where there is nothing to press. Grok Build and Codex
+advertise no `takeover`.
 
 ## Layout and styling
 

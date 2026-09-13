@@ -279,7 +279,8 @@ describe('Composer disabled states', () => {
     );
     const input = screen.getByLabelText('Message the agent…');
     expect(input).toBeDisabled();
-    expect(input).toHaveAttribute('placeholder', 'Controlled by the terminal · take over to send');
+    // The field says who holds it; the status line offers taking it over.
+    expect(input).toHaveAttribute('placeholder', 'Controlled by the terminal');
     expect(screen.getByRole('button', { name: 'Take over' })).toBeInTheDocument();
   });
 

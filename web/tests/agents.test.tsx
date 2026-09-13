@@ -201,25 +201,44 @@ describe('the composer draws what the agent has', () => {
 });
 
 /**
- * `docs/DESIGN.md` § "The composer": a terminal-held session says who holds it,
- * and offers taking it over only where the agent can be taken over.
+ * `docs/DESIGN.md` § "The composer": a held session's field only says who holds
+ * it. Taking it over is the status line's clause, drawn where the button is.
  */
-describe('the terminal placeholder offers only what the agent can do', () => {
+describe('taking over is offered where the agent can be taken over', () => {
   const placeholderOf = () =>
     screen.getByLabelText(strings.composer.placeholder).getAttribute('placeholder');
 
-  it('offers taking over where the agent can be taken over', () => {
+  const renderStatus = (id: string, agent: AgentInfo) => {
+    render(<StatusLine session={sessionOf(id)} agent={agent} deviceOnline onTakeover={vi.fn()} />);
+    return document.querySelector('.status-line')?.textContent ?? '';
+  };
+
+  it('keeps the field to who holds it on an agent that can be taken over', () => {
     expect(claudeAgent.capabilities).toContain('takeover');
     renderComposer(sessionOf('ses-terminal'), claudeAgent);
 
-    expect(placeholderOf()).toBe(strings.composer.placeholderTerminalTakeover);
+    expect(placeholderOf()).toBe(strings.composer.placeholderTerminal);
   });
 
-  it('only says who holds the session where it cannot', () => {
+  it('keeps the field to who holds it on one that cannot', () => {
     expect(grokAgent.capabilities).not.toContain('takeover');
     renderComposer(sessionOf('ses-grok-terminal'), grokAgent);
 
     expect(placeholderOf()).toBe(strings.composer.placeholderTerminal);
-    expect(placeholderOf()).not.toContain('take over');
+  });
+
+  it('adds the clause to the status line where the agent can be taken over', () => {
+    const line = renderStatus('ses-terminal', claudeAgent);
+
+    expect(line).toContain(strings.status.terminalControlled);
+    expect(line).toContain(strings.status.takeOverToSend);
+    expect(screen.getByRole('button', { name: strings.chat.takeOver })).toBeInTheDocument();
+  });
+
+  it('leaves the clause off where it cannot', () => {
+    const line = renderStatus('ses-grok-terminal', grokAgent);
+
+    expect(line).toBe(strings.status.terminalControlled);
+    expect(screen.queryByRole('button', { name: strings.chat.takeOver })).not.toBeInTheDocument();
   });
 });

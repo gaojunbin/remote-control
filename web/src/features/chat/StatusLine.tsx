@@ -18,15 +18,16 @@ export function StatusLine({ session, agent, deviceOnline, onTakeover }: Props) 
 
   if (session.control === 'terminal') {
     const busy = session.state === 'running' || session.state === 'starting';
+    // `docs/DESIGN.md` § "The composer": this line says who holds the session,
+    // what is happening there, and how to write to it — that last clause only
+    // where the agent can be taken over, which is also where the button is.
+    const clauses = [
+      strings.status.terminalControlled,
+      busy ? strings.status.terminalBusy : null,
+      canTakeover ? strings.status.takeOverToSend : null,
+    ];
     return (
-      <Line
-        tone={busy ? 'running' : 'muted'}
-        text={
-          busy
-            ? `${strings.status.terminalControlled} · ${strings.status.terminalBusy}`
-            : strings.status.terminalControlled
-        }
-      >
+      <Line tone={busy ? 'running' : 'muted'} text={clauses.filter((c) => c !== null).join(' · ')}>
         {canTakeover ? (
           <button type="button" className="link-btn" onClick={onTakeover}>
             {strings.chat.takeOver}
