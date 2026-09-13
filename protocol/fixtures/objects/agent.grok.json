@@ -65,7 +65,8 @@
     "interrupt",
     "queue",
     "effort",
-    "history"
+    "history",
+    "commands"
   ],
   "attach": null,
   "attach_ready": false,

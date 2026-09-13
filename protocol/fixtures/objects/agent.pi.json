@@ -55,7 +55,8 @@
     "steer",
     "attachments",
     "effort",
-    "history"
+    "history",
+    "commands"
   ],
   "attach": "extension",
   "attach_ready": true,

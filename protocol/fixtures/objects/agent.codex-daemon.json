@@ -51,7 +51,8 @@
     "steer",
     "attachments",
     "effort",
-    "history"
+    "history",
+    "commands"
   ],
   "attach": "daemon",
   "attach_ready": true,
