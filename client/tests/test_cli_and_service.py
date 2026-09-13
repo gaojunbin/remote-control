@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 import pytest
 
+from rc_client.agents.registry import AGENT_IDS
 from rc_client.cli import EXIT_FAILURE, EXIT_OK, EXIT_REFUSED, build_parser, main
 from rc_client.config import Config, config_path, load_config, save_config
 from rc_client.enroll import device_facts, enroll
@@ -63,7 +64,7 @@ def test_status_prints_the_device_identity_without_the_token(capsys: Any) -> Non
 def test_agents_prints_decodable_json(capsys: Any) -> None:
     assert main(["agents"]) == EXIT_OK
     payload = json.loads(capsys.readouterr().out)
-    assert {info["agent"] for info in payload} == {"claude", "codex"}
+    assert {info["agent"] for info in payload} == set(AGENT_IDS)
     for info in payload:
         assert isinstance(info["capabilities"], list)
 

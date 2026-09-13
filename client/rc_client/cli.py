@@ -21,7 +21,7 @@ import httpx
 from . import __version__, linkstate, pairing, qr
 from . import config as config_module
 from .agents.codex.daemon import setup as codex_setup
-from .agents.discovery import detect_agents
+from .agents.registry import detect_all
 from .build import read_build
 from .channel import commands as shim_commands
 from .channel.bridge import main as channel_main
@@ -118,7 +118,7 @@ async def _claim_by_scanning(origin: str) -> str:
 async def _cmd_enroll(args: argparse.Namespace) -> int:
     origin = normalise_origin(args.gateway)
     code = await _claim_by_scanning(origin) if args.scan else str(args.pair)
-    agents = await detect_agents()
+    agents = await detect_all()
     config = await enroll(origin, code, args.name, agents)
     available = [info.agent for info in agents if info.available]
     print(f"Enrolled as {config.device_id} at {config.gateway_origin}")
@@ -140,7 +140,7 @@ async def _cmd_run(args: argparse.Namespace) -> int:
 
 
 async def _cmd_agents(args: argparse.Namespace) -> int:
-    agents = await detect_agents()
+    agents = await detect_all()
     print(json.dumps([info.to_dict() for info in agents], indent=2, ensure_ascii=False))
     return EXIT_OK
 

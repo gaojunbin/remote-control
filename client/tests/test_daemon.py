@@ -14,6 +14,7 @@ from rc_client import daemon as daemon_module
 from rc_client.agents.base import SessionRunner
 from rc_client.agents.claude import transcripts
 from rc_client.agents.codex import rollouts
+from rc_client.agents.registry import AGENT_IDS
 from rc_client.build import write_build
 from rc_client.config import Config, ensure_dirs
 from rc_client.daemon import Daemon
@@ -82,7 +83,7 @@ async def test_hello_describes_this_device_and_its_agents(
     assert hello["protocol"] == 1
     assert hello["name"] == "test-device"
     assert hello["platform"] in {"macos", "linux"}
-    assert {info["agent"] for info in hello["agents"]} == {"claude", "codex"}
+    assert {info["agent"] for info in hello["agents"]} == set(AGENT_IDS)
     assert isinstance(hello["sessions"], list)
     assert "device_token" not in hello
 
@@ -146,7 +147,7 @@ async def test_device_agents_re_detects_and_returns_the_agent_list(
         server, {"type": "device.agents", "id": "r4", "from": "app-1", "device_id": "dev-1"}
     )
     agents = reply["result"]["agents"]
-    assert {info["agent"] for info in agents} == {"claude", "codex"}
+    assert {info["agent"] for info in agents} == set(AGENT_IDS)
     for info in agents:
         assert isinstance(info["capabilities"], list)
 

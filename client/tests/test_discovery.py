@@ -1,4 +1,4 @@
-"""Agent discovery against fake executables on PATH."""
+"""Agent discovery against fake executables on PATH, one plugin at a time."""
 
 from __future__ import annotations
 
@@ -9,8 +9,10 @@ from pathlib import Path
 import pytest
 
 from rc_client.agents.claude import runtime as claude_runtime
+from rc_client.agents.claude.plugin import detect as detect_claude
 from rc_client.agents.codex import runtime as codex_runtime
-from rc_client.agents.discovery import detect_agents, detect_claude, detect_codex
+from rc_client.agents.codex.plugin import detect as detect_codex
+from rc_client.agents.registry import AGENT_IDS, DetectContext, detect_all
 
 
 def fake_binary(directory: Path, name: str, version: str) -> Path:
@@ -27,7 +29,7 @@ async def test_claude_is_reported_unavailable_when_nothing_is_installed(
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     monkeypatch.delenv("RC_CLAUDE_BIN", raising=False)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    info = await detect_claude()
+    info = await detect_claude(DetectContext())
     assert info.available is False
     assert info.path is None
     assert info.version is None
@@ -38,7 +40,7 @@ async def test_claude_detection_reads_the_version_and_advertises_capabilities(
 ) -> None:
     binary = fake_binary(tmp_path / "bin", "claude", "2.1.266 (Claude Code)")
     monkeypatch.setenv("RC_CLAUDE_BIN", str(binary))
-    info = await detect_claude()
+    info = await detect_claude(DetectContext())
     assert info.available is True
     assert info.path == str(binary)
     assert info.version == "2.1.266"
@@ -89,10 +91,10 @@ async def test_codex_detection_without_a_reachable_app_server(
     binary = fake_binary(tmp_path / "bin", "codex", "0.153.4")
     monkeypatch.setenv("RC_CODEX_BIN", str(binary))
     monkeypatch.setattr(
-        "rc_client.agents.discovery.catalog_cache.get",
+        "rc_client.agents.codex.plugin.catalog_cache.get",
         _fail_catalog,
     )
-    info = await detect_codex()
+    info = await detect_codex(DetectContext())
     assert info.available is True
     assert info.version == "0.153.4"
     assert [choice.id for choice in info.permission_modes] == [
@@ -118,20 +120,20 @@ async def _fail_catalog(binary: str) -> object:
     return ModelCatalog()
 
 
-async def test_detect_agents_returns_both_agents_in_order(
+async def test_detect_all_returns_every_agent_in_registry_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    monkeypatch.setattr("rc_client.agents.discovery.catalog_cache.get", _fail_catalog)
+    monkeypatch.setattr("rc_client.agents.codex.plugin.catalog_cache.get", _fail_catalog)
     monkeypatch.delenv("RC_CLAUDE_BIN", raising=False)
     monkeypatch.delenv("RC_CODEX_BIN", raising=False)
-    agents = await detect_agents()
-    assert [info.agent for info in agents] == ["claude", "codex"]
+    agents = await detect_all()
+    assert [info.agent for info in agents] == list(AGENT_IDS)
     # Absolute fallback locations are not controlled by PATH, so only assert on
     # the agent this test can actually hide.
     assert agents[0].available is False
-    assert agents[0].capabilities and agents[1].capabilities
+    assert all(info.capabilities for info in agents)
 
 
 def test_codex_candidate_list_covers_the_standard_install_locations(

@@ -9,6 +9,19 @@ from pathlib import Path
 
 import pytest
 
+from rc_client.agents.grok import runtime as grok_runtime
+
+
+@pytest.fixture(autouse=True)
+def grok_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point Grok's state directory at a scratch path.
+
+    `~/.grok/sessions` holds a real person's conversations, and mirroring walks
+    it on every scan; a test must never adopt one of those.
+    """
+    home = tmp_path / "grok-home"
+    monkeypatch.setattr(grok_runtime, "home", lambda: home)
+
 
 @pytest.fixture(autouse=True)
 def client_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:

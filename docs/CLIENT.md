@@ -154,6 +154,14 @@ the gateway gives up after five minutes and marks the device failed on its own.
 
 ## Agent discovery
 
+Every agent the device can drive is a package under `rc_client/agents/<id>/` with a `plugin.py` that
+exposes three names: `AGENT`, `detect(context)` and `build_runner(spec)`. `rc_client/agents/registry.py`
+holds the only list of ids — `("claude", "codex", "grok")` — gathers detection concurrently in that
+order and dispatches a new session to the right adapter; an id that is not in the tuple is answered
+with `unsupported`, which is what a session frame for an unknown agent returns. Teaching the device a
+new agent is a new package and a new name in that tuple: the daemon, the hub and the CLI are
+untouched.
+
 On start, and whenever an app calls `device.agents`, the daemon locates each CLI and probes its
 version. Resolution order for `claude`:
 
@@ -168,16 +176,26 @@ build the shared daemon runs, and a session this device starts has to be the sam
 moves the Codex home directory the daemon reads, and both standalone paths with it, exactly as the
 official installer does.
 
+For `grok`: `RC_GROK_BIN`, then `~/.grok/bin/agent`, then `grok` and `agent` on `PATH`, then
+`~/.local/bin/grok`, `/opt/homebrew/bin/grok`, `/usr/local/bin/grok`. Grok's own launcher comes ahead
+of `PATH` on purpose, and only executables are ever considered: `grok` is commonly a shell function
+wrapping the binary with `--yolo`, and a device must never inherit that.
+
 What each agent advertises:
 
-| | Claude Code | Codex |
-| --- | --- | --- |
-| Models | `default`, `fable`, `opus`, `sonnet`, `haiku`, most capable first. `default` means "do not pass a model"; the real id arrives from the SDK and is reported as `meta.model` | Read live from the CLI's `model/list` and cached for ten minutes |
-| Permission modes | `default` (Ask before edits), `acceptEdits` (Auto-accept edits), `plan` (Plan mode), `bypassPermissions` (Bypass permissions) | `untrusted` (Ask for everything), `on-request` (Ask when needed), `never` (Never ask) |
-| Efforts | `low`, `medium`, `high`, `xhigh`, `max` | Whatever the catalogue reports, clamped per model, from `minimal` to `ultra` |
-| Speeds | none | The `serviceTiers` the catalogue lists, in catalogue order and with their own labels: `priority` ("Fast") today. `AgentInfo.speeds` is the union over every model; a model that lists none can run at no tier |
-| Capabilities | `takeover`, `interrupt`, `queue`, `attachments`, `effort`, `history`, `worktree` | `interrupt`, `queue`, `steer`, `history`, `worktree`, `attachments`, `effort` |
-| Attachment | `attach: "channel"`, `attach_ready` from the shim, `shared_interrupt`, `shared_settings` and `shared_attachments` all false | `attach: "daemon"`, `attach_ready` from a real handshake on the daemon socket, `shared_interrupt`, `shared_settings` and `shared_attachments` all true |
+| | Claude Code | Codex | Grok Build |
+| --- | --- | --- | --- |
+| Models | `default`, `fable`, `opus`, `sonnet`, `haiku`, most capable first. `default` means "do not pass a model"; the real id arrives from the SDK and is reported as `meta.model` | Read live from the CLI's `model/list` and cached for ten minutes | Read from `~/.grok/models_cache.json`, in the order the file lists them, hidden models skipped. No cache file means the two ids `agent.grok.json` names |
+| Permission modes | `default` (Ask before edits), `acceptEdits` (Auto-accept edits), `plan` (Plan mode), `bypassPermissions` (Bypass permissions) | `untrusted` (Ask for everything), `on-request` (Ask when needed), `never` (Never ask) | `default` (Ask when needed), `acceptEdits` (Auto-accept edits), `auto` (Auto mode), `dontAsk` (Deny unless allowed), `plan` (Plan mode), `bypassPermissions` (Bypass permissions) |
+| Efforts | `low`, `medium`, `high`, `xhigh`, `max` | Whatever the catalogue reports, clamped per model, from `minimal` to `ultra` | The union of the models' `reasoning_efforts`, weakest first, clamped per model when a session runs |
+| Speeds | none | The `serviceTiers` the catalogue lists, in catalogue order and with their own labels: `priority` ("Fast") today. `AgentInfo.speeds` is the union over every model; a model that lists none can run at no tier | none |
+| Capabilities | `takeover`, `interrupt`, `queue`, `attachments`, `effort`, `history`, `worktree` | `interrupt`, `queue`, `steer`, `history`, `worktree`, `attachments`, `effort` | `worktree`, `interrupt`, `queue`, `effort`, `history` |
+| Attachment | `attach: "channel"`, `attach_ready` from the shim, `shared_interrupt`, `shared_settings` and `shared_attachments` all false | `attach: "daemon"`, `attach_ready` from a real handshake on the daemon socket, `shared_interrupt`, `shared_settings` and `shared_attachments` all true | `attach: null`: a terminal session is mirrored and resumed, never attached |
+
+Defaults follow the person's own configuration where there is one: Grok's `default_model` and
+`default_effort` come from `[models] default` and `default_reasoning_effort` in `~/.grok/config.toml`,
+and from the catalogue's own default when that file says nothing. Detection never starts an agent
+process beyond `--version`.
 
 An agent that is not installed is reported with `available: false` rather than hidden, so the apps
 can say why a device offers only one agent.
@@ -683,9 +701,87 @@ to the thread wherever it is later resumed, including in a terminal. It is never
 somebody else created. It exists because some settings have no wire equivalent; leave it unset unless
 you know you need it.
 
+## Grok Build
+
+Grok is driven over the Agent Client Protocol: one `agent agent --no-leader <flags> stdio` child per
+session, speaking newline-delimited JSON-RPC on its stdin and stdout. `--no-leader` is deliberate —
+Grok can share one backend process between clients, and a device must not put its tools inside
+somebody else's.
+
+Only the model and the effort are process flags (`--model`, `--reasoning-effort`). The working
+directory and the permission mode are **not**: `agent agent` rejects `--cwd` and `--permission-mode`,
+which belong to the TUI. The directory goes in `session/new {cwd, mcpServers: []}`, and the mode is
+`session/set_mode {sessionId, modeId}`, whose ids are exactly the six of PROTOCOL.md section 4.3.
+Resuming is `session/load` with the session id; the session id on the wire is Grok's own UUID, so a
+session created here is rekeyed to it as soon as `session/new` answers.
+
+A turn is `session/prompt`, which only replies when the turn is over, so it runs as a task and the
+turn ends on whichever arrives first — the `turn_completed` notification or the prompt's own answer.
+`session/cancel` interrupts. Live changes to the model and the effort are
+`session/set_config_option`, whose value is a plain string and whose reply is the complete option
+list, which the device republishes as `meta`.
+
+### What the stream carries
+
+Updates arrive under three method names — `session/update`, `_x.ai/session/update` and
+`_x.ai/session_notification` — carrying the same objects, so the translator switches on
+`update.sessionUpdate` and ignores the envelope:
+
+| `sessionUpdate` | Becomes |
+| --- | --- |
+| `agent_message_chunk` | `assistant_text` deltas, closed with the whole text when the stream ends |
+| `agent_thought_chunk` | `thinking`, the same way |
+| `tool_call`, `tool_call_update` | one `tool_call` block keyed by `toolCallId`; the kind comes from Grok's own `_meta["x.ai/tool"]` name and namespace, then from ACP's `kind`. A non-`grok_build` namespace is an MCP tool |
+| `plan` | `todos` |
+| `turn_completed` | `turn_completed`, with the turn's tokens and the real cost: `costUsdTicks` is USD at 1e10 ticks to the dollar. Grok reports one turn at a time, so the device accumulates the session total |
+| `model_changed`, `current_mode_update`, `config_option_update` | `meta` (amendment A17) |
+| `hook_execution`, `hook_run_started`, `available_commands_update`, everything else | nothing |
+
+A tool's `rawOutput` also carries the raw bytes of a command's output as an integer array; only
+`output_for_prompt` and the text content blocks are published. `locations` has no field of its own in
+`tool_call`, so it rides inside `input`, the one open object an app already renders.
+
+### Terminal sessions
+
+Grok writes every session to `~/.grok/sessions/<percent-encoded cwd>/<session-id>/`, and
+`updates.jsonl` there is an append-only log of the same ACP updates — written whether the session is
+driven over ACP or by a person at the TUI. Mirroring is therefore a file tail and needs no attachment
+and no change to anybody's configuration.
+
+- `summary.json` is the session row: `info.cwd`, `generated_title` (Grok titles its own sessions, so
+  there is no first-prompt guessing), `current_model_id` and `reasoning_effort`, which are published
+  as `meta` the moment the session is adopted.
+- A turn is over at the `turn_completed` row; the session reads `running` while a prompt's updates are
+  flowing and `readonly` once that row lands.
+- `_meta.eventId` is `<sessionId>-<n>`, a monotonic counter, and it is the resume cursor: rows at or
+  below the last applied `n` are skipped. It is a floor, not a running high-water mark, because Grok
+  writes ids slightly out of order — an `agent_message_chunk` can land after the hook rows that follow
+  it, and filtering against the maximum would drop the agent's reply.
+- Whether a terminal holds the session comes from `~/.grok/active_sessions.json` when that registry is
+  there, and from the processes holding `updates.jsonl` open when it is not.
+- A session this device drives is never ingested from disk: it is `origin: "remote"` in the hub, which
+  is the same rule that keeps Claude and Codex from doubling their own events.
+
+### What is not covered
+
+- **Approvals have not been seen live.** The handler answers `session/request_permission` with the
+  options the agent sent, styled from ACP's `allow_once` / `reject_once` kinds, and replies
+  `{"outcome": {"outcome": "selected", "optionId": …}}`. The authorized runs never triggered one, so
+  the shape comes from the protocol, not from a recording.
+- **`session/cancel` is sent as a notification.** As a *request* it answers "Method not found" on
+  grok 1.0.25, which is what ACP says: cancellation has no reply. The notification form is untested.
+- **Questions.** Grok asks the user through its own `ask_user_question` tool rather than an ACP
+  request, so no `question` block is raised for one; it appears as a tool call.
+- **Attachments.** This build answers `promptCapabilities.image: false`, so a prompt has nowhere to
+  put a file. The capability is not advertised and an attachment sent anyway is refused.
+- **The leader process**, which would let a device share a person's running TUI, is off unless
+  `[cli] use_leader` is set in their configuration. Turning it on means editing their config file, so
+  it is left alone and terminal sessions are mirrored instead.
+
 ## Attachments
 
-Both agents read files from disk far more reliably than they accept inline binary payloads, so an
+Claude and Codex read files from disk far more reliably than they accept inline binary payloads
+(Grok takes none at all), so an
 attachment sent with a message is written to `state/attachments/<session>/` with a sanitised name,
 and the prompt gains the resulting paths. Limits are 8 attachments and 6 MiB each after decoding.
 Files are removed when the session is deleted. This path has not been exercised end to end.

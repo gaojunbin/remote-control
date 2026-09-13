@@ -13,7 +13,7 @@ from . import __version__
 from . import config as config_module
 from .agents.codex.daemon.service import CodexDaemonService
 from .agents.codex.runtime import resolve_binary as resolve_codex
-from .agents.discovery import detect_agents
+from .agents.registry import DetectContext, detect_all
 from .build import as_digest, read_build
 from .channel import paths as channel_paths
 from .channel.mcp_config import write_mcp_config
@@ -69,7 +69,7 @@ class Daemon:
         scrub_parent_secrets()
         self.hub.load()
         await self.codex.start(resolve_codex())
-        self.agents = await detect_agents(self.codex.ready)
+        self.agents = await detect_all(DetectContext(codex_daemon_ready=self.codex.ready))
         log.info(
             "device daemon starting",
             device=self.config.device_id,
@@ -135,7 +135,7 @@ class Daemon:
         while True:
             await asyncio.sleep(AGENT_REFRESH_INTERVAL)
             try:
-                agents = await detect_agents(self.codex.ready)
+                agents = await detect_all(DetectContext(codex_daemon_ready=self.codex.ready))
             except Exception:
                 log.exception("agent re-detection failed")
                 continue
@@ -147,7 +147,7 @@ class Daemon:
 
     async def _codex_mode_changed(self) -> None:
         """The shared daemon appeared: apps learn about it through `agents.updated`."""
-        self.agents = await detect_agents(self.codex.ready)
+        self.agents = await detect_all(DetectContext(codex_daemon_ready=self.codex.ready))
         await self._publish(
             {"type": "agents.updated", "agents": [info.to_dict() for info in self.agents]}
         )
@@ -209,7 +209,7 @@ class Daemon:
         return await git_info(path)
 
     async def _device_agents(self, params: dict[str, Any]) -> dict[str, Any]:
-        self.agents = await detect_agents(self.codex.ready)
+        self.agents = await detect_all(DetectContext(codex_daemon_ready=self.codex.ready))
         return {"agents": [info.to_dict() for info in self.agents]}
 
     # ----------------------------------------------------------------- update

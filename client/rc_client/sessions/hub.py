@@ -13,10 +13,9 @@ from typing import Any
 from .. import attachments
 from ..agents.base import SessionRunner
 from ..agents.claude import transcripts
-from ..agents.claude.adapter import ClaudeRunner
-from ..agents.codex.adapter import CodexRunner
 from ..agents.codex.daemon.service import CodexDaemonService
-from ..agents.codex.models import ModelCatalog, catalog_cache
+from ..agents.codex.models import catalog_cache
+from ..agents.registry import RunnerSpec, runner_for
 from ..errors import RcError
 from ..git import create_worktree, session_git, slugify
 from ..logging_setup import logger
@@ -259,47 +258,23 @@ class SessionHub:
     async def _build_runner(
         self, entry: SessionEntry, info: AgentInfo, resume: str | None
     ) -> SessionRunner:
-        session = entry.session
-
         async def on_turn_end() -> None:
             await self.drain_queue(entry)
 
         async def on_session_id(real_id: str) -> None:
             await self.rekey(entry, real_id)
 
-        if info.agent == "claude":
-            return ClaudeRunner(
-                entry.channel,
-                binary=info.path,
-                cwd=session.cwd,
-                model=session.model,
-                permission_mode=session.permission_mode,
-                effort=session.effort,
+        return await runner_for(
+            info.agent,
+            RunnerSpec(
+                entry=entry,
+                info=info,
                 resume=resume,
-                session_id=session.session_id,
                 on_turn_end=on_turn_end,
                 on_session_id=on_session_id,
-            )
-        if info.agent == "codex":
-            if self.codex_daemon is not None and self.codex_daemon.ready:
-                return self.codex_daemon.session_for(entry, resume)
-            if not info.path:
-                raise RcError("agent_unavailable", "codex is not installed on this device")
-            catalog: ModelCatalog = await catalog_cache.get(info.path)
-            return CodexRunner(
-                entry.channel,
-                binary=info.path,
-                cwd=session.cwd,
-                catalog=catalog,
-                model=session.model,
-                permission_mode=session.permission_mode,
-                effort=session.effort,
-                speed=session.speed,
-                thread_id=resume,
-                on_turn_end=on_turn_end,
-                on_session_id=on_session_id,
-            )
-        raise RcError("unsupported", f"no adapter for agent {info.agent}")
+                codex_daemon=self.codex_daemon,
+            ),
+        )
 
     async def rekey(self, entry: SessionEntry, real_id: str) -> None:
         old_id = entry.session.session_id

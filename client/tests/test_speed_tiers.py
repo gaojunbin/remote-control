@@ -7,10 +7,12 @@ from typing import Any
 
 import pytest
 
+from rc_client.agents.claude.plugin import detect as detect_claude
 from rc_client.agents.codex.daemon.rpc import DaemonClient
 from rc_client.agents.codex.daemon.session import CodexDaemonSession
 from rc_client.agents.codex.models import ModelCatalog, parse_catalog
-from rc_client.agents.discovery import detect_claude, detect_codex
+from rc_client.agents.codex.plugin import detect as detect_codex
+from rc_client.agents.registry import DetectContext
 from rc_client.errors import RcError
 from rc_client.models import UNSET, AgentInfo, Choice, Session
 from rc_client.registry import Registry
@@ -100,12 +102,12 @@ async def test_codex_advertises_the_catalogue_tiers_and_claude_none(
     async def catalogue(_: str) -> ModelCatalog:
         return parse_catalog(CATALOGUE)
 
-    monkeypatch.setattr("rc_client.agents.discovery.catalog_cache.get", catalogue)
-    codex = await detect_codex(daemon_ready=False)
+    monkeypatch.setattr("rc_client.agents.codex.plugin.catalog_cache.get", catalogue)
+    codex = await detect_codex(DetectContext(codex_daemon_ready=False))
     assert [choice.id for choice in codex.speeds] == ["priority"]
 
     monkeypatch.setenv("RC_CLAUDE_BIN", str(fake_binary(tmp_path / "bin", "claude", "2.1.269")))
-    claude = await detect_claude()
+    claude = await detect_claude(DetectContext())
     assert claude.speeds == []
 
 
@@ -118,8 +120,8 @@ async def test_a_codex_without_a_catalogue_advertises_no_tiers(
     async def empty(_: str) -> ModelCatalog:
         return ModelCatalog()
 
-    monkeypatch.setattr("rc_client.agents.discovery.catalog_cache.get", empty)
-    info = await detect_codex(daemon_ready=False)
+    monkeypatch.setattr("rc_client.agents.codex.plugin.catalog_cache.get", empty)
+    info = await detect_codex(DetectContext(codex_daemon_ready=False))
     assert info.speeds == []
 
 

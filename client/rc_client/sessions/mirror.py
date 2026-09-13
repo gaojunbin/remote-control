@@ -17,6 +17,8 @@ from ..agents.claude.holders import SessionRef, scan_holders
 from ..agents.codex import rollouts
 from ..agents.codex.daemon.service import CodexDaemonService
 from ..agents.codex.runtime import resolve_binary as resolve_codex
+from ..agents.grok import sessions as grok_sessions
+from ..agents.grok.translate import SETTINGS as GROK_SETTINGS
 from ..config import MirrorConfig
 from ..logging_setup import logger
 from ..models import Session, now_ms
@@ -30,7 +32,7 @@ SCAN_INTERVAL = 10.0
 TAIL_INTERVAL = 2.0
 BACKFILL_BYTES = 4 * 1024 * 1024
 
-Tailer = transcripts.TranscriptTailer | rollouts.RolloutTailer
+Tailer = transcripts.TranscriptTailer | rollouts.RolloutTailer | grok_sessions.GrokTailer
 
 
 @dataclass(slots=True)
@@ -41,6 +43,11 @@ class ClaudeMirror:
 @dataclass(slots=True)
 class CodexMirror:
     tailer: rollouts.RolloutTailer
+
+
+@dataclass(slots=True)
+class GrokMirror:
+    tailer: grok_sessions.GrokTailer
 
 
 class MirrorService:
@@ -56,6 +63,7 @@ class MirrorService:
         self.codex_daemon = codex_daemon
         self._claude: dict[str, ClaudeMirror] = {}
         self._codex: dict[str, CodexMirror] = {}
+        self._grok: dict[str, GrokMirror] = {}
         # Title-only tails for Claude sessions this device drives itself.
         self._titles: dict[str, transcripts.TitleTail] = {}
         # Sessions whose transcript has already been read once for the settings
@@ -107,6 +115,9 @@ class MirrorService:
         found_codex = await asyncio.to_thread(
             rollouts.discover, self.limits.max_sessions, self.limits.max_age_days
         )
+        found_grok = await asyncio.to_thread(
+            grok_sessions.discover, self.limits.max_sessions, self.limits.max_age_days
+        )
         if self.codex_daemon is not None:
             await self.codex_daemon.tick(resolve_codex())
         adopted = self._adopt_claude(found_claude)
@@ -114,9 +125,11 @@ class MirrorService:
         # never mistaken for one that never had one.
         await self.hub.sweep_ghosts()
         self._adopt_codex(found_codex)
+        await self._adopt_grok(found_grok)
         await self._watch_titles()
         await self._refresh_claude_control()
         await self._refresh_codex_control()
+        await self._refresh_grok_control()
         await self._backfill_settings(adopted)
 
     def _driven_claude(self) -> set[str]:
@@ -285,6 +298,69 @@ class MirrorService:
             entry.channel.start()
             self._codex[info.thread_id] = CodexMirror(tailer=tailer)
 
+    async def _adopt_grok(self, found: list[grok_sessions.GrokSessionInfo]) -> None:
+        """Take on a Grok session from the update log it keeps for itself.
+
+        Grok names its own sessions, so the title and the settings in force are
+        read straight out of `summary.json` rather than waited for.
+        """
+        for info in found:
+            if info.session_id in self._grok:
+                continue
+            entry = self.hub.entries.get(info.session_id)
+            if entry is not None and not self._adoptable(entry):
+                continue
+            if entry is None:
+                entry = self.hub.register_mirrored(
+                    Session(
+                        session_id=info.session_id,
+                        device_id=self.hub.device_id,
+                        agent="grok",
+                        cwd=info.cwd,
+                        title="",
+                        state="idle",
+                        origin="terminal",
+                        control="none",
+                        created_at=int(info.mtime * 1000),
+                        updated_at=int(info.mtime * 1000),
+                    ),
+                    transcript=info.path,
+                )
+            tailer = grok_sessions.GrokTailer(path=info.path, cwd=info.cwd)
+            tailer.offset = self._initial_offset(info.session_id, info.path)
+            tailer.resume_from = self._grok_cursor(info.session_id)
+            entry.transcript = info.path
+            entry.channel.start()
+            self._grok[info.session_id] = GrokMirror(tailer=tailer)
+            if info.settings:
+                await entry.channel.set_meta(**info.settings)
+            if info.title:
+                await titles.from_agent(entry.channel, info.title)
+
+    def _grok_cursor(self, session_id: str) -> int:
+        stored = self.hub.registry.get_kv(self._cursor_key(session_id))
+        return int(stored) if stored is not None and stored.isdigit() else 0
+
+    @staticmethod
+    def _cursor_key(session_id: str) -> str:
+        return f"grok-cursor:{session_id}"
+
+    async def _refresh_grok_control(self) -> None:
+        """Grok's own registry says who is live; the file's writers are the fallback."""
+        active, known = await asyncio.to_thread(grok_sessions.active_ids)
+        for session_id, mirror in list(self._grok.items()):
+            entry = self._live_entry(session_id, self._grok)
+            if entry is None:
+                continue
+            if known and session_id in active:
+                owned = True
+            else:
+                writers, seen = await file_writers(mirror.tailer.path)
+                if not seen:
+                    continue
+                owned = bool([pid for pid in writers if pid != os.getpid()])
+            await self._set_control(entry, "terminal" if owned else "none", mirror.tailer.running)
+
     @staticmethod
     def _adoptable(entry: SessionEntry) -> bool:
         """Whether the transcript on disk is someone else's to read.
@@ -429,6 +505,11 @@ class MirrorService:
             if entry is None:
                 continue
             await self._tail_one(session_id, entry, codex_mirror.tailer)
+        for session_id, grok_mirror in list(self._grok.items()):
+            entry = self._live_entry(session_id, self._grok)
+            if entry is None:
+                continue
+            await self._tail_one(session_id, entry, grok_mirror.tailer)
         await self._read_titles()
 
     async def _tail_one(self, session_id: str, entry: SessionEntry, tailer: Tailer) -> None:
@@ -444,6 +525,9 @@ class MirrorService:
             for emit in tailer.translate(row):
                 await self._apply(entry, emit)
         self.hub.registry.set_kv(self._offset_key(session_id), str(tailer.offset))
+        if isinstance(tailer, grok_sessions.GrokTailer):
+            # Grok's `eventId` counter resumes a tail even when the file moved.
+            self.hub.registry.set_kv(self._cursor_key(session_id), str(tailer.cursor))
         await self._after_rows(entry, tailer.busy)
 
     async def _after_rows(self, entry: SessionEntry, running: bool) -> None:
@@ -467,7 +551,7 @@ class MirrorService:
                 ),
             )
             return
-        if emit.kind == transcripts.SESSION_SETTINGS:
+        if emit.kind in {transcripts.SESSION_SETTINGS, GROK_SETTINGS}:
             # Amendment A17: what the terminal chose, from its own records.
             # `set_meta` publishes only the fields that actually changed.
             await entry.channel.set_meta(**emit.fields)

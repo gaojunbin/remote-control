@@ -1195,6 +1195,44 @@ watcher that sends `update.failed` with the log's last line when the spawned upd
 The updater is a fake process there, so the one thing still unproven is a real detached
 `self-update` surviving the restart of the service that spawned it.
 
+## 17. Grok Build over ACP (2026-09-13, A25)
+
+Two authorized runs of the real `~/.grok/bin/agent agent --no-leader stdio` (grok 1.0.25), both with
+the prompt "Reply with exactly OK", in a scratch directory, with every yolo flag off. Nothing under
+`~/.grok` was written except the session directory those two runs necessarily created, and no
+configuration was changed. Every line of both runs is recorded in
+`client/tests/fixtures/grok/turn.jsonl`, `resume.jsonl`, `handshake.json` and
+`resume-handshake.json`; `terminal-updates.jsonl` is the `updates.jsonl` those runs left on disk.
+The translator, the runner and the mirror are all tested against those recordings.
+
+What the runs settled:
+
+| Question | Answer |
+| --- | --- |
+| `agent agent stdio --cwd … --permission-mode …` | **Rejected.** `error: unexpected argument '--permission-mode' found`, exit 2. Both flags belong to the TUI; the ACP subcommand takes `--model` and `--reasoning-effort` only |
+| Working directory | `session/new {cwd, mcpServers: []}` |
+| Permission mode | `session/set_mode {sessionId, modeId}` → `{}`, followed by a `current_mode_update` notification. Driven with `modeId: "plan"` |
+| Live effort and model | `session/set_config_option`, value a **plain string**. The shipped docs' `{"value": "low"}` wrapper is refused: `Invalid params … untagged enum SessionConfigOptionValue`. The reply is the complete `configOptions` list |
+| Interrupt | `session/cancel` as a *request* answers `-32601 Method not found`; ACP defines it as a notification, which is how the runner sends it. **Not verified** |
+| Resume | `session/load` works and **replays the whole conversation** as `session/update` notifications carrying `_meta.isReplay: true`; the translator drops them, so a resumed session does not double its timeline |
+| Attachments | `initialize` answers `promptCapabilities: {"image": false, "audio": false}`, so the capability is not advertised |
+| Streaming | Thinking and text arrive token by token as `agent_thought_chunk` / `agent_message_chunk` with `_meta.streamStartMs`; the on-disk log coalesces the same chunks into fewer rows, and both assemble into the same block |
+| Usage | `turn_completed` carries the turn's tokens plus `costUsdTicks`: 143072000 ticks, that is 0.0143072 USD, for the first run |
+| The end of a turn | `_x.ai/session_notification` / `_x.ai/session/update` with `sessionUpdate: "turn_completed"`, carrying `stop_reason`, `usage` and `elapsed_ms` |
+| Event ids | `_meta.eventId` is `<sessionId>-<n>` and is **not** written in strict order: in the owner's own logs an `agent_message_chunk` at `-35` follows rows at `-37` and `-41`. The cursor is therefore a resume floor, never a running maximum |
+
+`rc-client agents` on this machine reports grok 1.0.30 (the binary auto-updated after the recon),
+`~/.grok/bin/agent`, the two models, the six permission modes, four efforts and no speed tiers.
+`default_effort` reads `xhigh` here because the owner's `~/.grok/config.toml` says so; on a machine
+with no such setting it is `high`, which is what `fixtures/objects/agent.grok.json` shows, and
+`tests/test_grok_discovery.py` asserts the whole object against that fixture.
+
+Not verified: a real approval round trip, a real interrupt, an `ask_user_question`, a tool call or a
+plan from a live run (one prompt that answers "OK" makes none of those), the leader process, and
+`~/.grok/active_sessions.json` with anything in it — the file exists and reads `[]` on this machine.
+Tool, plan and diff translation is tested against rows built from the shapes the owner's own session
+logs show, and is marked as constructed in the test module.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
