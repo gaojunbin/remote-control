@@ -83,6 +83,8 @@ interface ChatState {
     input: { text: string; attachments?: OutgoingAttachment[]; mode: SendMode },
   ) => Promise<void>;
   retrySend: (id: string) => Promise<void>;
+  /** A27: run one slash command; the row appears under the request's own id. */
+  runCommand: (key: string, name: string, argument?: string) => Promise<void>;
   stop: (key: string) => Promise<void>;
   approve: (key: string, requestId: string, optionId: string) => Promise<void>;
   answer: (key: string, requestId: string, answers: QuestionAnswers) => Promise<void>;
@@ -332,6 +334,35 @@ export const useChat = create<ChatState>((set, get) => ({
       id,
       deliver(id, entry.sessionId, entry.text, entry.attachments, entry.mode),
     );
+  },
+
+  /**
+   * A27: `session.command` echoes the command as a `user_message` under this
+   * request's id, exactly as `session.send` echoes a message, so the row is
+   * drawn now and replaced in place when the device confirms it. The result is
+   * `{}` and the outcome arrives as events; there is nothing to queue and
+   * nothing to retry, so a refusal takes the row away and travels on to the
+   * composer, which reports it under the field.
+   */
+  runCommand: async (key, name, argument) => {
+    const chat = get().sessions[key];
+    if (!chat) return;
+    const id = requestId();
+    const text = argument ? `/${name} ${argument}` : `/${name}`;
+    showPending(set, key, { id, text, attachments: [], at: Date.now() });
+    try {
+      await rpc(
+        'session.command',
+        { session_id: chat.sessionId, name, ...(argument ? { argument } : {}) },
+        { id },
+      );
+    } catch (err) {
+      patch(set, key, (c) => ({ ...c, timeline: removeOptimistic(c.timeline, id) }));
+      throw err;
+    }
+    // The device took it, so the row is no longer an uncertain delivery; it
+    // stands until the echo arrives under the same id.
+    patch(set, key, (c) => ({ ...c, timeline: markAccepted(c.timeline, id, 'sent') }));
   },
 
   stop: async (key) => {

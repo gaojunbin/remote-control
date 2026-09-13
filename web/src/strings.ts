@@ -342,6 +342,16 @@ export const en = {
     sendFailed: 'Could not send the message.',
   },
 
+  /** A27: the terminal's `/` menu, above the composer. */
+  commands: {
+    menu: 'Commands',
+    /** What a screen reader reads on one row. */
+    rowLabel: (name: string, description: string) => `Command, /${name}, ${description}`,
+    /** The one footer line while a turn is running, and the refusal inline. */
+    whileRunning: 'Available when the turn finishes',
+    failed: 'Could not run the command.',
+  },
+
   voice: {
     transcribing: 'Transcribing live · edit before sending',
     connecting: 'Connecting…',

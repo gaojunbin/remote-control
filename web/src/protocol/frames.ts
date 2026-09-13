@@ -2,6 +2,7 @@
 import type {
   AgentId,
   AgentInfo,
+  Command,
   Device,
   GitInfo,
   OutgoingAttachment,
@@ -136,6 +137,11 @@ export interface UpdateAcceptedResult {
   from?: string | null;
 }
 
+/** A27: what the session's agent offers now. May legitimately be empty. */
+export interface CommandsResult {
+  commands: Command[];
+}
+
 /** Request type -> (params, result) mapping used by the typed socket client. */
 export interface RequestMap {
   'session.subscribe': [{ session_id: string; since_seq?: number }, SubscribeResult];
@@ -161,6 +167,16 @@ export interface RequestMap {
       title?: string;
     },
     SessionResult,
+  ];
+  /** A27: the slash commands this session offers right now. */
+  'session.commands': [{ session_id: string }, CommandsResult];
+  /**
+   * A27: run one. The result is `{}` — the echo and the outcome arrive as
+   * events, the echo under this request's own id.
+   */
+  'session.command': [
+    { session_id: string; name: string; argument?: string },
+    Record<string, never>,
   ];
   'session.history': [
     { session_id: string; before_seq?: number; limit?: number },

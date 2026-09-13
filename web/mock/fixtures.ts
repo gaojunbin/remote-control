@@ -3,7 +3,9 @@
  * PROTOCOL-FROZEN.md §3 / §4 exactly.
  */
 import type {
+  AgentId,
   AgentInfo,
+  Command,
   Device,
   Session,
   SessionEvent,
@@ -83,7 +85,17 @@ export const codexAgent: AgentInfo = {
     { id: 'high', label: 'High' },
   ],
   default_effort: 'medium',
-  capabilities: ['worktree', 'interrupt', 'queue', 'steer', 'attachments', 'effort', 'history'],
+  capabilities: [
+    'worktree',
+    'interrupt',
+    'queue',
+    'steer',
+    'attachments',
+    'effort',
+    'history',
+    // A27: the daemon has a method behind each command in `commandsFor`.
+    'commands',
+  ],
   // A21: Codex's own service tier. The apps draw the lightning only because
   // this list is non-empty; Claude lists none and draws nothing.
   speeds: [{ id: 'priority', label: 'Fast' }],
@@ -139,7 +151,8 @@ export const grokAgent: AgentInfo = {
     { id: 'xhigh', label: 'Extra high' },
   ],
   default_effort: 'high',
-  capabilities: ['worktree', 'interrupt', 'queue', 'effort', 'history'],
+  // A27: Grok Build advertises its whole list over ACP when a session opens.
+  capabilities: ['worktree', 'interrupt', 'queue', 'effort', 'history', 'commands'],
   attach: null,
   attach_ready: false,
   shared_interrupt: false,
@@ -174,13 +187,109 @@ export const piAgent: AgentInfo = {
     { id: 'high', label: 'High' },
   ],
   default_effort: 'medium',
-  capabilities: ['worktree', 'interrupt', 'queue', 'steer', 'attachments', 'effort', 'history'],
+  // A27: pi answers `get_commands` with its prompts, skills and extensions.
+  capabilities: [
+    'worktree',
+    'interrupt',
+    'queue',
+    'steer',
+    'attachments',
+    'effort',
+    'history',
+    'commands',
+  ],
   attach: 'extension',
   attach_ready: true,
   shared_interrupt: true,
   shared_settings: true,
   shared_attachments: true,
 };
+
+/**
+ * A27 — what each agent offers when an app asks `session.commands`.
+ *
+ * The lists follow what the real agents advertise: Codex has one source, so it
+ * draws no group headers; Grok Build pushes a flat list of shell-side commands
+ * and skills over ACP, several of which take an argument; pi answers
+ * `get_commands` with its prompt templates, skills and extension commands
+ * beside its own built-in compaction, which is the one agent an app sections.
+ * Claude has no command surface at all and is absent here on purpose.
+ */
+const codexCommands: Command[] = [
+  { name: 'compact', description: 'Summarise the conversation to free up context' },
+  {
+    name: 'review',
+    description: "Review the working tree's changes and report issues",
+    argument: 'instructions',
+  },
+  { name: 'init', description: 'Write an AGENTS.md for this repository' },
+  { name: 'status', description: "Show the session's model, settings and token use" },
+  { name: 'usage', description: 'Show account usage and when the limits reset' },
+  { name: 'skills', description: 'List the skills this session can use' },
+  { name: 'hooks', description: 'List the lifecycle hooks that are installed' },
+  { name: 'mcp', description: 'List the MCP servers and the tools they bring' },
+];
+
+const grokCommands: Command[] = [
+  { name: 'compact', description: 'Compress the conversation history' },
+  { name: 'context', description: 'Show what is filling the context window' },
+  { name: 'session-info', description: 'Show this session’s stats' },
+  { name: 'hooks-list', description: 'List the hooks installed for this project' },
+  { name: 'hooks-add', description: 'Add a hook', argument: 'event command' },
+  { name: 'hooks-trust', description: 'Trust the hooks this project ships' },
+  { name: 'plugins', description: 'List the installed plugins' },
+  { name: 'goal', description: 'Set the goal for a long task', argument: 'goal' },
+  { name: 'loop', description: 'Repeat a task until it passes', argument: 'instructions' },
+  { name: 'workflow', description: 'Run a saved workflow', argument: 'name' },
+  { name: 'deep-research', description: 'Research a question first', argument: 'question' },
+  { name: 'review', description: 'Review the changes on this branch', argument: 'path' },
+];
+
+const piCommands: Command[] = [
+  {
+    name: 'compact',
+    description: 'Summarise the conversation to free up context',
+    argument: 'instructions',
+    group: 'Built-in',
+  },
+  {
+    name: 'release-notes',
+    description: 'Draft release notes from the commits since the last tag',
+    argument: 'tag',
+    group: 'Prompts',
+  },
+  {
+    name: 'refactor-plan',
+    description: 'Plan a refactor before touching the code',
+    argument: 'area',
+    group: 'Prompts',
+  },
+  { name: 'skill:pdf-tables', description: 'Extract tables from a PDF into CSV', group: 'Skills' },
+  {
+    name: 'skill:sql-review',
+    description: 'Review a migration for locks and index use',
+    group: 'Skills',
+  },
+  {
+    name: 'rc-status',
+    description: 'Show what the remote-control extension is attached to',
+    group: 'Extensions',
+  },
+  {
+    name: 'web-search',
+    description: 'Search the web and summarise the results',
+    argument: 'query',
+    group: 'Extensions',
+  },
+];
+
+/** A27: the list for one agent. Empty for an agent with no command surface. */
+export function commandsFor(agent: AgentId): Command[] {
+  if (agent === 'codex') return codexCommands;
+  if (agent === 'grok') return grokCommands;
+  if (agent === 'pi') return piCommands;
+  return [];
+}
 
 /**
  * A22: the build the mock gateway serves as `/api/config` `client.build`.
@@ -457,6 +566,20 @@ export const sessions: Session[] = [
     control: 'terminal',
     updated_at: minutes(7),
     git: { branch: 'feat/grok-mirror', dirty: true, ahead: 1, behind: 0, worktree: false },
+  }),
+  session({
+    // A27: a Grok session an app started, so its 75-command list can actually
+    // be opened — the mirrored terminal row above it never draws a composer.
+    session_id: 'ses-grok',
+    device_id: 'dev-mac',
+    title: 'Port the hook allowlist',
+    cwd: '/Users/me/dev/remote-control/client',
+    agent: 'grok',
+    model: 'grok-4.6',
+    permission_mode: 'default',
+    effort: 'high',
+    state: 'idle',
+    updated_at: minutes(9),
   }),
   session({
     // A26: pi asks through the device's extension, so it has the three

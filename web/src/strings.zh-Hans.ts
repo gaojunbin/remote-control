@@ -326,6 +326,13 @@ export const zhHans: StringTable = {
     sendFailed: '无法发送消息。',
   },
 
+  commands: {
+    menu: '命令',
+    rowLabel: (name: string, description: string) => `命令，/${name}，${description}`,
+    whileRunning: '当前回合结束后可用',
+    failed: '无法执行该命令。',
+  },
+
   voice: {
     transcribing: '实时转写 · 发送前可编辑',
     connecting: '连接中…',

@@ -558,6 +558,27 @@ describe('detail levels', () => {
     expect(roots.map((item) => item.key)).not.toContain('sub1');
   });
 
+  it('keeps a slash command’s own output at both levels (A27)', () => {
+    const state = applyEvents(conversation(), [
+      event({
+        seq: 8,
+        ts: 8,
+        kind: 'tool_call',
+        block_id: 'cmd1',
+        tool: '/usage',
+        tool_kind: 'other',
+        title: '/usage',
+        status: 'succeeded',
+        started_at: 8,
+        output: 'Plan: Pro',
+      }),
+    ]);
+    // It answers what the person asked for, so Simple draws it like any answer.
+    for (const detail of ['simple', 'detailed'] as const) {
+      expect(selectView(state, detail).roots.map((item) => item.key)).toContain('cmd1');
+    }
+  });
+
   it('keeps an unconfirmed send at both levels', () => {
     const state = addOptimistic(conversation(), {
       id: 'req-1',

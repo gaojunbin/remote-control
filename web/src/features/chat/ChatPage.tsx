@@ -4,13 +4,14 @@ import { errorText } from '../../lib/errors';
 import { rpc } from '../../lib/gateway';
 import { strings } from '../../strings';
 import { useChat } from '../../stores/chat';
+import { commandsOf, useCommands } from '../../stores/commands';
 import { useConnection } from '../../stores/connection';
 import { useDevices } from '../../stores/devices';
 import { useOutbox } from '../../stores/outbox';
 import { sessionKey, useSessions } from '../../stores/sessions';
 import { emptyTimeline, selectPendingQuestion } from '../../stores/timeline';
 import type { SendMode } from '../../protocol/frames';
-import type { QuestionAnswers } from '../../protocol/types';
+import type { Command, QuestionAnswers } from '../../protocol/types';
 import { NewSessionDrawer } from '../sessions/NewSessionDrawer';
 import { ChatHeader } from './ChatHeader';
 import { Composer } from './Composer';
@@ -23,6 +24,9 @@ import './chat.css';
 
 /** Stable identity, so an unopened session does not rebuild the view each render. */
 const NO_TIMELINE = emptyTimeline();
+
+/** A27: what an agent without capability `commands` offers, once and for all. */
+const EMPTY_COMMANDS: Command[] = [];
 
 export function ChatPage() {
   const { deviceId = '', sessionId = '' } = useParams();
@@ -40,6 +44,8 @@ export function ChatPage() {
   const expandBlock = useChat((s) => s.expandBlock);
   const loadOlder = useChat((s) => s.loadOlder);
   const removeQueued = useChat((s) => s.removeQueued);
+  const runCommand = useChat((s) => s.runCommand);
+  const commands = useCommands(commandsOf(sessionId));
   const session = useSessions((s) => s.sessions[key]);
   const takeoverSession = useSessions((s) => s.takeover);
   const devices = useDevices((s) => s.devices);
@@ -68,6 +74,32 @@ export function ChatPage() {
     openChat(deviceId, sessionId);
     return () => closeChat(deviceId, sessionId);
   }, [deviceId, sessionId, socketStatus, openChat, closeChat]);
+
+  // A27: the list is fetched when the conversation opens, so the panel is on
+  // screen the moment `/` is typed. An agent without the capability is never
+  // asked — the device would answer `unsupported`.
+  const hasCommands = agent?.capabilities.includes('commands') ?? false;
+  useEffect(() => {
+    if (!sessionId || !hasCommands || socketStatus !== 'open') return;
+    useCommands.getState().open(sessionId);
+  }, [sessionId, hasCommands, socketStatus]);
+
+  const onCommandsNeeded = useCallback(() => {
+    if (!hasCommands) return;
+    useCommands.getState().refresh(sessionId);
+  }, [hasCommands, sessionId]);
+
+  /**
+   * A27: the refusal travels on to the composer, which reports it under the
+   * field the way a failed send does, in the device's own words.
+   */
+  const onRunCommand = useCallback(
+    async (name: string, argument?: string) => {
+      setActionError(null);
+      await runCommand(key, name, argument);
+    },
+    [runCommand, key],
+  );
 
   const unconfirmed = useMemo(
     () => Object.values(pending).filter((p) => p.sessionKey === key && p.error !== null),
@@ -283,6 +315,9 @@ export function ChatPage() {
           question={question}
           sttEnabled={stt.enabled}
           sttLanguages={stt.languages}
+          commands={hasCommands ? commands : EMPTY_COMMANDS}
+          onCommandsNeeded={onCommandsNeeded}
+          onRunCommand={onRunCommand}
           onSend={onSend}
           onAnswer={onAnswer}
           onSetOption={onSetOption}

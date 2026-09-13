@@ -629,3 +629,154 @@ export function codexSharedAfterApproval(
   push(20, (seq, ts) => ({ seq, ts, kind: 'status', state: 'idle' }));
   return steps;
 }
+
+/* ------------------------------------------------------- slash commands (A27) */
+
+/**
+ * What a terminal would have printed for the read-only commands. The device
+ * turns each into a `tool_call` block — `tool_kind: "other"`, `tool` and
+ * `title` the command itself — because that is where long output belongs
+ * (PROTOCOL.md §6.3, `fixtures/events/tool_call.command.json`).
+ */
+const COMMAND_OUTPUT: Record<string, { output: string; summary?: string }> = {
+  status: {
+    output: [
+      'Model: gpt-5.4-codex · reasoning high · speed Fast',
+      'Approval: on-request · sandbox workspace-write',
+      'Directory: /Users/me/dev/remote-control/web',
+      'Tokens: 48,200 used of 200,000 (24%)',
+    ].join('\n'),
+    summary: '24% of the context used',
+  },
+  usage: {
+    output: [
+      'Plan: Pro',
+      '5-hour window: 38% used, resets 14:20',
+      'Weekly window: 12% used, resets Thu 09:00',
+    ].join('\n'),
+    summary: '38% of the 5-hour window used',
+  },
+  skills: {
+    output: ['pdf-tables — extract tables from a PDF', 'sql-review — review a migration'].join('\n'),
+    summary: '2 skills',
+  },
+  hooks: {
+    output: ['SessionStart — scripts/announce.sh', 'PreToolUse — scripts/guard.py'].join('\n'),
+    summary: '2 hooks',
+  },
+  mcp: {
+    output: ['playwright — 14 tools, connected', 'sqlite — 6 tools, connected'].join('\n'),
+    summary: '2 servers',
+  },
+};
+
+/** What the agents answer in prose, by command. */
+const COMMAND_ANSWER: Record<string, (argument?: string) => string> = {
+  review: (argument) =>
+    argument
+      ? `Reviewed the working tree with your instructions in mind (${argument}). One finding: the retry loop in \`gateway/link.py\` re-enters before the backoff timer is cleared.`
+      : 'Reviewed the working tree. One finding: `gateway/link.py` re-enters the retry loop before the backoff timer is cleared.',
+  init: () =>
+    'Wrote `AGENTS.md`: the layout, how to run the tests, and the two rules this repository enforces on every change.',
+};
+
+/**
+ * A27 — running one slash command. The echo comes first, under the request's
+ * own id, and then the outcome the command calls for: a `notice` for a state
+ * change, a `tool_call` block for what a terminal would have printed, and an
+ * ordinary turn for a command the agent answers in prose. A Grok command may
+ * legitimately answer nothing at all — `/context` renders in its own pager —
+ * so the echo is the whole of it.
+ */
+export function commandScript(
+  agent: string,
+  name: string,
+  argument: string | undefined,
+  blockId: string,
+): Step[] {
+  const steps: Step[] = [];
+  let at = 0;
+  const push = (delay: number, event: Step['event']) => {
+    at += delay;
+    steps.push({ after: at, event });
+  };
+  const nonce = String(Date.now()).slice(-6);
+
+  push(0, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'user_message',
+    block_id: blockId,
+    source: 'remote',
+    text: argument ? `/${name} ${argument}` : `/${name}`,
+  }));
+
+  if (name === 'compact') {
+    push(900, (seq, ts) => ({
+      seq,
+      ts,
+      kind: 'notice',
+      level: 'info',
+      text: 'Context was compacted; earlier turns are summarised.',
+    }));
+    return steps;
+  }
+
+  const printed = agent === 'codex' ? COMMAND_OUTPUT[name] : undefined;
+  if (printed) {
+    push(500, (seq, ts) => ({
+      seq,
+      ts,
+      kind: 'tool_call',
+      block_id: `cmd-${nonce}`,
+      tool: `/${name}`,
+      tool_kind: 'other',
+      title: `/${name}`,
+      status: 'succeeded',
+      started_at: ts - 200,
+      ended_at: ts,
+      duration_ms: 200,
+      output: printed.output,
+      ...(printed.summary ? { summary: printed.summary } : {}),
+    }));
+    return steps;
+  }
+
+  // Grok renders `/context` in its own pager, so nothing reaches the transport.
+  if (agent === 'grok' && name === 'context') return steps;
+
+  const answer =
+    COMMAND_ANSWER[name]?.(argument) ??
+    (argument
+      ? `Ran \`/${name}\` with "${argument}".`
+      : `Ran \`/${name}\`. Nothing needed changing.`);
+  const turnId = `cmd-turn-${nonce}`;
+  push(200, (seq, ts) => ({ seq, ts, kind: 'turn_started', turn_id: turnId, trigger: 'remote' }));
+  push(60, (seq, ts) => ({ seq, ts, kind: 'status', state: 'running' }));
+  push(500, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'assistant_text',
+    block_id: `cmd-a-${nonce}`,
+    delta: answer,
+    done: false,
+  }));
+  push(300, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'assistant_text',
+    block_id: `cmd-a-${nonce}`,
+    text: answer,
+    done: true,
+  }));
+  push(200, (seq, ts) => ({
+    seq,
+    ts,
+    kind: 'turn_completed',
+    turn_id: turnId,
+    stop_reason: 'completed',
+    duration_ms: 1_060,
+  }));
+  push(20, (seq, ts) => ({ seq, ts, kind: 'status', state: 'idle' }));
+  return steps;
+}

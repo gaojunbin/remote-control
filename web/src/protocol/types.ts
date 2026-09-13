@@ -42,7 +42,30 @@ export type Capability =
   | 'attachments'
   | 'effort'
   | 'history'
+  /** A27: the agent's sessions can list and run slash commands from an app. */
+  | 'commands'
   | (string & {});
+
+/**
+ * A27 (4.11): one slash command a session offers right now. `name` is what the
+ * user types after the slash and what goes back on the wire, unchanged.
+ */
+export interface Command {
+  name: string;
+  description: string;
+  /**
+   * Placeholder for whatever may follow the name — `instructions`, `path`.
+   * Absent when the command takes nothing, which is also how an app decides
+   * whether taking the row leaves a trailing space behind.
+   */
+  argument?: string;
+  /**
+   * Where the command comes from: `Built-in`, `Skills`, `Prompts`,
+   * `Extensions`. The list is sectioned by it only when more than one is
+   * present, because a single header says nothing.
+   */
+  group?: string;
+}
 
 /**
  * How a terminal-started session can be attached (amendment A10).

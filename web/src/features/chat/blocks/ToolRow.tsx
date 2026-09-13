@@ -41,7 +41,12 @@ export function ToolRow({ event, onOpenFull, children }: Props) {
           {running ? <span className="dot running pulse" /> : <ToolIcon category={category} />}
         </span>
         <span className="tool-name">{event.tool}</span>
-        <span className="tool-title mono">{event.title}</span>
+        {/* A27: a slash command's block is titled with the command itself, so
+            the name and the title are one and the same word; printing it twice
+            would only say it twice. */}
+        {event.title === event.tool ? null : (
+          <span className="tool-title mono">{event.title}</span>
+        )}
         {event.diff ? <DiffStat diff={event.diff} /> : null}
         {event.summary ? (
           <span className={`badge${failed ? ' error' : ''}`}>{event.summary}</span>

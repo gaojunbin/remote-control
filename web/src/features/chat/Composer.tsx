@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import { ArrowUp, ChevronRight, Mic, Paperclip, X, Zap } from 'lucide-react';
 import { Menu, Popover } from '../../components/Popover';
 import { bytes } from '../../lib/format';
@@ -9,6 +17,7 @@ import type { SendMode } from '../../protocol/frames';
 import type {
   AgentInfo,
   Choice,
+  Command,
   QuestionAnswers,
   QuestionEvent,
   QueuedMessage,
@@ -21,6 +30,8 @@ import { useVoice } from '../voice/useVoice';
 import { composeAnswer } from './answering';
 import { attachHint, canAttachShared, canInterruptShared, canSetShared } from './attach';
 import { readAttachments, textTooLong, type AttachmentDraft } from './attachments';
+import { CommandHint, CommandMenu } from './CommandMenu';
+import { commandQuery, completionFor, filterCommands, matchCommand } from './commands';
 import { SizedBox } from './SizedBox';
 import { labelPairs, type LabelPair } from './modelLabels';
 import type { SessionOptions } from './sessionOptions';
@@ -34,12 +45,24 @@ interface Props {
   question: QuestionEvent | null;
   sttEnabled: boolean;
   sttLanguages: string[];
+  /**
+   * A27: the slash commands this session offers now. Empty for an agent
+   * without capability `commands` — every Claude session — and the panel is
+   * then never drawn: `/` is an ordinary character there.
+   */
+  commands?: Command[];
   onSend: (text: string, attachments: AttachmentDraft[], mode: SendMode) => Promise<void>;
   onAnswer: (requestId: string, answers: QuestionAnswers) => Promise<void>;
   onSetOption: (patch: SessionOptions) => void;
   onRemoveQueued: (queuedId: string) => void;
   onTakeover: () => void;
+  /** A27: `/` was typed, so the list is asked for again if it is stale. */
+  onCommandsNeeded?: () => void;
+  /** A27: run the command the first word names. */
+  onRunCommand?: (name: string, argument?: string) => Promise<void>;
 }
+
+const NO_COMMANDS: Command[] = [];
 
 export function Composer({
   session,
@@ -49,15 +72,23 @@ export function Composer({
   question,
   sttEnabled,
   sttLanguages,
+  commands = NO_COMMANDS,
   onSend,
   onAnswer,
   onSetOption,
   onRemoveQueued,
   onTakeover,
+  onCommandsNeeded,
+  onRunCommand,
 }: Props) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
+  // A27: the row the keyboard is on, and whether Esc has put the panel away
+  // until the draft changes again.
+  const [highlight, setHighlight] = useState(0);
+  const [menuClosed, setMenuClosed] = useState(false);
+  const menuId = useId();
   const composing = useRef(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -74,6 +105,10 @@ export function Composer({
   const setDraft = useCallback((value: string) => {
     textRef.current = value;
     setText(value);
+    // A27: a changed draft is a changed list, so the highlight goes back to the
+    // first match and a panel that was dismissed is open again.
+    setHighlight(0);
+    setMenuClosed(false);
   }, []);
 
   useEffect(() => {
@@ -120,6 +155,27 @@ export function Composer({
   const answering = question !== null && !disabled;
   const answer = answering ? composeAnswer(question, answerDraft, text) : null;
 
+  // A27 — the terminal's `/` menu. The field is a command's while it is a
+  // slash and a partial name; a complete first word the session offers is what
+  // Send runs, and anything else is text, the way a terminal treats an unknown
+  // slash. Neither happens while a question is waiting for this field.
+  const commandable = !answering && !disabled;
+  const query = commandable ? commandQuery(text) : null;
+  const rows = query === null ? NO_COMMANDS : filterCommands(commands, query);
+  const menuOpen = rows.length > 0 && !menuClosed;
+  const highlighted = rows[Math.min(highlight, rows.length - 1)] ?? null;
+  const commandMatch = commandable ? matchCommand(commands, text) : null;
+  const optionId = useCallback((index: number) => `${menuId}-command-${index}`, [menuId]);
+
+  /** Take a row: `/name ` when it takes an argument, `/name` when it does not. */
+  const takeCommand = useCallback(
+    (command: Command) => {
+      setDraft(completionFor(command));
+      textarea.current?.focus();
+    },
+    [setDraft],
+  );
+
   /**
    * A20: submit the draft as the free-text answer of the first question with
    * no selection, alongside whatever the card holds. There is no optimistic
@@ -152,6 +208,23 @@ export function Composer({
         setErrors([strings.composer.textTooLong]);
         return;
       }
+      // A27: a first word the session offers is a command, not a message. The
+      // device refuses one mid-turn with `conflict`, so the composer says so
+      // itself rather than spending a round trip on a refusal it can predict.
+      const command = commandable ? matchCommand(commands, value) : null;
+      if (command && onRunCommand) {
+        if (running) {
+          setErrors([strings.commands.whileRunning]);
+          return;
+        }
+        setDraft('');
+        setErrors([]);
+        onRunCommand(command.command.name, command.argument).catch((err: unknown) => {
+          setErrors([err instanceof Error ? err.message : strings.commands.failed]);
+          if (textRef.current.length === 0) setDraft(value);
+        });
+        return;
+      }
       const files = attachments;
       setDraft('');
       setAttachments([]);
@@ -163,7 +236,7 @@ export function Composer({
         setAttachments((current) => (current.length === 0 ? files : current));
       });
     },
-    [text, attachments, disabled, onSend, setDraft],
+    [text, attachments, disabled, onSend, setDraft, commandable, commands, onRunCommand, running],
   );
 
   /**
@@ -220,6 +293,44 @@ export function Composer({
   const primaryDisabled = answering
     ? answer === null
     : disabled || (text.trim().length === 0 && attachments.length === 0);
+
+  /**
+   * A27: while the panel is open the arrows, Tab, Enter and Esc belong to it.
+   * Enter takes the highlighted row; when the field already holds exactly what
+   * taking it would write, Enter runs the command instead — the terminal's
+   * second Enter. Returns true when the key was the panel's.
+   */
+  const onCommandKey = (e: ReactKeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (!menuOpen) return false;
+    const at = Math.min(highlight, rows.length - 1);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlight((at + 1) % rows.length);
+      return true;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlight((at + rows.length - 1) % rows.length);
+      return true;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setMenuClosed(true);
+      return true;
+    }
+    if (e.key === 'Tab' && !e.shiftKey && highlighted) {
+      e.preventDefault();
+      takeCommand(highlighted);
+      return true;
+    }
+    if (e.key === 'Enter' && !e.shiftKey && !composing.current && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      if (highlighted && completionFor(highlighted) !== text) takeCommand(highlighted);
+      else primarySubmit();
+      return true;
+    }
+    return false;
+  };
 
   // A10 §8: only a `terminal` session can be missing its attachment.
   const hint = terminalControlled ? attachHint(agent) : null;
@@ -316,111 +427,139 @@ export function Composer({
         </p>
       ) : null}
 
-      <div className={cx('composer', disabled && 'disabled', voiceBusy && 'listening')}>
-        <textarea
-          ref={textarea}
-          className="composer-input"
-          rows={1}
-          value={text}
-          placeholder={placeholder}
-          disabled={disabled}
-          aria-label={strings.composer.placeholder}
-          onCompositionStart={() => (composing.current = true)}
-          onCompositionEnd={() => (composing.current = false)}
-          onChange={(e) => {
-            stopDictationForTyping();
-            setDraft(e.target.value);
-          }}
-          onPaste={(e) => {
-            const files = showAttach ? [...e.clipboardData.files] : [];
-            if (files.length > 0) {
-              e.preventDefault();
-              void attach(files);
+      <div className="composer-field">
+        {menuOpen ? (
+          <CommandMenu
+            rows={rows}
+            highlight={Math.min(highlight, rows.length - 1)}
+            listId={menuId}
+            optionId={optionId}
+            running={running}
+            onHighlight={setHighlight}
+            onTake={takeCommand}
+          />
+        ) : commandMatch ? (
+          <CommandHint command={commandMatch.command} />
+        ) : null}
+
+        <div className={cx('composer', disabled && 'disabled', voiceBusy && 'listening')}>
+          <textarea
+            ref={textarea}
+            className="composer-input"
+            rows={1}
+            value={text}
+            placeholder={placeholder}
+            disabled={disabled}
+            aria-label={strings.composer.placeholder}
+            aria-expanded={menuOpen}
+            aria-controls={menuOpen ? menuId : undefined}
+            aria-activedescendant={
+              menuOpen ? optionId(Math.min(highlight, rows.length - 1)) : undefined
             }
-          }}
-          onKeyDown={(e) => {
-            if (e.key !== 'Enter' || e.shiftKey || composing.current || e.nativeEvent.isComposing) return;
-            e.preventDefault();
-            primarySubmit();
-          }}
-        />
-        {voiceBusy ? (
-          <VoiceControls voice={voice} onDone={voice.done} />
-        ) : (
-          <div className="composer-buttons">
-          {showAttach ? (
-            <>
-              <input
-                ref={fileInput}
-                type="file"
-                multiple
-                className="sr-only"
-                aria-label={strings.composer.attach}
-                onChange={(e) => {
-                  void attach([...(e.target.files ?? [])]);
-                  e.target.value = '';
-                }}
-              />
+            onCompositionStart={() => (composing.current = true)}
+            onCompositionEnd={() => (composing.current = false)}
+            onChange={(e) => {
+              stopDictationForTyping();
+              const next = e.target.value;
+              // A27: the list is asked for again on the keystroke that opens the
+              // panel, so it is current the moment it is on screen.
+              if (commandQuery(next) !== null && commandQuery(textRef.current) === null) {
+                onCommandsNeeded?.();
+              }
+              setDraft(next);
+            }}
+            onPaste={(e) => {
+              const files = showAttach ? [...e.clipboardData.files] : [];
+              if (files.length > 0) {
+                e.preventDefault();
+                void attach(files);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (onCommandKey(e)) return;
+              if (e.key !== 'Enter' || e.shiftKey || composing.current || e.nativeEvent.isComposing) return;
+              e.preventDefault();
+              primarySubmit();
+            }}
+          />
+          {voiceBusy ? (
+            <VoiceControls voice={voice} onDone={voice.done} />
+          ) : (
+            <div className="composer-buttons">
+            {showAttach ? (
+              <>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  multiple
+                  className="sr-only"
+                  aria-label={strings.composer.attach}
+                  onChange={(e) => {
+                    void attach([...(e.target.files ?? [])]);
+                    e.target.value = '';
+                  }}
+                />
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label={strings.composer.attach}
+                  disabled={disabled}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  <Paperclip size={16} />
+                </button>
+              </>
+            ) : null}
+            {sttEnabled ? (
               <button
                 type="button"
                 className="icon-btn"
-                aria-label={strings.composer.attach}
+                aria-label={strings.composer.micStart}
                 disabled={disabled}
-                onClick={() => fileInput.current?.click()}
+                onClick={startVoice}
               >
-                <Paperclip size={16} />
+                <Mic size={16} />
               </button>
-            </>
-          ) : null}
-          {sttEnabled ? (
+            ) : null}
+            {running && canInterrupt && !answering ? (
+              <Popover
+                align="end"
+                side="top"
+                chevron={false}
+                ariaLabel={strings.composer.sendOptions}
+                triggerClassName="send-alt"
+                label={<span aria-hidden>⋯</span>}
+              >
+                {(close) => (
+                  <ul className="menu">
+                    <li>
+                      <button
+                        type="button"
+                        className="menu-item"
+                        onClick={() => {
+                          close();
+                          submit('interrupt');
+                        }}
+                      >
+                        <span className="menu-label">{strings.composer.interruptAndSend}</span>
+                      </button>
+                    </li>
+                  </ul>
+                )}
+              </Popover>
+            ) : null}
             <button
               type="button"
-              className="icon-btn"
-              aria-label={strings.composer.micStart}
-              disabled={disabled}
-              onClick={startVoice}
+              className="btn primary small send-btn"
+              disabled={primaryDisabled}
+              onClick={primarySubmit}
             >
-              <Mic size={16} />
-            </button>
-          ) : null}
-          {running && canInterrupt && !answering ? (
-            <Popover
-              align="end"
-              side="top"
-              chevron={false}
-              ariaLabel={strings.composer.sendOptions}
-              triggerClassName="send-alt"
-              label={<span aria-hidden>⋯</span>}
-            >
-              {(close) => (
-                <ul className="menu">
-                  <li>
-                    <button
-                      type="button"
-                      className="menu-item"
-                      onClick={() => {
-                        close();
-                        submit('interrupt');
-                      }}
-                    >
-                      <span className="menu-label">{strings.composer.interruptAndSend}</span>
-                    </button>
-                  </li>
-                </ul>
-              )}
-            </Popover>
-          ) : null}
-          <button
-            type="button"
-            className="btn primary small send-btn"
-            disabled={primaryDisabled}
-            onClick={primarySubmit}
-          >
-              {running ? primaryLabel : <ArrowUp size={15} aria-hidden />}
-              {running ? null : <span className="sr-only">{strings.composer.send}</span>}
-            </button>
-          </div>
-        )}
+                {running ? primaryLabel : <ArrowUp size={15} aria-hidden />}
+                {running ? null : <span className="sr-only">{strings.composer.send}</span>}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <ComposerBottomRow

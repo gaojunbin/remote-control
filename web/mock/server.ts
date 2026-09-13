@@ -20,6 +20,7 @@ import {
   CLIENT_BUILD,
   CLIENT_VERSION,
   HOME,
+  commandsFor,
   devices,
   historyFor,
   recentDirs,
@@ -49,6 +50,7 @@ import {
   afterApproval,
   codexSharedAfterApproval,
   codexSharedTurn,
+  commandScript,
   sharedAfterApproval,
   sharedTurn,
   turnScript,
@@ -954,6 +956,42 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       }
       reply(conn, id, { accepted: 'sent' });
       playRemote(sessionId, text, String(id));
+      return;
+    }
+
+    // A27: what the session's agent offers now. Claude has no command surface
+    // at all, so it answers `unsupported` and the apps draw nothing.
+    case 'session.commands': {
+      const session = findSession(sessionId);
+      if (!session) return replyError(conn, id, 'not_found', 'no such session');
+      if (!agentFor(session)?.capabilities.includes('commands')) {
+        return replyError(conn, id, 'unsupported', 'this agent has no slash commands');
+      }
+      reply(conn, id, { commands: commandsFor(session.agent) });
+      return;
+    }
+
+    // A27: run one. The result is `{}`; the echo and the outcome are events,
+    // the echo under this request's own id.
+    case 'session.command': {
+      const session = findSession(sessionId);
+      if (!session) return replyError(conn, id, 'not_found', 'no such session');
+      if (!agentFor(session)?.capabilities.includes('commands')) {
+        return replyError(conn, id, 'unsupported', 'this agent has no slash commands');
+      }
+      if (session.control === 'terminal') {
+        return replyError(conn, id, 'conflict', 'controlled by terminal; take over first');
+      }
+      const name = String(frame.name ?? '');
+      if (!commandsFor(session.agent).some((command) => command.name === name)) {
+        return replyError(conn, id, 'not_found', `no command named /${name}`);
+      }
+      if (session.state === 'running' || session.state === 'needs_approval') {
+        return replyError(conn, id, 'conflict', 'wait for the turn to finish');
+      }
+      const argument = typeof frame.argument === 'string' ? frame.argument : undefined;
+      reply(conn, id, {});
+      play(sessionId, commandScript(session.agent, name, argument, String(id)));
       return;
     }
 

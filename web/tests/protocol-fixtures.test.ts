@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { PROTOCOL_VERSION } from '../src/protocol/types';
 import type {
   AgentInfo,
+  Command,
   Device,
   Session,
   SessionEvent,
@@ -15,6 +16,11 @@ import type {
 import type { User, UserRecord } from '../src/protocol/types';
 import type { HelloFrame, Reply, SubscribeResult } from '../src/protocol/frames';
 import { toolCategory } from '../src/features/chat/blocks/toolCategory';
+import {
+  commandSections,
+  filterCommands,
+  matchCommand,
+} from '../src/features/chat/commands';
 import { fixturesAvailable, listFixtures, readFixture } from './fixtures';
 
 const EVENT_KINDS = new Set([
@@ -46,6 +52,9 @@ const TOOL_KINDS = new Set([
   'todo',
   'other',
 ]);
+
+/** A27: `Command.name` of PROTOCOL.md §4.11 — lower case, never with the slash. */
+const COMMAND_NAME = /^[a-z0-9][a-z0-9_:.-]*$/;
 
 /** A24: the username rule of PROTOCOL.md §3.1, and the two closed lists. */
 const USERNAME = /^[a-z0-9][a-z0-9._-]{2,31}$/;
@@ -285,6 +294,46 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
     );
     expect(set.type).toBe('session.set');
     expect(codex?.speeds?.some((tier) => tier.id === set.speed)).toBe(true);
+  });
+
+  it('decodes the slash-command frames of A27', () => {
+    const ask = readFixture<{ type: string; session_id: string }>('app/session.commands.json');
+    expect(ask.type).toBe('session.commands');
+    expect(typeof ask.session_id).toBe('string');
+
+    const reply = readFixture<Reply<{ commands: Command[] }>>('app/reply.session.commands.json');
+    expect(reply.ok).toBe(true);
+    if (!reply.ok) return;
+    expect(reply.result.commands.length).toBeGreaterThan(0);
+    for (const command of reply.result.commands) {
+      // §4.11: the name is what the user types after the slash, never with it.
+      expect(command.name).toMatch(COMMAND_NAME);
+      expect(typeof command.description).toBe('string');
+      expect(command.argument === undefined || command.argument.length > 0).toBe(true);
+      expect(command.group === undefined || command.group.length > 0).toBe(true);
+    }
+    // The worked list carries more than one group, which is what sections it.
+    expect(commandSections(reply.result.commands).length).toBeGreaterThan(1);
+    expect(filterCommands(reply.result.commands, 'comp').map((c) => c.name)).toEqual(['compact']);
+
+    const run = readFixture<{ type: string; session_id: string; name: string; argument?: string }>(
+      'app/session.command.json',
+    );
+    expect(run.type).toBe('session.command');
+    expect(run.name).toMatch(COMMAND_NAME);
+    // The name goes back exactly as it was listed.
+    expect(reply.result.commands.some((command) => command.name === run.name)).toBe(true);
+    expect(matchCommand(reply.result.commands, `/${run.name} ${run.argument ?? ''}`)).toMatchObject({
+      command: { name: run.name },
+      ...(run.argument ? { argument: run.argument } : {}),
+    });
+
+    // What a terminal would have printed comes back as a `tool_call` block.
+    const printed = readFixture<SessionEvent>('events/tool_call.command.json');
+    if (printed.kind !== 'tool_call') throw new Error('not a tool_call fixture');
+    expect(printed.tool_kind).toBe('other');
+    expect(printed.tool).toBe(printed.title);
+    expect(printed.tool.startsWith('/')).toBe(true);
   });
 
   it('decodes an error reply into a code the UI knows', () => {

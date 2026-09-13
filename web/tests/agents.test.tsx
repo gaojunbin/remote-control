@@ -112,6 +112,8 @@ describe.runIf(fixturesAvailable())('the mock advertises what the contract does'
     ['pi', piAgent],
   ])('matches objects/agent.%s.json', (id, mocked) => {
     expect(mocked).toEqual(readFixture<AgentInfo>(`objects/agent.${id}.json`));
+    // A27: both agents carry the capability the panel is drawn from.
+    expect(mocked.capabilities).toContain('commands');
   });
 });
 

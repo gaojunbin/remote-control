@@ -344,8 +344,18 @@ const WORKINGS = new Set(['thinking', 'tool_call']);
 /** Kinds no level hides, wherever they sit: they are waiting for an answer. */
 const ALWAYS_DRAWN = new Set(['approval', 'question']);
 
+/**
+ * A27: the device reports what a terminal would have printed for a slash
+ * command as a `tool_call` whose `tool` and `title` are the command itself
+ * (PROTOCOL.md §6.3). That block is not one of the agent's workings — it is
+ * the answer to what the person asked for — so Simple draws it too, or
+ * `/usage` would run and show nothing at all.
+ */
+const isCommandOutput = (event: SessionEvent): boolean =>
+  event.kind === 'tool_call' && event.tool.startsWith('/');
+
 const drawnAt = (item: TimelineItem, detail: TimelineDetail): boolean =>
-  detail === 'detailed' || !WORKINGS.has(item.event.kind);
+  detail === 'detailed' || !WORKINGS.has(item.event.kind) || isCommandOutput(item.event);
 
 /**
  * Split items into top-level rows and sub-agent children keyed by parent block,

@@ -39,7 +39,7 @@ cd web && npm ci
 
 `mock/server.ts` implements the app-facing half of the protocol — the HTTP API, `WS /ws/app` and
 `WS /ws/stt` — so the whole UI can be developed with no gateway and no device. It ships two devices
-and eighteen sessions covering running, needs-approval, needs-input, errored, idle,
+and nineteen sessions covering running, needs-approval, needs-input, errored, idle,
 terminal-controlled, shared through the Claude channel, shared through the Codex daemon, Codex,
 terminal sessions on a device that has neither the shim nor the Codex daemon, three sessions whose
 CLI exited (`control: "none"`) and two archived by hand, spread over both devices so every device
@@ -47,7 +47,8 @@ group has both halves of an Archive under it. Between them they show all five st
 One of the two devices advertises all four agents (A25, A26) — the two newest copied from
 `protocol/fixtures/objects/agent.grok.json` and `agent.pi.json`, which `tests/agents.test.tsx`
 asserts they still equal — and carries one session of each: a Grok Build session a terminal holds,
-whose transcript the device mirrors but cannot write to, and a pi session on the `on-request`
+whose transcript the device mirrors but cannot write to, a second Grok Build session an app
+started, so its command list can actually be opened, and a pi session on the `on-request`
 permission mode its extension enforces.
 Opening the running session plays a scripted turn: streamed thinking, streamed Markdown, tool rows
 with a live output box, a failing shell run, two diffs, an approval and a question. Both drive the
@@ -459,6 +460,65 @@ the terminal", whatever the agent is; the status line adds " · take over to sen
 is, and stops at "Controlled by the terminal" where there is nothing to press. Grok Build and Codex
 advertise no `takeover`.
 
+## Slash commands (A27)
+
+Typing `/` into the composer of a session whose agent carries capability `commands` opens the same
+list a terminal opens, above the field. Codex, Grok Build and pi carry it; Claude never does, and on
+a Claude session `/` is an ordinary character with nothing to explain it.
+
+**The list.** `src/stores/commands.ts` keeps one entry per `session_id`: the commands, when they
+arrived, and whether a request is out. `ChatPage` calls `open()` when the conversation opens and
+`refresh()` on the keystroke that opens the panel; `refresh` asks the device again only when the
+last answer is older than `COMMANDS_TTL_MS` (60 s), was empty, or never came — the rule
+`PROTOCOL.md` §6.3 states. A refusal is stored as an empty list rather than raised: the panel simply
+does not appear, the way it does not for an agent without the capability, and the stamp keeps the
+next keystroke from asking again at once. Nothing is ever asked for an agent without the capability,
+so the gateway never answers `unsupported` on our account.
+
+**Reading the draft** is `src/features/chat/commands.ts`, four pure functions the panel, the send
+routing and the tests all share. `commandQuery` is the partial name while the draft is a slash and
+nothing else — `/`, `/com`, `/skill:pdf` — and null the moment a space follows, which is what closes
+the panel. `matchCommand` reads a complete first word and its argument, and returns null for a name
+the session does not offer, so `/nonesuch do the thing` is sent as text exactly as a terminal treats
+an unknown slash. `filterCommands` is a prefix of the name in the device's own order, and
+`commandSections` groups the rows only when the agent distinguishes more than one group: Codex has
+one source and draws no headers, pi draws Built-in, Prompts, Skills and Extensions.
+
+**The panel** is `src/features/chat/CommandMenu.tsx` with its own stylesheet. It is not a popover —
+nothing opened it, a keystroke did — so it is drawn in the composer's own flow, anchored to the
+field's wrapper and never moving the field down. One row per command: `/name` in the monospace face,
+the description after it, the argument placeholder at the trailing edge in the tertiary colour.
+Eight rows, then it scrolls. The field keeps focus throughout: the list is a `listbox` the field
+points at with `aria-controls` and `aria-activedescendant`, and a mouse press on a row is
+`preventDefault`ed so the caret never leaves. ↑/↓ move the highlight and wrap, Tab and Enter take
+the highlighted row, Esc puts the panel away until the next keystroke, and a click takes a row.
+Taking a row writes `/name ` when the command takes an argument and `/name` when it does not, so the
+second Enter runs it — the terminal's own second Enter. Once the first word is complete the panel
+gives way to a one-line hint in the same place, naming the command and where its argument goes.
+
+**Sending.** The composer's `submit` asks `matchCommand` first: a listed command becomes
+`session.command {name, argument?}` through `useChat.runCommand`, and everything else stays
+`session.send`. `runCommand` mints the request id, puts the row in the timeline under it before the
+request leaves (A12, exactly as a message does), and marks it accepted when the gateway answers; a
+refusal takes the row away again and the message reaches the composer's own error line under the
+field, in the device's words. A command is never sent while a turn is running: the rows dim, the
+panel grows the footer "Available when the turn finishes", and Send answers with that same sentence
+inline rather than spending a round trip on a `conflict` it can predict.
+
+**The output.** What a terminal would have printed comes back as a `tool_call` block whose `tool`
+and `title` are the command itself. Two small rules follow: `selectView` in `src/stores/timeline.ts`
+draws such a block at Simple as well as Detailed, because it answers what the person asked for
+rather than being one of the agent's workings — otherwise `/usage` would run and show nothing — and
+`ToolRow` prints the title only when it differs from the tool name, so the row reads `/usage` once.
+A `compact` reports as a `notice`; a Grok command may answer nothing at all, and the composer never
+waits for output.
+
+**The mock** answers `session.commands` for its Codex, Grok Build and pi sessions from
+`commandsFor()` in `mock/fixtures.ts` and nothing for Claude, and `commandScript()` in
+`mock/script.ts` plays the echo and a plausible outcome: a `notice` for `/compact`, a `tool_call`
+block for Codex's read-only commands, a short turn for the rest, and nothing but the echo for
+Grok's `/context`, which renders in its own pager.
+
 ## Layout and styling
 
 `src/styles/tokens.css` holds every colour, size, radius and shadow, and `src/components/ui.css`
@@ -511,6 +571,13 @@ The agents of A25 were driven in the installed Chrome against the mock gateway a
 400 px: the marks in the new-session form's agent control, the form dropping a row for a setting
 the agent does not list, a terminal-held Grok Build session that reads but does not write, and the
 agent filter as a menu naming every agent. The dated entry is in `docs/VALIDATION-APPS.md`.
+
+The slash commands of A27 were driven the same way, at 1280 px and 400 px: the panel on a Codex
+session with no group headers, the same panel filtered to two rows with the highlight one row down,
+`/usage` run and its `tool_call` block in the transcript at the default Simple level, pi's four
+group headers, Grok Build's flat list with its argument hints, the argument hint under a complete
+first word, and the dimmed rows and footer on a running turn. Screenshots are not checked into the
+repository.
 
 The logos of A26 were driven the same way, at 1280 px and 400 px: the four logos in the
 new-session form's agent control, in the open agent filter and on the session-row chips, and pi's
