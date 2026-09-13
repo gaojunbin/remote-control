@@ -19,7 +19,7 @@ from ...logging_setup import logger
 from ...models import UNSET, Command, SpeedSetting
 from ...sessions.channel import SessionChannel
 from . import catalog as catalogue
-from . import install, paths
+from . import install, paths, slash
 from .approvals import PiApprovals
 from .rpc import DRAIN_TIMEOUT, PiProcess
 from .stream import PiStream, Steer, bubble_id
@@ -232,10 +232,46 @@ class PiRunner:
         return True
 
     async def commands(self) -> list[Command]:
-        return []
+        """What pi says it offers now, or what its files say when it cannot."""
+        process = self._process
+        if process is None:
+            return slash.offline()
+        try:
+            answered = await process.command("get_commands")
+        except RcError:
+            return slash.offline()
+        return slash.from_agent(answered.get("commands"))
 
     async def command(self, name: str, argument: str | None, block_id: str) -> None:
-        raise RcError("not_found", f"/{name} is not a command this session offers")
+        """Run one of them (A27), which for pi is one of exactly two things."""
+        process = self._require_process()
+        listed = await self.commands()
+        if not any(command.name == name for command in listed):
+            raise RcError("not_found", f"/{name} is not a command this session offers")
+        text = slash.typed(name, argument)
+        await self.channel.emit(
+            "user_message", block_id=bubble_id(block_id), text=text, source="remote"
+        )
+        if name == slash.COMPACT:
+            await self._compact(process, argument)
+            return
+        # pi expands a prompt template or a skill command into the turn's own
+        # text, and runs an extension command outright without any turn at all,
+        # so the turn — if there is one — opens on `agent_start` rather than
+        # here. Beginning one now would leave an extension command's session
+        # running for ever.
+        self._stream.trigger = "remote"
+        await self._prompt(process, text)
+
+    async def _compact(self, process: PiProcess, argument: str | None) -> None:
+        """pi's own `compact`, whose refusal is the message an app shows.
+
+        The `compaction_end` event carries that same refusal, so the stream is
+        told to publish this one silently and let the reply speak instead.
+        """
+        self._stream.own_compaction = True
+        extra = {"customInstructions": argument} if argument else {}
+        await process.command("compact", timeout=slash.COMPACT_TIMEOUT, **extra)
 
     async def apply_settings(
         self,

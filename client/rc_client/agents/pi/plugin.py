@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from ...errors import RcError
-from ...models import AgentInfo
+from ...models import AgentInfo, Command, Session
 from ..base import SessionRunner
 from ..registry import DetectContext, RunnerSpec
 from . import catalog as catalogue
-from . import install, runtime
+from . import install, runtime, slash
 from .adapter import PiRunner
 
 AGENT = "pi"
@@ -24,6 +24,7 @@ CAPABILITIES = [
     "attachments",
     "effort",
     "history",
+    "commands",
 ]
 
 
@@ -53,6 +54,16 @@ async def detect(context: DetectContext) -> AgentInfo:
         shared_settings=True,
         shared_attachments=True,
     )
+
+
+async def commands(session: Session) -> list[Command]:
+    """What a pi session offers with no process running (A27).
+
+    The working directory is not consulted: the session would be resumed with
+    `--no-approve`, which makes pi ignore that directory's own prompts and
+    skills, so only the global ones can be promised.
+    """
+    return slash.offline()
 
 
 async def build_runner(spec: RunnerSpec) -> SessionRunner:

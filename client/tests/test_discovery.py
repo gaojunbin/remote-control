@@ -111,6 +111,7 @@ async def test_codex_detection_without_a_reachable_app_server(
         "worktree",
         "attachments",
         "effort",
+        "commands",
     }
 
 

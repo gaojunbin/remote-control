@@ -97,8 +97,14 @@ class PiLink:
             }
         )
 
-    async def command(self, command: str, **fields: Any) -> dict[str, Any]:
-        """Send one command and answer with its data, or raise what it refused."""
+    async def command(
+        self, command: str, timeout: float = COMMAND_TIMEOUT, **fields: Any
+    ) -> dict[str, Any]:
+        """Send one command and answer with its data, or raise what it refused.
+
+        `timeout` is a keyword for the one command that waits on a model call
+        of its own: compaction summarises the whole session before it answers.
+        """
         request_id = f"c{self._next}"
         self._next += 1
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
@@ -108,7 +114,7 @@ class PiLink:
             self._pending.pop(request_id, None)
             raise RcError("agent_unavailable", "the pi session is no longer attached")
         try:
-            reply = await asyncio.wait_for(future, timeout=COMMAND_TIMEOUT)
+            reply = await asyncio.wait_for(future, timeout=timeout)
         except TimeoutError as exc:
             raise RcError("timeout", f"pi did not answer {command}") from exc
         finally:

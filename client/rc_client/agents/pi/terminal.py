@@ -19,7 +19,7 @@ from ...errors import RcError
 from ...logging_setup import logger
 from ...models import UNSET, Command, SpeedSetting
 from ...sessions.channel import SessionChannel
-from . import frames
+from . import frames, slash
 from .adapter import pi_images, usage_from_stats
 from .approvals import PiApprovals
 from .link import PiLink
@@ -182,10 +182,29 @@ class PiTerminalSession:
         return True
 
     async def commands(self) -> list[Command]:
-        return []
+        """The list the extension reads out of the running pi (A27)."""
+        try:
+            answered = await self.link.command(frames.COMMANDS)
+        except RcError:
+            return slash.offline()
+        return slash.from_agent(answered.get("commands"))
 
     async def command(self, name: str, argument: str | None, block_id: str) -> None:
-        raise RcError("not_found", f"/{name} is not a command this session offers")
+        listed = await self.commands()
+        if not any(command.name == name for command in listed):
+            raise RcError("not_found", f"/{name} is not a command this session offers")
+        text = slash.typed(name, argument)
+        await self.channel.emit(
+            "user_message", block_id=bubble_id(block_id), text=text, source="remote"
+        )
+        if name == slash.COMPACT:
+            extra = {"instructions": argument} if argument else {}
+            await self.link.command(frames.COMPACT, timeout=slash.COMPACT_TIMEOUT, **extra)
+            return
+        # The bubble is drawn above rather than from pi's own `input` event,
+        # because an extension command raises no `input` at all, so the
+        # extension is told to stay quiet about this one injection.
+        await self.link.command(frames.SEND, text=text, expand=True, echo=False)
 
     async def apply_settings(
         self,

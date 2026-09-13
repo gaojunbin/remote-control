@@ -53,6 +53,10 @@ class PiStream:
         self.trigger = "remote"
         self.streaming = False
         self.interrupting = False
+        # A compaction an app asked for reports its own refusal in the reply to
+        # `session.command`, so the notice for it is dropped rather than shown
+        # twice (A27). Cleared by the `compaction_end` that follows.
+        self.own_compaction = False
         self.done = asyncio.Event()
         self.done.set()
         self._usage = usage
@@ -101,6 +105,8 @@ class PiStream:
 
     async def event(self, event: dict[str, Any]) -> None:
         """One of pi's agent events, verbatim."""
+        if self._own_failure(event):
+            return
         if str(event.get("type") or "") == "agent_start":
             # A turn somebody else started — a prompt typed in the terminal, a
             # retry pi began on its own — still opens one here.
@@ -116,6 +122,18 @@ class PiStream:
             await self._apply(emit)
         if completion is not None:
             await self.finish(completion)
+
+    def _own_failure(self, event: dict[str, Any]) -> bool:
+        """True for the failure of a compaction this device asked for.
+
+        A compaction that succeeds keeps its notice — that is what tells the
+        apps earlier turns are now a summary — but one that pi refuses is
+        already the message the command's caller is shown.
+        """
+        if not self.own_compaction or str(event.get("type") or "") != "compaction_end":
+            return False
+        self.own_compaction = False
+        return bool(event.get("errorMessage") or event.get("aborted"))
 
     async def torn_down(self, message: str) -> None:
         """pi left while a turn was running: end it rather than stream for ever."""

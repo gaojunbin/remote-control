@@ -18,6 +18,17 @@
  *    actually there to answer.
  * 3. It writes nowhere but the socket.
  *
+ * The commands it answers on that socket, each replied to by `id`:
+ *
+ * | Command | Does |
+ * | --- | --- |
+ * | `send` | `pi.sendUserMessage`. `expand` dispatches extension commands and expands skill commands and prompt templates; `echo: false` drops the `input` frame for that injection, because the device has already drawn its bubble |
+ * | `abort` | `ctx.abort()` |
+ * | `set_model`, `set_thinking`, `set_permission_mode` | live setting changes |
+ * | `stats` | the session's totals, summed from the branch |
+ * | `commands` | `pi.getCommands()`: the extension commands, prompt templates and skills this session offers (A27) |
+ * | `compact` | `ctx.compact()`, answered when the compaction finishes or fails |
+ *
  * Only Node built-ins and type-only pi imports, because pi loads this through
  * jiti with no install step of its own.
  */
@@ -31,6 +42,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 	InputEvent,
+	SessionCompactEvent,
 	SessionShutdownEvent,
 	ToolCallEvent,
 	ToolCallEventResult,
@@ -249,6 +261,13 @@ export default function (pi: ExtensionAPI): void {
 	const granted = new Set<string>();
 	/** Messages this extension injected, waiting for pi's own `input` event. */
 	const injected: Array<{ text: string; blockId: string }> = [];
+	/**
+	 * Slash commands the device drew the bubble for itself (A27), whose `input`
+	 * event is therefore dropped. An extension command raises none at all, so
+	 * an entry can outlive its injection and the oldest is discarded.
+	 */
+	const silent: string[] = [];
+	const SILENT_LIMIT = 16;
 
 	const send = (frame: Json): void => {
 		if (link !== null) link.write(frame);
@@ -449,12 +468,41 @@ export default function (pi: ExtensionAPI): void {
 		if (command === "send") {
 			const deliver = typeof frame.deliver === "string" ? frame.deliver : "";
 			const blockId = typeof frame.block_id === "string" ? frame.block_id : "";
-			if (blockId) injected.push({ text: String(frame.text ?? ""), blockId });
+			const text = String(frame.text ?? "");
+			if (frame.echo === false) {
+				silent.push(text);
+				if (silent.length > SILENT_LIMIT) silent.shift();
+			} else if (blockId) {
+				injected.push({ text, blockId });
+			}
+			const options: Json = {};
+			if (deliver) options.deliverAs = deliver;
+			// pi dispatches an extension command and expands a skill command or
+			// a prompt template only when it is asked to; a plain message must
+			// never be expanded, or a line beginning with a slash would change
+			// under the person who typed it.
+			if (frame.expand === true) options.expandPromptTemplates = true;
 			pi.sendUserMessage(
 				content(frame) as never,
-				deliver ? ({ deliverAs: deliver } as never) : undefined,
+				Object.keys(options).length > 0 ? (options as never) : undefined,
 			);
 			return null;
+		}
+		if (command === "commands") {
+			// Extension commands, prompt templates and skills, as this session
+			// resolved them. pi's built-in TUI commands are deliberately not in
+			// it: they only run interactively (A27).
+			return { commands: pi.getCommands() as unknown as Json[] };
+		}
+		if (command === "compact") {
+			const instructions = typeof frame.instructions === "string" ? frame.instructions : "";
+			return new Promise<Json | null>((resolve, reject) => {
+				ctx.compact({
+					...(instructions ? { customInstructions: instructions } : {}),
+					onComplete: () => resolve(null),
+					onError: (error: Error) => reject(error),
+				});
+			});
 		}
 		if (command === "abort") {
 			ctx.abort();
@@ -525,6 +573,7 @@ export default function (pi: ExtensionAPI): void {
 		mode = process.env.RC_PI_PERMISSION_MODE || "never";
 		granted.clear();
 		injected.length = 0;
+		silent.length = 0;
 		try {
 			link = new Link(
 				socketPath(),
@@ -551,6 +600,13 @@ export default function (pi: ExtensionAPI): void {
 	pi.on(
 		"input",
 		guard((event: InputEvent) => {
+			// pi raises this before it expands anything, so the text is still
+			// the `/name argument` the device sent.
+			const quiet = silent.indexOf(event.text);
+			if (quiet >= 0) {
+				silent.splice(quiet, 1);
+				return;
+			}
 			const frame: Json = { type: "input", source: event.source, text: event.text };
 			const index = injected.findIndex((item) => item.text === event.text);
 			if (index >= 0) {
@@ -580,4 +636,21 @@ export default function (pi: ExtensionAPI): void {
 			}) as never,
 		);
 	}
+
+	/**
+	 * A compaction the terminal ran, automatic or typed, reported in the shape
+	 * pi's RPC mode uses so one translator serves both paths. Only the ones
+	 * that succeeded: a failure the device asked for is already the answer to
+	 * its own `compact` command, and would otherwise be said twice.
+	 */
+	pi.on(
+		"session_compact",
+		guard((event: SessionCompactEvent) => {
+			if (!streaming) return;
+			send({
+				type: "event",
+				event: { type: "compaction_end", reason: event.reason, aborted: false },
+			});
+		}),
+	);
 }

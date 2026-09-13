@@ -102,8 +102,45 @@ class FakePi:
             self.set_model(message)
         elif command == "set_thinking_level":
             self.respond(message)
+        elif command == "get_commands":
+            self.respond(message, self.available())
+        elif command == "compact":
+            self.compact(message)
         else:
             self.refuse(message, f"Unknown command: {command}")
+
+    def available(self) -> dict[str, Any]:
+        """`get_commands`, with the fixture's paths pointing into the scratch."""
+        text = (HERE / "commands.json").read_text(encoding="utf-8")
+        data: dict[str, Any] = json.loads(text.replace("{dir}", str(self.directory)))
+        return data
+
+    def compact(self, message: dict[str, Any]) -> None:
+        """pi emits the compaction's own events before it answers the command."""
+        self.send({"type": "compaction_start", "reason": "manual"})
+        if self.mode == "refuse":
+            failure = "Nothing to compact (session too small)"
+            self.send(
+                {
+                    "type": "compaction_end",
+                    "reason": "manual",
+                    "aborted": False,
+                    "willRetry": False,
+                    "errorMessage": f"Compaction failed: {failure}",
+                }
+            )
+            self.refuse(message, failure)
+            return
+        self.send(
+            {
+                "type": "compaction_end",
+                "reason": "manual",
+                "result": {"summary": "Earlier turns, summarised."},
+                "aborted": False,
+                "willRetry": False,
+            }
+        )
+        self.respond(message, {"summary": "Earlier turns, summarised."})
 
     def state(self) -> dict[str, Any]:
         state = _object("state.json")
