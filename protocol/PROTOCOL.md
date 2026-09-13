@@ -2815,7 +2815,7 @@ by `block_id` like any other.
 - [ ] Ignores unknown fields, unknown event kinds and unknown agent ids.
 - [ ] Shows `model`, `permission_mode` and `effort` on a terminal-held session as values it cannot
       change, by label when `AgentInfo` lists the id and by the id otherwise (A17).
-- [ ] Offers Rename, Update and Remove on every device row, shows "Update available" when the
+- [ ] Offers Rename, Update and Revoke on every device row, shows "Update available" when the
       device's `client_build` differs from `config.client.build`, and reflects `update_state` (A22).
 - [ ] Offers `speeds` as one control that cycles standard → each tier → standard, drawn only when
       the list is non-empty, and shows a terminal-held session's `speed` as a value it cannot change

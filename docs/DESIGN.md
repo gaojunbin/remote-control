@@ -22,7 +22,9 @@ drive the same four progress steps.
 them: device (with its latency), agent as a segmented control showing the detected version and
 default model, working directory with recent paths and a browser, and git status with an "Isolate in
 worktree" toggle. One primary button, "Start session". The first prompt is typed in the chat, not
-here.
+here. On the phone the Sessions list ends the way the Devices list ends: one primary button in the
+bottom bar, **New session**, exactly where Devices puts **Add device**; the list itself begins with
+the first device group.
 
 **Chat.** A sidebar of sessions grouped by device, each device's Archive collapsed under it, a header
 with the title, `device:path · branch`, a Todos chip, usage and elapsed time, and a Stop button. The timeline runs down the middle on the
@@ -44,8 +46,15 @@ round trip on every launch reads as a broken app.
 
 **Devices.** One row per enrolled machine: name, hostname, platform, the agents it detected, the
 client version and build, online dot and latency. Every row offers the same three actions on both
-apps — **Rename**, **Update** and **Remove** — from the row's menu on the web and from a swipe and
-the context menu on the phone; nothing is reachable on one app and not the other.
+apps, with the same words in the same order — **Rename**, **Update** and **Revoke** — from the
+row's menu on the web, and on the phone from one trailing swipe holding all three and from the
+context menu; nothing is reachable on one app and not the other.
+
+**Three tabs, one order, one landing rule.** Both apps have the same three tabs in the same order:
+Devices, Sessions, Settings. On open the app lands on Sessions when the account has at least one
+device and on Devices when it has none: a new account's first job is enrolling a machine, everyone
+else's is the conversation. The choice is made once per open, from the first device list that
+arrives, and is not remembered.
 
 **Update is the app's job, not the terminal's.** The gateway serves one client build and says which
 (`GET /api/config` `client.build`); a device reports the build it runs. A row whose build differs
@@ -220,19 +229,30 @@ the phone — with two rows, the way the ChatGPT app does it:
   only when the agent lists tiers), then the model name with the current effort word after it and a
   chevron; tapping the name opens the model list, one row per `AgentInfo.models` entry, the current
   one marked.
-- The second row is the effort slider: one stop per `AgentInfo.efforts` entry in the order listed,
-  the thumb snapping to stops, the track tinted up to the thumb in the accent colour, no other
-  decoration. Moving it updates the effort word in the first row at once; releasing it sends the
-  value. On the phone every stop the thumb crosses gives one selection haptic, so the levels can be
+- The second row is the effort slider: one stop per `AgentInfo.efforts` entry in the order listed.
+  The track is a thick pill filled to the thumb in the accent colour, with one small dot at every
+  stop so the number of levels is visible before the thumb moves; the thumb is a white disc that
+  snaps to the stops. Nothing else is drawn: no numbers, no labels under the track. The effort word
+  in the first row follows the thumb while it moves, not on release; releasing it sends the value.
+  On the phone every stop the thumb crosses gives one selection haptic, so the levels can be
   counted without looking. An agent with no effort levels draws no slider.
+
+The chip in the composer row and the name row inside the card are as wide as the widest model-and-
+effort combination the agent offers, so nothing beside them shifts while a level is chosen or a
+model is picked. Every change made from the card is drawn the moment it is made: the lightning
+fills, the word changes, the model name switches, and the device's reply confirms it or a refusal
+puts the previous value back with the error. The card never waits for the round trip to show what
+was tapped.
 
 The card stays open until it is dismissed, so several changes can be made in one visit. The
 accessible names are "Model, Opus", "Effort, Extra high" and "Speed, Fast" or "Speed, Standard".
-After the card comes the permission-mode picker, then the rest of the row — what runs and how hard
-first, what it may do second. A terminal-held session shows the same chip as a read-only value
-(A17), and the tier with it (A21); the card does not open there. Forms keep list pickers — the
-new-session sheet and the session settings sheet list Model, Effort, Permissions in that order,
-with the speed switch after the three when the agent offers one.
+After the card comes the permission-mode picker: a plain list of the agent's modes, the current
+one marked, and nothing else. There is no session settings sheet — model, effort and speed are the
+card's, permissions are this picker's, and the dictation language has a picker of its own. What
+runs and how hard comes first, what it may do second. A terminal-held session shows the same chip
+as a read-only value (A17), and the tier with it (A21); the card does not open there. Forms keep
+list pickers — the new-session sheet lists Model, Effort, Permissions in that order, with the
+speed switch after the three when the agent offers one.
 
 The composer never guesses. It always sends `mode: "auto"` and lets the device decide what that
 means, then labels the button with the decision:
