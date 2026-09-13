@@ -72,11 +72,15 @@ export function LoginPage() {
   );
 }
 
-/** Only a path inside this app, never an absolute URL a link could supply. */
+/**
+ * Only a path inside this app, never an absolute URL a link could supply. With
+ * nothing to return to the destination is the root, so signing in lands by the
+ * rule in `docs/DESIGN.md` rather than always on Sessions.
+ */
 function rememberedDestination(state: unknown): string {
   const from = (state as { from?: unknown } | null)?.from;
-  if (typeof from !== 'string') return '/sessions';
-  if (!from.startsWith('/') || from.startsWith('//') || from === '/login') return '/sessions';
+  if (typeof from !== 'string') return '/';
+  if (!from.startsWith('/') || from.startsWith('//') || from === '/login') return '/';
   return from;
 }
 

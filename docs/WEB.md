@@ -8,8 +8,9 @@ hand-written CSS with no framework. It talks only to the gateway and follows
 
 | Route | What it does |
 | --- | --- |
+| `/` | Decides where an open lands and goes there; the `*` fallback does the same |
 | `/login` | Password sign-in against the gateway |
-| `/devices` | Device list with online state, agents, session counts and the client build; Rename, Update and Remove on every row; **Add device** with the copyable one-liner, the pairing code, its expiry, live handshake steps, and the scan flow beside them |
+| `/devices` | Device list with online state, agents, session counts and the client build; Rename, Update and Revoke on every row; **Add device** with the copyable one-liner, the pairing code, its expiry, live handshake steps, and the scan flow beside them |
 | `/pair` | Claims the token a host printed as a QR code and shows the same handshake (A23) |
 | `/sessions` | Every session across every device: one collapsible group per device, its active rows and then its own collapsed **Archive**, a search, an agent filter and a device filter, and **New session** in a right-hand drawer |
 | `/sessions/:deviceId/:sessionId` | The chat: sidebar, timeline, composer, status line |
@@ -77,6 +78,7 @@ src/
   lib/         HTTP client, app socket, formatters
   stores/      zustand stores; timeline.ts is the pure event -> renderable-items reducer
   components/  buttons, modal, drawer, popover, segmented control, status dots
+  layout/      the signed-in shell, the mark, and the landing rule
   features/    login, devices, sessions, chat, voice, settings
   push/        Web Push subscription and service worker registration
   styles/      tokens.css and base.css
@@ -148,6 +150,15 @@ focuses an open tab or opens `/sessions/<device_id>/<session_id>`.
 
 ## Behaviour worth knowing
 
+- **Where an open lands** is `src/layout/Landing.tsx`, the element behind `/` and behind the `*`
+  fallback. It waits for the devices store's `loaded` — the socket's `hello` snapshot calls
+  `replaceAll`, which sets it — drawing the same `boot` placeholder `App` draws while the session
+  probe is out, and then navigates with `replace` to `/sessions` when the account has at least one
+  device and to `/devices` when it has none. Deciding before the snapshot has synced would send
+  every account to Devices for the length of a round trip. The rule runs once per open because the
+  navigation unmounts it: somebody who then opens Devices on an empty account stays there, and a
+  device arriving later moves nobody. `LoginPage` returns to `/` when there is nothing to go back
+  to, so signing in lands by the same rule; a remembered `from` still wins, fragment and all (A23).
 - **The session list** is one selector, `selectSessionLayout` in `src/stores/sessions.ts`. It
   filters on the device, the agent and the search text, then returns one `DeviceGroup` per device
   that still has something to show: the device, whether the user folded it shut, its active rows,
@@ -185,17 +196,43 @@ focuses an open tab or opens `/sessions/<device_id>/<session_id>`.
   non-empty, lit while a tier is on, and cycling standard → each tier → standard through
   `session.set {speed}` where `null` is the standard speed — then the model name, the effort word
   and a chevron; tapping the name replaces the card's contents with the model list rather than
-  stacking a second popover on it. The second row is an `<input type="range">` with one stop per
-  `agent.efforts` entry. The word in the first row follows the thumb, and the value is only sent
-  when the thumb is released: React's `onChange` fires on every step, so the commit listens for the
-  DOM's own `change` on the element instead. The slider's accessible name is "Effort" and its
-  `aria-valuetext` is the word, which a screen reader announces as "Effort, Extra high"; the toggle
-  names itself "Speed, Fast" or "Speed, Standard". An agent with no efforts draws no slider, one
-  with no tiers draws no toggle, and the permission-mode picker follows the card in the row. On a
-  session a terminal holds (A17) the same chip is drawn as a static value with the tier appended to
-  its label, and it opens nothing.
+  stacking a second popover on it. The second row is the effort slider, one stop per `agent.efforts`
+  entry. Three rules hold the card together:
+  - **The word follows the thumb.** The live stop is the card's own state, so the word beside the
+    model name changes as the thumb moves rather than when the device echoes the change. The value
+    is only sent when the thumb is released: React's `onChange` fires on every step, so the commit
+    listens for the DOM's own `change` on the element instead. A change from anywhere else — a
+    `/model` in the terminal, another tab — wins over the position the thumb was left in.
+  - **Dots and a thick track.** The pill is `.effort-track`, 28 px tall, filled to the thumb in the
+    accent colour with one 6 px dot at every stop, and the thumb is a 24 px white disc. The native
+    `<input type="range">` is kept for the interaction and the keyboard and drawn transparent on top
+    of it, which every engine needs told separately (`::-webkit-slider-runnable-track`,
+    `::-moz-range-track` and `::-moz-range-progress`). The fill and the dots live in a layer inset
+    by 12 px, half a thumb, because that is the span the thumb's centre travels; `--fill` is the
+    percentage across it. The lowest stop draws no fill at all — its rounded cap would be the only
+    thing visible, peeking out around the white thumb.
+  - **A width that never changes.** `SizedBox` in `src/features/chat/SizedBox.tsx` puts the visible
+    label and every `models × efforts` pair (`labelPairs` in `modelLabels.ts`) in one grid cell, the
+    alternatives `visibility: hidden` and `aria-hidden`, so the box takes the widest of them. The
+    chip and the card's name row both use it, with the ghosts drawn exactly as the visible label is
+    — including the lightning whenever the agent lists tiers — so nothing beside them moves while a
+    level or a model is chosen. Measured, never guessed: a number would go stale the moment an agent
+    renamed a model.
+  The slider's accessible name is "Effort" and its `aria-valuetext` is the word, which a screen
+  reader announces as "Effort, Extra high"; the toggle names itself "Speed, Fast" or "Speed,
+  Standard". An agent with no efforts draws no slider, one with no tiers draws no toggle, and the
+  permission-mode picker follows the card in the row. On a session a terminal holds (A17) the same
+  chip is drawn as a static value with the tier appended to its label, and it opens nothing.
+- **Every change made from the card is drawn at once.** `ChatPage`'s `onSetOption` applies the patch
+  to the stored session before `session.set` leaves (`applyOptions` in
+  `src/features/chat/sessionOptions.ts`), so the lightning fills, the word changes and the model
+  name switches on the click. The reply replaces it; a refusal puts the previous session back and
+  shows the error — unless something newer has already replaced what was written, which is a
+  `session.updated` that arrived in between or the reply itself. The check compares the store's
+  current object identity against the one that was written, not its fields, because the patch and
+  the update can carry the same value.
 - **Devices offer three actions and one of them is Update** (A22). Every row carries Rename, Update
-  and Remove, in that order, and shows the client version with the first eight characters of
+  and Revoke, in that order, and shows the client version with the first eight characters of
   `client_build` under the hostname. `updateNotice` in `src/stores/devices.ts` is the one rule for
   what replaces that build: "Updating…" while `update_state` is `updating`, "Update failed ·
   <message>" for `failed`, and "Update available" when the device's build differs from

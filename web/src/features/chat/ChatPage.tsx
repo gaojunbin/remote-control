@@ -13,8 +13,9 @@ import type { SendMode } from '../../protocol/frames';
 import type { QuestionAnswers } from '../../protocol/types';
 import { NewSessionDrawer } from '../sessions/NewSessionDrawer';
 import { ChatHeader } from './ChatHeader';
-import { Composer, type SessionOptions } from './Composer';
+import { Composer } from './Composer';
 import { Sidebar } from './Sidebar';
+import { applyOptions, type SessionOptions } from './sessionOptions';
 import { StatusLine } from './StatusLine';
 import { Timeline } from './Timeline';
 import type { AttachmentDraft } from './attachments';
@@ -92,13 +93,30 @@ export function ChatPage() {
     [sendMessage, key],
   );
 
+  /**
+   * Every change the model card makes is drawn the moment it is made: the
+   * lightning fills, the word changes, the model name switches, and the
+   * device's reply confirms it. A refusal puts the previous session back —
+   * unless something newer has already replaced what we wrote, which is a
+   * `session.updated` that arrived in between or the reply itself, so the
+   * check is on the stored object's identity rather than on its fields.
+   */
   const onSetOption = useCallback(
-    (path: SessionOptions) => {
-      void rpc('session.set', { session_id: sessionId, ...path })
+    (patch: SessionOptions) => {
+      const store = useSessions.getState();
+      const previous = store.sessions[key];
+      if (!previous) return;
+      const optimistic = applyOptions(previous, patch);
+      store.upsert(optimistic);
+      void rpc('session.set', { session_id: sessionId, ...patch })
         .then((result) => useSessions.getState().upsert(result.session))
-        .catch((err: unknown) => setActionError(errorText(err, strings.errors.setFailed)));
+        .catch((err: unknown) => {
+          const sessions = useSessions.getState();
+          if (sessions.sessions[key] === optimistic) sessions.upsert(previous);
+          setActionError(errorText(err, strings.errors.setFailed));
+        });
     },
-    [sessionId],
+    [key, sessionId],
   );
 
   const onTakeover = useCallback(() => {

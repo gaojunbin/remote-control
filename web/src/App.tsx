@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from 'react';
-import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router';
+import { Route, Routes, useLocation, useNavigate } from 'react-router';
 import { AppLayout } from './layout/AppLayout';
+import { Landing } from './layout/Landing';
 import { LoginPage } from './features/login/LoginPage';
 import { DevicesPage } from './features/devices/DevicesPage';
 import { PairPage } from './features/devices/PairPage';
@@ -77,7 +78,8 @@ export function App() {
         <Route path="/sessions" element={<SessionsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/sessions" replace />} />
+      <Route path="/" element={<Landing />} />
+      <Route path="*" element={<Landing />} />
     </Routes>
   );
 }

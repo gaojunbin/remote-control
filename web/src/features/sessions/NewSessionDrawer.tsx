@@ -12,7 +12,7 @@ import { agentLabel, agentMark, strings } from '../../strings';
 import { useDevices } from '../../stores/devices';
 import { useSessions } from '../../stores/sessions';
 import type { AgentInfo, Choice, Device } from '../../protocol/types';
-import type { SessionOptions } from '../chat/Composer';
+import type { SessionOptions } from '../chat/sessionOptions';
 import { DirectoryPicker } from './DirectoryPicker';
 import { useDirectoryProbe, type DirStatus } from './useDirectoryProbe';
 

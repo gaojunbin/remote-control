@@ -3,8 +3,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { App } from '../src/App';
 import { useAuth } from '../src/stores/auth';
+import { useDevices } from '../src/stores/devices';
 import { useSessions } from '../src/stores/sessions';
 import { strings } from '../src/strings';
+import { devices as deviceFixtures } from '../mock/fixtures';
 
 let requested: string[] = [];
 
@@ -37,6 +39,7 @@ function stubFetch(sessionStatus: number) {
 beforeEach(() => {
   useAuth.setState({ status: 'unknown', username: null, config: null, version: null });
   useSessions.setState({ loaded: false, sessions: {} });
+  useDevices.setState({ devices: [], loaded: false, updateErrors: {} });
 });
 
 afterEach(() => {
@@ -89,5 +92,86 @@ describe('App routing', () => {
     // Give any mount effect of a protected page the chance to fire.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(requested).toEqual(['/api/session']);
+  });
+});
+
+/**
+ * `docs/DESIGN.md` § "The three screens": on open the app lands on Sessions
+ * when the account has a device and on Devices when it has none. The choice is
+ * made from the first device list that arrives and is not remembered.
+ */
+describe('the landing rule', () => {
+  const signedIn = () => {
+    stubFetch(200);
+    useAuth.setState({ status: 'signed-in', username: 'admin' });
+    // Both lists are already in hand, so no page fetches on mount.
+    useSessions.setState({ loaded: true, sessions: {} });
+  };
+
+  const renderAt = (path: string) =>
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+  it('lands on Sessions when the account has a device', async () => {
+    signedIn();
+    useDevices.setState({ devices: [deviceFixtures[0]!], loaded: true });
+    renderAt('/');
+
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: strings.sessions.title })).toBeInTheDocument(),
+    );
+  });
+
+  it('lands on Devices when the account has none', async () => {
+    signedIn();
+    useDevices.setState({ devices: [], loaded: true });
+    renderAt('/');
+
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: strings.devices.title })).toBeInTheDocument(),
+    );
+  });
+
+  it('decides nothing until the first device list has arrived', async () => {
+    signedIn();
+    useDevices.setState({ devices: [], loaded: false });
+    renderAt('/');
+
+    // An empty list nobody has confirmed yet would send every account to
+    // Devices for the length of a round trip.
+    expect(screen.queryByRole('heading', { name: strings.devices.title })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: strings.sessions.title })).not.toBeInTheDocument();
+    expect(document.querySelector('.boot')).not.toBeNull();
+
+    useDevices.getState().replaceAll([deviceFixtures[0]!]);
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: strings.sessions.title })).toBeInTheDocument(),
+    );
+  });
+
+  it('applies the rule after signing in with nothing to return to', async () => {
+    stubFetch(401);
+    useSessions.setState({ loaded: true, sessions: {} });
+    useDevices.setState({ devices: [], loaded: true });
+    renderAt('/login');
+    await waitFor(() => expect(screen.getByText(strings.login.subtitle)).toBeInTheDocument());
+
+    useAuth.setState({ status: 'signed-in', username: 'admin' });
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: strings.devices.title })).toBeInTheDocument(),
+    );
+  });
+
+  it('applies the rule to a path no route claims', async () => {
+    signedIn();
+    useDevices.setState({ devices: [], loaded: true });
+    renderAt('/nowhere');
+
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: strings.devices.title })).toBeInTheDocument(),
+    );
   });
 });

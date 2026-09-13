@@ -512,6 +512,43 @@ both builds came from the mock, so the app was checked against the shape of A22 
 `rc-client`; and only the app's half of A23 was exercised, since no host printed a QR code or held
 the long poll.
 
+### Round 16 — where an open lands, and a model card that answers at once
+
+2026-09-13, in the installed Google Chrome driven by `playwright-core` against the bundled mock
+(`npm run dev:mock`) at 1280 px and 400 px. **The landing rule**: signing in with no remembered
+destination left `/login` for `/` and `/` sent the browser to `/sessions`, the mock's account
+having two devices; the three branches of the rule and the "not decided until the first list has
+arrived" case are held by `tests/App.test.tsx`, which renders the real `App` with the devices store
+empty, unloaded and filled in turn. **The model card** on `dev-mac/ses-crash`, a Codex session the
+device drives: the chip read "GPT-5.4 Codex Medium", the card drew a 28 px pill with three dots and
+two of them on the filled side, and the effort word followed the thumb — three `ArrowLeft` presses
+reported "Medium", then "Low", then "Low", while `aria-valuetext` tracked the same stops. **The
+width never moved**: the chip measured 174 px and the card's name row 189 px at every level, at both
+viewport widths, the hidden `models × efforts` pairs behind each of them being what holds the box
+open. **Drawn at once**: the speed toggle read `aria-pressed="true"` and the chip carried the
+lightning in the same frame as the click, before the mock's `session.set` reply landed, and the
+model list opened over the card and redrew the chip as "GPT-5.4 Medium" on the tap. **Under a real
+pointer**: a click at the far end of the pill jumped the thumb to High and committed it; a drag back
+to the middle read "Medium" beside the model name while the button was still down, with the chip
+still reading "GPT-5.4 Codex High", and the release committed Medium and moved the chip with it. A
+session whose `effort` is null draws the slider at the first stop with no word beside the name, and
+gains one as soon as the thumb moves. No horizontal overflow at 400 px
+(`document.scrollWidth` 400). One defect found and fixed in the pass: at the lowest stop the fill's
+rounded cap showed as a dark crescent around the white thumb, since the fill runs to the thumb's
+centre and is 4 px taller than it — the lowest stop now draws no fill, and its dots count as
+unfilled with it. Screenshots under `…/scratchpad/web-card/shots3/`:
+`card-1280.png`, `card-low-1280.png`, `card-fast-1280.png` and `card-400.png`. Run artefacts, not
+checked into the repository.
+
+```
+cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build
+→ 30 files / 370 tests passed, tsc clean, eslint clean, built in 2.54 s
+```
+
+Not verified in this pass: Firefox and Safari — the transparent track and the thumb are written for
+all three engines but only Chrome was driven — a refusal of `session.set` against a real device, the
+mock having accepted everything it was sent, and touch, since the drag was a mouse.
+
 ## 2. iOS, in the simulator, against the same gateway
 
 `ios/UITests/RealGatewaySmokeTests.swift` is new. It skips unless the runner is given a gateway, so

@@ -21,6 +21,9 @@ import { useVoice } from '../voice/useVoice';
 import { composeAnswer } from './answering';
 import { attachHint, canAttachShared, canInterruptShared, canSetShared } from './attach';
 import { readAttachments, textTooLong, type AttachmentDraft } from './attachments';
+import { SizedBox } from './SizedBox';
+import { labelPairs, type LabelPair } from './modelLabels';
+import type { SessionOptions } from './sessionOptions';
 
 interface Props {
   session: Session;
@@ -438,14 +441,6 @@ export function Composer({
   }
 }
 
-/** What `session.set` can carry from the composer. A21 adds the speed tier. */
-export interface SessionOptions {
-  model?: string;
-  permission_mode?: string;
-  effort?: string;
-  speed?: string | null;
-}
-
 /**
  * The label an agent's list gives an id, or the id itself. The agent's own ids
  * need not appear in its lists — `auto` is a real Claude permission mode the
@@ -504,10 +499,17 @@ function ComposerBottomRow({
             ariaLabel={strings.composer.modelCard}
             triggerClassName="model-card-chip"
             label={
-              <>
-                {speedText ? <Zap size={12} aria-hidden className="speed-glyph" /> : null}
-                <span>{cardText || agentLabel(session.agent)}</span>
-              </>
+              <SizedBox
+                className="model-card-chip-box"
+                alternatives={labelPairs(models, efforts)}
+                alternative={(pair) => <ChipLabel pair={pair} glyph={speeds.length > 0} />}
+              >
+                <ChipLabel
+                  pair={{ model: modelText, effort: effortText }}
+                  glyph={speedText !== null}
+                  fallback={agentLabel(session.agent)}
+                />
+              </SizedBox>
             }
           >
             {() => (
@@ -582,7 +584,20 @@ function ModelCard({
   onSetOption: (patch: SessionOptions) => void;
 }) {
   const [picking, setPicking] = useState(false);
+  // The stop the thumb is on, which the word beside the model name reads: the
+  // card says what was chosen the moment it is chosen, not when the device
+  // echoes it back. -1 while the session's effort is none of the agent's.
+  const stop = efforts.findIndex((effort) => effort.id === session.effort);
+  const [index, setIndex] = useState(stop);
+  const [drawnStop, setDrawnStop] = useState(stop);
   const modelText = labelOf(models, session.model) ?? agentLabel(session.agent);
+
+  // A change from anywhere else — a `/model` in the terminal, another tab —
+  // wins over the position the thumb was left in.
+  if (drawnStop !== stop) {
+    setDrawnStop(stop);
+    setIndex(stop);
+  }
 
   if (picking) {
     return (
@@ -607,6 +622,20 @@ function ModelCard({
     );
   }
 
+  const effortText =
+    index >= 0 ? (efforts[index]?.label ?? null) : labelOf(efforts, session.effort);
+  // The row is as wide as the widest model-and-effort pair the agent offers, so
+  // neither the chevron nor the card's edge moves while a level is chosen.
+  const nameRow = (
+    <SizedBox
+      className="model-card-name-box"
+      alternatives={labelPairs(models, efforts)}
+      alternative={(pair) => <NameLabel pair={pair} />}
+    >
+      <NameLabel pair={{ model: modelText, effort: effortText }} />
+    </SizedBox>
+  );
+
   return (
     <div className="model-card">
       <div className="model-card-top">
@@ -620,68 +649,90 @@ function ModelCard({
             aria-label={strings.composer.option(strings.composer.model, modelText)}
             onClick={() => setPicking(true)}
           >
-            <span>{modelText}</span>
-            <EffortWord session={session} efforts={efforts} />
+            {nameRow}
             <ChevronRight size={14} aria-hidden className="model-card-chevron" />
           </button>
         ) : (
-          <span className="model-card-name static">
-            <span>{modelText}</span>
-            <EffortWord session={session} efforts={efforts} />
-          </span>
+          <span className="model-card-name static">{nameRow}</span>
         )}
       </div>
       {efforts.length > 0 ? (
-        <EffortSlider session={session} efforts={efforts} onSetOption={onSetOption} />
+        <EffortSlider
+          session={session}
+          efforts={efforts}
+          index={index}
+          onIndex={setIndex}
+          onSetOption={onSetOption}
+        />
       ) : null}
     </div>
   );
 }
 
-/**
- * The effort word beside the model name. It follows the slider's thumb while it
- * moves, which is why the slider publishes its stop on the element rather than
- * through state the card would have to thread back down.
- */
-function EffortWord({ session, efforts }: { session: Session; efforts: Choice[] }) {
-  const text = labelOf(efforts, session.effort);
-  if (!text) return null;
+/** The model chip's contents: the lightning, then "<model> <effort>". */
+function ChipLabel({
+  pair,
+  glyph,
+  fallback = '',
+}: {
+  pair: LabelPair;
+  glyph: boolean;
+  fallback?: string;
+}) {
+  const text = [pair.model, pair.effort].filter((part) => part !== null).join(' ');
   return (
-    <span className="model-card-effort" data-effort-word>
-      {text}
-    </span>
+    <>
+      {glyph ? <Zap size={12} aria-hidden className="speed-glyph" /> : null}
+      <span>{text || fallback}</span>
+    </>
   );
 }
 
 /**
- * One stop per effort level, in the order the agent lists them. Moving it
- * rewrites the word above at once; the value is only sent when the thumb is
- * released, which is the DOM's own `change` rather than React's (which fires on
- * every step).
+ * The model name and, beside it, the effort word the thumb is on. Every copy is
+ * drawn the same way, because the hidden ones are what give the row its width.
+ */
+function NameLabel({ pair }: { pair: LabelPair }) {
+  return (
+    <>
+      <span>{pair.model}</span>
+      {pair.effort === null ? null : (
+        <span className="model-card-effort" data-effort-word>
+          {pair.effort}
+        </span>
+      )}
+    </>
+  );
+}
+
+/**
+ * One stop per effort level, in the order the agent lists them. The pill is
+ * filled to the thumb and carries one dot per stop, so the number of levels can
+ * be read before anything moves; nothing else is drawn — no numbers, no labels
+ * under the track — because the word beside the model name is what the thumb is
+ * saying. The value is only sent when the thumb is released, which is the DOM's
+ * own `change` rather than React's (which fires on every step).
+ *
+ * The native range input stays: it is the interaction and the keyboard. It is
+ * drawn transparent on top of the pill, so the arrow keys still move one stop.
  */
 function EffortSlider({
   session,
   efforts,
+  index,
+  onIndex,
   onSetOption,
 }: {
   session: Session;
   efforts: Choice[];
+  /** The live stop, owned by the card so the word above can read it. */
+  index: number;
+  onIndex: (index: number) => void;
   onSetOption: (patch: SessionOptions) => void;
 }) {
-  const stop = Math.max(
-    0,
-    efforts.findIndex((effort) => effort.id === session.effort),
-  );
-  const [index, setIndex] = useState(stop);
-  const [drawnStop, setDrawnStop] = useState(stop);
   const input = useRef<HTMLInputElement>(null);
-
-  // A change from anywhere else — a `/model` in the terminal, another tab —
-  // wins over the position the thumb was left in.
-  if (drawnStop !== stop) {
-    setDrawnStop(stop);
-    setIndex(stop);
-  }
+  const value = Math.max(0, index);
+  const last = Math.max(1, efforts.length - 1);
 
   useEffect(() => {
     const el = input.current;
@@ -694,21 +745,38 @@ function EffortSlider({
     return () => el.removeEventListener('change', commit);
   }, [efforts, session.effort, onSetOption]);
 
-  const word = efforts[index]?.label ?? '';
   return (
-    <input
-      ref={input}
-      type="range"
-      className="effort-slider"
-      min={0}
-      max={efforts.length - 1}
-      step={1}
-      value={index}
-      aria-label={strings.composer.effort}
-      aria-valuetext={word}
-      style={{ '--fill': `${(index / Math.max(1, efforts.length - 1)) * 100}%` } as CSSProperties}
-      onChange={(e) => setIndex(Number(e.target.value))}
-    />
+    <div
+      className="effort-track"
+      style={{ '--fill': `${(value / last) * 100}%` } as CSSProperties}
+    >
+      {/* Inset by half a thumb, which is where the thumb's centre travels. The
+          lowest stop fills nothing: its cap would only show around the thumb. */}
+      <span className="effort-fill-layer" aria-hidden>
+        {value > 0 ? <span className="effort-fill" /> : null}
+      </span>
+      <span className="effort-dots" aria-hidden>
+        {efforts.map((effort, stop) => (
+          <span
+            key={effort.id}
+            className={cx('effort-dot', value > 0 && stop <= value && 'filled')}
+            style={{ left: `${(stop / last) * 100}%` }}
+          />
+        ))}
+      </span>
+      <input
+        ref={input}
+        type="range"
+        className="effort-slider"
+        min={0}
+        max={efforts.length - 1}
+        step={1}
+        value={value}
+        aria-label={strings.composer.effort}
+        aria-valuetext={efforts[value]?.label ?? ''}
+        onChange={(e) => onIndex(Number(e.target.value))}
+      />
+    </div>
   );
 }
 

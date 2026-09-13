@@ -486,17 +486,22 @@ describe('Composer model card', () => {
     return user;
   };
 
+  /** The effort word actually drawn, rather than one of the hidden sizers. */
+  const shownWord = () => document.querySelector('.sized-box-shown [data-effort-word]');
+
   it('reads the model and the effort in one chip', () => {
     renderComposer({});
     expect(screen.getByRole('button', { name: strings.composer.modelCard })).toHaveTextContent(
       'Sonnet 4.5 High',
     );
-    expect(document.querySelector('.model-card-chip .speed-glyph')).toBeNull();
+    expect(document.querySelector('.model-card-chip .sized-box-shown .speed-glyph')).toBeNull();
   });
 
   it('marks the chip with the lightning while a tier is on', () => {
     renderComposer({ agent: 'codex', model: 'gpt-5.4-codex', speed: 'priority' }, codexAgent);
-    expect(document.querySelector('.model-card-chip .speed-glyph')).not.toBeNull();
+    expect(
+      document.querySelector('.model-card-chip .sized-box-shown .speed-glyph'),
+    ).not.toBeNull();
   });
 
   it('opens a card with the model name and the effort slider', async () => {
@@ -513,18 +518,63 @@ describe('Composer model card', () => {
     expect(slider).toHaveAttribute('aria-valuetext', 'High');
   });
 
-  it('updates the word while the thumb moves and sends only on release', async () => {
+  it('follows the thumb with the word and sends only on release', async () => {
     const { onSetOption } = renderComposer({});
     await openCard();
     const slider = screen.getByRole('slider', { name: strings.composer.effort });
 
     fireEvent.input(slider, { target: { value: '0' } });
     expect(slider).toHaveAttribute('aria-valuetext', 'Low');
-    expect(document.querySelector('[data-effort-word]')).toHaveTextContent('High');
+    // The word is the thumb's, not the device's: it changes before the value
+    // is even sent.
+    expect(shownWord()).toHaveTextContent('Low');
     expect(onSetOption).not.toHaveBeenCalled();
 
     fireEvent.change(slider, { target: { value: '0' } });
     expect(onSetOption).toHaveBeenCalledWith({ effort: 'low' });
+  });
+
+  it('draws one dot per effort level and fills them up to the thumb', async () => {
+    renderComposer({});
+    await openCard();
+
+    const dots = document.querySelectorAll('.effort-dot');
+    expect(dots).toHaveLength(claudeAgent.efforts.length);
+    // "High" is the last of three, so every dot is on the filled side.
+    expect(document.querySelectorAll('.effort-dot.filled')).toHaveLength(3);
+    expect(document.querySelector('.effort-fill')).not.toBeNull();
+
+    // Nothing is filled at the lowest stop, and no cap is left to peek out
+    // around the thumb.
+    fireEvent.input(screen.getByRole('slider', { name: strings.composer.effort }), {
+      target: { value: '0' },
+    });
+    expect(document.querySelectorAll('.effort-dot.filled')).toHaveLength(0);
+    expect(document.querySelector('.effort-fill')).toBeNull();
+  });
+
+  it('sizes the chip and the name row on every model-and-effort pair', async () => {
+    renderComposer({});
+    const chip = screen.getByRole('button', { name: strings.composer.modelCard });
+    // Three models times three levels, laid out under the visible label so the
+    // chip cannot change width when either of them changes.
+    expect(chip.querySelectorAll('.sized-box-ghost')).toHaveLength(9);
+    expect(chip.querySelectorAll('.sized-box-ghost[aria-hidden="true"]')).toHaveLength(9);
+
+    await openCard();
+    const name = screen.getByRole('button', {
+      name: strings.composer.option(strings.composer.model, 'Sonnet 4.5'),
+    });
+    expect(name.querySelectorAll('.sized-box-ghost')).toHaveLength(9);
+    expect(name.querySelector('.sized-box-ghost')).toHaveTextContent(/Sonnet 4\.5\s*Low/);
+  });
+
+  it('reserves the width of the lightning for an agent that lists tiers', () => {
+    renderComposer({ agent: 'codex', model: 'gpt-5.4-codex', effort: 'medium' }, codexAgent);
+    // Standard speed, so nothing is lit — but the box is already as wide as it
+    // will be once a tier is on.
+    expect(document.querySelector('.sized-box-shown .speed-glyph')).toBeNull();
+    expect(document.querySelectorAll('.sized-box-ghost .speed-glyph')).toHaveLength(6);
   });
 
   it('draws no slider for an agent with no effort levels', async () => {
