@@ -228,8 +228,9 @@ small "Archived" mark so the two are told apart. Nothing is removed from the pro
 | Search reads the title, the working directory and the agent, by id and by label, and drops a machine with no match | `SessionListLayout.matches` |
 | An agent filter applies before the grouping, so a machine whose sessions all drop out disappears | `SessionStore.agentFilter` |
 
-The agent filter sits in the navigation bar as **All** and then every agent the list actually
-contains, each row reading its mark and then its name (A25). It is a view of the list rather than a setting: it starts at
+The agent filter sits in the navigation bar as **All agents** and then every agent the list
+actually contains, each row reading its mark and then its name (A25). Every row's agent chip is the
+full name in the one quiet tint every agent shares; no agent has a colour of its own. It is a view of the list rather than a setting: it starts at
 All on every launch and is never written to defaults. The device filter is a parameter of the
 same function, for the callers that narrow to one machine.
 
@@ -698,7 +699,7 @@ the message field rather than a repeat of the header (A20). It keys off the bloc
 | When | What it says |
 | --- | --- |
 | The device is offline | "Device offline" |
-| `control: "terminal"` | "Controlled by the terminal", plus "· Take over to send" where the agent lists `takeover` |
+| `control: "terminal"` | "Controlled by the terminal", plus " · take over to send" only where the agent lists `takeover` |
 | A question is pending | "Waiting for your answer" (A20), which outranks the turn it interrupted because nothing is queued behind it |
 | A turn is running | "Working · your message will steer the turn", or "· will be queued", or "· N messages queued" |
 | `state: "error"` | Whatever the device put in `state_detail`, which the header has no room for |
@@ -706,6 +707,13 @@ the message field rather than a repeat of the header (A20). It keys off the bloc
 An attached session takes the ordinary rules rather than a rule of its own, so a running shared
 Codex thread reads "Working · your message will steer the turn" and an idle one reads nothing at
 all. `docs/DESIGN.md` holds the same table for both apps.
+
+**The take-over clause belongs to the status line alone.** `ChatStore.terminalControlNotice` builds
+that line, and names the way out only where there is one: Codex and Grok Build advertise no
+`takeover`, so a terminal-held session of either reads "Controlled by the terminal" and nothing
+more, rather than inviting a tap that would be refused. The disabled field's placeholder
+(`sendBlockReason`) is the short sentence on every agent — a placeholder that repeated the line
+above it word for word, and then truncated, said less than half of it did.
 
 ## Sending
 

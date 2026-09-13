@@ -1187,6 +1187,23 @@ Build session a terminal holds opened read-only — "Controlled by the terminal"
 with one static chip, "Grok 4.6 High", where a Claude session shows two: its update log carries a
 model and a level but never a permission mode, so nothing claims one (`88-grok-terminal-composer.png`).
 
+**The way out is named only where there is one, and only once.** The round's late ruling: a
+terminal-held session's status line reads "Controlled by the terminal · take over to send" where
+the agent advertises `takeover` and "Controlled by the terminal" where it does not, while the
+disabled field's placeholder is the short sentence on every agent. The status line's wording had a
+capital T the web's has not, and neither line branched in the same place, so the clause now comes
+from one `ChatStore.terminalControlNotice` that only the status line reads. Proved on both
+branches: the Grok Build session reads "Controlled by the terminal" in the line and in the field,
+with nothing on the screen matching "take over" (`88-grok-terminal-composer.png`), and the Claude
+session on the second machine carries the full sentence on its status line beside the Take over
+button while its field still reads the short one (`11-attach-hint.png`). The field's assertion is on
+its accessibility label, which is where `GrowingTextField` puts the placeholder —
+`placeholderValue` on the `UITextView` behind it comes back empty. An earlier pass had the
+placeholder branch too; it repeated the line above it word for word and then truncated to
+"Controlled by the terminal · take over to se…", which is what the ruling settled. The filter's first
+row also became **All agents**, matching § "Session lists" and the web, and the agent chips were
+already one quiet tint on the phone.
+
 Two existing tests had to change because the demo list grew by three rows, and neither change was
 cosmetic. `testTerminalSessionExplainsHowToAttach` now scrolls to its row, which sits on the second
 machine and is below the fold. `testSessionsListShowsEveryStatusTone` claimed all five tones were in
@@ -1196,9 +1213,9 @@ Archive — by scrolling, with a screenshot of each.
 
 ```
 cd ios && export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
-swift run RCVerify    → PASS, 1095 checks over 155 fixtures
-swift run RCUIVerify  → PASS, 211 UI checks
-swift test            → 242 tests in 22 suites passed
+swift run RCVerify    → PASS, 1096 checks over 155 fixtures
+swift run RCUIVerify  → PASS, 214 UI checks
+swift test            → 244 tests in 22 suites passed
 xcodebuild test-without-building … -only-testing:RemoteControlUITests
                       → 45 tests, 4 skipped (the real-gateway smoke tests), 0 failures
 ```

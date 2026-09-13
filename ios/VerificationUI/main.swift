@@ -130,7 +130,7 @@ func run() async -> (passed: Int, failures: [String]) {
         expect(locked.isReadOnly, "a running terminal session is still read-only")
         expect(!locked.canStop, "the app does not stop a terminal turn")
         expect(locked.canTakeover, "and the agent advertises takeover")
-        equal(locked.statusLine, "Controlled by the terminal · Take over to send",
+        equal(locked.statusLine, "Controlled by the terminal · take over to send",
               "the takeover line shows while the terminal turn runs")
         equal(locked.attachHint, ChatStore.AttachHint.restartSession,
               "a prepared device says the running process was started without the attachment")
@@ -361,6 +361,11 @@ func run() async -> (passed: Int, failures: [String]) {
               "its update log carries no permission mode, so one chip stands where two would")
         equal(chat.terminalSettings.map(\.text), ["Grok 4.6 High"],
               "reading the model and the level the terminal chose")
+        expect(!chat.canTakeover, "Grok Build advertises no takeover")
+        equal(chat.statusLine, "Controlled by the terminal",
+              "so the line above the composer names no way out")
+        equal(chat.sendBlockReason, "Controlled by the terminal",
+              "and the field says the short sentence, as it does for every agent")
     } else {
         expect(false, "the demo carries a Grok session a terminal holds")
     }

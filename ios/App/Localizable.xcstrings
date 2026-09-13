@@ -613,19 +613,19 @@
         }
       }
     },
-    "All": {
+    "All agents": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All"
+            "value": "All agents"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "全部"
+            "value": "全部 agent"
           }
         }
       }
@@ -1140,13 +1140,13 @@
         }
       }
     },
-    "Controlled by the terminal · Take over to send": {
+    "Controlled by the terminal · take over to send": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Controlled by the terminal · Take over to send"
+            "value": "Controlled by the terminal · take over to send"
           }
         },
         "zh-Hans": {

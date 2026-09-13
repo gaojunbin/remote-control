@@ -128,8 +128,10 @@ struct TerminalAndOrderingTests {
         #expect(chat.isReadOnly)
         #expect(!chat.canSend)
         #expect(!chat.canStop)
+        // The take-over clause is the status line's; the disabled field says
+        // the short sentence whatever the agent is.
         #expect(chat.sendBlockReason == "Controlled by the terminal")
-        #expect(chat.statusLine == "Controlled by the terminal · Take over to send")
+        #expect(chat.statusLine == "Controlled by the terminal · take over to send")
     }
 
     @Test("A terminal-driven turn still reads as running")

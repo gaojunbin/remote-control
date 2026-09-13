@@ -89,7 +89,7 @@ struct SessionsView: View {
         let options = model.sessions.agentOptions(model.connection.sessions)
         if !options.isEmpty {
             Menu {
-                filterChoice(nil, label: L10n.string("All"))
+                filterChoice(nil, label: L10n.string("All agents"))
                 ForEach(options, id: \.self) { agent in
                     // `docs/DESIGN.md` § "Agents": the mark, then the name. A
                     // menu row is wide enough to carry both, so it does.
@@ -106,7 +106,7 @@ struct SessionsView: View {
                 .frame(minHeight: Theme.Touch.minimum)
             }
             .accessibilityLabel("Filter by agent")
-            .accessibilityValue(model.sessions.agentFilter.map(AgentLabel.name) ?? L10n.string("All"))
+            .accessibilityValue(model.sessions.agentFilter.map(AgentLabel.name) ?? L10n.string("All agents"))
             .accessibilityIdentifier("sessions.agentFilter")
         }
     }

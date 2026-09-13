@@ -153,6 +153,50 @@ struct AgentsTests {
         #expect(chips.map(\.text) == ["Grok 4.6 High"])
     }
 
+    // MARK: - What a terminal-held session offers
+
+    /// `docs/DESIGN.md` § "The composer": the way out of a terminal-held
+    /// session is named only where the agent has one, and only on the status
+    /// line. The disabled field says the short sentence for every agent.
+    @Test("A terminal-held session names a takeover only where there is one", arguments: [
+        ("claude", true), ("codex", false), ("grok", false)
+    ])
+    @MainActor
+    func terminalControlNotice(agent id: String, offersTakeover: Bool) {
+        let info: AgentInfo = switch id {
+        case "claude": DemoFixtures.claude
+        case "codex": DemoFixtures.codex
+        default: DemoFixtures.grok
+        }
+        let session = Session(sessionID: "s", deviceID: "d", agent: id, title: "T",
+                              cwd: "/tmp", state: .readonly, control: .terminal, updatedAt: 0)
+        let chat = ChatStore(session: session, channel: DemoGateway())
+        chat.agent = info
+        chat.draft = "hello"
+
+        #expect(chat.isReadOnly)
+        #expect(chat.canTakeover == offersTakeover)
+        let expected = offersTakeover ? "Controlled by the terminal · take over to send"
+                                      : "Controlled by the terminal"
+        #expect(chat.terminalControlNotice == expected)
+        #expect(chat.statusLine == expected)
+        #expect(chat.sendBlockReason == "Controlled by the terminal")
+        #expect(!chat.canSend)
+    }
+
+    /// The demo's own Grok session, rather than one built for the occasion.
+    @Test("The demo's mirrored Grok session invites no tap that would be refused")
+    @MainActor
+    func grokSessionNeverPromisesATakeover() throws {
+        let session = try #require(DemoFixtures.sessions
+            .first { $0.sessionID == DemoFixtures.grokSessionID })
+        let chat = ChatStore(session: session, channel: DemoGateway())
+        chat.agent = DemoFixtures.grok
+        #expect(!DemoFixtures.grok.supports(.takeover))
+        #expect(chat.sendBlockReason == "Controlled by the terminal")
+        #expect(chat.statusLine == "Controlled by the terminal")
+    }
+
     // MARK: - Lists
 
     @Test("The agent filter offers every agent the list runs, in label order")

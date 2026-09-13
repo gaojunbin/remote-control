@@ -557,7 +557,7 @@ enum StoreChecks {
         let locked = ChatStore(session: readonly, channel: gateway)
         locked.agent = connection.device(readonly.deviceID)?.agent(readonly.agent)
         checks.expect(locked.isReadOnly, "a terminal-controlled session is read-only")
-        checks.expect(locked.statusLine?.contains("Take over") == true, "the read-only status offers a takeover")
+        checks.expect(locked.statusLine?.contains("take over") == true, "the read-only status offers a takeover")
         locked.draft = "hello"
         checks.expect(!locked.canSend, "the composer is disabled while the terminal owns the session")
 

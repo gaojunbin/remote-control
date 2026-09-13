@@ -326,7 +326,7 @@ means, then labels the button with the decision:
 | Running, agent supports steering | Send | "Codex is working · your message will steer the turn" |
 | Running, agent does not | Queue | "Claude Code is working · your message will be queued" |
 | A question is pending | Answer | "Waiting for your answer" |
-| Terminal-controlled | disabled | "Controlled by the terminal", with " · take over to send" only when the agent has `takeover` |
+| Terminal-controlled | disabled | "Controlled by the terminal", with " · take over to send" only when the agent has `takeover`. The disabled field's own placeholder is always the short "Controlled by the terminal": the status line and the Take over button already say how, and a third copy only truncates on a phone |
 | Terminal, attached | Send | — (the header already says `terminal · attached`; the composer behaves as for a remote session) |
 | Device offline | disabled | "Device offline" |
 

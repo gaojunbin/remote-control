@@ -565,6 +565,13 @@ final class RemoteControlUITests: XCTestCase {
 
         let hint = app.descendants(matching: .any)["chat.attachHint"]
         XCTAssertTrue(hint.waitForExistence(timeout: 15), "the session says how to make it controllable")
+        // Claude does advertise `takeover`, so the line above the field names
+        // the way out — and the field itself still says the short sentence,
+        // which is the half that is the same on every agent.
+        XCTAssertTrue(app.staticTexts["Controlled by the terminal · take over to send"].exists,
+                      "the status line names the way out, because this agent has one")
+        XCTAssertEqual(promptField().label, "Controlled by the terminal",
+                       "and the field does not repeat the clause")
         attach(name: "11-attach-hint")
     }
 
@@ -841,6 +848,14 @@ final class RemoteControlUITests: XCTestCase {
                        "and the update log knows no permission mode, so no chip claims one")
         XCTAssertFalse(app.buttons["composer.modelCard"].exists,
                        "nothing on this row is a control")
+
+        // `docs/DESIGN.md` § "The composer": the way out is named only where
+        // the agent has one, and Grok Build advertises no `takeover`.
+        XCTAssertEqual(promptField().label, "Controlled by the terminal",
+                       "the field says who has this session and promises nothing else")
+        XCTAssertFalse(app.staticTexts
+            .containing(NSPredicate(format: "label CONTAINS[c] %@", "take over")).firstMatch.exists,
+                       "and nothing on the screen invites a tap that would be refused")
         attach(name: "88-grok-terminal-composer")
     }
 

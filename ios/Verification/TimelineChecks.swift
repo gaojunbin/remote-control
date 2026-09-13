@@ -37,14 +37,15 @@ enum TimelineChecks {
         checks.expect(running.isRunning, "a terminal-driven turn still counts as running")
         checks.expect(!running.canStop, "the app does not stop a turn the terminal owns")
         checks.expect(!running.canSend, "the composer is disabled while the terminal has control")
-        checks.equal(running.sendBlockReason, "Controlled by the terminal", "and it says why")
-        checks.equal(running.statusLine, "Controlled by the terminal · Take over to send",
+        checks.equal(running.sendBlockReason, "Controlled by the terminal",
+                     "and the field says why, without repeating the clause above it")
+        checks.equal(running.statusLine, "Controlled by the terminal · take over to send",
                      "the same line while the terminal turn runs")
 
         let idle = store(state: .readonly, control: .terminal)
         checks.expect(idle.isReadOnly, "an idle terminal session is still read-only")
         checks.expect(!idle.isRunning, "readonly means the terminal turn has finished")
-        checks.equal(idle.statusLine, "Controlled by the terminal · Take over to send",
+        checks.equal(idle.statusLine, "Controlled by the terminal · take over to send",
                      "the same line when the terminal session is idle")
 
         let ours = store(state: .running, control: .remote)
@@ -61,6 +62,8 @@ enum TimelineChecks {
         checks.expect(!noTakeover.canTakeover, "takeover needs the capability")
         checks.equal(noTakeover.statusLine, "Controlled by the terminal",
                      "and the status line does not promise one")
+        checks.equal(noTakeover.sendBlockReason, "Controlled by the terminal",
+                     "and the field reads the short sentence, as it does for every agent")
 
         // Amendment A10: an attached session behaves like a remote one.
         let attachedIdle = store(state: .idle, control: .shared)

@@ -140,6 +140,20 @@ public final class ChatStore {
     /// agent advertises the capability.
     public var canTakeover: Bool { isReadOnly && agent?.supports(.takeover) == true }
 
+    /// `docs/DESIGN.md` § "The composer": the status line of a session a
+    /// terminal holds. The way out is named only where the agent has one —
+    /// Codex and Grok Build advertise no `takeover`, so nothing on their
+    /// terminal-held sessions invites a tap that would be refused.
+    ///
+    /// The clause belongs to this line alone. The disabled field says the short
+    /// sentence whatever the agent is, because a placeholder that repeats the
+    /// line above it word for word, and then truncates, says less than half of
+    /// it would.
+    public var terminalControlNotice: String {
+        L10n.string(canTakeover ? "Controlled by the terminal · take over to send"
+                                : "Controlled by the terminal")
+    }
+
     /// A terminal session takes no input from here at all. Amendment A10: a
     /// relay cannot hand bytes to a live CLI either. Amendment A11: an
     /// attachment that does carry them says so with `shared_attachments`.
@@ -273,10 +287,7 @@ public final class ChatStore {
     /// running turn, and what the agent said when it failed.
     public var statusLine: String? {
         if !deviceOnline { return L10n.string("Device offline") }
-        if isReadOnly {
-            return L10n.string(canTakeover ? "Controlled by the terminal · Take over to send"
-                                           : "Controlled by the terminal")
-        }
+        if isReadOnly { return terminalControlNotice }
         // Amendment A20: a question outranks the turn it interrupted. Nothing
         // is queued behind it, so what a message would become is not the news.
         if pendingQuestion != nil { return L10n.string("Waiting for your answer") }
