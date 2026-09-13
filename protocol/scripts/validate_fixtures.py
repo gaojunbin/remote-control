@@ -149,6 +149,14 @@ HTTP_DEFS = {
     "login.error": "ErrorResponse",
     "logout.response": "OkResponse",
     "auth.session.response": "AuthSessionResponse",
+    "register.request": "RegisterRequest",
+    "password.request": "PasswordChangeRequest",
+    "users.list.response": "UserListResponse",
+    "users.create.request": "UserCreateRequest",
+    "users.patch.request": "UserPatchRequest",
+    "users.response": "UserResponse",
+    "registration.patch.request": "RegistrationPatchRequest",
+    "registration.response": "RegistrationResponse",
     "config.response": "ConfigResponse",
     "devices.enroll.request": "EnrollRequest",
     "devices.enroll.response": "EnrollResponse",
@@ -209,7 +217,9 @@ INVALID_SCHEMAS = {
     "timeline": ("timeline.json", None),
     "history": ("app_frames.json", "ReplySessionHistory"),
     "http.enroll": ("http.json", "EnrollRequest"),
+    "http.login": ("http.json", "LoginRequest"),
     "objects.agent": ("objects.json", "AgentInfo"),
+    "objects.user": ("objects.json", "User"),
 }
 
 

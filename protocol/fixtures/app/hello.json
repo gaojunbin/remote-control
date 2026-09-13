@@ -3,7 +3,8 @@
   "protocol": 1,
   "gateway_version": "0.1.0",
   "user": {
-    "username": "admin"
+    "username": "admin",
+    "role": "admin"
   },
   "devices": [
     {

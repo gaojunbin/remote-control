@@ -176,16 +176,7 @@
           "type": "string"
         },
         "user": {
-          "type": "object",
-          "properties": {
-            "username": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "required": [
-            "username"
-          ]
+          "$ref": "objects.json#/$defs/User"
         },
         "devices": {
           "type": "array",

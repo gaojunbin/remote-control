@@ -76,6 +76,47 @@ encodes a link the web app also honours when signed in.
 Below 1024 px the web sidebar collapses into the Sessions page and the chat runs full width, which
 is the layout iOS uses natively.
 
+## Accounts
+
+**One gateway, many people, nothing shared.** Every person on a gateway has an account (protocol
+A24). What an account sees is its own: the devices it enrolled, the sessions on them, its pairing
+codes, its push registrations. Nothing on any screen ever shows another account's device or
+session, and there is no screen for sharing one. The operator's account is `admin`, whose
+password is the gateway's `RC_PASSWORD`; everyone else registers, while the admin allows it, or is
+added by the admin.
+
+**Sign in.** The form asks for the gateway (phone only), the username and the password, and
+remembers the username per gateway so the next sign-in is the password alone. A disabled account
+is told so ("This account is disabled."), a wrong password is not told which half was wrong.
+Under the button, **Create an account** appears only when the gateway reports that registration
+is open; it swaps the card for username, password and one **Create account** button, with "Sign
+in instead" beneath. Creating an account signs it in. The username rules are the gateway's
+(lower-case letters, digits, `.`, `_`, `-`; 3 to 32 characters) and the form says so only when a
+name is refused; a password is 8 characters or more.
+
+**Account, in Settings.** The Account group shows the username with the role word under it —
+Admin or Member — then **Change password** (members only: the current password and the new one,
+in a modal on the web and a sheet on the phone), then **Sign out**. An admin has one more row,
+**Users**, which opens the accounts screen.
+
+**Users** is the admin's screen and nobody else's; a member never sees the row, and typing the
+web address lands on Sessions. At the top is one switch, **Registration**, with the caption
+"Anyone with the gateway address can create an account", off on a fresh gateway. Under it, one
+row per account: the username, `role · state` on the meta line, the number of devices it has
+enrolled, and its last sign-in as a relative time or "never". A row's actions — a menu on the
+web, one trailing swipe and the context menu on the phone — are **Reset password**, **Disable**
+(or **Enable**), and **Delete**; the `admin` row has none. Delete asks first and names what goes
+with the account ("…and its 2 devices"): the devices are revoked, their sessions leave the
+gateway, the machines keep their agents and transcripts. Disabling signs the person out
+everywhere and refuses their devices until they are enabled again. **Add user** is the screen's
+primary button — top right on the web, the bottom bar on the phone, where Add device and New
+session sit — and asks for a username, a password and a role, Member by default.
+
+**The app's own settings are per account.** Language, dictation language, notification choices
+and the timeline detail belong to the person signed in on this app, not to the app: two people
+who share one browser or one phone find their own choices when they sign in. They live on the
+app, keyed by gateway and username; the gateway holds no settings for anyone.
+
 ## Session lists: by device, then by activity
 
 Every session list follows one rule — the web Sessions page, the web chat sidebar and the iOS
@@ -464,7 +505,8 @@ Every user-visible string lives in one catalog per app — `web/src/strings.ts` 
 ## Deliberately not in v1
 
 - **Dark mode as a designed theme.** The tokens exist on iOS; the design does not.
-- **Multiple users, workspaces and sharing.** One password, one account, one flat device list.
+- **Workspaces and sharing.** Accounts are separate people with separate devices; nothing is
+  shared between two of them, and a device belongs to exactly one.
 - **A terminal emulator.** Mirroring a session, or attaching to one, is not the same as an SSH pane,
   and it is deliberately not one. You get the agent's conversation, not its screen. If you need a
   shell, use a shell.

@@ -162,8 +162,11 @@ Truncated content is not lost: the full block is fetched with `session.block`.
 
 ## 3. HTTP API
 
-Authentication is a single shared password by default (`RC_PASSWORD`); the `users` table leaves room
-for more users later. Browsers authenticate with the HttpOnly cookie `rc_session`
+Every person on a gateway has an account (A24). The account named `admin` is the operator's, and
+its password is `RC_PASSWORD`; every other account is made by registering while the admin allows
+it, or by the admin. An account sees only its own devices, the sessions on them, its own pairing
+codes and its own push registrations: nothing in this section and nothing on `/ws/app` ever
+returns another account's. Browsers authenticate with the HttpOnly cookie `rc_session`
 (`SameSite=Strict`, `Secure` under https). Native apps send `Authorization: Bearer <token>` with the
 same token value. WebSocket upgrades accept either.
 
@@ -175,7 +178,8 @@ an `Origin` header equal to `PUBLIC_ORIGIN`. Bearer-authenticated requests need 
 | Method | Path | Request | Response | Errors |
 | --- | --- | --- | --- | --- |
 | GET | `/api/health` | – | `HealthResponse` | – |
-| POST | `/api/login` | `LoginRequest` | `LoginResponse` + `Set-Cookie: rc_session` | `401 unauthorized`. Rate limited to 5 per minute per IP. |
+| POST | `/api/login` | `LoginRequest` | `LoginResponse` + `Set-Cookie: rc_session` | `401 unauthorized` for a wrong password or an unknown account, `403 forbidden` for a disabled one. Rate limited to 5 per minute per IP. |
+| POST | `/api/register` | `RegisterRequest` | `LoginResponse` + `Set-Cookie: rc_session` | Creates a `member` account and signs it in (A24). `403 forbidden` while registration is closed, `409 conflict` for a taken username, `400 bad_request` for a username or password outside the rules below. Rate limited to 5 per minute per IP. |
 | POST | `/api/devices/enroll` | `EnrollRequest` | `EnrollResponse` | `404` unknown or expired code, `409` code already used |
 | GET | `/install.sh` | – | The client install script with `__GATEWAY_ORIGIN__` replaced by `PUBLIC_ORIGIN` | – |
 | GET | `/dist/rc_client-latest.whl` | – | The client wheel built into the image. The versioned filename also resolves. | – |
@@ -187,8 +191,14 @@ The pairing code is the only credential `POST /api/devices/enroll` needs. `devic
 once and stored hashed.
 
 ```json
-{"ok": true, "version": "0.1.0", "protocol": 1, "auth": {"mode": "password"}}
+{"ok": true, "version": "0.1.0", "protocol": 1, "auth": {"mode": "password", "registration_open": false}}
 ```
+
+`auth.registration_open` says whether `POST /api/register` is taking accounts; an app offers
+"Create an account" only when it is true. A username is 3 to 32 characters matching
+`^[a-z0-9][a-z0-9._-]{2,31}$` — the gateway lower-cases what it receives before matching or
+comparing, so `Alice` and `alice` are one account — and a password is 8 to 128 characters.
+Passwords are stored hashed and never returned. `LoginRequest.username` is required.
 
 `fixtures/http/login.request.json`
 
@@ -207,8 +217,18 @@ once and stored hashed.
   "token": "rc1.7f3c2a19d84b4e0f9a6c1b25e30d7a48.5c9e1f",
   "exp": 1791536400000,
   "user": {
-    "username": "admin"
+    "username": "admin",
+    "role": "admin"
   }
+}
+```
+
+`fixtures/http/register.request.json`
+
+```json
+{
+  "username": "alice",
+  "password": "correct horse battery staple"
 }
 ```
 
@@ -241,6 +261,7 @@ once and stored hashed.
 | --- | --- | --- | --- |
 | POST | `/api/logout` | – | `OkResponse`, and the token is revoked |
 | GET | `/api/session` | – | `AuthSessionResponse` |
+| POST | `/api/password` | `PasswordChangeRequest` | `OkResponse`. Changes the caller's password; `401 unauthorized` when `current_password` is wrong, `400 bad_request` when the new one is outside the rules, `403 forbidden` for `admin`, whose password is `RC_PASSWORD` (A24). Other sign-ins of the account stay valid. |
 | GET | `/api/config` | – | `ConfigResponse` |
 
 `fixtures/http/auth.session.response.json`
@@ -249,11 +270,14 @@ once and stored hashed.
 {
   "ok": true,
   "user": {
-    "username": "admin"
+    "username": "admin",
+    "role": "admin"
   },
   "exp": 1791536400000
 }
 ```
+
+`user` is the `User` object of 4.10: the account the token belongs to and its `role`.
 
 `client` names the wheel the gateway serves: its `version`, its `build` (the SHA-256 of the file)
 and its `url`; a device whose `client_build` differs can be brought to it with `device.update` (A22).
@@ -437,6 +461,50 @@ The gateway sends `stt.partial` about every 2 s while audio is arriving, then `s
   "message": "speech to text backend returned 502"
 }
 ```
+
+---
+
+### 3.9 Authenticated — accounts (admin only)
+
+Every route here answers `403 forbidden` to a caller whose `role` is not `admin` (A24).
+
+| Method | Path | Request | Response | Notes |
+| --- | --- | --- | --- | --- |
+| GET | `/api/users` | – | `UserListResponse` | Every account as a `UserRecord`, oldest first, and whether registration is open. |
+| POST | `/api/users` | `UserCreateRequest` | `UserResponse` | `409 conflict` for a taken username, `400 bad_request` outside the rules of 3.1. |
+| PATCH | `/api/users/{username}` | `UserPatchRequest` | `UserResponse` | Any of `state`, `role`, `password`. Disabling revokes every login session of the account and closes its device sockets with 4403; enabling lets them back. `admin` cannot be disabled, demoted, given a password or deleted: `409 conflict`. `404 not_found` for an unknown account. |
+| DELETE | `/api/users/{username}` | – | `OkResponse` | Removes the account, its login sessions, push registrations, pairing codes and devices — each device exactly as `DELETE /api/devices/{device_id}` would, sessions included. |
+| PATCH | `/api/registration` | `RegistrationPatchRequest` | `RegistrationResponse` | Opens or closes `POST /api/register`. A fresh gateway starts closed. |
+
+`fixtures/http/users.list.response.json`
+
+```json
+{
+  "users": [
+    {
+      "username": "admin",
+      "role": "admin",
+      "state": "active",
+      "created_at": 1788426000000,
+      "last_login_at": 1788944400000,
+      "devices": 2
+    },
+    {
+      "username": "alice",
+      "role": "member",
+      "state": "disabled",
+      "created_at": 1788512400000,
+      "last_login_at": null,
+      "devices": 0
+    }
+  ],
+  "registration_open": false
+}
+```
+
+`fixtures/http/users.create.request.json`, `fixtures/http/users.patch.request.json`,
+`fixtures/http/users.response.json`, `fixtures/http/registration.patch.request.json` and
+`fixtures/http/registration.response.json` carry the other bodies.
 
 ---
 
@@ -777,6 +845,19 @@ Bytes travel up only. A `user_message` event reports metadata, never the payload
 `{"id": "high", "label": "High"}`. Used for models, permission modes and effort levels. Ids are
 opaque to the UI, which renders the label and sends back the id unchanged. Approval options extend
 this with `style`; question options extend it with an optional `description`.
+
+---
+
+### 4.10 User
+
+The account an app signed in as (A24). It is `user` in `LoginResponse`, `AuthSessionResponse` and
+the app `hello`; `UserRecord` is the same account as the admin lists it, with `state`, the
+timestamps and the number of devices it has enrolled.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `username` | string | Lower case, 3 to 32 characters, see 3.1. `admin` is the operator. |
+| `role` | `admin` \| `member` | What 3.9 is gated on. A `member` sees nothing of any other account. |
 
 ---
 
@@ -1473,7 +1554,12 @@ Schema: `schema/app_frames.json`. Endpoint `WS /ws/app`.
 
 ### 6.1 Gateway → app
 
-On connect the gateway sends `hello`, then pushes updates for as long as the socket lives.
+On connect the gateway sends `hello`, then pushes updates for as long as the socket lives. `user`
+is the account the socket signed in as (`User`, 4.10). Every frame after `hello` concerns that
+account's devices and the sessions on them and nothing else (A24): `device.updated`,
+`session.updated`, `session.removed`, `session.event` and `pairing.progress` reach only the owner's
+sockets, and a `session.subscribe` or a forwarded request that names another account's session or
+device is answered `not_found`, exactly as one naming nothing would be.
 
 | Type | Payload | When |
 | --- | --- | --- |
@@ -2707,6 +2793,10 @@ by `block_id` like any other.
     resolution from `decision`. A block resolved with `option_id: "elsewhere"` and `by: "terminal"`
     was answered on the other side of a shared session and reads as "answered in the terminal"; an
     app never offers `elsewhere` as a button and never sends it back.
+14. **Sign-in is one account on one gateway.** An app signs in with a username and a password,
+    keeps its stored credential per gateway and account, offers "Create an account" only when
+    `GET /api/health` reports `registration_open`, shows the signed-in account and its `role`, and
+    shows the accounts screen of 3.9 only to `admin` (A24).
 
 ---
 
@@ -2728,6 +2818,15 @@ by `block_id` like any other.
       and clears both on the next `hello` (A22).
 - [ ] Issues claim tokens for hosts, lets a signed-in user claim one, mints the pairing code for
       the host on that claim and hands it out exactly once (A23).
+- [ ] Sends every `/ws/app` frame after `hello` — `device.updated`, `session.updated`,
+      `session.removed`, `session.event`, `pairing.progress` — only to sockets of the account that
+      owns the device; answers `not_found` to a `session.subscribe` or a forwarded request naming
+      another account's session or device; lists only the caller's sessions in `GET /api/sessions`;
+      delivers push only to the owner's registrations (A24).
+- [ ] Takes registrations only while registration is open, stores passwords hashed, refuses a
+      disabled account at `/api/login` with `403`, at `/ws/app` with 4401 after revoking its login
+      sessions, and at `/ws/device` with 4403; restricts 3.9 to `admin`; never disables, demotes,
+      re-passwords or deletes `admin` (A24).
 - [ ] Issues pairing codes as `RC-XXXX-XXXX` in Crockford base32 without I, L, O and U, single use,
       10-minute lifetime, and emits `pairing.progress` through `waiting`, `enrolled`, `online`,
       `agents`.
@@ -2813,6 +2912,9 @@ by `block_id` like any other.
 ### 9.3 App
 
 - [ ] Ignores unknown fields, unknown event kinds and unknown agent ids.
+- [ ] Signs in with a username and a password, offers registration only when `registration_open`,
+      shows the signed-in account and its role, lets a `member` change its own password, and shows
+      the accounts screen only to `admin` (A24).
 - [ ] Shows `model`, `permission_mode` and `effort` on a terminal-held session as values it cannot
       change, by label when `AgentInfo` lists the id and by the id otherwise (A17).
 - [ ] Offers Rename, Update and Revoke on every device row, shows "Update available" when the
@@ -3072,3 +3174,16 @@ for the outcome; a signed-in app claims the token (`POST /api/pairing/requests/{
 the gateway mints the ordinary pairing code for that host and hands it back to the poll, and
 enrolment proceeds exactly as before, `pairing.progress` included. The QR encodes
 `<public_origin>/pair#<token>`, which the web app honours too. See 3.1, 3.3 and 9.1.
+
+**2026-09-13 A24 — accounts: every person on a gateway has their own devices, sessions and
+settings.** The gateway had one password and one user, `admin`, and the devices table already
+carried a `username` that nothing else honoured: every app socket received every device's
+`device.updated` and every session's `session.updated`, and any signed-in socket could subscribe
+to any session. The gateway now keeps accounts (`admin` from `RC_PASSWORD`, members by
+registration while the admin allows it, or made by the admin), scopes every frame and every
+listing to the account that owns the device, and refuses cross-account subscribes and forwards as
+`not_found`. `User` gains `role`; `HealthResponse.auth` gains `registration_open`;
+`LoginRequest.username` is required; `POST /api/register` and `POST /api/password` are new, and
+3.9 gives the admin the account routes. Devices, `rc-client` and the device socket are unchanged:
+a pairing code was always the account's, and so the device it enrols. See 3.1, 3.2, 3.9, 4.10, 6.1,
+8.14 and 9.

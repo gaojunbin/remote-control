@@ -438,10 +438,15 @@ talking is exactly the moment the interaction feels slow. Streaming raw PCM lets
 appear while you speak, and 16 kHz mono is what every speech backend wants anyway. The cost is an
 AudioWorklet and a resampler in each client.
 
-**No workspaces or profiles in v1.** A single password, a single user, one flat device list. The
-`users` table exists so more accounts can be added later, but multi-user sharing, per-project
-workspaces and role separation are deliberately absent: they would have doubled the auth surface
-before the core interaction was proven.
+**Accounts are people, and nothing is shared between two of them (1.1, A24).** Version 1.0 had one
+password and one user. The gateway now keeps accounts — `admin` from `RC_PASSWORD`, members by
+registration while the admin allows it, or made by the admin — and every device, pairing code,
+session and push registration belongs to exactly one of them. Isolation is enforced in one place:
+the hub resolves the owner of a device once and fans every device-derived frame out to that
+account's sockets only, and a subscribe or a forward naming another account's session is answered
+as if the session did not exist. Passwords are stored as salted scrypt hashes; the admin's is
+never stored. Workspaces, sharing a device between two people, and per-project roles are still
+deliberately absent: a device is one person's machine.
 
 ## The contract
 

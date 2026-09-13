@@ -14,7 +14,7 @@
       "required": ["ok", "error"]
     },
     "OkResponse": {
-      "description": "POST /api/logout, DELETE /api/devices/{device_id}, DELETE /api/devices/pairing/{code}, POST/DELETE /api/push/*.",
+      "description": "POST /api/logout, POST /api/password, DELETE /api/devices/{device_id}, DELETE /api/devices/pairing/{code}, DELETE /api/users/{username}, POST/DELETE /api/push/*.",
       "type": "object",
       "properties": { "ok": { "const": true } },
       "required": ["ok"]
@@ -29,21 +29,33 @@
         "protocol": { "const": 1 },
         "auth": {
           "type": "object",
-          "properties": { "mode": { "const": "password" } },
-          "required": ["mode"]
+          "properties": {
+            "mode": { "const": "password" },
+            "registration_open": { "type": "boolean" }
+          },
+          "required": ["mode", "registration_open"]
         }
       },
       "required": ["ok", "version", "protocol", "auth"]
     },
 
     "LoginRequest": {
-      "description": "POST /api/login (unauthenticated, rate limited to 5 per minute per IP).",
+      "description": "POST /api/login (unauthenticated, rate limited to 5 per minute per IP). The username is lower-cased by the gateway before it is matched (A24).",
       "type": "object",
       "properties": {
         "password": { "type": "string", "minLength": 1 },
         "username": { "type": "string", "minLength": 1 }
       },
-      "required": ["password"]
+      "required": ["password", "username"]
+    },
+    "RegisterRequest": {
+      "description": "POST /api/register (unauthenticated, rate limited to 5 per minute per IP, refused with 403 while registration is closed). Makes a member account and signs it in (A24).",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string", "minLength": 3, "maxLength": 32 },
+        "password": { "type": "string", "minLength": 8, "maxLength": 128 }
+      },
+      "required": ["username", "password"]
     },
     "LoginResponse": {
       "description": "200 from POST /api/login. Also sets the rc_session cookie (SameSite=Strict, Secure under https). The token value is the same one native apps send as a bearer.",
@@ -52,11 +64,7 @@
         "ok": { "const": true },
         "token": { "type": "string", "minLength": 1 },
         "exp": { "$ref": "objects.json#/$defs/Timestamp" },
-        "user": {
-          "type": "object",
-          "properties": { "username": { "type": "string", "minLength": 1 } },
-          "required": ["username"]
-        }
+        "user": { "$ref": "objects.json#/$defs/User" }
       },
       "required": ["ok", "token", "exp", "user"]
     },
@@ -65,14 +73,66 @@
       "type": "object",
       "properties": {
         "ok": { "const": true },
-        "user": {
-          "type": "object",
-          "properties": { "username": { "type": "string", "minLength": 1 } },
-          "required": ["username"]
-        },
+        "user": { "$ref": "objects.json#/$defs/User" },
         "exp": { "$ref": "objects.json#/$defs/Timestamp" }
       },
       "required": ["ok", "user", "exp"]
+    },
+    "PasswordChangeRequest": {
+      "description": "POST /api/password: the caller's own password. 401 when current_password is wrong, 403 for admin (A24).",
+      "type": "object",
+      "properties": {
+        "current_password": { "type": "string", "minLength": 1 },
+        "new_password": { "type": "string", "minLength": 8, "maxLength": 128 }
+      },
+      "required": ["current_password", "new_password"]
+    },
+    "UserListResponse": {
+      "description": "GET /api/users (admin only, A24).",
+      "type": "object",
+      "properties": {
+        "users": { "type": "array", "items": { "$ref": "objects.json#/$defs/UserRecord" } },
+        "registration_open": { "type": "boolean" }
+      },
+      "required": ["users", "registration_open"]
+    },
+    "UserCreateRequest": {
+      "description": "POST /api/users (admin only, A24). role defaults to member.",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string", "minLength": 3, "maxLength": 32 },
+        "password": { "type": "string", "minLength": 8, "maxLength": 128 },
+        "role": { "$ref": "objects.json#/$defs/UserRole" }
+      },
+      "required": ["username", "password"]
+    },
+    "UserPatchRequest": {
+      "description": "PATCH /api/users/{username} (admin only, A24): any of the three; at least one.",
+      "type": "object",
+      "properties": {
+        "state": { "$ref": "objects.json#/$defs/UserState" },
+        "role": { "$ref": "objects.json#/$defs/UserRole" },
+        "password": { "type": "string", "minLength": 8, "maxLength": 128 }
+      },
+      "minProperties": 1
+    },
+    "UserResponse": {
+      "description": "POST /api/users and PATCH /api/users/{username} (A24).",
+      "type": "object",
+      "properties": { "user": { "$ref": "objects.json#/$defs/UserRecord" } },
+      "required": ["user"]
+    },
+    "RegistrationPatchRequest": {
+      "description": "PATCH /api/registration (admin only, A24).",
+      "type": "object",
+      "properties": { "open": { "type": "boolean" } },
+      "required": ["open"]
+    },
+    "RegistrationResponse": {
+      "description": "200 from PATCH /api/registration (A24).",
+      "type": "object",
+      "properties": { "open": { "type": "boolean" } },
+      "required": ["open"]
     },
     "ConfigResponse": {
       "description": "GET /api/config.",

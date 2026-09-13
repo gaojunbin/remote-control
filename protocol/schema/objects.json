@@ -661,6 +661,82 @@
       "type": "string",
       "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
       "description": "128 bits in Crockford base32, single use, ten-minute lifetime (A23)."
+    },
+    "UserRole": {
+      "description": "What 3.9 is gated on (A24).",
+      "enum": [
+        "admin",
+        "member"
+      ]
+    },
+    "UserState": {
+      "description": "A disabled account cannot sign in and its devices are refused (A24).",
+      "enum": [
+        "active",
+        "disabled"
+      ]
+    },
+    "User": {
+      "description": "The account an app signed in as: LoginResponse.user, AuthSessionResponse.user and the app hello's user (A24).",
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32,
+          "pattern": "^[a-z0-9][a-z0-9._-]{2,31}$"
+        },
+        "role": {
+          "$ref": "#/$defs/UserRole"
+        }
+      },
+      "required": [
+        "username",
+        "role"
+      ]
+    },
+    "UserRecord": {
+      "description": "One account as the admin lists it (A24).",
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32,
+          "pattern": "^[a-z0-9][a-z0-9._-]{2,31}$"
+        },
+        "role": {
+          "$ref": "#/$defs/UserRole"
+        },
+        "state": {
+          "$ref": "#/$defs/UserState"
+        },
+        "created_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "last_login_at": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "devices": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "username",
+        "role",
+        "state",
+        "created_at",
+        "last_login_at",
+        "devices"
+      ]
     }
   }
 }
