@@ -2,7 +2,8 @@
 
 The gateway pushes on four observed session transitions and never on the content of a turn: the
 payload carries identifiers and one generic sentence, so a notification on a lock screen tells the
-user which device wants attention and nothing about the code being written.
+user which device wants attention and nothing about the code being written. A transition is
+delivered to the registrations of the account that owns the device and to nobody else (A24).
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 from .apns import ApnsProvider, ApnsResponse
+from .hub import SessionTransition
 from .logging import logger
 from .push_store import PushStore, WebPushSubscription
 
@@ -112,35 +114,38 @@ class PushService:
         if self.apns is not None:
             await self.apns.close()
 
-    async def on_session_transition(
-        self,
-        previous_state: str,
-        state: str,
-        session: dict[str, Any],
-        has_active_subscriber: bool,
-    ) -> None:
-        kind = transition_kind(previous_state, state)
+    async def on_session_transition(self, transition: SessionTransition) -> None:
+        kind = transition_kind(transition.previous_state, transition.state)
         if kind is None:
             return
-        if has_active_subscriber:
+        if transition.has_active_subscriber:
             log.debug("push suppressed: an app is watching this session", kind=kind)
             return
-        device_id = str(session.get("device_id") or "")
-        await self.notify(kind, session, await self._device_name(device_id))
+        if not transition.owner:
+            log.debug("push skipped: the device has no owner", kind=kind)
+            return
+        device_id = str(transition.session.get("device_id") or "")
+        await self.notify(
+            kind, transition.session, await self._device_name(device_id), transition.owner
+        )
 
-    async def notify(self, kind: str, session: dict[str, Any], device_name: str) -> None:
+    async def notify(
+        self, kind: str, session: dict[str, Any], device_name: str, owner: str
+    ) -> None:
         payload = build_payload(kind, session, device_name)
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         await asyncio.gather(
-            self._deliver_web(body), self._enqueue_apns(payload), return_exceptions=True
+            self._deliver_web(body, owner),
+            self._enqueue_apns(payload, owner),
+            return_exceptions=True,
         )
 
     # ---- web push ----
 
-    async def _deliver_web(self, body: str) -> None:
+    async def _deliver_web(self, body: str, owner: str) -> None:
         if not self.web_enabled:
             return
-        subscriptions = await self.store.list_web()
+        subscriptions = await self.store.list_web(owner)
         results = await asyncio.gather(
             *(self._deliver_one_web(item, body) for item in subscriptions),
             return_exceptions=True,
@@ -181,10 +186,10 @@ class PushService:
 
     # ---- apns ----
 
-    async def _enqueue_apns(self, payload: dict[str, Any]) -> None:
+    async def _enqueue_apns(self, payload: dict[str, Any], owner: str) -> None:
         if self.apns is None:
             return
-        registrations = await self.store.list_apns()
+        registrations = await self.store.list_apns(owner)
         if not registrations:
             return
         body = json.dumps(_apns_payload(payload), ensure_ascii=False, separators=(",", ":"))

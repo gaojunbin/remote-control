@@ -5,6 +5,9 @@ The device authenticates with its bearer token at the upgrade, before any frame 
 another one. The first frame must be a ``hello``; a second connection for the same device replaces
 the first, which is closed with 4001 (amendment A4: 4401 for a bad credential, 1008 for a protocol
 violation, 4001 only for replacement).
+
+A device whose owner has been disabled is refused with 4403 (A24): the token is genuine, so the
+device must not throw it away and try to enrol again — the account simply is not allowed here.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from starlette.websockets import WebSocketDisconnect
 from ..auth import bearer_token
 from ..connections import DeviceConnection
 from ..frames import (
+    CLOSE_FORBIDDEN,
     CLOSE_PROTOCOL_ERROR,
     CLOSE_UNAUTHORIZED,
     DELTA_FLUSH_MS,
@@ -51,6 +55,13 @@ async def device_socket(ws: WebSocket) -> None:
         # and a device could not tell a revoked token from an unreachable gateway.
         if await accept_for_close(ws):
             await ws.close(code=CLOSE_UNAUTHORIZED, reason="unauthorized")
+        return
+
+    owner = await state.users.get(record.username)
+    if owner is None or not owner.active:
+        log.warning("device upgrade refused: the owning account is not active")
+        if await accept_for_close(ws):
+            await ws.close(code=CLOSE_FORBIDDEN, reason="account disabled")
         return
 
     await ws.accept()

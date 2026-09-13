@@ -4,6 +4,9 @@ One place builds the ``Device`` object so the HTTP list, the app ``hello`` and e
 ``device.updated`` push agree field for field. The agent inventory is read from the persisted
 device record, which the hub refreshes on every hello and ``agents.updated``, so the list renders
 the same whether the device is online or asleep.
+
+The same applies to ``User`` (§4.10) and to the ``UserRecord`` the admin lists: one projection for
+login, ``GET /api/session``, the app ``hello`` and the account routes.
 """
 
 from __future__ import annotations
@@ -11,8 +14,27 @@ from __future__ import annotations
 from typing import Any
 
 from .devices import DeviceRecord
+from .users import UserRecord
 
 Device = dict[str, Any]
+User = dict[str, Any]
+
+
+def user_view(record: UserRecord) -> User:
+    """The ``User`` of §4.10: who is signed in, and what §3.9 is gated on."""
+    return {"username": record.username, "role": record.role}
+
+
+def user_record_view(record: UserRecord, devices: int) -> User:
+    """The ``UserRecord`` of §4.10, as only an admin sees it. The hash is never part of it."""
+    return {
+        "username": record.username,
+        "role": record.role,
+        "state": record.state,
+        "created_at": record.created_at * 1000,
+        "last_login_at": None if record.last_login_at is None else record.last_login_at * 1000,
+        "devices": devices,
+    }
 
 
 def device_view(

@@ -81,6 +81,18 @@ class SessionRegistry:
             entry.revoked.set()
         return removed or entry is not None
 
+    async def revoke_for_user(self, username: str) -> int:
+        """Sign one account out everywhere. Its live sockets close through the same events (A24)."""
+        revoked = await self.store.revoke_for_user(username)
+        async with self._lock:
+            entries = [self._entries.pop(jti, None) for jti in revoked]
+        for entry in entries:
+            if entry is not None:
+                entry.revoked.set()
+        if revoked:
+            log.info("revoked every login session of an account", sessions=len(revoked))
+        return len(revoked)
+
     def _remember(self, jti: str, expires_at: int) -> None:
         """Cache one session, evicting the coldest entry rather than refusing a new login."""
         existing = self._entries.get(jti)

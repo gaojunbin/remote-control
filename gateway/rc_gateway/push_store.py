@@ -1,8 +1,9 @@
 """Durable registration stores for Web Push and APNs.
 
 Adapted from cc-remote's ``relay/push.py`` and ``relay/native_push.py`` (MIT, see
-THIRD_PARTY_NOTICES.md), reduced to what a single-user gateway needs. Rows are bound to the session
-that created them so signing out stops the notifications that login started.
+THIRD_PARTY_NOTICES.md). Rows are bound to the session that created them so signing out stops the
+notifications that login started, and to the account that signed in so a transition on one
+person's device never reaches another's phone (A24).
 """
 
 from __future__ import annotations
@@ -15,10 +16,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .accounts import ADMIN_USERNAME
 from .migrations import Migration, apply_migrations
 
-#: No column has been added since these tables' first release; see rc_gateway/migrations.py.
-MIGRATIONS: tuple[Migration, ...] = ()
+#: Columns added since these tables' first release; see rc_gateway/migrations.py. Registrations
+#: made before accounts existed are the admin's, which is what the gateway had at the time (A24).
+MIGRATIONS: tuple[Migration, ...] = (
+    ("web_push", "username", f"TEXT NOT NULL DEFAULT '{ADMIN_USERNAME}'"),
+    ("apns_tokens", "username", f"TEXT NOT NULL DEFAULT '{ADMIN_USERNAME}'"),
+)
 
 
 @dataclass(frozen=True)
@@ -27,6 +33,7 @@ class WebPushSubscription:
     p256dh: str
     auth: str
     session_jti: str
+    username: str
     expires_at: float
 
     def browser_payload(self) -> dict[str, Any]:
@@ -39,6 +46,7 @@ class ApnsRegistration:
     environment: str
     bundle_id: str
     session_jti: str
+    username: str
     expires_at: float
 
 
@@ -78,6 +86,7 @@ class PushStore:
                     p256dh TEXT NOT NULL,
                     auth TEXT NOT NULL,
                     session_jti TEXT NOT NULL,
+                    username TEXT NOT NULL DEFAULT 'admin',
                     expires_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 )
@@ -90,6 +99,7 @@ class PushStore:
                     environment TEXT NOT NULL,
                     bundle_id TEXT NOT NULL,
                     session_jti TEXT NOT NULL,
+                    username TEXT NOT NULL DEFAULT 'admin',
                     expires_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 )
@@ -123,18 +133,20 @@ class PushStore:
         with self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO web_push(endpoint, p256dh, auth, session_jti, expires_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO web_push(
+                    endpoint, p256dh, auth, session_jti, username, expires_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(endpoint) DO UPDATE SET
                     p256dh=excluded.p256dh, auth=excluded.auth,
-                    session_jti=excluded.session_jti, expires_at=excluded.expires_at,
-                    updated_at=excluded.updated_at
+                    session_jti=excluded.session_jti, username=excluded.username,
+                    expires_at=excluded.expires_at, updated_at=excluded.updated_at
                 """,
                 (
                     subscription.endpoint,
                     subscription.p256dh,
                     subscription.auth,
                     subscription.session_jti,
+                    subscription.username,
                     subscription.expires_at,
                     now,
                 ),
@@ -147,15 +159,18 @@ class PushStore:
         with self._connect() as connection:
             connection.execute("DELETE FROM web_push WHERE endpoint=?", (endpoint,))
 
-    async def list_web(self) -> list[WebPushSubscription]:
-        return await asyncio.to_thread(self._list_web)
+    async def list_web(self, username: str) -> list[WebPushSubscription]:
+        """One account's browser subscriptions: a transition never reaches another's (A24)."""
+        return await asyncio.to_thread(self._list_web, username)
 
-    def _list_web(self) -> list[WebPushSubscription]:
+    def _list_web(self, username: str) -> list[WebPushSubscription]:
         now = time.time()
         with self._connect() as connection:
             connection.execute("DELETE FROM web_push WHERE expires_at<=?", (now,))
             rows = connection.execute(
-                "SELECT endpoint, p256dh, auth, session_jti, expires_at FROM web_push"
+                "SELECT endpoint, p256dh, auth, session_jti, username, expires_at "
+                "FROM web_push WHERE username=?",
+                (username,),
             ).fetchall()
         return [
             WebPushSubscription(
@@ -163,6 +178,7 @@ class PushStore:
                 p256dh=str(row["p256dh"]),
                 auth=str(row["auth"]),
                 session_jti=str(row["session_jti"]),
+                username=str(row["username"]),
                 expires_at=float(row["expires_at"]),
             )
             for row in rows
@@ -179,18 +195,20 @@ class PushStore:
             connection.execute(
                 """
                 INSERT INTO apns_tokens(
-                    device_token, environment, bundle_id, session_jti, expires_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    device_token, environment, bundle_id, session_jti, username, expires_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(device_token) DO UPDATE SET
                     environment=excluded.environment, bundle_id=excluded.bundle_id,
-                    session_jti=excluded.session_jti, expires_at=excluded.expires_at,
-                    updated_at=excluded.updated_at
+                    session_jti=excluded.session_jti, username=excluded.username,
+                    expires_at=excluded.expires_at, updated_at=excluded.updated_at
                 """,
                 (
                     registration.device_token,
                     registration.environment,
                     registration.bundle_id,
                     registration.session_jti,
+                    registration.username,
                     registration.expires_at,
                     now,
                 ),
@@ -204,16 +222,18 @@ class PushStore:
             connection.execute("DELETE FROM apns_tokens WHERE device_token=?", (device_token,))
             connection.execute("DELETE FROM apns_deliveries WHERE device_token=?", (device_token,))
 
-    async def list_apns(self) -> list[ApnsRegistration]:
-        return await asyncio.to_thread(self._list_apns)
+    async def list_apns(self, username: str) -> list[ApnsRegistration]:
+        """One account's phones, for the same reason ``list_web`` takes a username (A24)."""
+        return await asyncio.to_thread(self._list_apns, username)
 
-    def _list_apns(self) -> list[ApnsRegistration]:
+    def _list_apns(self, username: str) -> list[ApnsRegistration]:
         now = time.time()
         with self._connect() as connection:
             connection.execute("DELETE FROM apns_tokens WHERE expires_at<=?", (now,))
             rows = connection.execute(
-                "SELECT device_token, environment, bundle_id, session_jti, expires_at "
-                "FROM apns_tokens"
+                "SELECT device_token, environment, bundle_id, session_jti, username, expires_at "
+                "FROM apns_tokens WHERE username=?",
+                (username,),
             ).fetchall()
         return [
             ApnsRegistration(
@@ -221,6 +241,7 @@ class PushStore:
                 environment=str(row["environment"]),
                 bundle_id=str(row["bundle_id"]),
                 session_jti=str(row["session_jti"]),
+                username=str(row["username"]),
                 expires_at=float(row["expires_at"]),
             )
             for row in rows
@@ -234,6 +255,20 @@ class PushStore:
         with self._connect() as connection:
             connection.execute("DELETE FROM web_push WHERE session_jti=?", (jti,))
             connection.execute("DELETE FROM apns_tokens WHERE session_jti=?", (jti,))
+
+    async def remove_for_user(self, username: str) -> None:
+        """A deleted account takes its notifications with it (A24)."""
+        await asyncio.to_thread(self._remove_for_user, username)
+
+    def _remove_for_user(self, username: str) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM web_push WHERE username=?", (username,))
+            connection.execute(
+                "DELETE FROM apns_deliveries WHERE device_token IN "
+                "(SELECT device_token FROM apns_tokens WHERE username=?)",
+                (username,),
+            )
+            connection.execute("DELETE FROM apns_tokens WHERE username=?", (username,))
 
     # ---- delivery journal ----
 

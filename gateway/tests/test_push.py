@@ -178,7 +178,7 @@ def test_logout_purges_registrations(
 ) -> None:
     _subscribe(client, auth)
     assert client.post("/api/logout", headers=auth).status_code == 200
-    assert asyncio.run(state.push_store.list_web()) == []
+    assert asyncio.run(state.push_store.list_web("admin")) == []
 
 
 def test_apns_registration_requires_configuration(client: TestClient, auth: dict[str, str]) -> None:
@@ -200,6 +200,7 @@ async def test_apns_journal_retries_then_gives_up(tmp_path: Path) -> None:
             environment="sandbox",
             bundle_id="com.example.app",
             session_jti="j" * 20,
+            username="admin",
             expires_at=9_999_999_999,
         )
     )
@@ -222,7 +223,7 @@ async def test_apns_journal_retries_then_gives_up(tmp_path: Path) -> None:
         sender=sender,
     )
     service = PushService(store, device_name=_name, apns=provider)
-    await service.notify(KIND_NEEDS_APPROVAL, {"device_id": "d", "session_id": "s"}, "mac")
+    await service.notify(KIND_NEEDS_APPROVAL, {"device_id": "d", "session_id": "s"}, "mac", "admin")
     assert await store.pending_count() == 1
     body = json.loads(sent[0])
     assert body["aps"]["alert"]["body"] == "mac: approval needed"
@@ -242,6 +243,7 @@ async def test_a_dead_apns_token_is_deleted(tmp_path: Path) -> None:
             environment="sandbox",
             bundle_id="com.example.app",
             session_jti="j" * 20,
+            username="admin",
             expires_at=9_999_999_999,
         )
     )
@@ -258,8 +260,8 @@ async def test_a_dead_apns_token_is_deleted(tmp_path: Path) -> None:
         sender=sender,
     )
     service = PushService(store, device_name=_name, apns=provider)
-    await service.notify(KIND_ERROR, {"device_id": "d", "session_id": "s"}, "mac")
-    assert await store.list_apns() == []
+    await service.notify(KIND_ERROR, {"device_id": "d", "session_id": "s"}, "mac", "admin")
+    assert await store.list_apns("admin") == []
     assert await store.pending_count() == 0
 
 

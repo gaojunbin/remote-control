@@ -61,6 +61,7 @@ async def subscribe_web(
             p256dh=str(p256dh),
             auth=str(auth),
             session_jti=credential.claims.jti,
+            username=credential.username,
             expires_at=float(credential.claims.expires_at),
         )
     )
@@ -104,6 +105,7 @@ async def register_apns(
             environment=str(environment),
             bundle_id=bundle_id,
             session_jti=credential.claims.jti,
+            username=credential.username,
             expires_at=float(credential.claims.expires_at),
         )
     )

@@ -2,8 +2,8 @@
 
 Adapted from cc-remote's ``cc_remote/relay/auth.py`` (MIT, see THIRD_PARTY_NOTICES.md). The token is
 ``base64url(payload).base64url(HMAC-SHA256(payload))`` rather than a JWT: no algorithm negotiation,
-no library, nothing to confuse. Machine scoping is dropped — this gateway has one user and every
-device belongs to them.
+no library, nothing to confuse. ``sub`` is the account the token belongs to (A24): every device,
+session and push registration the token reaches is that account's.
 """
 
 from __future__ import annotations
@@ -16,8 +16,15 @@ import secrets
 import time
 from dataclasses import dataclass
 
+from .accounts import ADMIN_USERNAME, normalize_username, verify_dummy, verify_hash
+from .users import UserRecord, UserStore
+
 SESSION_COOKIE_NAME = "rc_session"
-ADMIN_USERNAME = "admin"
+
+#: `authenticate_login` outcomes other than a signed-in account. They are the error codes
+#: `POST /api/login` answers with, so the route maps them straight to 401 and 403.
+LOGIN_UNAUTHORIZED = "unauthorized"
+LOGIN_FORBIDDEN = "forbidden"
 
 
 @dataclass(frozen=True)
@@ -34,13 +41,31 @@ def verify_password(password: str, expected: str) -> bool:
     return hmac.compare_digest(password.encode("utf-8"), expected.encode("utf-8"))
 
 
-def authenticate_login(username: str, password: str, expected_password: str) -> str | None:
-    """Return the username on success. Unknown users cost the same time as wrong passwords."""
-    candidate = username or ADMIN_USERNAME
-    reference = expected_password if candidate == ADMIN_USERNAME else "\x00" * 32
-    if not verify_password(password, reference) or candidate != ADMIN_USERNAME:
-        return None
-    return ADMIN_USERNAME
+async def authenticate_login(
+    users: UserStore, username: str, password: str, admin_password: str
+) -> UserRecord | str:
+    """Return the signed-in account, or ``unauthorized`` / ``forbidden`` (A24).
+
+    The password is checked before the account's state, so a wrong guess never reveals that the
+    name belongs to a disabled account. An account that does not exist still costs one scrypt, so
+    the time taken does not enumerate usernames either.
+    """
+    candidate = normalize_username(username)
+    record = await users.get(candidate) if candidate else None
+    if record is None:
+        await verify_dummy(password)
+        return LOGIN_UNAUTHORIZED
+    if record.username == ADMIN_USERNAME:
+        # The operator's password is the configured one; the dummy keeps the cost identical.
+        correct = verify_password(password, admin_password)
+        await verify_dummy(password)
+    else:
+        correct = await verify_hash(password, record.password_hash)
+    if not correct:
+        return LOGIN_UNAUTHORIZED
+    if not record.active:
+        return LOGIN_FORBIDDEN
+    return record
 
 
 def make_session_token(

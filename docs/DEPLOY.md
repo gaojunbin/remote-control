@@ -31,7 +31,7 @@ Verify on the host first, straight against the published port:
 
 ```sh
 curl http://127.0.0.1:8787/api/health
-# {"ok":true,"version":"0.1.0","protocol":1,"auth":{"mode":"password"},"devices_online":0}
+# {"ok":true,"version":"0.1.0","protocol":1,"auth":{"mode":"password","registration_open":false},"devices_online":0}
 ```
 
 Then point your reverse proxy at that port, following [Reverse proxy](#reverse-proxy), and repeat
@@ -41,8 +41,50 @@ the check through the public hostname:
 curl https://rc.example.com/api/health
 ```
 
-Open the origin in a browser, sign in with `RC_PASSWORD`, and add your first device from
-**Devices → Add device**.
+Open the origin in a browser, sign in as `admin` with `RC_PASSWORD`, and add your first device
+from **Devices → Add device**.
+
+## Accounts
+
+Everyone who uses the gateway has an account, and an account sees only what it owns: its devices,
+the sessions running on them, its pairing codes and its own notifications. Nothing an app receives
+crosses that line, and a request naming another account's device or session is answered as if it
+did not exist.
+
+`admin` is yours. It exists from the first start, its password is `RC_PASSWORD`, and it is the only
+account that can reach **Settings → Users**. It is never stored in the account database, so
+changing `RC_PASSWORD` in `.env` and restarting changes how you sign in; the in-app password change
+is refused for `admin` for the same reason. `admin` also cannot be disabled, demoted to a member or
+deleted, so a gateway always has one operator.
+
+Everyone else is a `member`. Two ways to make one:
+
+- **Let people register.** **Settings → Users** has a switch that opens `POST /api/register`. A
+  fresh gateway starts with it closed, and while it is closed the sign-in screen offers no "Create
+  an account" link at all. Open it, let the people who should have an account sign up, close it
+  again. Registrations are rate limited to five per minute per address, as logins are.
+- **Add them yourself.** **Add user** on the same screen takes a username, a first password and a
+  role.
+
+A username is 3 to 32 characters from `a-z`, `0-9`, `.`, `-` and `_`, starting with a letter or a
+digit, and is lower-cased, so `Alice` and `alice` are one account. A password is 8 to 128
+characters and is stored as a scrypt hash; nothing on the gateway can read it back. Members change
+their own password from **Settings → Change password**, and you can reset one from the Users screen
+without knowing the old one.
+
+**Disabling** an account signs it out of every browser and phone immediately, and closes its
+devices' sockets with close code 4403. The devices stay enrolled and their tokens stay valid, so
+enabling the account again brings everything back without re-pairing anything.
+
+**Deleting** an account does what deleting each of its devices would do, and then removes the
+account itself: every device token stops working, every session leaves the index, outstanding
+pairing codes are dropped, push registrations are deleted and every login session is revoked. It
+cannot be undone, and the confirmation names how many devices go with it.
+
+Accounts live in `users.sqlite3` in `DATA_DIR`, next to the other databases, and are part of the
+`rc-data` backup below. **After upgrading a gateway that ran before accounts existed**, everything
+it already held — every enrolled device, every pairing code, every push registration — belongs to
+`admin`, which is the account it effectively had. Nothing needs re-pairing.
 
 ## Pairing a device
 
@@ -77,7 +119,7 @@ names the missing one.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PUBLIC_ORIGIN` | — | **Required.** The exact origin apps use, `scheme://host[:port]`, no path and no trailing slash. Checked against the browser's `Origin` header on cookie-authenticated writes, and baked into the pairing command served at `/install.sh` |
-| `RC_PASSWORD` | — | **Required.** The login password for the single user `admin`. Use a long random value |
+| `RC_PASSWORD` | — | **Required.** The password of the `admin` account. Every other account keeps its own hashed password in `users.sqlite3`. Use a long random value |
 | `GATEWAY_PORT` | `8787` | The host port compose publishes the gateway on. Your reverse proxy forwards here |
 | `GATEWAY_BIND` | `0.0.0.0` | The host address that port binds to. A proxy running as a container reaches the host over the Docker bridge, so loopback only works when the proxy is on the host network |
 | `RC_SECRET` | generated | Signs login tokens. Left empty, one is generated into `DATA_DIR` on first start. Set it explicitly to pin the signing key instead of depending on a file inside the volume |
@@ -185,7 +227,7 @@ docker compose build
 docker compose up -d
 ```
 
-Each of the four databases applies its own additive migrations when it is opened, so an existing
+Each of the five databases applies its own additive migrations when it is opened, so an existing
 `DATA_DIR` is brought up to the new schema in place and an upgrade needs no manual step. Signed-in
 apps stay signed in: login sessions are recorded in `auth.sqlite3` rather than in memory, so a
 restart or an image update no longer signs everyone out. Expired and revoked rows are pruned at
@@ -203,8 +245,9 @@ rebuild after a `git pull` and every device can be brought forward from an app.
 wheel has been built. The apps then offer no update, because there is no build to name. The image
 `docker compose build` produces always carries one.
 
-**Backing up.** Everything durable is in the `rc-data` volume: login sessions, the device registry,
-the session index, push subscriptions, the token-signing secret and the VAPID private key.
+**Backing up.** Everything durable is in the `rc-data` volume: the accounts, login sessions, the
+device registry, the session index, push subscriptions, the token-signing secret and the VAPID
+private key.
 
 ```sh
 docker run --rm -v remote-control_rc-data:/data -v "$PWD":/backup alpine \
@@ -212,8 +255,9 @@ docker run --rm -v remote-control_rc-data:/data -v "$PWD":/backup alpine \
 ```
 
 Check the volume's real name with `docker volume ls` first; Compose prefixes it with the project
-directory name. Wiping the volume invalidates every login session **and every device token**: each
-device has to be enrolled again with a fresh pairing code, and every Web Push subscription is
+directory name. Wiping the volume removes **every account except `admin`**, which is recreated from
+`RC_PASSWORD` on the next start, and invalidates every login session **and every device token**:
+each device has to be enrolled again with a fresh pairing code, and every Web Push subscription is
 orphaned along with the VAPID key.
 
 ## Speech to text
@@ -285,8 +329,8 @@ Neither transport has been verified against a real endpoint, on the web or on iO
 
 ## Health checks
 
-`GET /api/health` is unauthenticated and returns the version, the protocol version, the auth mode
-and the number of online devices. The gateway container polls it every 30 seconds, so `docker
+`GET /api/health` is unauthenticated and returns the version, the protocol version, the auth mode,
+whether registration is open and the number of online devices. The gateway container polls it every 30 seconds, so `docker
 compose ps` reports `healthy` only when the service really answers. Note that every route is
 declared `GET`-only: a `HEAD` request returns 405, which matters if your external monitor defaults
 to `HEAD`.
@@ -299,6 +343,10 @@ to `HEAD`.
 | Container exits immediately | `rc-gateway: DATA_DIR /data is not writable` | The volume is owned by the wrong uid; the image runs as 10001 |
 | Login works in the app, fails in the browser | 403 on `/api/login` | `PUBLIC_ORIGIN` does not match the origin the browser actually used, down to scheme and port |
 | Login returns 429 | `login rate limited` | Five attempts per minute per IP. Wait, and check `TRUSTED_PROXIES` if everyone shares one bucket |
+| Login returns 400 with no message | none | The account is part of the credential: a body without a `username` is refused. Every app sends one |
+| Login returns 403 for one person only | none | That account is disabled. Enable it from **Settings → Users** |
+| Someone sees no "Create an account" link | `GET /api/health` shows `auth.registration_open: false` | Registration is closed. Open it from **Settings → Users**, or add the account yourself |
+| A member's device keeps reconnecting and being closed | `device upgrade refused: the owning account is not active` | Its owner is disabled. The token is still valid; enabling the account restores the device |
 | The hostname does not answer | `curl http://127.0.0.1:8787/api/health` on the host | If that works, the fault is in your reverse proxy: wrong forward host or port, or the container cannot reach `GATEWAY_BIND` |
 | Everything loads but nothing streams | no `app connected` line | Websockets Support is off in the proxy host, so the `/ws/*` upgrade never reaches the gateway |
 | Install one-liner 404s | `install script missing` | The image was built with `--target gateway` instead of `release`; rebuild with `docker compose build` |

@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from rc_gateway.hub import SessionTransition
 from rc_gateway.index import SessionIndex
 
 from .conftest import HubRig, frames_of, hub_rig, session_summary
@@ -119,11 +120,9 @@ async def test_an_app_behind_a_live_event_is_told_to_resync(
 async def test_a_slow_push_does_not_delay_the_next_device_frame(tmp_path: Path) -> None:
     delivered: list[str] = []
 
-    async def slow_push(
-        previous_state: str, state: str, session: dict[str, Any], has_active_subscriber: bool
-    ) -> None:
+    async def slow_push(transition: SessionTransition) -> None:
         await asyncio.sleep(SLOW_PUSH_SECONDS)
-        delivered.append(state)
+        delivered.append(transition.state)
 
     rig = await hub_rig(tmp_path, on_session_transition=slow_push)
     await rig.hub.handle_device_frame(rig.device, _summary(rig, "idle"))

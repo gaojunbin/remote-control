@@ -184,10 +184,9 @@ def test_device_list_fixture_shape(client: TestClient, auth: dict[str, str]) -> 
     expected = fixture("http", "devices.list.response.json")["devices"][0]
     enroll_device(client, auth)
     listed = client.get("/api/devices", headers=auth).json()["devices"][0]
-    # The A22 fields are optional in the schema and this fixture predates them, so the gateway
-    # sends three more than it shows; it must never send fewer than the fixture names.
-    assert set(expected) <= set(listed)
-    assert set(listed) - set(expected) == {"client_build", "update_state", "update_message"}
+    # Field for field, including the A22 three. `username` is the one thing the record carries
+    # and the object never does: who owns a device is not another account's business (A24).
+    assert set(listed) == set(expected)
 
 
 def test_tool_category_is_named_tool_kind() -> None:

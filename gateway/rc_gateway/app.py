@@ -28,11 +28,19 @@ from .logging import logger
 from .push import PushService
 from .push_store import PushStore
 from .ratelimit import MAX_PER_IP, RateLimiter
-from .routes import device_routes, push_routes, session_routes, static_routes, stt_routes
+from .routes import (
+    device_routes,
+    push_routes,
+    session_routes,
+    static_routes,
+    stt_routes,
+    user_routes,
+)
 from .session_registry import SessionRegistry
 from .state import VERSION, GatewayState
 from .stt import MimoTranscriber, OpenAiTranscriber, Transcriber
 from .uploads import BoundedUploads
+from .users import UserStore
 from .ws import app_ws, device_ws, stt_ws
 
 log = logger("rc_gateway.app")
@@ -68,6 +76,7 @@ def build_state(
         index=SessionIndex(config.db_path("sessions.sqlite3")),
         push_store=PushStore(config.db_path("push.sqlite3")),
         auth_store=auth_store,
+        users=UserStore(config.db_path("users.sqlite3")),
         sessions=SessionRegistry(auth_store),
         login_limiter=RateLimiter(max_per_ip=MAX_PER_IP),
         enroll_limiter=RateLimiter(max_per_ip=ENROLL_MAX_PER_IP),
@@ -129,6 +138,7 @@ def create_app(state: GatewayState | None = None) -> FastAPI:
     app.state.gateway = resolved
 
     app.include_router(session_routes.router)
+    app.include_router(user_routes.router)
     app.include_router(device_routes.router)
     app.include_router(push_routes.router)
     app.include_router(stt_routes.router)

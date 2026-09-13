@@ -167,3 +167,33 @@ def test_pairing_progress_matches_the_schema(client: TestClient, auth: dict[str,
                 check(frame, "app_frames.json", "PairingProgress")
                 return
     raise AssertionError("no pairing.progress frame arrived")
+
+
+def test_account_responses_match_the_schema(client: TestClient, auth: dict[str, str]) -> None:
+    """A24: the account objects every app decodes, validated against the normative schema."""
+    check(client.get("/api/health").json(), "http.json", "HealthResponse")
+    check(client.get("/api/session", headers=auth).json(), "http.json", "AuthSessionResponse")
+
+    created = client.post(
+        "/api/users",
+        json={"username": "alice", "password": "correct horse battery staple", "role": "member"},
+        headers=auth,
+    )
+    check(created.json(), "http.json", "UserResponse")
+    check(client.get("/api/users", headers=auth).json(), "http.json", "UserListResponse")
+    check(
+        client.patch("/api/users/alice", json={"state": "disabled"}, headers=auth).json(),
+        "http.json",
+        "UserResponse",
+    )
+    check(
+        client.patch("/api/registration", json={"open": True}, headers=auth).json(),
+        "http.json",
+        "RegistrationResponse",
+    )
+    registered = client.post(
+        "/api/register",
+        json={"username": "bob", "password": "correct horse battery staple"},
+        headers={"Origin": "http://testserver"},
+    )
+    check(registered.json(), "http.json", "LoginResponse")

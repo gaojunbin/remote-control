@@ -16,6 +16,7 @@ import time
 from fastapi import HTTPException, Request, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
+from .accounts import ROLE_ADMIN
 from .auth import SESSION_COOKIE_NAME, SessionClaims, bearer_token, session_token_claims
 from .frames import CLOSE_FORBIDDEN, CLOSE_UNAUTHORIZED
 from .origins import origin_matches
@@ -27,13 +28,18 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 class Credential:
     """A verified session plus how it arrived, which decides whether Origin is checked."""
 
-    def __init__(self, claims: SessionClaims, *, from_cookie: bool) -> None:
+    def __init__(self, claims: SessionClaims, role: str, *, from_cookie: bool) -> None:
         self.claims = claims
+        self.role = role
         self.from_cookie = from_cookie
 
     @property
     def username(self) -> str:
         return self.claims.username
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == ROLE_ADMIN
 
 
 def state_of(request: Request | WebSocket) -> GatewayState:
@@ -49,6 +55,12 @@ def _extract(request: Request | WebSocket) -> tuple[str, bool]:
 
 
 async def _verify(state: GatewayState, token: str, from_cookie: bool) -> Credential | None:
+    """Authenticate a token and read the account behind it.
+
+    The account is read on every request rather than trusted from the claims, so disabling or
+    deleting one stops its requests immediately — and its live sockets close through the same
+    revocation the routes trigger (A24).
+    """
     if not token:
         return None
     claims = session_token_claims(token, state.config.secret)
@@ -56,7 +68,10 @@ async def _verify(state: GatewayState, token: str, from_cookie: bool) -> Credent
         return None
     if not await state.sessions.active(claims):
         return None
-    return Credential(claims, from_cookie=from_cookie)
+    account = await state.users.get(claims.username)
+    if account is None or not account.active:
+        return None
+    return Credential(claims, account.role, from_cookie=from_cookie)
 
 
 async def require_user(request: Request) -> Credential:
@@ -68,6 +83,14 @@ async def require_user(request: Request) -> Credential:
         raise HTTPException(status_code=401, detail={"code": "unauthorized"})
     if from_cookie and request.method not in SAFE_METHODS:
         require_origin(request)
+    return credential
+
+
+async def require_admin(request: Request) -> Credential:
+    """Authenticate, then refuse everyone but the operator: the account routes of §3.9."""
+    credential = await require_user(request)
+    if not credential.is_admin:
+        raise HTTPException(status_code=403, detail={"code": "forbidden"})
     return credential
 
 

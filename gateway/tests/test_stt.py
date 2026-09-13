@@ -137,7 +137,7 @@ def test_stt_disabled_returns_unsupported(tmp_path: Path) -> None:
     with TestClient(create_app(build_state(config))) as offline:
         token = offline.post(
             "/api/login",
-            json={"password": config.password},
+            json={"username": "admin", "password": config.password},
             headers={"Origin": config.public_origin},
         ).json()["token"]
         headers = {"Authorization": f"Bearer {token}"}
@@ -439,7 +439,7 @@ def test_the_mimo_provider_enables_voice_input(tmp_path: Path) -> None:
     with TestClient(create_app(state)) as app:
         token = app.post(
             "/api/login",
-            json={"password": config.password},
+            json={"username": "admin", "password": config.password},
             headers={"Origin": config.public_origin},
         ).json()["token"]
         reported = app.get("/api/config", headers={"Authorization": f"Bearer {token}"}).json()

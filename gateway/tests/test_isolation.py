@@ -1,8 +1,10 @@
-"""One device must not reach another device's sessions.
+"""One device must not reach another device's sessions, and one account not another's.
 
-The single-user model still has a boundary: every enrolled machine is a separate trust domain, and
-a compromised or buggy client must not be able to hijack, forge, silence or delete the sessions of
-another. Each test here is one of the review's High findings.
+Every enrolled machine is a separate trust domain: a compromised or buggy client must not be able
+to hijack, forge, silence or delete the sessions of another. Accounts (A24) draw the second
+boundary, above it: a signed-in socket sees the devices its own account enrolled, the sessions on
+them and nothing else, and a request naming anything outside that is answered as if it did not
+exist.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from rc_gateway.state import GatewayState
 
-from .conftest import device_hello, drain_until, enroll_device, session_summary
+from .conftest import add_member, device_hello, drain_until, enroll_device, session_summary
 
 SESSION_A = "aaaa1111-2222-4333-8444-555555555555"
 SESSION_B = "bbbb1111-2222-4333-8444-555555555555"
@@ -187,3 +189,105 @@ def test_ownership_survives_a_reconnect(client: TestClient, auth: dict[str, str]
         intruder.receive_json()
     listed = client.get("/api/sessions", headers=auth).json()["sessions"]
     assert [item["device_id"] for item in listed] == [victim["device_id"]]
+
+
+def test_one_account_never_sees_another_accounts_device_or_sessions(
+    client: TestClient, auth: dict[str, str]
+) -> None:
+    """A24: every frame after `hello` concerns the account that owns the device."""
+    member = add_member(client, auth, "alice")
+    mine = enroll_device(client, auth, name="admin-mac")
+    theirs = enroll_device(client, member, name="alice-mac")
+    with client.websocket_connect("/ws/app", headers=member) as watcher:
+        drain_until(watcher, "hello")
+        with client.websocket_connect("/ws/device", headers=_headers(mine)) as device:
+            device.send_json(device_hello(sessions=[session_summary(SESSION_A, mine["device_id"])]))
+            device.receive_json()
+            device.send_json(
+                {
+                    "type": "session.updated",
+                    "session": session_summary(SESSION_A, mine["device_id"], state="running"),
+                }
+            )
+            device.send_json({"type": "session.removed", "session_id": SESSION_A})
+        # The member's own device speaking is the settle point: everything the other device
+        # produced was published before it, so a quiet socket here means nothing leaked.
+        with client.websocket_connect("/ws/device", headers=_headers(theirs)) as own:
+            own.send_json(device_hello(sessions=[session_summary(SESSION_B, theirs["device_id"])]))
+            own.receive_json()
+            first = drain_until(watcher, "device.updated")
+        assert first["device"]["device_id"] == theirs["device_id"]
+
+
+def test_a_member_cannot_subscribe_to_or_address_another_accounts_session(
+    client: TestClient, auth: dict[str, str]
+) -> None:
+    member = add_member(client, auth, "alice")
+    mine = enroll_device(client, auth, name="admin-mac")
+    with client.websocket_connect("/ws/device", headers=_headers(mine)) as device:
+        device.send_json(device_hello(sessions=[session_summary(SESSION_A, mine["device_id"])]))
+        device.receive_json()
+        with client.websocket_connect("/ws/app", headers=member) as intruder:
+            drain_until(intruder, "hello")
+            intruder.send_json({"type": "session.subscribe", "id": "s1", "session_id": SESSION_A})
+            subscribed = drain_until(intruder, "reply")
+            intruder.send_json(
+                {"type": "session.send", "id": "r1", "session_id": SESSION_A, "text": "hi"}
+            )
+            sent = drain_until(intruder, "reply")
+            intruder.send_json(
+                {
+                    "type": "session.create",
+                    "id": "c1",
+                    "device_id": mine["device_id"],
+                    "agent": "claude",
+                    "cwd": "/tmp",
+                }
+            )
+            created = drain_until(intruder, "reply")
+    # Indistinguishable from a session that does not exist: no probing which ids are real.
+    assert subscribed["error"]["code"] == "not_found"
+    assert sent["error"]["code"] == "not_found"
+    assert created["error"]["code"] == "not_found"
+
+
+def test_a_member_lists_only_its_own_devices_and_sessions(
+    client: TestClient, auth: dict[str, str]
+) -> None:
+    member = add_member(client, auth, "alice")
+    mine = enroll_device(client, auth, name="admin-mac")
+    theirs = enroll_device(client, member, name="alice-mac")
+    for enrolled, session_id in ((mine, SESSION_A), (theirs, SESSION_B)):
+        with client.websocket_connect("/ws/device", headers=_headers(enrolled)) as device:
+            device.send_json(
+                device_hello(sessions=[session_summary(session_id, enrolled["device_id"])])
+            )
+            device.receive_json()
+
+    listed = client.get("/api/sessions", headers=member).json()["sessions"]
+    assert [item["session_id"] for item in listed] == [SESSION_B]
+    devices = client.get("/api/devices", headers=member).json()["devices"]
+    assert [item["device_id"] for item in devices] == [theirs["device_id"]]
+    # Naming the other account's device narrows the member's own set to nothing.
+    filtered = client.get(
+        "/api/sessions", params={"device_id": mine["device_id"]}, headers=member
+    ).json()["sessions"]
+    assert filtered == []
+
+    with client.websocket_connect("/ws/app", headers=member) as app:
+        hello = drain_until(app, "hello")
+    assert [item["device_id"] for item in hello["devices"]] == [theirs["device_id"]]
+    assert [item["session_id"] for item in hello["sessions"]] == [SESSION_B]
+
+
+def test_pairing_progress_reaches_only_the_account_that_minted_the_code(
+    client: TestClient, auth: dict[str, str]
+) -> None:
+    member = add_member(client, auth, "alice")
+    with client.websocket_connect("/ws/app", headers=member) as watcher:
+        drain_until(watcher, "hello")
+        enroll_device(client, auth, name="admin-mac")
+        member_code = client.post("/api/devices/pairing", headers=member).json()["code"]
+        progress = drain_until(watcher, "pairing.progress")
+    assert progress["code"] == member_code
+    assert progress["step"] == "waiting"

@@ -2,12 +2,14 @@
 
 The gateway sends ``hello`` immediately so a cold app renders without an extra round trip, then
 pushes device and session updates plus the events of every session this connection subscribed to.
-A session revoked by ``POST /api/logout`` closes its sockets at once rather than at token expiry.
+Everything on this socket is one account's (A24). A session revoked by ``POST /api/logout``, or by
+the admin disabling the account, closes its sockets at once rather than at token expiry.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from typing import Any
 
@@ -30,14 +32,16 @@ async def app_socket(ws: WebSocket) -> None:
     credential = await authenticate_websocket(ws)
     if credential is None:
         return
+    account = await state.users.get(credential.username)
+    if account is None:
+        await _close_revoked(ws)
+        return
     connection = AppConnection(ws, credential.username)
     connection.start()
     await state.hub.attach_app(connection)
     watchdog = asyncio.create_task(_watch_revocation(ws, connection, state, credential))
     try:
-        await connection.send(
-            await state.hub.app_hello_payload(credential.username, VERSION, state.stt_view())
-        )
+        await connection.send(await state.hub.app_hello_payload(account, VERSION, state.stt_view()))
         while True:
             raw = await ws.receive_text()
             connection.note_frame()
@@ -53,6 +57,12 @@ async def app_socket(ws: WebSocket) -> None:
         watchdog.cancel()
         await state.hub.detach_app(connection)
         await connection.stop()
+
+
+async def _close_revoked(ws: WebSocket) -> None:
+    """The account vanished between authentication and the hello: close as a revoked session."""
+    with contextlib.suppress(RuntimeError, WebSocketDisconnect):
+        await ws.close(code=CLOSE_UNAUTHORIZED, reason="session revoked")
 
 
 async def _watch_revocation(

@@ -63,6 +63,8 @@ def normalize_pairing_code(value: str) -> str:
 @dataclass(frozen=True)
 class DeviceRecord:
     device_id: str
+    #: The account that paired this machine (A24). Never part of the `Device` object an app sees.
+    username: str
     name: str
     platform: str
     hostname: str
@@ -309,6 +311,27 @@ class DeviceStore:
             ).fetchall()
         return [_record(row) for row in rows]
 
+    async def count_for_user(self, username: str) -> int:
+        return await asyncio.to_thread(self._count_for_user, username)
+
+    def _count_for_user(self, username: str) -> int:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) FROM devices WHERE username=?", (username,)
+            ).fetchone()
+        return int(row[0])
+
+    async def counts_by_user(self) -> dict[str, int]:
+        """How many devices each account has enrolled, for the admin's account list (A24)."""
+        return await asyncio.to_thread(self._counts_by_user)
+
+    def _counts_by_user(self) -> dict[str, int]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT username, COUNT(*) AS total FROM devices GROUP BY username"
+            ).fetchall()
+        return {str(row["username"]): int(row["total"]) for row in rows}
+
     async def touch(self, device_id: str, *, now: int | None = None) -> None:
         await asyncio.to_thread(self._touch, device_id, _now(now))
 
@@ -395,16 +418,26 @@ class DeviceStore:
             )
         return cursor.rowcount == 1
 
+    async def drop_pairings_for_user(self, username: str) -> int:
+        """Forget an account's outstanding codes, so a deleted account's code cannot enrol."""
+        return await asyncio.to_thread(self._drop_pairings_for_user, username)
+
+    def _drop_pairings_for_user(self, username: str) -> int:
+        with self._connect() as connection:
+            cursor = connection.execute("DELETE FROM pairing_codes WHERE username=?", (username,))
+        return int(cursor.rowcount)
+
 
 _COLUMNS = (
-    "device_id, name, platform, hostname, arch, client_version, created_at, last_seen, agents, "
-    "client_build, update_state, update_message"
+    "device_id, username, name, platform, hostname, arch, client_version, created_at, last_seen, "
+    "agents, client_build, update_state, update_message"
 )
 
 
 def _record(row: Any) -> DeviceRecord:
     return DeviceRecord(
         device_id=str(row["device_id"]),
+        username=str(row["username"]),
         name=str(row["name"]),
         platform=str(row["platform"]),
         hostname=str(row["hostname"]),

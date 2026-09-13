@@ -104,6 +104,22 @@ class AuthSessionStore:
             )
         return cursor.rowcount == 1
 
+    async def revoke_for_user(self, username: str, *, now: int | None = None) -> list[str]:
+        """Revoke every live session of one account. Returns the ids that were live (A24)."""
+        return await asyncio.to_thread(self._revoke_for_user, username, _now(now))
+
+    def _revoke_for_user(self, username: str, now: int) -> list[str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT jti FROM login_sessions WHERE username=? AND revoked_at IS NULL",
+                (username,),
+            ).fetchall()
+            connection.execute(
+                "UPDATE login_sessions SET revoked_at=? WHERE username=? AND revoked_at IS NULL",
+                (now, username),
+            )
+        return [str(row["jti"]) for row in rows]
+
     async def prune(self, *, now: int | None = None) -> int:
         """Drop expired and revoked rows. Returns how many were removed."""
         return await asyncio.to_thread(self._prune, _now(now))

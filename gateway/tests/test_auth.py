@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
+from typing import Any
 
 from fastapi.testclient import TestClient
 
@@ -17,7 +18,14 @@ from rc_gateway.auth import (
 from rc_gateway.auth_store import StoredSession
 from rc_gateway.state import GatewayState
 
-from .conftest import ORIGIN, PASSWORD
+from .conftest import ORIGIN, PASSWORD, sign_in
+
+
+def _login(client: TestClient, password: str, *, origin: str | None = None) -> Any:
+    headers = {"Origin": origin} if origin else {}
+    return client.post(
+        "/api/login", json={"username": "admin", "password": password}, headers=headers
+    )
 
 
 def test_health_needs_no_credential(client: TestClient) -> None:
@@ -26,14 +34,14 @@ def test_health_needs_no_credential(client: TestClient) -> None:
     body = response.json()
     assert body["ok"] is True
     assert body["protocol"] == 1
-    assert body["auth"] == {"mode": "password"}
+    assert body["auth"] == {"mode": "password", "registration_open": False}
 
 
 def test_login_sets_cookie_and_returns_token(client: TestClient) -> None:
-    response = client.post("/api/login", json={"password": PASSWORD}, headers={"Origin": ORIGIN})
+    response = _login(client, PASSWORD, origin=ORIGIN)
     assert response.status_code == 200
     body = response.json()
-    assert body["user"] == {"username": "admin"}
+    assert body["user"] == {"username": "admin", "role": "admin"}
     assert body["exp"] > time.time()
     assert SESSION_COOKIE_NAME in response.cookies
     assert "httponly" in response.headers["set-cookie"].lower()
@@ -41,30 +49,28 @@ def test_login_sets_cookie_and_returns_token(client: TestClient) -> None:
 
 
 def test_login_rejects_a_wrong_password(client: TestClient) -> None:
-    response = client.post("/api/login", json={"password": "nope"}, headers={"Origin": ORIGIN})
+    response = _login(client, "nope", origin=ORIGIN)
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "unauthorized"
 
 
 def test_login_requires_a_matching_origin(client: TestClient) -> None:
-    response = client.post(
-        "/api/login", json={"password": PASSWORD}, headers={"Origin": "https://evil.example"}
-    )
+    response = _login(client, PASSWORD, origin="https://evil.example")
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "forbidden"
 
 
 def test_login_without_an_origin_is_allowed(client: TestClient) -> None:
     """Native apps send no Origin; login is where they obtain their bearer token."""
-    response = client.post("/api/login", json={"password": PASSWORD})
+    response = _login(client, PASSWORD)
     assert response.status_code == 200
     assert response.json()["token"]
 
 
 def test_login_is_rate_limited(client: TestClient) -> None:
     for _ in range(5):
-        client.post("/api/login", json={"password": "nope"}, headers={"Origin": ORIGIN})
-    blocked = client.post("/api/login", json={"password": PASSWORD}, headers={"Origin": ORIGIN})
+        _login(client, "nope", origin=ORIGIN)
+    blocked = _login(client, PASSWORD, origin=ORIGIN)
     assert blocked.status_code == 429
     assert blocked.json()["error"]["code"] == "too_many_requests"
 
@@ -107,9 +113,27 @@ def test_expired_tokens_do_not_authenticate(client: TestClient, state: GatewaySt
     assert response.status_code == 401
 
 
-def test_unknown_username_fails_like_a_wrong_password() -> None:
-    assert authenticate_login("someone", PASSWORD, PASSWORD) is None
-    assert authenticate_login("admin", PASSWORD, PASSWORD) == "admin"
+def test_unknown_username_fails_like_a_wrong_password(state: GatewayState) -> None:
+    async def scenario() -> tuple[Any, Any, Any]:
+        return (
+            await authenticate_login(state.users, "someone", PASSWORD, PASSWORD),
+            await authenticate_login(state.users, "admin", "wrong", PASSWORD),
+            await authenticate_login(state.users, "admin", PASSWORD, PASSWORD),
+        )
+
+    unknown, wrong, correct = asyncio.run(scenario())
+    assert unknown == "unauthorized"
+    assert wrong == "unauthorized"
+    assert correct.username == "admin"
+    assert correct.role == "admin"
+
+
+def test_a_login_reports_the_account_it_signed_in_as(client: TestClient) -> None:
+    """The username the caller sent decides the account, not a default (A24)."""
+    assert client.post("/api/login", json={"password": PASSWORD}).status_code == 400
+    token = sign_in(client, "ADMIN", PASSWORD)
+    body = client.get("/api/session", headers={"Authorization": f"Bearer {token}"}).json()
+    assert body["user"] == {"username": "admin", "role": "admin"}
 
 
 def test_config_reports_capabilities(client: TestClient, auth: dict[str, str]) -> None:
@@ -122,9 +146,9 @@ def test_config_reports_capabilities(client: TestClient, auth: dict[str, str]) -
 
 def test_a_native_client_may_log_in_without_an_origin(client: TestClient) -> None:
     """Only browsers send Origin, and the bearer token is obtained here."""
-    response = client.post("/api/login", json={"password": PASSWORD})
+    response = _login(client, PASSWORD)
     assert response.status_code == 200
-    assert response.json()["user"] == {"username": "admin"}
+    assert response.json()["user"] == {"username": "admin", "role": "admin"}
 
 
 def test_a_session_survives_a_gateway_restart(tmp_path: Path) -> None:
@@ -135,9 +159,7 @@ def test_a_session_survives_a_gateway_restart(tmp_path: Path) -> None:
 
     config = make_config(tmp_path)
     with TestClient(create_app(build_state(config))) as first:
-        token = first.post(
-            "/api/login", json={"password": PASSWORD}, headers={"Origin": ORIGIN}
-        ).json()["token"]
+        token = sign_in(first, "admin", PASSWORD)
         alive = first.get("/api/session", headers={"Authorization": f"Bearer {token}"})
         assert alive.status_code == 200
 
@@ -145,7 +167,7 @@ def test_a_session_survives_a_gateway_restart(tmp_path: Path) -> None:
     with TestClient(create_app(build_state(config))) as second:
         response = second.get("/api/session", headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 200
-        assert response.json()["user"] == {"username": "admin"}
+        assert response.json()["user"] == {"username": "admin", "role": "admin"}
         with second.websocket_connect(
             "/ws/app", headers={"Authorization": f"Bearer {token}"}
         ) as app:
@@ -159,9 +181,7 @@ def test_a_logout_survives_a_restart(tmp_path: Path) -> None:
 
     config = make_config(tmp_path)
     with TestClient(create_app(build_state(config))) as first:
-        token = first.post(
-            "/api/login", json={"password": PASSWORD}, headers={"Origin": ORIGIN}
-        ).json()["token"]
+        token = sign_in(first, "admin", PASSWORD)
         signed_out = first.post("/api/logout", headers={"Authorization": f"Bearer {token}"})
         assert signed_out.status_code == 200
 

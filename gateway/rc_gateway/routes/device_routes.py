@@ -13,6 +13,7 @@ from ..logging import logger
 from ..origins import websocket_url
 from ..pairing_requests import is_claim_token
 from ..security import Credential, client_ip, require_user, state_of
+from ..state import GatewayState
 from ..views import device_view
 from .session_routes import _bounded_body
 
@@ -64,7 +65,9 @@ async def rename_device(
         online=state.hub.device_online(device_id),
         latency_ms=state.hub.latency_for(device_id),
     )
-    await state.hub.broadcast_apps({"type": "device.updated", "device": device})
+    await state.hub.broadcast_user(
+        credential.username, {"type": "device.updated", "device": device}
+    )
     return JSONResponse({"device": device}, headers={"Cache-Control": "no-store"})
 
 
@@ -72,14 +75,25 @@ async def rename_device(
 async def delete_device(
     device_id: str, request: Request, credential: Credential = Depends(require_user)
 ) -> JSONResponse:
-    state = state_of(request)
-    if not await state.devices.revoke(device_id, credential.username):
+    if not await remove_device(state_of(request), device_id, credential.username):
         raise HTTPException(status_code=404, detail={"code": "not_found"})
+    return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
+
+
+async def remove_device(state: GatewayState, device_id: str, username: str) -> bool:
+    """Revoke one device and erase what the gateway held for it.
+
+    Deleting an account does this for every device it owns (§3.9), so the two paths cannot drift:
+    the token stops working, the socket closes, the sessions leave the index and the app that was
+    looking at them is told.
+    """
+    if not await state.devices.revoke(device_id, username):
+        return False
     await state.hub.disconnect_device(device_id, reason="device revoked")
     await state.hub.forget_device_sessions(device_id)
-    await state.hub.broadcast_apps({"type": "device.removed", "device_id": device_id})
+    await state.hub.broadcast_user(username, {"type": "device.removed", "device_id": device_id})
     log.info("device revoked", device_id=device_id)
-    return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
+    return True
 
 
 @router.post("/api/devices/pairing")
@@ -88,7 +102,7 @@ async def create_pairing(
 ) -> JSONResponse:
     state = state_of(request)
     grant = await state.devices.create_pairing(credential.username, ttl=PAIRING_TTL_SECONDS)
-    await state.hub.pairing_started(grant.code)
+    await state.hub.pairing_started(grant.code, credential.username)
     command = f"curl -fsSL {state.config.public_origin}/install.sh | sh -s -- --pair {grant.code}"
     return JSONResponse(
         {
@@ -172,7 +186,7 @@ async def claim_pairing_request(
     except Exception:
         state.pairing_requests.abandon(token)
         raise
-    await state.hub.pairing_started(grant.code)
+    await state.hub.pairing_started(grant.code, credential.username)
     state.pairing_requests.fulfil(token, grant.code, grant.expires_at)
     log.info("pairing request claimed")
     return JSONResponse(

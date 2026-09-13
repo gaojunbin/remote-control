@@ -264,18 +264,30 @@ class SessionIndex:
         return None if row is None else _indexed(row)
 
     async def list_sessions(
-        self, *, device_id: str | None = None, archived: bool | None = None
+        self,
+        *,
+        device_id: str | None = None,
+        device_ids: list[str] | None = None,
+        archived: bool | None = None,
     ) -> list[Session]:
+        """Summaries, newest first. ``device_ids`` is how one account's listing is scoped (A24)."""
+        if device_ids is not None and not device_ids:
+            return []
         async with self._db_lock:
-            rows = await asyncio.to_thread(self._list, device_id, archived)
+            rows = await asyncio.to_thread(self._list, device_id, device_ids, archived)
             return [self._overlaid_summary(row) for row in rows]
 
-    def _list(self, device_id: str | None, archived: bool | None) -> list[Session]:
+    def _list(
+        self, device_id: str | None, device_ids: list[str] | None, archived: bool | None
+    ) -> list[Session]:
         clauses: list[str] = []
         params: list[Any] = []
         if device_id is not None:
             clauses.append("device_id=?")
             params.append(device_id)
+        if device_ids is not None:
+            clauses.append(f"device_id IN ({','.join('?' * len(device_ids))})")
+            params.extend(device_ids)
         if archived is not None:
             clauses.append("archived=?")
             params.append(1 if archived else 0)

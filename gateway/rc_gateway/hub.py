@@ -54,7 +54,8 @@ from .frames import (
 from .index import IndexedSession, SessionIndex
 from .logging import logger
 from .replay import ReplayBuffer
-from .views import device_view, has_available_agent
+from .users import UserRecord
+from .views import device_view, has_available_agent, user_view
 
 log = logger("rc_gateway.hub")
 
@@ -89,12 +90,29 @@ MAX_REPLAY_BUFFERS = 512
 #: Session states that mean a turn is in progress (``needs_*`` are sub-states of running, §3).
 ACTIVE_STATES = frozenset({"running", "needs_approval", "needs_input"})
 
+#: Device owners the hub has resolved (A24). Bounded because it is keyed by device, and an account
+#: may hold at most `MAX_ACTIVE_DEVICES`; a deleted device's entry is dropped with its sessions.
+MAX_TRACKED_OWNERS = 4096
+
 #: A22. A device that accepted an update installs a wheel and restarts its service, so it is gone
 #: for a few seconds. Past this it is not coming back on its own and the row says so.
 UPDATE_TIMEOUT_SECONDS = 300.0
 UPDATE_TIMEOUT_MESSAGE = "the device did not come back"
 
-TransitionHook = Callable[[str, str, dict[str, Any], bool], Awaitable[None]]
+
+@dataclass(frozen=True)
+class SessionTransition:
+    """One session's state change, as the push trigger receives it."""
+
+    previous_state: str
+    state: str
+    session: Frame
+    #: The account that owns the device: only its registrations are notified (A24).
+    owner: str
+    has_active_subscriber: bool
+
+
+TransitionHook = Callable[[SessionTransition], Awaitable[None]]
 
 
 @dataclass
@@ -120,6 +138,8 @@ class _Grace:
 class _Pairing:
     code: str
     created_at: float
+    #: The account that minted the code. Its progress is nobody else's business (A24).
+    username: str = ""
     device_id: str = ""
     steps: set[str] = field(default_factory=set)
 
@@ -145,6 +165,8 @@ class Hub:
         self._apps: dict[str, AppConnection] = {}
         self._buffers: dict[str, ReplayBuffer] = {}
         self._owners: dict[str, str] = {}
+        #: device id → the account that enrolled it, so a frame is published to that account only.
+        self._device_owners: dict[str, str] = {}
         self._queues: dict[str, Frame] = {}
         self._pending: dict[tuple[str, str], _Pending] = {}
         self._gateway_pending: dict[str, asyncio.Future[Frame]] = {}
@@ -225,6 +247,7 @@ class Hub:
 
     async def attach_device(self, connection: DeviceConnection) -> None:
         """Claim the device's single slot, closing any previous connection."""
+        await self.device_owner(connection.device_id)
         async with self._send_lock, self._lock:
             previous = self._devices.get(connection.device_id)
             self._devices[connection.device_id] = connection
@@ -282,11 +305,12 @@ class Hub:
         await self._fail_pending_for_device(device_id, ERROR_DEVICE_OFFLINE)
         record = await self.device_store.get(device_id)
         if record is not None:
-            await self.broadcast_apps(
+            await self.broadcast_user(
+                record.username,
                 {
                     "type": "device.updated",
                     "device": device_view(record, online=False, latency_ms=None),
-                }
+                },
             )
 
     async def _await_device(self, device_id: str) -> None:
@@ -305,8 +329,14 @@ class Hub:
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(grace.resolved.wait(), timeout=self.offline_grace)
 
-    async def disconnect_device(self, device_id: str, *, reason: str) -> bool:
-        """Close a device's socket because its credential is gone (A4: 4401, do not retry)."""
+    async def disconnect_device(
+        self, device_id: str, *, reason: str, code: int = CLOSE_UNAUTHORIZED
+    ) -> bool:
+        """Close a device's socket because its credential is gone (A4: 4401, do not retry).
+
+        A disabled account is the other case: the token is still genuine and the device must not
+        treat the close as a reason to re-enrol, so that one closes with 4403 (A24).
+        """
         # An explicit removal is not a transient drop: end any grace so nothing later reports
         # this device as merely offline, and release requests parked on it (A13).
         self._end_grace(device_id)
@@ -314,7 +344,7 @@ class Hub:
             connection = self._devices.get(device_id)
         if connection is None:
             return False
-        await connection.stop(code=CLOSE_UNAUTHORIZED, reason=reason)
+        await connection.stop(code=code, reason=reason)
         return True
 
     async def handle_device_hello(self, connection: DeviceConnection, frame: Frame) -> bool:
@@ -532,23 +562,30 @@ class Hub:
             if pending is not None and pending.timer is not None:
                 pending.timer.cancel()
 
-    async def app_hello_payload(self, username: str, gateway_version: str, stt: Frame) -> Frame:
-        records = await self.device_store.list_for_user(username)
-        devices = [
-            device_view(
-                record,
-                online=self.device_online(record.device_id),
-                latency_ms=self.latency_for(record.device_id),
+    async def app_hello_payload(
+        self, account: UserRecord, gateway_version: str, stt: Frame
+    ) -> Frame:
+        """The first frame of `/ws/app`: this account's devices and their sessions, nothing else."""
+        records = await self.device_store.list_for_user(account.username)
+        device_ids = []
+        devices = []
+        for record in records:
+            self._remember_owner(record.device_id, record.username)
+            device_ids.append(record.device_id)
+            devices.append(
+                device_view(
+                    record,
+                    online=self.device_online(record.device_id),
+                    latency_ms=self.latency_for(record.device_id),
+                )
             )
-            for record in records
-        ]
         return {
             "type": "hello",
             "protocol": PROTOCOL_VERSION,
             "gateway_version": gateway_version,
-            "user": {"username": username},
+            "user": user_view(account),
             "devices": devices,
-            "sessions": await self.index.list_sessions(),
+            "sessions": await self.index.list_sessions(device_ids=device_ids),
             "stt": stt,
             "server_time": _now_ms(),
         }
@@ -576,23 +613,30 @@ class Hub:
         else:
             log.debug("unknown app frame dropped", kind=kind)
 
-    async def broadcast_apps(self, frame: Frame) -> None:
+    async def broadcast_user(self, username: str, frame: Frame) -> None:
+        """Publish to one account's sockets. Every device-derived frame goes through here (A24)."""
+        if not username:
+            return
         async with self._lock:
-            connections = list(self._apps.values())
+            connections = [item for item in self._apps.values() if item.username == username]
         for connection in connections:
             await self._send_app(connection, frame)
 
     # ---- pairing progress ----
 
-    async def pairing_started(self, code: str) -> None:
+    async def pairing_started(self, code: str, username: str) -> None:
         key = normalize_pairing_code(code)
         async with self._lock:
             self._expire_pairings()
             if len(self._pairings) >= MAX_TRACKED_PAIRINGS:
                 oldest = min(self._pairings.values(), key=lambda item: item.created_at)
                 self._pairings.pop(normalize_pairing_code(oldest.code), None)
-            self._pairings[key] = _Pairing(code=code, created_at=time.monotonic())
-        await self.broadcast_apps({"type": "pairing.progress", "code": code, "step": "waiting"})
+            self._pairings[key] = _Pairing(
+                code=code, created_at=time.monotonic(), username=username
+            )
+        await self.broadcast_user(
+            username, {"type": "pairing.progress", "code": code, "step": "waiting"}
+        )
 
     async def pairing_cancelled(self, code: str) -> None:
         async with self._lock:
@@ -601,15 +645,19 @@ class Hub:
     async def pairing_enrolled(self, code: str, device_id: str) -> None:
         """A device redeemed ``code``; report progress under the code as it was minted."""
         key = normalize_pairing_code(code)
+        owner = await self.device_owner(device_id)
         async with self._lock:
             pairing = self._pairings.get(key)
             if pairing is None:
                 pairing = _Pairing(code=code, created_at=time.monotonic())
                 self._pairings[key] = pairing
             pairing.device_id = device_id
+            # The enrolled device carries the owner even when the gateway never saw the code
+            # minted, which is what a restart between minting and redemption looks like.
+            pairing.username = pairing.username or owner
             pairing.steps.add("enrolled")
-            display = pairing.code
-        await self._emit_pairing(display, "enrolled", device_id)
+            display, username = pairing.code, pairing.username
+        await self._emit_pairing(display, "enrolled", device_id, username)
 
     def _expire_pairings(self) -> None:
         cutoff = time.monotonic() - PAIRING_TRACK_SECONDS
@@ -625,12 +673,12 @@ class Hub:
             if pairing is None or step in pairing.steps:
                 return
             pairing.steps.add(step)
-            display = pairing.code
+            display, username = pairing.code, pairing.username
             if step == "agents":
                 self._pairings.pop(normalize_pairing_code(display), None)
-        await self._emit_pairing(display, step, device_id)
+        await self._emit_pairing(display, step, device_id, username)
 
-    async def _emit_pairing(self, code: str, step: str, device_id: str) -> None:
+    async def _emit_pairing(self, code: str, step: str, device_id: str, username: str) -> None:
         frame: Frame = {"type": "pairing.progress", "code": code, "step": step}
         record = await self.device_store.get(device_id)
         if record is not None:
@@ -639,7 +687,7 @@ class Hub:
                 online=self.device_online(device_id),
                 latency_ms=self.latency_for(device_id),
             )
-        await self.broadcast_apps(frame)
+        await self.broadcast_user(username or await self.device_owner(device_id), frame)
 
     # ---- forwarding ----
 
@@ -661,12 +709,17 @@ class Hub:
                     connection, error_reply(identifier, ERROR_BAD_REQUEST, "device_id is required")
                 )
                 return
+            if not await self._reaches(connection, device_id):
+                await self._send_app(
+                    connection, error_reply(identifier, ERROR_NOT_FOUND, "unknown device")
+                )
+                return
         else:
             session_id = text_field(frame, "session_id")
             # Only the owning device is needed to route, and that is in memory: reading the whole
             # summary back from SQLite would put a disk read in front of every message an app sends.
             owner = await self._owner_of(session_id) if session_id else None
-            if owner is None:
+            if owner is None or not await self._reaches(connection, owner):
                 await self._send_app(
                     connection, error_reply(identifier, ERROR_NOT_FOUND, "unknown session")
                 )
@@ -787,7 +840,9 @@ class Hub:
                 )
             return
         indexed = await self.index.get(session_id)
-        if indexed is None:
+        # A session on another account's device is answered exactly as one that does not exist,
+        # so a subscribe cannot be used to probe which session ids are real (A24).
+        if indexed is None or not await self._reaches(connection, indexed.device_id):
             await self._send_app(
                 connection, error_reply(identifier, ERROR_NOT_FOUND, "unknown session")
             )
@@ -848,6 +903,30 @@ class Hub:
         if owner is not None:
             self._owners[session_id] = owner
         return owner
+
+    # ---- account ownership (A24) ----
+
+    async def device_owner(self, device_id: str) -> str:
+        """The account a device belongs to, from memory after the first lookup. ``""`` if gone."""
+        owner = self._device_owners.get(device_id)
+        if owner is not None:
+            return owner
+        record = await self.device_store.get(device_id)
+        if record is None:
+            return ""
+        self._remember_owner(device_id, record.username)
+        return record.username
+
+    def _remember_owner(self, device_id: str, username: str) -> None:
+        if device_id in self._device_owners:
+            return
+        while len(self._device_owners) >= MAX_TRACKED_OWNERS:
+            del self._device_owners[next(iter(self._device_owners))]
+        self._device_owners[device_id] = username
+
+    async def _reaches(self, connection: AppConnection, device_id: str) -> bool:
+        """Whether this socket's account owns the device a request or subscribe named."""
+        return await self.device_owner(device_id) == connection.username
 
     def _buffer_for(self, session_id: str) -> ReplayBuffer:
         buffer = self._buffers.get(session_id)
@@ -920,16 +999,17 @@ class Hub:
         if indexed is None:
             log.warning("session summary refused", device_id=device_id)
             return
-        await self.broadcast_apps({"type": "session.updated", "session": indexed.summary})
+        owner = await self.device_owner(device_id)
+        await self.broadcast_user(owner, {"type": "session.updated", "session": indexed.summary})
         # A session the gateway has never seen has no transition to report: an index that was
         # just created (or a device reconnecting after a wipe) must not produce a push storm.
         if self._on_session_transition is None or previous is None:
             return
         if previous.state == indexed.state:
             return
-        self._notify_transition(previous.state, indexed)
+        self._notify_transition(previous.state, indexed, owner)
 
-    def _notify_transition(self, previous_state: str, indexed: IndexedSession) -> None:
+    def _notify_transition(self, previous_state: str, indexed: IndexedSession, owner: str) -> None:
         """Run the push hook off the device read loop.
 
         A push is an outbound HTTP call to a browser vendor or to APNs. Awaiting it here would
@@ -940,56 +1020,51 @@ class Hub:
         hook = self._on_session_transition
         if hook is None:
             return
-        task = asyncio.create_task(
-            self._run_transition(
-                hook,
-                previous_state,
-                indexed.state,
-                indexed.summary,
-                self._has_active_subscriber(indexed.session_id),
-            )
+        transition = SessionTransition(
+            previous_state=previous_state,
+            state=indexed.state,
+            session=indexed.summary,
+            owner=owner,
+            has_active_subscriber=self._has_active_subscriber(indexed.session_id),
         )
+        task = asyncio.create_task(self._run_transition(hook, transition))
         self._transitions.add(task)
         task.add_done_callback(self._transitions.discard)
 
-    async def _run_transition(
-        self, hook: TransitionHook, previous_state: str, state: str, summary: Frame, active: bool
-    ) -> None:
+    async def _run_transition(self, hook: TransitionHook, transition: SessionTransition) -> None:
         try:
-            await hook(previous_state, state, summary, active)
+            await hook(transition)
         except asyncio.CancelledError:
             raise
         except Exception:
             log.exception(
-                "session transition hook failed", session_id=text_field(summary, "session_id")
+                "session transition hook failed",
+                session_id=text_field(transition.session, "session_id"),
             )
 
     async def _forget_session(self, device_id: str, session_id: str) -> None:
         if not await self._claim_session(device_id, session_id):
             return
         await self.index.remove(session_id)
+        await self._drop_session(device_id, session_id, await self.device_owner(device_id))
+
+    async def forget_device_sessions(self, device_id: str) -> None:
+        """Drop every session of a deleted device from the index and from the apps."""
+        owner = await self.device_owner(device_id)
+        for session_id in await self.index.remove_for_device(device_id):
+            await self._drop_session(device_id, session_id, owner)
+        self._device_owners.pop(device_id, None)
+
+    async def _drop_session(self, device_id: str, session_id: str, owner: str) -> None:
         self._buffers.pop(session_id, None)
         self._queues.pop(session_id, None)
         self._owners.pop(session_id, None)
         async with self._lock:
             for connection in self._apps.values():
                 connection.unsubscribe(session_id)
-        await self.broadcast_apps(
-            {"type": "session.removed", "session_id": session_id, "device_id": device_id}
+        await self.broadcast_user(
+            owner, {"type": "session.removed", "session_id": session_id, "device_id": device_id}
         )
-
-    async def forget_device_sessions(self, device_id: str) -> None:
-        """Drop every session of a deleted device from the index and from the apps."""
-        for session_id in await self.index.remove_for_device(device_id):
-            self._buffers.pop(session_id, None)
-            self._queues.pop(session_id, None)
-            self._owners.pop(session_id, None)
-            async with self._lock:
-                for connection in self._apps.values():
-                    connection.unsubscribe(session_id)
-            await self.broadcast_apps(
-                {"type": "session.removed", "session_id": session_id, "device_id": device_id}
-            )
 
     def _has_active_subscriber(self, session_id: str) -> bool:
         """True when an app is watching this session and its user did something recently.
@@ -1008,13 +1083,15 @@ class Hub:
         record = await self.device_store.get(connection.device_id)
         if record is None:
             return
-        await self.broadcast_apps(
+        self._remember_owner(record.device_id, record.username)
+        await self.broadcast_user(
+            record.username,
             {
                 "type": "device.updated",
                 "device": device_view(
                     record, online=True, latency_ms=connection.latency_ms, last_seen=_now_ms()
                 ),
-            }
+            },
         )
 
     async def _announce_stored_device(self, device_id: str) -> None:
@@ -1022,7 +1099,9 @@ class Hub:
         record = await self.device_store.get(device_id)
         if record is None:
             return
-        await self.broadcast_apps(
+        self._remember_owner(record.device_id, record.username)
+        await self.broadcast_user(
+            record.username,
             {
                 "type": "device.updated",
                 "device": device_view(
@@ -1030,7 +1109,7 @@ class Hub:
                     online=self.device_online(device_id),
                     latency_ms=self.latency_for(device_id),
                 ),
-            }
+            },
         )
 
     async def _send_app(self, connection: AppConnection, frame: Frame) -> None:

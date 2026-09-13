@@ -30,6 +30,7 @@ from rc_gateway.stt import SttError, Transcript
 
 ORIGIN = "http://testserver"
 PASSWORD = "correct-horse-battery-staple"
+MEMBER_PASSWORD = "another-correct-horse-staple"
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "protocol" / "fixtures"
 
 
@@ -132,15 +133,40 @@ def client(state: GatewayState) -> Iterator[TestClient]:
 
 @pytest.fixture
 def token(client: TestClient) -> str:
-    response = client.post("/api/login", json={"password": PASSWORD}, headers={"Origin": ORIGIN})
-    assert response.status_code == 200, response.text
-    value: str = response.json()["token"]
-    return value
+    return sign_in(client, "admin", PASSWORD)
 
 
 @pytest.fixture
 def auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def sign_in(client: TestClient, username: str, password: str) -> str:
+    """Sign in and return the bearer token. Every account signs in the same way (A24)."""
+    response = client.post(
+        "/api/login",
+        json={"username": username, "password": password},
+        headers={"Origin": ORIGIN},
+    )
+    assert response.status_code == 200, response.text
+    value: str = response.json()["token"]
+    return value
+
+
+def add_member(
+    client: TestClient,
+    admin: dict[str, str],
+    username: str,
+    password: str = MEMBER_PASSWORD,
+) -> dict[str, str]:
+    """Create a member account as the admin and return its bearer headers."""
+    created = client.post(
+        "/api/users",
+        json={"username": username, "password": password, "role": "member"},
+        headers=admin,
+    )
+    assert created.status_code == 200, created.text
+    return {"Authorization": f"Bearer {sign_in(client, username, password)}"}
 
 
 def write_wheel(tmp_path: Path, version: str = "0.1.0", body: bytes = b"wheel") -> str:

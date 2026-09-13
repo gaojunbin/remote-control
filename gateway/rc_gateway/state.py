@@ -23,6 +23,7 @@ from .ratelimit import RateLimiter
 from .rejects import RejectionLog
 from .session_registry import SessionRegistry
 from .stt import Transcriber
+from .users import UserStore
 
 VERSION = "0.1.0"
 
@@ -34,6 +35,7 @@ class GatewayState:
     index: SessionIndex
     push_store: PushStore
     auth_store: AuthSessionStore
+    users: UserStore
     sessions: SessionRegistry
     login_limiter: RateLimiter
     enroll_limiter: RateLimiter

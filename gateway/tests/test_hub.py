@@ -23,7 +23,7 @@ def test_app_hello_carries_devices_and_sessions(client: TestClient, auth: dict[s
         hello = app.receive_json()
     assert hello["type"] == "hello"
     assert hello["protocol"] == 1
-    assert hello["user"] == {"username": "admin"}
+    assert hello["user"] == {"username": "admin", "role": "admin"}
     assert len(hello["devices"]) == 1
     assert hello["sessions"] == []
     assert hello["stt"] == {"enabled": True, "languages": ["auto", "zh", "en"]}

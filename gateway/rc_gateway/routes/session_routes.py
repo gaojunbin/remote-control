@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
 from ..auth import (
-    ADMIN_USERNAME,
+    LOGIN_FORBIDDEN,
     SESSION_COOKIE_NAME,
     authenticate_login,
     make_session_token,
@@ -19,12 +19,15 @@ from ..config import SESSION_TTL_SECONDS
 from ..frames import PROTOCOL_VERSION
 from ..logging import logger
 from ..security import Credential, client_ip, reject_foreign_origin, require_user, state_of
-from ..state import VERSION
+from ..state import VERSION, GatewayState
+from ..users import UserRecord
+from ..views import user_view
 
 log = logger("rc_gateway.auth")
 router = APIRouter()
 
 LOGIN_BODY_MAX_BYTES = 4096
+_LOGIN_STATUS = {LOGIN_FORBIDDEN: 403}
 
 
 @router.get("/api/health")
@@ -35,7 +38,12 @@ async def health(request: Request) -> JSONResponse:
             "ok": True,
             "version": VERSION,
             "protocol": PROTOCOL_VERSION,
-            "auth": {"mode": "password"},
+            "auth": {
+                "mode": "password",
+                # A24. The only unauthenticated way an app learns whether to offer
+                # "Create an account", so the login page reads it before anyone has signed in.
+                "registration_open": await state.users.registration_open(),
+            },
             "devices_online": len(state.hub.online_device_ids()),
         },
         headers={"Cache-Control": "no-store"},
@@ -52,24 +60,30 @@ async def login(request: Request) -> Response:
         raise HTTPException(status_code=429, detail={"code": "too_many_requests"})
 
     body = await _bounded_body(request, LOGIN_BODY_MAX_BYTES)
-    username = str(body.get("username") or ADMIN_USERNAME)
-    password = body.get("password")
-    if not isinstance(password, str):
+    username, password = body.get("username"), body.get("password")
+    # A24: the account is part of the credential, so a body without one is a bad request rather
+    # than a login as the operator.
+    if not isinstance(username, str) or not username or not isinstance(password, str):
         raise HTTPException(status_code=400, detail={"code": "bad_request"})
-    resolved = authenticate_login(username, password, state.config.password)
-    if resolved is None:
-        raise HTTPException(status_code=401, detail={"code": "unauthorized"})
+    resolved = await authenticate_login(state.users, username, password, state.config.password)
+    if isinstance(resolved, str):
+        raise HTTPException(status_code=_LOGIN_STATUS.get(resolved, 401), detail={"code": resolved})
+    await state.users.touch_login(resolved.username)
+    log.info("login succeeded", username=resolved.username)
+    return await issue_session(state, resolved)
 
+
+async def issue_session(state: GatewayState, account: UserRecord) -> Response:
+    """Mint a token for an account and set the cookie: what login and registration both end in."""
     token, expires_at = make_session_token(
-        state.config.secret, SESSION_TTL_SECONDS, username=resolved
+        state.config.secret, SESSION_TTL_SECONDS, username=account.username
     )
     claims = session_token_claims(token, state.config.secret)
     if claims is None:
         raise HTTPException(status_code=500, detail={"code": "internal"})
     await state.sessions.register(claims)
-    log.info("login succeeded", username=resolved)
     response = JSONResponse(
-        {"ok": True, "token": token, "exp": expires_at, "user": {"username": resolved}},
+        {"ok": True, "token": token, "exp": expires_at, "user": user_view(account)},
         headers={"Cache-Control": "no-store"},
     )
     response.set_cookie(
@@ -99,7 +113,7 @@ async def session(credential: Credential = Depends(require_user)) -> JSONRespons
     return JSONResponse(
         {
             "ok": True,
-            "user": {"username": credential.username},
+            "user": {"username": credential.username, "role": credential.role},
             "exp": credential.claims.expires_at,
         },
         headers={"Cache-Control": "no-store"},
@@ -114,13 +128,20 @@ async def config(request: Request, _: Credential = Depends(require_user)) -> JSO
 @router.get("/api/sessions")
 async def sessions(
     request: Request,
-    _: Credential = Depends(require_user),
+    credential: Credential = Depends(require_user),
     device_id: str | None = None,
     archived: bool | None = None,
 ) -> JSONResponse:
     state = state_of(request)
+    # A24: the caller's own devices decide the listing, so naming another account's device_id
+    # narrows the same set to nothing rather than reaching into it.
+    owned = [record.device_id for record in await state.devices.list_for_user(credential.username)]
     return JSONResponse(
-        {"sessions": await state.index.list_sessions(device_id=device_id, archived=archived)},
+        {
+            "sessions": await state.index.list_sessions(
+                device_id=device_id, device_ids=owned, archived=archived
+            )
+        },
         headers={"Cache-Control": "no-store"},
     )
 
