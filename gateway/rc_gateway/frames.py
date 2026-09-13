@@ -37,6 +37,8 @@ FORWARDED_BY_SESSION = frozenset(
         "session.set",
         "session.history",
         "session.block",
+        "session.commands",
+        "session.command",
         "session.queue_remove",
         "session.takeover",
         "session.archive",
