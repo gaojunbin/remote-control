@@ -17,7 +17,7 @@ from ..agents.codex.daemon.service import CodexDaemonService
 from ..agents.codex.models import catalog_cache
 from ..agents.pi.adapter import PiRunner
 from ..agents.pi.service import PiExtensionService
-from ..agents.registry import RunnerSpec, runner_for
+from ..agents.registry import RunnerSpec, offline_commands, runner_for
 from ..errors import RcError
 from ..git import create_worktree, session_git, slugify
 from ..logging_setup import logger
@@ -556,6 +556,55 @@ class SessionHub:
                 meta[key] = value
         await entry.channel.set_meta(**meta)
         return {"session": entry.session.to_dict()}
+
+    # ------------------------------------------------------------- commands
+
+    def _check_commands_capability(self, entry: SessionEntry) -> None:
+        info = self.agent_info(entry.session.agent)
+        if "commands" not in info.capabilities:
+            raise RcError("unsupported", f"{entry.session.agent} takes no commands from here")
+
+    async def commands(self, params: dict[str, Any]) -> dict[str, Any]:
+        """What the session offers now (A27): the live process's list, or what is
+        known without starting one."""
+        entry = self.entry(str(params.get("session_id") or ""))
+        self._check_commands_capability(entry)
+        if entry.runner is not None:
+            listed = await entry.runner.commands()
+        else:
+            listed = await offline_commands(entry.session.agent, entry.session)
+        return {"commands": [command.to_dict() for command in listed]}
+
+    async def command(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Run one slash command (A27). Same gates as `send`, plus "idle only"."""
+        session_id = str(params.get("session_id") or "")
+        request_id = str(params.get("id") or "")
+        entry = self.entry(session_id)
+        cached = self.registry.recall_request(session_id, request_id) if request_id else None
+        if cached is not None:
+            return cached
+        self._check_commands_capability(entry)
+        name = str(params.get("name") or "").strip().lstrip("/")
+        if not name:
+            raise RcError("bad_request", "name is required")
+        argument = str(params.get("argument") or "").strip() or None
+        async with entry.lock:
+            if entry.shared is not None:
+                raise RcError("unsupported", f"{entry.session.agent} takes no commands from here")
+            if entry.session.control == "terminal":
+                raise RcError("conflict", self._terminal_conflict_message(entry))
+            if entry.runner is None:
+                await self._resume(entry)
+            runner = entry.runner
+            assert runner is not None
+            if runner.busy:
+                raise RcError("conflict", "wait for the turn to finish")
+            await entry.channel.revive()
+            await runner.command(name, argument, request_id or str(uuid.uuid4()))
+        result: dict[str, Any] = {}
+        if request_id:
+            self.registry.remember_request(session_id, request_id, result)
+        return result
 
     async def history(self, params: dict[str, Any]) -> dict[str, Any]:
         session_id = str(params.get("session_id") or "")

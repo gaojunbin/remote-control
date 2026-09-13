@@ -12,7 +12,7 @@ from ...attachments import Attachment, describe, materialise, wire_attachments
 from ...child_env import sanitized_child_env
 from ...errors import RcError
 from ...logging_setup import logger
-from ...models import UNSET, SpeedSetting, now_ms
+from ...models import UNSET, Command, SpeedSetting, now_ms
 from ...sessions.channel import SessionChannel
 from ..base import Emit
 from .echoes import Echo, EchoLog
@@ -338,6 +338,12 @@ class CodexRunner:
         self._turn_epoch += 1
         self._turn_done.set()
         await self.start()
+
+    async def commands(self) -> list[Command]:
+        return []
+
+    async def command(self, name: str, argument: str | None, block_id: str) -> None:
+        raise RcError("not_found", f"/{name} is not a command this session offers")
 
     async def apply_settings(
         self,

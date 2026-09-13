@@ -11,7 +11,7 @@ import pytest
 from rc_client.agents.base import SessionRunner
 from rc_client.agents.claude.adapter import ClaudeRunner
 from rc_client.errors import RcError
-from rc_client.models import UNSET, AgentInfo, Choice, Session, SpeedSetting
+from rc_client.models import UNSET, AgentInfo, Choice, Command, Session, SpeedSetting
 from rc_client.registry import Registry
 from rc_client.sessions.channel import SessionChannel
 from rc_client.sessions.hub import SessionEntry, SessionHub
@@ -30,6 +30,7 @@ class FakeRunner:
         self.interrupts = 0
         self.settings: list[tuple[Any, Any, Any, Any]] = []
         self.block_ids: list[str | None] = []
+        self.commands_run: list[tuple[str, str | None, str]] = []
         self.closed = False
         self._busy = False
         self._steer = steer
@@ -92,6 +93,20 @@ class FakeRunner:
         self.steered.append(text)
         self.steer_block_ids.append(block_id)
         return True
+
+    async def commands(self) -> list[Command]:
+        return [Command("compact", "Summarise the conversation", group="Built-in")]
+
+    async def command(self, name: str, argument: str | None, block_id: str) -> None:
+        if name != "compact":
+            raise RcError("not_found", f"/{name} is not a command this session offers")
+        self.commands_run.append((name, argument, block_id))
+        await self.channel.emit(
+            "user_message",
+            block_id=block_id,
+            text=f"/{name}" + (f" {argument}" if argument else ""),
+            source="remote",
+        )
 
 
 def agent_info() -> list[AgentInfo]:

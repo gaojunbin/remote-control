@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
 from ..errors import RcError
-from ..models import AgentInfo, Session
+from ..models import AgentInfo, Command, Session
 from .base import SessionRunner
 
 if TYPE_CHECKING:  # pragma: no cover - imported for types only
@@ -93,3 +93,17 @@ async def detect_all(context: DetectContext | None = None) -> list[AgentInfo]:
 
 async def runner_for(agent: str, spec: RunnerSpec) -> SessionRunner:
     return await plugin(agent).build_runner(spec)
+
+
+async def offline_commands(agent: str, session: Session) -> list[Command]:
+    """What a session with no live process can still be said to offer (A27).
+
+    A plugin may expose `async def commands(session) -> list[Command]` for the
+    list it knows without starting anything: Codex's fixed table, pi's prompt
+    templates and skills on disk, the list Grok last advertised. Without it the
+    answer is empty until the session is resumed.
+    """
+    offline = getattr(plugin(agent), "commands", None)
+    if offline is None:
+        return []
+    return list(await offline(session))

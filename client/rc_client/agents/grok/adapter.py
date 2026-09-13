@@ -11,7 +11,7 @@ from typing import Any
 from ...child_env import sanitized_child_env
 from ...errors import RcError
 from ...logging_setup import logger
-from ...models import UNSET, SpeedSetting, now_ms
+from ...models import UNSET, Command, SpeedSetting, now_ms
 from ...sessions.channel import SessionChannel
 from ..base import Emit
 from .acp import GrokAgent
@@ -291,6 +291,12 @@ class GrokRunner:
         self._resume = session_id
         await self.start()
         await self._finish_turn({"stop_reason": "interrupted", "duration_ms": 0})
+
+    async def commands(self) -> list[Command]:
+        return []
+
+    async def command(self, name: str, argument: str | None, block_id: str) -> None:
+        raise RcError("not_found", f"/{name} is not a command this session offers")
 
     async def apply_settings(
         self,

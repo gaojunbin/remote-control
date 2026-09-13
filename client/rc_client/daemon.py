@@ -192,6 +192,8 @@ class Daemon:
             "session.set": self.hub.set_options,
             "session.history": self.hub.history,
             "session.block": self.hub.block,
+            "session.commands": self.hub.commands,
+            "session.command": self.hub.command,
             "session.queue_remove": self.hub.queue_remove,
             "session.takeover": self.hub.takeover,
             "session.archive": self.hub.archive,

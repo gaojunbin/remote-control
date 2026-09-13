@@ -53,6 +53,29 @@ class Choice:
 
 
 @dataclass(slots=True)
+class Command:
+    """A slash command a session offers (amendment A27).
+
+    `name` is what the user types after the slash. `argument` is a placeholder
+    for what may follow it, absent when the command takes nothing; `group` says
+    where it comes from, absent when the agent draws no distinction.
+    """
+
+    name: str
+    description: str
+    argument: str | None = None
+    group: str | None = None
+
+    def to_dict(self) -> dict[str, str]:
+        result = {"name": self.name, "description": self.description}
+        if self.argument:
+            result["argument"] = self.argument
+        if self.group:
+            result["group"] = self.group
+        return result
+
+
+@dataclass(slots=True)
 class AgentInfo:
     agent: str
     available: bool

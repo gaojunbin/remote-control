@@ -18,7 +18,7 @@ from typing import Any
 from ....attachments import Attachment, describe, materialise, wire_attachments
 from ....errors import RcError
 from ....logging_setup import logger
-from ....models import UNSET, SpeedSetting, now_ms
+from ....models import UNSET, Command, SpeedSetting, now_ms
 from ....sessions.channel import SessionChannel
 from ..echoes import Echo, EchoLog
 from ..models import ModelCatalog, tier_id
@@ -631,6 +631,12 @@ class CodexDaemonSession:
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._turn_done.wait(), timeout=DRAIN_TIMEOUT)
         return True
+
+    async def commands(self) -> list[Command]:
+        return []
+
+    async def command(self, name: str, argument: str | None, block_id: str) -> None:
+        raise RcError("not_found", f"/{name} is not a command this session offers")
 
     async def apply_settings(
         self,

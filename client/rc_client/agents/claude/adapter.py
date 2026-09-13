@@ -28,7 +28,7 @@ from ...child_env import child_env_tombstones
 from ...config import DEFAULT_CLAUDE_SETTING_SOURCES
 from ...errors import RcError
 from ...logging_setup import logger
-from ...models import UNSET, SpeedSetting, now_ms
+from ...models import UNSET, Command, SpeedSetting, now_ms
 from ...sessions.channel import SessionChannel
 from ..base import Emit
 from .questions import QUESTION_TOOL, answers_by_prompt, normalise_questions
@@ -321,6 +321,12 @@ class ClaudeRunner:
             self._turn_done.set()
             await self.channel.end_turn("interrupted", max(0, now_ms() - self._turn_started_at))
         return True
+
+    async def commands(self) -> list[Command]:
+        return []
+
+    async def command(self, name: str, argument: str | None, block_id: str) -> None:
+        raise RcError("not_found", f"/{name} is not a command this session offers")
 
     async def apply_settings(
         self,

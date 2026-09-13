@@ -16,7 +16,7 @@ from typing import Any
 from ...child_env import sanitized_child_env
 from ...errors import RcError
 from ...logging_setup import logger
-from ...models import UNSET, SpeedSetting
+from ...models import UNSET, Command, SpeedSetting
 from ...sessions.channel import SessionChannel
 from . import catalog as catalogue
 from . import install, paths
@@ -230,6 +230,12 @@ class PiRunner:
             await self.channel.notice("warn", "the agent did not stop in time")
             await self._stream.finish({"stop_reason": "interrupted"})
         return True
+
+    async def commands(self) -> list[Command]:
+        return []
+
+    async def command(self, name: str, argument: str | None, block_id: str) -> None:
+        raise RcError("not_found", f"/{name} is not a command this session offers")
 
     async def apply_settings(
         self,

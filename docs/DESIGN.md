@@ -395,6 +395,29 @@ terminal" saying why it is not: install the shim on that machine, start the Code
 on it, or restart this session through the attachment that is already there. The line is a hint, not
 an error, and it sits at metadata weight.
 
+**Slash commands: the terminal's `/` menu, on the phone.** A developer at a Codex or pi terminal
+types `/` and gets a list; the apps give the same list for the same keystroke, on any session whose
+agent reports capability `commands` (A27). Typing `/` into an empty composer opens a panel anchored
+above the field — a popover on the web, a card over the keyboard on the phone — with one row per
+command: `/name` in the monospace face at the leading edge, its description after it in the
+secondary colour, and the argument placeholder in the tertiary colour when the command takes one.
+The list is filtered by prefix of the name as more letters are typed, sectioned by group only when
+the agent distinguishes more than one (its skills from its prompt templates, say), and never taller
+than about eight rows before it scrolls. On the web ↑/↓ move the highlight, Tab or Enter take the
+highlighted row, Esc closes; on the phone a tap takes a row. Taking a row writes `/name` into the
+field — with a trailing space when the command takes an argument, so the placeholder shows where
+the argument goes and the panel closes; without one, so a second Enter or a tap on Send runs it.
+Once a typed first word matches a command, Send sends `session.command` and the row appears in the
+transcript at once, under the request's id, exactly as a message does; anything that matches no
+command is sent as text, the way a terminal treats an unknown slash. A running turn dims the rows
+and adds one footer line, "Available when the turn finishes"; a refusal from the device reads as
+an inline error under the field, the same place a failed send reports. The panel is fetched when a
+conversation opens and refreshed when `/` is typed after a minute or after an empty answer, so it
+is on screen the moment it is asked for. A session whose agent lacks the capability — every Claude
+session — never sees the panel: `/` is a character there, and nothing explains the difference. What
+the panel offers is what the device lists and no more: settings have their card and picker,
+lifecycle has its own frames, and nothing that only makes sense in a terminal is drawn.
+
 **Interrupt & send** is always a separate, explicit action, never the default. **Stop** is separate
 from Send and lives in the header, so no one stops a turn while reaching for the send button.
 Queued messages are listed and can be removed one at a time. A send whose outcome is unknown shows

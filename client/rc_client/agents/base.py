@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
-from ..models import UNSET, SpeedSetting
+from ..models import UNSET, Command, SpeedSetting
 
 TOOL_KINDS = (
     "shell",
@@ -93,3 +93,16 @@ class SessionRunner(Protocol):
     def supports_steer(self) -> bool: ...
 
     async def steer(self, text: str, block_id: str | None = None) -> bool: ...
+
+    async def commands(self) -> list[Command]:
+        """The slash commands this session offers right now; empty when none (A27)."""
+        ...
+
+    async def command(self, name: str, argument: str | None, block_id: str) -> None:
+        """Run one slash command on an idle session (A27).
+
+        The runner echoes it as a `user_message` under ``block_id`` with the
+        text the user typed (`/name argument`) and reports the outcome as
+        events. Raises `RcError("not_found")` for a name it does not offer.
+        """
+        ...
