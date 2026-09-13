@@ -42,7 +42,7 @@ Section 5 uses the amended field names throughout.
 | gateway | The VPS service. Authenticates users and devices, routes frames, indexes sessions, buffers events for replay, proxies speech-to-text and push. It never runs an agent and never holds model credentials. |
 | device | A developer machine running `rc-client`. It drives the locally installed agents and is the source of truth for session history. |
 | app | The web UI or the iOS app. Apps never talk to devices directly. |
-| agent | `"claude"` (Claude Code), `"codex"` (Codex CLI), `"grok"` (Grok Build), `"cursor"` (the Cursor agent CLI) or `"pi"` (the pi coding agent) (A25). The field is an **extensible string**: a UI that meets an unknown agent renders it generically, using the id as the label. |
+| agent | `"claude"` (Claude Code), `"codex"` (Codex CLI), `"grok"` (Grok Build) or `"pi"` (the pi coding agent) (A25, A26). The field is an **extensible string**: a UI that meets an unknown agent renders it generically, using the id as the label. |
 | session | One conversation with one agent on one device. `session_id` is device-local (for Claude it equals the Claude session id, for Codex the thread id). Global identity is the pair (`device_id`, `session_id`). |
 | block | One renderable unit in a session timeline. |
 | seq | Per-session, monotonically increasing integer assigned by the device to every session event. It survives device restarts and is the replay cursor. |
@@ -595,20 +595,20 @@ The agent and option arrays are shortened here; the fixture holds the full objec
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `agent` | string | yes | `claude`, `codex`, `grok`, `cursor`, `pi`, or a future id. Never assume a closed set. |
+| `agent` | string | yes | `claude`, `codex`, `grok`, `pi`, or a future id. Never assume a closed set. |
 | `available` | boolean | yes | False when the binary is missing or will not start |
 | `version` | string \| null | yes | |
 | `path` | string \| null | yes | Resolved binary path |
 | `models` | `LabeledId[]` | yes | Native model ids with human labels |
 | `default_model` | string \| null | yes | |
-| `permission_modes` | `LabeledId[]` | yes | See 4.3 for the ids each agent exposes. Empty for an agent with no permission system (pi, A25): an app then draws no permission picker and `session.set` refuses `permission_mode` with `unsupported` |
+| `permission_modes` | `LabeledId[]` | yes | See 4.3 for the ids each agent exposes. Empty for an agent with no permission system (A25): an app then draws no permission picker and `session.set` refuses `permission_mode` with `unsupported`. No shipped agent is empty today: pi's modes are the device's own, enforced by the extension it installs (A26) |
 | `default_permission_mode` | string \| null | yes | |
 | `efforts` | `LabeledId[]` | yes | Empty array when the agent has no effort levels |
 | `default_effort` | string \| null | yes | |
 | `speeds` | `LabeledId[]` | no | Speed tiers the agent can run a session at beyond its standard speed, for example Codex's `priority` ("Fast"); empty or absent when it has none (amendment A21) |
 | `capabilities` | string[] | yes | Subset of `worktree`, `takeover`, `interrupt`, `queue`, `steer`, `attachments`, `effort`, `history` |
-| `attach` | `channel` \| `daemon` \| null | no | How this agent's terminal sessions can be attached. `channel` is the Claude channel shim, `daemon` the Codex shared app-server. Null or absent means terminal sessions can only be taken over or resumed. |
-| `attach_ready` | boolean | no | Whether the device is prepared to attach: for Claude the `claude` shim is installed and on `PATH`, for Codex a handshake on the shared daemon socket succeeds. Apps use it only to word the hint on a `terminal` session. |
+| `attach` | `channel` \| `daemon` \| `extension` \| null | no | How this agent's terminal sessions can be attached. `channel` is the Claude channel shim, `daemon` the Codex shared app-server, `extension` an extension of the device's own that the agent loads into every one of its processes (pi, A26). Null or absent means terminal sessions can only be taken over or resumed. |
+| `attach_ready` | boolean | no | Whether the device is prepared to attach: for Claude the `claude` shim is installed and on `PATH`, for Codex a handshake on the shared daemon socket succeeds, for pi the device's extension is installed in pi's global extension directory at the current build. Apps use it only to word the hint on a `terminal` session. |
 | `shared_interrupt` | boolean | no | Whether the attachment can interrupt a running turn. `session.stop` on a `shared` session needs this **and** capability `interrupt`. False when absent. |
 | `shared_settings` | boolean | no | Whether `session.set` for `model`, `permission_mode`, `effort` and `speed` works on a `shared` session. False when absent. |
 | `shared_attachments` | boolean | no | Whether `session.send` attachments are delivered on a `shared` session. False when absent. |
@@ -628,8 +628,10 @@ nor change settings nor carry bytes. Codex reports `attach: "daemon"`, `attach_r
 WebSocket handshake on the shared daemon socket succeeds rather than merely because the socket file
 is there, and `shared_interrupt`, `shared_settings` and `shared_attachments` all true, because the
 shared app-server accepts interrupts, settings updates and image inputs from every attached client.
-`fixtures/objects/agent.claude-attach.json` and `fixtures/objects/agent.codex-daemon.json` are the
-two worked examples.
+pi reports `attach: "extension"` and the same three flags true, because the extension runs inside
+the pi process and can abort its turn, change its model and thinking level, and hand it images
+(A26). `fixtures/objects/agent.claude-attach.json`, `fixtures/objects/agent.codex-daemon.json` and
+`fixtures/objects/agent.pi.json` are the three worked examples.
 
 ### 4.3 Permission-mode ids exposed by the device
 
@@ -638,13 +640,12 @@ two worked examples.
 | Claude | `default` "Ask before edits", `acceptEdits` "Auto-accept edits", `plan` "Plan mode", `bypassPermissions` "Bypass permissions" |
 | Codex | `untrusted` "Ask for everything", `on-request` "Ask when needed", `never` "Never ask" |
 | Grok Build | `default` "Ask when needed", `acceptEdits` "Auto-accept edits", `auto` "Auto mode", `dontAsk` "Deny unless allowed", `plan` "Plan mode", `bypassPermissions` "Bypass permissions" (A25) |
-| Cursor | `default` "Ask when needed", `force` "Never ask", `plan` "Plan mode", `ask` "Ask, read only" (A25) |
-| pi | none: pi has no permission system, so `permission_modes` is empty (A25) |
+| pi | `untrusted` "Ask for everything", `on-request` "Ask when needed", `never` "Never ask". pi itself has no permission system; these are the device's, enforced by the extension it loads into every pi session it drives or is attached to. `on-request` asks before `bash`, `edit`, `write` and every tool that is not one of pi's built-in readers (`read`, `grep`, `find`, `ls`); `untrusted` asks before every tool; `never` is pi's own behaviour (A26) |
 
 Model ids are the agents' native ids. Effort ids are too: Claude's and Codex's reasoning
 efforts, Grok's `reasoning_effort` levels as its model catalogue lists them per model, and pi's
-thinking levels (`off` … `max`); Cursor exposes no separate effort. `fixtures/objects/agent.grok.json`,
-`agent.cursor.json` and `agent.pi.json` are the three worked examples of A25.
+thinking levels (`off` … `max`). `fixtures/objects/agent.grok.json` and `agent.pi.json` are the two
+worked examples of A25 and A26.
 
 ### 4.4 Session
 
@@ -2855,9 +2856,9 @@ by `block_id` like any other.
 ### 9.2 Device
 
 - [ ] Assigns `seq` per session, strictly increasing, persisted across restarts.
-- [ ] Reports every agent it knows how to drive — `claude`, `codex`, `grok`, `cursor`, `pi` — with
+- [ ] Reports every agent it knows how to drive — `claude`, `codex`, `grok`, `pi` — with
       `available: false` when the binary is missing, and drives a session of any of them through
-      the same frames (A25).
+      the same frames (A25, A26).
 - [ ] Emits `status` on every state change and `turn_started` / `turn_completed` around every turn.
 - [ ] Reports `readonly` only for a terminal-controlled session with no turn in progress, and
       `running` while a terminal-driven turn is working.
@@ -2921,8 +2922,9 @@ by `block_id` like any other.
 ### 9.3 App
 
 - [ ] Ignores unknown fields, unknown event kinds and unknown agent ids.
-- [ ] Labels `grok`, `cursor` and `pi` by name, draws no permission picker for an agent whose
-      `permission_modes` is empty, and no effort control for one whose `efforts` is empty (A25).
+- [ ] Labels `grok` and `pi` by name and by logo, draws no permission picker for an agent whose
+      `permission_modes` is empty, and no effort control for one whose `efforts` is empty (A25,
+      A26).
 - [ ] Signs in with a username and a password, offers registration only when `registration_open`,
       shows the signed-in account and its role, lets a `member` change its own password, and shows
       the accounts screen only to `admin` (A24).
@@ -3208,3 +3210,19 @@ empty lists mean, and the worked examples in `fixtures/objects/` show them. Grok
 over its ACP JSON-RPC and its terminal sessions are mirrored from the update log it keeps; Cursor
 is driven in its print mode one turn at a time, with approvals brokered by its hook; pi is
 driven over its RPC mode. See 1.1, 4.2, 4.3, 9.2 and 9.3.
+
+**2026-09-14 A26 — Cursor withdrawn; pi attaches, asks and takes images through an extension the
+device installs.** Two changes to A25, nothing else on the wire. First, `cursor` is no longer an
+agent id a device reports: the Cursor adapter is withdrawn until it can be exercised against a
+signed-in Cursor, so 1.1, 4.2 and 4.3 drop it and `fixtures/objects/agent.cursor.json` is gone.
+A UI that still meets the id renders it generically, as 1.1 has always said. Second, pi is no
+longer the agent with nothing to ask and no terminal presence. The device ships a pi extension —
+installed by `rc-client pi setup` into pi's global extension directory and loaded by the device
+into every session it starts — and that extension is what `attach: "extension"` names in 4.2: a
+pi session a person starts in a terminal registers itself with the device and is a `shared`
+session (4.4) that an app can read, write to, stop and re-model, exactly as a Codex TUI under the
+shared daemon is. The same extension gives pi the three permission modes of 4.3 by blocking a
+tool call until an app or the terminal answers, so `permission_modes` is no longer empty for pi
+and `approval` blocks appear on its sessions; pi's `prompt` takes images, so pi gains the
+`attachments` capability and `shared_attachments`. `fixtures/objects/agent.pi.json` is the worked
+example. See 1.1, 4.2, 4.3 and 4.4.

@@ -198,7 +198,6 @@ PATH_SCHEMAS = {
     "objects/agent.codex-daemon.json": ("objects.json", "AgentInfo"),
     "objects/session.codex-shared-running.json": ("objects.json", "Session"),
     "objects/agent.grok.json": ("objects.json", "AgentInfo"),
-    "objects/agent.cursor.json": ("objects.json", "AgentInfo"),
     "objects/agent.pi.json": ("objects.json", "AgentInfo"),
     "app/reply.session.create.json": ("app_frames.json", "ReplySessionCreate"),
     "app/reply.session.send.json": ("app_frames.json", "ReplySessionSend"),

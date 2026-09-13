@@ -14,8 +14,21 @@
     }
   ],
   "default_model": "anthropic/claude-sonnet-4-5",
-  "permission_modes": [],
-  "default_permission_mode": null,
+  "permission_modes": [
+    {
+      "id": "untrusted",
+      "label": "Ask for everything"
+    },
+    {
+      "id": "on-request",
+      "label": "Ask when needed"
+    },
+    {
+      "id": "never",
+      "label": "Never ask"
+    }
+  ],
+  "default_permission_mode": "on-request",
   "efforts": [
     {
       "id": "off",
@@ -40,12 +53,13 @@
     "interrupt",
     "queue",
     "steer",
+    "attachments",
     "effort",
     "history"
   ],
-  "attach": null,
-  "attach_ready": false,
-  "shared_interrupt": false,
-  "shared_settings": false,
-  "shared_attachments": false
+  "attach": "extension",
+  "attach_ready": true,
+  "shared_interrupt": true,
+  "shared_settings": true,
+  "shared_attachments": true
 }
