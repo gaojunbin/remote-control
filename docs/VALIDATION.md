@@ -1437,6 +1437,19 @@ and its socket and log removed, and `~/.grok/config.toml` was never changed. Not
 device daemon enrolled on a gateway joining a terminal `grok` end to end from a phone, the drift
 restart against a real drifted leader, and a second approval run.
 
+## 22. Dictation polish (2026-09-14, A29)
+
+The gateway's polish endpoints ran only against a fake provider (`httpx.MockTransport`) in the
+test suite: the models list with and without the `POLISH_MODELS` allowlist and the fallback when a
+provider serves no `/models`, the completion call with the two strengths' prompts, quote stripping,
+an empty answer and a timeout both answered as `502` `upstream`, `503` `unsupported` with the
+variables unset, `400` for an empty or over-long text, an unknown strength, too many or over-long
+context items and a model outside the allowlist, `429` past thirty requests a minute from one
+address, and `hello` / `GET /api/config` carrying `polish.enabled`; the three protocol fixtures
+decode as request and response bodies. 326 gateway tests. No real OpenAI-compatible provider was
+called, so the quality of the polish itself — how a given model applies "moderate" and "strong" —
+is unobserved; the web flow was driven in Chrome against the mock gateway's fake polish only.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

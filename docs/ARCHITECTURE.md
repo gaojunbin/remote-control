@@ -7,7 +7,7 @@ do. `protocol/PROTOCOL.md` is the normative contract; this document explains the
 
 | Component | Runs on | Owns |
 | --- | --- | --- |
-| `rc_gateway` | Your VPS, in Docker | Authentication, device enrollment, routing between apps and devices, the session index, a bounded replay buffer, the speech-to-text proxy, push, and serving the web app and the installer |
+| `rc_gateway` | Your VPS, in Docker | Authentication, device enrollment, routing between apps and devices, the session index, a bounded replay buffer, the speech-to-text proxy, dictation polish, push, and serving the web app and the installer |
 | `rc-client` | Every developer machine | Agent discovery, session lifecycle, the Claude, Codex, Grok Build and pi adapters, terminal-session mirroring and attaching, the full event history, and the local `seq` counter |
 | `web` | A browser | The four screens, live rendering of the block timeline, voice capture, Web Push |
 | `ios` | An iPhone | The same four screens natively, on-device or gateway dictation, APNs |
@@ -441,6 +441,30 @@ editable draft; sending is always a separate, explicit action.
 
 There is also a non-streaming `POST /api/stt/transcribe` for a recorded file. Both return `503`
 when `STT_PROVIDER` is `none`.
+
+## Dictation polish
+
+Speech is immediate, and a transcript of it is full of "um", second starts and references that made
+sense with the screen in front of the speaker — "the green blinking thing" for a session's pulsing
+status dot. Sent as-is it makes the agent guess. So the gateway can hold one more key of the
+operator's (A29): `POLISH_BASE_URL` and `POLISH_API_KEY` name an OpenAI-compatible provider, and
+with them set the gateway serves that provider's models at `GET /api/polish/models` and polishes a
+dictation at `POST /api/polish`. This is the only language model the gateway ever calls, it does so
+only when an app asks, and the request is the app's own words: the dictated text, the model and
+strength the user chose in Settings, a language hint, and up to twenty of the conversation's most
+recent user and assistant messages exactly as the app shows them. The gateway never reads a device's
+history for this, stores nothing from the call, and hands the answer back to the app alone — it is
+a draft in the composer, and sending it is still the person's action.
+
+Two strengths, fixed in the protocol so both apps and the prompt agree. *Moderate* removes fillers,
+false starts and repetitions, corrects what the recogniser plainly misheard, punctuates, and keeps
+the speaker's words and order. *Strong* also restructures for clarity and precision and resolves
+vague references from the conversation — the blinking thing becomes the term the conversation used
+— while adding no request the speaker did not make. Both answer in the language the text was spoken
+in and return text only; the gateway wraps the dictated text so a model cannot read it as an
+instruction. `hello` and `GET /api/config` carry `polish.enabled`, which is what lets an app show
+the setting or disable it with a note. Without the two variables everything about dictation is as
+it was.
 
 ## Push
 

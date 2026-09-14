@@ -230,11 +230,20 @@ RCVerify` checks the protocol fixtures with plain Command Line Tools and needs n
   Agent Client Protocol. Sessions started at the keyboard are shared: read, send, stop, re-model and
   approve from a phone, with the terminal drawing every turn; a session started from a phone
   reopens live with `grok --resume <id>`. `rc-client grok setup` turns the flag on in place.
+- **Dictation polish** — with `POLISH_BASE_URL` and `POLISH_API_KEY` set on the gateway, the apps
+  can pass a finished dictation through an OpenAI-compatible model together with the last few
+  messages of the conversation, so "the green blinking thing" comes back as the term the
+  conversation used and the fillers are gone. The switch, the model and the strength (moderate or
+  strong) are the user's own settings, off by default; the polished text is a draft with an Undo,
+  never sent by itself.
 - **Voice** — dictation through the gateway's speech-to-text proxy, streamed as 16 kHz PCM16 with
   live partial transcripts. iOS can use on-device recognition instead. The transcript is always an
   editable draft; sending stays a separate action.
 - **Notifications** — Web Push (VAPID) and APNs plumbing for approvals, questions, completed turns
-  and errors. Payloads carry no prompt or output text.
+  and errors. Payloads carry no prompt or output text. The iOS app also raises the same banner
+  itself while it is open — a turn that finished, an approval or a question waiting, an error — so
+  a phone left propped up on a running session is told without any APNs key on the gateway, and its
+  screen stays awake while a conversation is on it.
 
 ## Status and limitations
 

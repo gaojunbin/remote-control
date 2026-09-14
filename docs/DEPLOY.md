@@ -129,6 +129,10 @@ names the missing one.
 | `STT_API_KEY` | empty | Bearer token for that server. Not needed by most local servers |
 | `STT_MODEL` | `whisper-1` | Model name the backend expects |
 | `STT_LANGUAGES` | `auto,zh,en` | The languages offered in the composer's picker. `auto` lets the backend detect |
+| `POLISH_BASE_URL` | empty | OpenAI-compatible base URL for dictation polish (A29); the gateway calls `{POLISH_BASE_URL}/models` and `{POLISH_BASE_URL}/chat/completions`. Empty leaves the feature off and the apps show the setting disabled |
+| `POLISH_API_KEY` | empty | Bearer token for that provider. Both this and the base URL are needed to enable polish |
+| `POLISH_MODELS` | empty | Optional comma-separated allowlist of model ids: it narrows and orders the list the apps offer, stands in for a provider that serves no `/models`, and makes `POST /api/polish` refuse any other model with `400` |
+| `POLISH_TIMEOUT_SECONDS` | `20` | How long one polish request may take before the gateway answers `502` |
 | `APNS_TEAM_ID` | empty | Apple developer team id |
 | `APNS_KEY_ID` | empty | Key id of the APNs `.p8` signing key |
 | `APNS_KEY_PATH` | empty | Path to that `.p8` **inside the container** |
@@ -305,6 +309,26 @@ docker compose --profile local-stt up -d
 The first request downloads the model into the `stt-models` volume, which takes a while and needs
 disk. Neither this profile nor any other speech backend has been exercised: every validation run
 used `STT_PROVIDER=none`. See `docs/VALIDATION.md` and `docs/VALIDATION-APPS.md`.
+
+## Dictation polish
+
+Off until both `POLISH_BASE_URL` and `POLISH_API_KEY` are set. The provider is anything
+OpenAI-compatible — OpenAI itself, a proxy, or a local server on the compose network:
+
+```
+POLISH_BASE_URL=https://api.openai.com/v1
+POLISH_API_KEY=sk-…
+# POLISH_MODELS=gpt-4.1-mini,gpt-4.1     # optional: restrict the list the apps offer
+```
+
+With them set, `gateway ready` logs the polish provider, `GET /api/config` reports
+`polish.enabled: true`, and each user turns the feature on in their own app's Settings — it is off by
+default — choosing a model from the provider's list and a strength. What leaves the VPS when they do
+is the dictated text plus up to twenty of that conversation's most recent messages as the app shows
+them, sent to your provider with the operator's key; the gateway stores nothing from the call. A
+provider that is down or slow answers the app with `502`, and the dictation stays as it was spoken;
+more than thirty polish requests a minute from one address answer `429`.
+Only the polish feature uses this key: the gateway still runs no agent and holds no agent credential.
 
 ## Push notifications
 

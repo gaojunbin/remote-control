@@ -154,6 +154,38 @@ any draft — and no time limit; a long dictation is cut into segments whose tra
 order. Typing takes the field back and stops listening, keeping the words recognised so far. The mic
 is hidden entirely when the gateway reports `stt.enabled: false`.
 
+## Dictation polish (A29)
+
+A finished dictation can go through the model the gateway operator configured before the person
+reads it, on the person's own switch. The gateway says whether it can (`hello.polish.enabled`,
+kept in the connection store, `{enabled: false}` by default and on an older gateway), and the
+Settings page's Voice group offers three things only when it can: the switch "Polish dictation
+with AI", a model select filled from `GET /api/polish/models` when the group renders with the
+switch on (the first model is chosen when none was; a failed fetch keeps the select and shows one
+line), and a Moderate / Strong control. The footer says what leaves the browser and when: what was
+dictated and the last few messages of the conversation, sent to the gateway's model only while the
+switch is on. A gateway without the feature shows the switch disabled with "This gateway has no
+polish model configured". The three values live in the settings store per account
+(`polishEnabled`, `polishModel`, `polishStrength`).
+
+In the composer the words the recogniser produced land the instant dictation ends, exactly as
+before; the status line then reads "Polishing…" while `POST /api/polish` is out with the dictated
+span alone — the `dictation` bookkeeping already knows where it starts — the model, the strength,
+the dictation language and the open session's last twenty `user_message` / `assistant_text` blocks,
+oldest first, each trimmed to 4000 characters (`src/features/voice/polish.ts`, pure). The answer
+replaces only that span, never a character the person typed, and "Polished · Undo" sits under the
+field until the next edit or send; Undo puts the dictated words back. A failure leaves the words
+and shows "Polishing failed, your words are unchanged" for a few seconds. Send while polishing sends
+the words as dictated and drops the request, and a late answer is ignored. Nothing is ever sent by
+itself: polished text is a draft like any other.
+
+**The mock** reports `polish.enabled: true`, serves two models, and polishes with a 600 ms delay by
+dropping "um"/"uh", merging doubled words, capitalising and closing the sentence, so the whole flow
+can be watched; its speech-to-text final transcript carries fillers on purpose. Tests cover the pure
+helpers, the composer flow (success, failure, send while polishing, undo, both disabled cases), the
+settings group in both gateway states, the per-account keys and the three protocol fixtures. The
+flow was driven in Chrome against the mock at 1280 px and 400 px: the Voice group with the three
+controls, "Polishing…" in the status line, and "Polished · Undo" under the field.
 ## Push and the service worker
 
 `public/sw.js` is registered in production builds only. It is network-first for navigations,

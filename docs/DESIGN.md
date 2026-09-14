@@ -521,6 +521,58 @@ function owns the rule on each platform — `dotTone(state, control, online)` in
 `web/src/components/dotTone.ts`, `DotTone.of(state:control:online:)` in RCCore on iOS — and both are unit
 tested over the whole table.
 
+### Being told when a turn ends
+
+A session that was working and now is not — a finished turn (`idle`), an approval or a question it
+is waiting on (`needs_approval`, `needs_input`), or an error — is the one moment a person who
+walked away from the phone asked to be told about. The gateway's push already says so on a locked
+phone when its APNs key is configured. The iOS app now says the same thing itself while it is in the
+foreground: a system banner with a sound, raised from the session list it already holds the moment
+the transition arrives, so the alert appears whether or not the gateway can push, and on the very
+screen the person has left the phone open on. The words are the status vocabulary above — "Turn
+finished", "Needs your approval", "Waiting for your answer", "Errored" — under the device's name, and
+the payload is the push's own shape: identifiers and one generic sentence, never the agent's words.
+Tapping the banner opens the session. The Notifications switch in Settings is the one switch for
+both kinds, and the system permission it asks for covers both. A remote push for a transition the app
+has already announced is not shown a second time while the app is in the foreground and connected.
+Foreground only, by design: a suspended app cannot watch the stream, and the gateway's push is the
+channel that reaches a locked phone.
+
+### Polishing what you dictated
+
+Speech is immediate, and immediate speech is full of "um", repeated starts and references that made
+sense with the screen in front of you — "the green blinking thing" for a session's pulsing status
+dot. A transcript sent as-is makes the agent guess. When the gateway operator has configured an
+OpenAI-compatible model for it (a base URL and a key, nothing agent-related), the apps can pass a
+finished dictation through that model together with the recent conversation, and the model hands
+back the same request said cleanly (A29). The setting is the user's, off by default, and it lives in
+the Voice group of Settings on both apps: one switch, the model — chosen from the list the gateway
+serves — and a strength. **Moderate** removes fillers, false starts and repetitions, fixes what the
+recogniser plainly misheard, punctuates, and otherwise keeps the speaker's words and order.
+**Strong** also restructures for clarity and precision and resolves vague references from the
+conversation — "the green blinking thing" becomes the term the conversation used — while adding no
+request the speaker did not make. Both keep the language of the speaker and return text only.
+
+In the composer the words the recogniser produced land in the field the instant dictation ends, as
+they do today; the status line then reads "Polishing…" while the request runs, and the dictated span
+— never anything that was typed — is replaced when the answer arrives, with a small "Polished ·
+Undo" note under the field until the next edit or send. Nothing is sent by itself: polished text is
+still a draft the person reads before sending. Send while polishing sends the words as dictated and
+drops the request; a failure leaves the words as dictated and says so in one line. When the gateway
+has no polish service the switch is shown disabled with a note saying so, and dictation is untouched.
+The conversation the model sees is what the app already shows — the last few user and assistant
+messages, trimmed — and it goes to the operator's provider only when the switch is on, which the
+Settings footer says in plain words.
+
+### The screen stays awake in a conversation
+
+On the phone, while a conversation is on screen and the app is in the foreground, the idle timer is
+off: dictating a long message, or watching a turn run with the phone propped up, must never end
+because the screen locked on its own. The conversation is the unit, not the microphone — a person
+typing a long message or waiting for an answer sits in the same posture as one dictating. The list,
+Settings and every other screen leave the timer alone, and leaving the conversation or sending the
+app to the background restores it at once.
+
 | Tone | Looks | When |
 | --- | --- | --- |
 | `working` | green, pulsing | `starting`, `running` |
