@@ -1,18 +1,83 @@
-# AGENTS.md — remote-control
+# remote-control — working notes for future development
 
-这个仓库的定位是开发一个基于网关的AI agent coding远程控制功能，包括主流的codex，claude code等（后期会支持更多的agent），并且需要一个web和ios app，web/手机通过网关实现移动端的远程控制。核心目标是对标Claude APP内置的claude code remote control功能。本项目基于开源项目[cc-remote](https://github.com/muggle-stack/cc-remote)进行二次开发，但是需要只保留和取用核心转发功能，用户端的实际交互，以及agent的交互逻辑需要重新设计和实现。
+Remote control of terminal coding agents (Claude Code, Codex, Grok Build, pi) from a phone or a
+browser, through a gateway you host. Apps never talk to devices; the gateway routes everything.
+Four components, one frozen wire protocol. This file is the short list of what matters when you
+change any of it; the long form is under `docs/`.
 
-## 1. 项目目标
-本项目需要实现一个部署在vps的可以docker compose一键启动的网关和web界面，以及一个IOS app。主要是负责管理所有客户端和其agent的通讯，并且提供一个web界面用于管理和控制agent的运行状态。用户可以通过web/app界面选择不同的服务器上正在运行的/新建agent进行远程控制，并且可以在web界面上查看agent的运行日志和状态信息。 注意，虽然这是针对远程服务器TUI的信息同步和控制，但是应该跟ssh的交互方式不同，这应该是充分考虑交互逻辑(尤其是手机端)的GUI交互方式。同时要注意，客户端和用户端应该是不直接通信的，所有的交互都应该通过网关进行转发和管理(也就是本项目部署的vps)。
+## Layout
 
-同时，手机端和web应该共用一个网关，并且手机端的交互逻辑应该和web端保持基本一致(UI可以不一致，功能逻辑需要基本一致)，保证用户在不同终端的操作体验一致。
+| Directory | What | Toolchain (must be green before a commit) |
+| --- | --- | --- |
+| `protocol/` | The wire contract: `PROTOCOL.md`, JSON schemas, fixtures, validator | `cd protocol && uv run --with jsonschema python scripts/validate_fixtures.py` |
+| `gateway/` | FastAPI service on the VPS (`rc_gateway`), Docker Compose deployable | `cd gateway && uv run ruff check . && uv run ruff format --check . && uv run mypy rc_gateway tests && uv run pytest -q` |
+| `client/` | `rc-client`, the device daemon on every developer machine (`rc_client`), plus `install.sh` | `cd client && uv run ruff check . && uv run ruff format --check . && uv run mypy rc_client tests && uv run pytest -q` |
+| `web/` | React + TypeScript app the gateway serves, with a mock gateway for development | `cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build` |
+| `ios/` | SwiftUI app: `Sources/RCCore` (protocol, state), `Sources/RCUI` (screens), `App/`, `Verification*` | `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer swift run RCVerify && swift run RCUIVerify && swift test`, then `xcodegen generate` and the simulator build + UI tests (`docs/IOS.md`) |
+| `docs/` | `ARCHITECTURE`, `DESIGN` (UX rulings), `CLIENT`, `WEB`, `IOS`, `DEPLOY`, `VALIDATION`, `VALIDATION-APPS` | Keep them true; every round ends with a docs commit |
 
-## 2. 功能需求
-1. 支持linux和macOS客户端的一键安装(部署后的网关应该提供一键安装脚本，允许用户在客户端上执行安装脚本，自动安装和发现客户端已安装的agent)。
-2. 支持codex，claude code等主流agent的远程控制功能(后期会支持更多的agent)。
-3. 支持实时同步客户端上agent的执行状态(比如客户端在终端开启了一个codex，应该在web/ios端实时显示codex的运行状态和日志信息)，反之，用户在web/ios端对agent的操作也应该实时同步到客户端。
-4. 远程控制界面应支持类似于Claude APP内置的claude code remote control功能，用户可以在web/ios端对agent进行操作，包括但不限于发送文字指令，语音转文字功能(vps配置AI STT服务)，查看agent的回复，思考内容，工具调用，工具调用情况，子任务执行情况等。而且需要对部分输出的内容进行格式化显示，比如代码块，表格等，以及对部分输出内容进行高亮显示，比如错误信息，警告信息等，同时自动地折叠和展开部分输出内容，比如工具调用长结果等。
-5. 整体交互应该追求简介，核心受众群体是常用claude code， codex TUI的开发者，经常遇到开发中中途需要离开电脑的情况，需要在手机端继续操作agent的情况，所以应尽量做成类似于即时通讯工具的交互方式，简便快速。而不是复杂的ssh交互方式。
+## The protocol is frozen; change it by amendment
 
-## 3. 技术选型
-远程功能的核心技术应该参考现有的开源项目实现方案。用户交互应该重新设计和实现。
+`protocol/PROTOCOL.md` is v1 plus numbered amendments (A1…A30 so far, dated entries at the end). A
+change to the wire is an amendment: edit the section, the schema, the fixtures and the checklist,
+append the entry, run the validator, commit `protocol/` first, and only then let anyone implement
+it. Components consume the contract; nobody edits it mid-implementation. Apps stay agent-agnostic —
+they read `AgentInfo` capabilities and the five attachment fields, never the agent id.
+
+## Versions and compatibility
+
+- The gateway serves the web app, so web and gateway always match. The device client is updated
+  from the apps (`device.update`, the wheel the gateway serves, A22) or by re-running `install.sh`.
+- **The iOS app is installed separately, so the gateway states the oldest iOS app it still
+  supports** (`GET /api/config` and `hello` carry `apps.ios.minimum_version`, A31; the constant
+  `IOS_MINIMUM_APP_VERSION` in `gateway/rc_gateway/compat.py`, overridable with `IOS_MIN_APP_VERSION`).
+  An app below it shows a blocking "Update required" screen and does nothing else. **Rule for every
+  release: if the gateway and the iOS app change together and the new gateway no longer works with
+  an older iOS app, raise that constant in the same change**, and set `IOS_UPDATE_URL` on the
+  gateway to where the new build is (TestFlight or the App Store). Raise it only when compatibility
+  is really broken; an app one amendment behind must keep working when the amendment is additive.
+- Bump `MARKETING_VERSION` in `ios/project.yml` on every iOS release; the app compares it as
+  `major.minor.patch` against the gateway's minimum.
+
+## How agents are attached (why terminal sessions can be driven from a phone)
+
+| Agent | Mechanism | Setup on the device |
+| --- | --- | --- |
+| Claude Code | Channels: a `claude` shim adds `--dangerously-load-development-channels`; the device's MCP channel bridge injects messages and relays permission prompts (A10) | `rc-client shim install` |
+| Codex | The shared app-server daemon every bare `codex` runs inside; the device is a second client (`thread/resume` joins). The device starts and restarts the daemon itself (A11, round 20) | `rc-client codex setup` (installs the standalone build) |
+| Grok Build | Grok's leader process, joined with `agent agent --leader stdio`; `session/load` joins a TUI's session (A28). Needs `[cli] use_leader = true` in `~/.grok/config.toml`, edited in place | `rc-client grok setup` |
+| pi | The device's own extension copied into `~/.pi/agent/extensions/` (A26) | `rc-client pi setup` |
+
+`control` is `remote` / `terminal` / `shared` / `none`; `shared` is a live CLI the device is
+attached to. Details and the verified facts per agent: `docs/CLIENT.md`, `docs/ARCHITECTURE.md`.
+
+## Rules of the house
+
+- Everything in the repository is English: code, comments, docs, commit messages, UI strings
+  (with a zh-Hans translation for product strings). Conversation with the owner is Chinese.
+- Small focused functions and files. No version-suffixed names (`Foo2`, `handleNew`); change in
+  place. Delete replaced code outright — no compatibility shims, no "removed" comments.
+- Temporary files never in the repository root; use the session scratchpad. One-off scripts are
+  not committed.
+- The owner's dotfiles (`~/.grok/config.toml`, `~/.zprofile`, …) are often iCloud symlinks: edit
+  in place, never unlink/rename/replace. Anything that writes into a user's config must keep the
+  inode.
+- Commits go per component with an explicit pathspec (`git commit -- client`), never `git add -A`.
+- Parallel work: one owner per directory, contracts frozen first, subagents stop after two failed
+  attempts and report the failure. Reports are conclusion-first and at most 20 lines.
+- On this Mac `rm` is a safe-rm wrapper: use `/bin/rm -rf` in scripts and never chain `rm && …`.
+- The iOS signing team id lives only in the ignored `ios/Signing.local.xcconfig`.
+
+## Verifying against the real thing
+
+Live checks against real agents run in isolated homes (`CODEX_HOME`, `GROK_HOME`, a scratch pi
+home), with one-word turns, and clean up every process, socket and directory afterwards; the
+owner's real `~/.claude`, `~/.codex`, `~/.grok`, `~/.pi` are never written. Unix socket paths must
+stay under 104 bytes, so scratch homes go under a short directory. What was and was not verified is
+recorded per round in `docs/VALIDATION.md` (device and gateway) and `docs/VALIDATION-APPS.md` (apps).
+
+## Deploying
+
+VPS: `git pull && docker compose build && docker compose up -d` (`docs/DEPLOY.md`; `.env` reference
+there — STT, POLISH, APNS, VAPID). Devices: the app's Update action or `install.sh`. iOS: TestFlight
+from `ios/` (`docs/IOS.md`).
