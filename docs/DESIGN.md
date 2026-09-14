@@ -513,6 +513,20 @@ attached"** and takes the same dot as a session the device runs itself, because 
 it behaves the same way. `readonly` keeps its own label and stays reserved for a terminal session the
 device cannot reach.
 
+### Messages from other agents
+
+Claude Code puts words into a conversation that nobody typed: a teammate's report when one Claude
+session messages another, a background task's notification when a subagent finishes. The CLI files
+them as user turns, so a mirror that trusts the role shows them as something the person said at the
+keyboard — and a phone reads a wall of a teammate's JSON as its owner's own words. They are neither
+the person nor the assistant, and both apps say so (A30): such a message is a `user_message` with
+`source: "agent"`, drawn in the user's bubble shape but muted, with the caption "from another
+agent" where a terminal-typed one says "sent from the terminal", and the text reduced to what a
+person would want to read — who reported and what they said, or the task's summary — never the
+envelope, never a `<system-reminder>`. A turn such a message starts is triggered by `agent`, and the
+status line treats it as it treats a terminal-started turn. A subagent's result that comes back as
+a tool result is a tool row already, and nothing changes for it.
+
 ### The status dot
 
 The dot is not the state. A turn that finished and a CLI that exited both report `idle`, so the tone

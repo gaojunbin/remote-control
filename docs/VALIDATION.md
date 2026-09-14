@@ -1450,6 +1450,27 @@ decode as request and response bodies. 326 gateway tests. No real OpenAI-compati
 called, so the quality of the polish itself — how a given model applies "moderate" and "strong" —
 is unobserved; the web flow was driven in Chrome against the mock gateway's fake polish only.
 
+## 23. Words another agent put into a Claude conversation (2026-09-14, A30)
+
+The classifier was written against rows copied from this Mac's own Claude transcripts — the
+"Another Claude session sent a message:" envelope with its JSON body, a `<task-notification>` with
+summary and result followed by a `<system-reminder>`, a person's prompt with a reminder appended, a
+reminder-only row, and an `isMeta` channel echo — and then replayed over every transcript under
+`~/.claude/projects/-Users-junbingao-github-remote-control/` in a throwaway script: 215 teammate
+messages and 22 task notifications came out `agent`, all 141 human prompts stayed `terminal`, and
+the rows carrying `origin: {kind: "human"}` were what showed that "any origin kind but channel"
+would have been wrong. 934 client tests. Not verified: a live Claude session receiving a teammate's
+message while the device tails it (the replay was offline), and the SDK stream of a device-driven
+session delivering such a row.
+
+## 24. The gateway states the oldest iOS app it supports (2026-09-14, A31)
+
+Gateway tests only: the constant is a release version, seven malformed overrides and a non-`https`
+`IOS_UPDATE_URL` stop the gateway at startup with the variable named, `apps` appears in
+`GET /api/health` (without a credential), `GET /api/config` and `hello` with the fixtures' key set
+and validates against the schema with and without the URL. 342 gateway tests. The iOS side — the
+comparison and the blocking screen — is the next iOS round and is not verified here.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

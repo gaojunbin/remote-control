@@ -133,6 +133,8 @@ names the missing one.
 | `POLISH_API_KEY` | empty | Bearer token for that provider. Both this and the base URL are needed to enable polish |
 | `POLISH_MODELS` | empty | Optional comma-separated allowlist of model ids: it narrows and orders the list the apps offer, stands in for a provider that serves no `/models`, and makes `POST /api/polish` refuse any other model with `400` |
 | `POLISH_TIMEOUT_SECONDS` | `20` | How long one polish request may take before the gateway answers `502` |
+| `IOS_MIN_APP_VERSION` | the build's own constant | Overrides the oldest iOS app this gateway supports (`major.minor.patch`, A31). Normally left unset: the constant `IOS_MINIMUM_APP_VERSION` in `rc_gateway/compat.py` is raised in the release that breaks compatibility |
+| `IOS_UPDATE_URL` | empty | Where the "Update required" screen sends people: the TestFlight invitation or the App Store page, `https://` only |
 | `APNS_TEAM_ID` | empty | Apple developer team id |
 | `APNS_KEY_ID` | empty | Key id of the APNs `.p8` signing key |
 | `APNS_KEY_PATH` | empty | Path to that `.p8` **inside the container** |
@@ -329,6 +331,19 @@ them, sent to your provider with the operator's key; the gateway stores nothing 
 provider that is down or slow answers the app with `502`, and the dictation stays as it was spoken;
 more than thirty polish requests a minute from one address answer `429`.
 Only the polish feature uses this key: the gateway still runs no agent and holds no agent credential.
+
+## iOS app compatibility
+
+The web app is served by the gateway, so it can never be older than the gateway. The iOS app is
+installed on the phone, so the gateway says which is the oldest iOS build it still works with
+(`apps.ios.minimum_version` in `GET /api/health`, `GET /api/config` and `hello`, A31), and an app
+below that shows a full-screen "Update required" with its own version, the minimum, a button to
+`IOS_UPDATE_URL` and Sign out — nothing else until it is updated. The minimum is a constant in the
+gateway's source, `IOS_MINIMUM_APP_VERSION` in `rc_gateway/compat.py`, raised in the same release
+that stops supporting older apps and left alone for additive changes; `IOS_MIN_APP_VERSION` overrides
+it for one deployment when needed. When you raise it, publish the new iOS build first and set
+`IOS_UPDATE_URL` to where it is, then deploy the gateway, so nobody is told to update to a build that
+does not exist yet.
 
 ## Push notifications
 

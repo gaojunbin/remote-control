@@ -374,6 +374,28 @@ Two environment notes. A `claude` started from inside another Claude Code sessio
 the mirror can read. And a first run in a new directory shows a project-trust dialog that must be
 answered before anything is written.
 
+### What counts as the person's words
+
+Claude Code files more than the person's prompts as `user` rows, and a mirror that trusted the role
+showed all of them as terminal input. Three shapes are not the person (amendment A30). The message
+one Claude session sends another arrives as a string beginning "Another Claude session sent a
+message:" with a `<teammate-message …>` envelope around a JSON object; a background task's or
+subagent's notification arrives as `<task-notification>` with a `<summary>` and sometimes a
+`<result>`, its row marked `promptSource: "system"` and `origin: {kind: "task-notification"}` — a
+person's own prompt carries `origin: {kind: "human"}`, and that kind and `channel` are the only two
+that mean a person or this device; every other kind is another agent's; and
+`<system-reminder>…</system-reminder>` blocks are appended to rows of every kind, a real prompt
+included. `agents/claude/injected.py` classifies a user row before anything is published: the two
+envelopes become `user_message {source: "agent"}` with the text reduced to who reported and what
+they said — `<from>: <result>` for a teammate, the summary and result for a task — and the turn
+they start carries `trigger: "agent"`; every system-reminder is stripped wherever it appears, so a
+person's prompt that carried one keeps `source: "terminal"` without it, and a row that held nothing
+else produces no block. Rows the CLI marks `isMeta` — the echo of a message this device injected
+through its channel among them — and the `/command` rows stay out of the timeline as before, and a
+subagent's result that returns through the `Agent` tool is a `tool_call` row already. The same
+classifier runs on the SDK stream of a session this device drives, where the CLI hands the same rows
+over as user messages with string content.
+
 ### What the terminal chose
 
 A session a terminal holds takes no settings from an app, so the device reports what the terminal

@@ -924,6 +924,38 @@ in front of, from a plain command-line tool and from a signed bundle carrying
 at the machine. The rule is written so that it holds the transcript together whatever the recognizer
 is doing, because every path through it either extends, replaces or appends, and none discards.
 
+
+## The screen stays awake in a conversation
+
+`ChatView` is the one screen that switches the idle timer off, through the single
+`keepsScreenAwake()` modifier in `Sources/RCUI/Screens/ScreenAwake.swift`; the rule it applies is
+the pure `ScreenAwakeRule.awake(chatOnScreen:sceneActive:)` in RCCore — awake only while a
+conversation is on screen and the scene is active, restored the moment either stops being true. A
+counter, not a flag, tracks how many conversations are on screen, because opening a second one from
+a notification lays it over the first and their `onAppear`/`onDisappear` interleave; without it the
+timer would be handed back while a chat is still showing. Dictation lives inside the conversation,
+so a long dictation no longer ends with the screen locking on its own.
+
+## Alerts while the app is open
+
+The gateway's push says on a locked phone that a turn finished or an approval is waiting, when the
+operator configured APNs. The app now says the same thing itself while it is in the foreground:
+`TurnAlerts` (RCCore, pure) maps a session's transition to the gateway's own kinds — `idle` from
+`running`/`needs_approval`/`needs_input` is a finished turn, `needs_approval`, `needs_input` and
+`error` are themselves, a session seen for the first time is nothing — and `ConnectionStore` hands
+every `.sessionUpdated` to it with the previous and the new session (`onSessionTransition`).
+`TurnNotifier` (RCUI) posts a local notification through `SystemTurnAlerts` behind three gates: the
+scene is active, the Notifications switch is on, and the system authorization is granted. The title
+is the device's name, the body the status word — "Turn finished", "Needs your approval", "Waiting
+for your answer", "Errored" — and `userInfo` is the gateway's own push payload, so tapping the
+banner takes the existing `PushRoute` → `handle(link:)` path and opens the session. A remote push
+that arrives while the app is active and connected is presented with no banner, because the app has
+already said it; local ones always show. The Notifications switch now works in the demo too, since a
+local alert needs no gateway — and `PushController` no longer registers a device token when there is
+no gateway to hand it to (its status reads "On, in this app only"), so the demo still sends nothing
+anywhere. The switch is off by default: turning it on in Settings and granting the system permission
+is what makes the banners appear.
+
 ## Connection lifecycle
 
 **Launch shows the app, never the sign-in form, when there is an account.** `AppModel.isResuming` is
@@ -1043,7 +1075,8 @@ gateway address surviving a background, terminate and relaunch. Details in
 ## Not verified
 
 Everything beyond those four tests ran only against the offline demo: new session, add device, the
-directory picker, voice, push and slash commands — no command has been listed or run against a real
+directory picker, voice, push, the in-app turn banners (seen by eye in the simulator; a banner is
+SpringBoard's, not in the app's element tree, so no UI test asserts it) and slash commands — no command has been listed or run against a real
 device, so what the three agents really offer is the client's word rather than this app's. The pairing camera is the one piece with no coverage at all: a
 simulator has none, so the scan flow was driven through the injected stand-in and neither
 VisionKit's data scanner nor the `AVCaptureMetadataOutput` fallback has read a real QR code. Segment rollover is covered as a rule and against a fake backend,

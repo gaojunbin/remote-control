@@ -186,6 +186,18 @@ helpers, the composer flow (success, failure, send while polishing, undo, both d
 settings group in both gateway states, the per-account keys and the three protocol fixtures. The
 flow was driven in Chrome against the mock at 1280 px and 400 px: the Voice group with the three
 controls, "Polishing…" in the status line, and "Polished · Undo" under the field.
+## Messages from other agents (A30)
+
+A `user_message` whose `source` is `agent` — a teammate's report or a task notification the Claude
+CLI filed as a user turn, reduced by the device to who said what — keeps the user bubble's shape but
+takes the muted surface and ink tokens and the caption "from another agent" (`chat.fromAgent`; the
+terminal caption is `chat.fromTerminal`, "terminal", and both are translated now). `Trigger` is one
+exported union for `source` and `turn_started.trigger` — `remote | terminal | queue | agent` — and
+nothing in the stores switches on it beyond the type, so an `agent`-triggered turn behaves as a
+terminal one. The mock's terminal Claude session carries one such message so the two captions can
+be compared on one screen; the optimistic-send reconciliation only ever matches `source: "remote"`,
+so an agent row is never mistaken for the browser's own echo.
+
 ## Push and the service worker
 
 `public/sw.js` is registered in production builds only. It is network-first for navigations,

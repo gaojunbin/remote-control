@@ -218,6 +218,8 @@ RCVerify` checks the protocol fixtures with plain Command Line Tools and needs n
   than mirrored: you send messages into the live CLI, its permission prompts arrive as approval
   cards, and whichever side answers first wins. Nothing is killed and nothing is resumed. Takeover
   is still there for a terminal that was started without the shim, and still only while it is idle.
+  What a teammate or a background task put into the conversation — Claude Code files both as user
+  turns — is drawn as "from another agent", never as your own words (A30).
 - **Terminal Codex, attached without a shim** — a bare `codex` runs inside the machine's shared
   app-server daemon, and the device joins it as a second client. That attachment carries everything
   a remote session carries: send, steer the running turn, stop it, change the model, the permission
