@@ -189,6 +189,10 @@ RCVerify` checks the protocol fixtures with plain Command Line Tools and needs n
   app-server daemon, Grok Build over its ACP JSON-RPC, and pi over its RPC mode with an extension of
   the device's own loaded into every pi process. Every agent is normalised to one block timeline,
   so the UI has no agent-specific code paths, and each one is shown by its logo.
+- **Slash commands** — typing `/` in the web or iOS composer lists what the session's agent offers,
+  the way its terminal does: Codex's `/compact`, `/review`, `/init` and its status commands, pi's
+  prompt templates, skills and extension commands, Grok Build's shell-side commands and skills.
+  Claude Code has no command surface a channel can reach, so its sessions show no menu.
 - **Timeline** — streamed assistant Markdown, collapsible thinking, one-line tool rows that expand
   to input and output, diffs with per-file counts, todo snapshots, approval cards, question cards,
   turn markers and usage.

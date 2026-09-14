@@ -362,6 +362,30 @@ established — the device re-resumes and backfills on every reconnect precisely
 And the updater loop replaces the app-server under connected clients on a new release; what they see
 during that swap was never observed.
 
+## Slash commands
+
+A terminal offers its agent's commands the moment `/` is typed; the apps offer the same list on any
+session whose agent reports capability `commands` (amendment A27). The mechanics differ per agent
+and the protocol hides that: `session.commands` returns what the session offers now,
+`session.command` runs one, the device echoes it as a `user_message` under the request's id and
+reports the outcome as ordinary events.
+
+Grok Build advertises its list over ACP when a session opens (`available_commands_update`) and
+interprets a prompt that begins with a slash itself, so the device stores the list and hands the
+command over as the text of a turn; a shell-side command such as `/hooks-list` runs locally at zero
+tokens and answers in `assistant_text`. pi answers `get_commands` in RPC mode with its extension
+commands, prompt templates and skills, and expands a `/name` prompt before the turn; a terminal pi
+session gets the same through the device's extension, which asks pi to expand what it injects.
+Codex's app-server interprets nothing — a `turn/start` that begins with `/status` is a model turn
+about the literal text — so the device ships a fixed table and maps each entry to the method it
+stands for: `thread/compact/start`, `review/start`, and read-only methods whose answers become a
+`tool_call` block titled with the command. Claude's channel carries user text and nothing else, so
+Claude does not list the capability and the apps draw no menu for it.
+
+Three things are never commands: settings (`/model`, `/permissions`, `/fast`, `/thinking`) are
+`session.set`; lifecycle (`/new`, `/archive`, `/delete`) has frames of its own; terminal ergonomics
+(`/vim`, `/theme`, `/keymap`) change a terminal the app cannot see.
+
 ## Speech to text
 
 Voice is a stream, not an upload. The app opens `WS /ws/stt?language=…`, captures the microphone,

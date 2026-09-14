@@ -1285,6 +1285,60 @@ two devices attached to one pi; whether `abort` always settles, for which the de
 itself after sixty seconds. Each of those paths has a test against a fake extension client in
 `client/tests/test_pi_extension.py`.
 
+## 19. Slash commands from the apps (2026-09-14, A27)
+
+Each agent was probed twice: once to establish what is reachable at all (`recon/slash-commands.md`
+in the round's scratchpad), then again through the adapter as shipped. Every model turn ran in a
+scratch working directory outside the repository, and every thread, session and file created was
+removed afterwards.
+
+**Codex 0.154.0, the real shared daemon.** A `turn/start` whose input is `/status` ran an ordinary
+model turn answering the literal string, which is why Codex's list is a fixed table. Against a
+throwaway thread (`clientInfo.name` `rc-codex-commands-test`, deleted with `codex delete --force`):
+`thread/compact/start` produced the `contextCompaction` item that becomes the notice "Context was
+compacted; earlier turns are summarised."; `review/start {delivery: "inline"}` produced
+`enteredReviewMode`, the reviewer's own turn and `exitedReviewMode`, and the brief Codex feeds the
+reviewer as a `userMessage` was not mirrored as a bubble; `/init` sent the prompt read out of the
+binary behind a bubble that still reads `/init`; `/status` was exercised on a thread the daemon
+refused to resume, so its settings came from `thread/read` and its sandbox from `config/read`;
+`/usage` read `account/usage/read` and `account/rateLimits/read`; `/skills` listed 53 skills,
+`/mcp` 8 servers with 301 tools behind one of them, `/hooks` the configured hooks; `/diff` ran
+`git diff --stat`, `git diff` and `git ls-files --others --exclude-standard` through `command/exec`
+in the thread's cwd. Each information command arrived as one `tool_call` block titled with the
+command, opened `running` and replaced `succeeded`.
+
+**Grok Build 1.0.30, zero model turns.** A real session advertised 75 commands in its
+`available_commands_update`, of which the device lists 72 (13 built-in, 49 skills, 8 plugin
+commands, 2 workflows); `always-approve`, `context` and `statusline` are left out for the reasons
+`agents/grok/commands.py` states. `/hooks-list` sent as the text of `session/prompt` finished in
+4 ms, spent no tokens, echoed under the block id the device chose with `source: "remote"`, and its
+output arrived as `assistant_text` with a `turn_completed` carrying no usage. `/context` was
+accepted and produced nothing over ACP, which is why it is not listed. The list written to
+`~/.rc-client/state/grok-commands.json` read back identical to the one in memory.
+
+**pi 0.85.1, about half a cent on `xai/grok-4.3`.** In RPC mode `get_commands` listed 8 entries and
+`argument-hint` was read back from a template's file as `[note]`; a prompt of `/rc-global probe`
+was expanded into the template's body before the turn and the model answered `OK probe`; `compact`
+on a fresh session was refused with `Nothing to compact (session too small)`, which reached the
+device as `bad_request` in pi's words and produced no duplicate notice. In a terminal pi with the
+new extension installed, `commands` over the socket returned 7 entries, a `send` with `echo: false`
+produced no `input` frame, and a compaction the terminal ran was forwarded as
+`{"type": "compaction_end", "reason": "manual", "aborted": false}`. The extension was removed from
+`~/.pi/agent/extensions/` afterwards, so this Mac reports `attach_ready: false` for pi until
+`rc-client pi setup` runs again.
+
+**The apps.** Web: 457 tests, `tsc`, `eslint` and the production build; screenshots
+`shots/web-commands-{codex,filter,ran,pi-groups,grok,hint,running,mobile}.png` at 1280 px and
+400 px, driven against the mock gateway. iOS: 265 unit tests, RCVerify 1154 checks, RCUIVerify
+226 checks, 47 UI tests (4 skipped) on the iPhone 17 simulator; screenshots
+`shots/ios-commands-9{0..6}-*.png`. Neither app has listed or run a command against a real device
+yet: what the three agents offer is the client's word.
+
+Not verified: a Codex `/review` with custom instructions end to end (only the uncommitted-changes
+form ran a turn); a pi extension command that registers itself through `pi.registerCommand` being
+listed by `pi.getCommands()` on a TUI session with third-party extensions installed; Grok's list
+after a plugin or skill reload mid-session.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

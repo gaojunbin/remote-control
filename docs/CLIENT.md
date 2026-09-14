@@ -316,6 +316,18 @@ string, is read as "not a title" and never as an error. Nothing about the tail d
 format change costs the titles and nothing else. When several titles arrive in one read they are
 applied in order, which is what stops a generated title that lands after a rename from winning.
 
+## Slash commands
+
+`session.commands` and `session.command` (amendment A27) are answered by the hub and carried out by
+the agent's runner. The hub gates on the agent's `commands` capability, refuses a command on a
+`terminal` session with `conflict` as `session.send` would, resumes a `control: "none"` session
+first, refuses one while a turn is running with `conflict` ("wait for the turn to finish"), and
+remembers the request id so a retry is not run twice. The runner echoes the command as a
+`user_message` under the request's id and reports what happened as ordinary events. A session with
+no live process answers `session.commands` from the plugin's `commands(session)` — what the agent's
+files say without starting anything — or with an empty list when the plugin has none. The commands
+each agent offers, and how its runner carries them out, are in that agent's section below.
+
 ## Terminal sessions
 
 Every ten seconds the daemon scans for agent sessions it did not create:
@@ -525,6 +537,7 @@ A shared Codex session can do everything a remote one can, which is more than a 
 | Answer a question | Yes |
 | Change model, permission mode, effort or speed | Yes, `thread/settings/update` changes the thread for everyone attached to it |
 | Attachments | Yes. Images become image inputs; other files are written to disk and named in the prompt |
+| Run a slash command | Yes, for the nine the device maps to app-server methods; see "Slash commands" below |
 | Take over | No, `conflict`: the session is already attached |
 
 ### The speed tier
@@ -545,6 +558,59 @@ tier). Codex reports a thread that has never had a tier as `null` and one whose 
 `"default"`; both are the standard speed, which `Session.speed` spells as null. `thread/list` and
 `thread/read` carry no `serviceTier` at all in Codex 0.154, so a mirrored thread reports its tier
 from the moment the device attaches to it, not from the index.
+
+### Slash commands
+
+Codex's app-server interprets nothing that begins with a slash. Verified against the real daemon on
+2026-09-14: a `turn/start` whose input is `/status` runs an ordinary model turn that answers the
+literal string. So Codex is the one agent whose command list is a **fixed table written here**
+rather than something the agent is asked for, and every entry is a named method call. The table is
+the same whichever connection carries the session — the shared daemon or the device's own
+app-server — because `agents/codex/commands.py` is written against a `call(method, params)`
+coroutine that both provide, and it is the same for a session with no process at all, which is why
+`session.commands` can answer without waking anything.
+
+Descriptions are Codex's own words, read out of the TUI's `/` popup in the 0.154.0 binary, trimmed
+only where the terminal promises something an app does not get: `/usage` cannot spend a usage-limit
+reset from here, `/hooks` and `/skills` are read-only, and `/mcp verbose` is a terminal flag.
+
+| Command | What the device calls | What the apps see |
+| --- | --- | --- |
+| `/compact` | `thread/compact/start` | The compaction runs as a turn of its own; its `contextCompaction` item becomes the `notice` "Context was compacted; earlier turns are summarised." |
+| `/review` | `review/start` `{delivery: "inline"}`, target `uncommittedChanges` with no argument and `{type: "custom", instructions}` with one | The notices "Review started" and "Review finished" around the reviewer's own turn, then Codex's summary as `assistant_text` |
+| `/init` | `turn/start` with the TUI's canned AGENTS.md prompt | The bubble reads `/init`; the model reads the prompt |
+| `/diff` | `command/exec` for `git diff --stat`, `git diff` and `git ls-files --others --exclude-standard`, in the thread's cwd | One `tool_call` block titled `/diff`. `command/exec` answers with the output instead of appending an item, which is what keeps `/diff` from reading as something the agent did |
+| `/status` | Nothing, usually: the model, effort, speed, approval policy and sandbox all come back on `thread/start` and `thread/resume` and are kept current by `thread/settings/updated` | A `tool_call` block listing them with the cwd and the last token usage |
+| `/usage` | `account/usage/read` and `account/rateLimits/read` | A `tool_call` block: plan, each rate-limit window with its reset time, available limit resets, lifetime tokens, streak |
+| `/skills` | `skills/list {cwds: [cwd]}` | A `tool_call` block, one line per skill with its scope, disabled ones marked |
+| `/hooks` | `hooks/list {cwds: [cwd]}` | A `tool_call` block, one line per hook: event, handler, matcher, trust |
+| `/mcp` | `mcpServerStatus/list {threadId, detail: "toolsAndAuthOnly"}` | A `tool_call` block, one line per server: connection state, tool count, whether it needs signing in |
+
+Every information block is `tool_kind: "other"` with `tool` and `title` `/name`, opened `running`
+and replaced `succeeded` under a block id of its own, so the command's bubble and its output are two
+rows rather than one. Long output is capped at 16 KiB with `output_truncated` by the ordinary event
+bounds — a real `/skills` on this Mac listed 53 skills and a real `/mcp` 8 servers with 301 tools
+behind one of them.
+
+`/status` has one fallback each way. A thread the daemon refuses to resume — one whose first turn
+has not run, so it has no rollout — never told the session its settings, so the block fills them
+from `thread/read`; and a session that therefore never learned its sandbox reads `sandbox_mode` from
+`config/read`. Both were exercised against the real daemon.
+
+Two translations exist only so that a command's turn reads as a turn. `contextCompaction`,
+`enteredReviewMode` and `exitedReviewMode` are state changes rather than work, so they become
+one-line `notice`s instead of the `tool_call` blocks a terminal draws banners for. And `review/start`
+feeds the reviewer a `userMessage` item carrying the brief it was given — nobody typed it, so the
+translator drops user messages for as long as the thread is in review mode. Without that, every
+remote `/review` would put a paragraph beginning "Review the current code changes" on screen as if
+the user had sent it.
+
+Settings, lifecycle and terminal ergonomics are never listed, as A27 requires: `/model`, `/fast`,
+`/permissions` and `/name` are `session.set`; `/new`, `/archive`, `/delete` and `/resume` are frames
+of their own; and `/vim`, `/theme`, `/keymap`, `/copy`, `/pets`, `/raw`, `/cd` and `/pwd` change a
+terminal the apps cannot see. Codex's `/goal`, `/plan`, `/fork`, `/memories`, `/experimental` and
+`/ps` all have methods behind them and could be added, but each wants a surface of its own rather
+than a line of text in a block, so none is in the table yet.
 
 ### Which TUIs the daemon owns
 
@@ -762,11 +828,47 @@ Updates arrive under three method names — `session/update`, `_x.ai/session/upd
 | `plan` | `todos` |
 | `turn_completed` | `turn_completed`, with the turn's tokens and the real cost: `costUsdTicks` is USD at 1e10 ticks to the dollar. Grok reports one turn at a time, so the device accumulates the session total |
 | `model_changed`, `current_mode_update`, `config_option_update` | `meta` (amendment A17) |
-| `hook_execution`, `hook_run_started`, `available_commands_update`, everything else | nothing |
+| `available_commands_update` | the session's slash command list (see below); state, not an event |
+| `hook_execution`, `hook_run_started`, everything else | nothing |
 
 A tool's `rawOutput` also carries the raw bytes of a command's output as an integer array; only
 `output_for_prompt` and the text content blocks are published. `locations` has no field of its own in
 `tool_call`, so it rides inside `input`, the one open object an app already renders.
+
+### Slash commands
+
+Grok needs no table of our own: the agent pushes its whole command list over ACP as an
+`available_commands_update` the moment a session opens, and again whenever plugins or skills are
+reloaded. On this Mac a real session advertised **75 entries** — 15 built-in shell commands, 50
+skills, 8 plugin commands and 2 workflows — and running one costs nothing: `/hooks-list` as the text
+of `session/prompt` finished in 4 ms, spent no model tokens and answered in a single
+`agent_message_chunk`, which the translator already publishes as `assistant_text`. So
+`session.command` is the runner's own `send` path with the text `/name argument`, under the app's
+request id, and the turn that follows is an ordinary turn.
+
+`agents/grok/commands.py` maps the advertisement onto `Command` (§4.11):
+
+| From the agent | Becomes |
+| --- | --- |
+| `name` | `name`, if it matches the protocol's `^[a-z0-9][a-z0-9_:.-]*$`; an entry that does not is dropped, because an app could neither filter it nor send it back |
+| `description` | `description`, collapsed to one line of at most 160 characters — a Grok skill's own description runs to a paragraph of trigger phrases, and a composer row has one line |
+| `input.hint` | `argument`, capped at 80 characters the same way |
+| `_meta` | `group`: no `_meta` at all is `Built-in`, `workflowSource` is `Workflows`, `pluginName` is `Plugins`, and a bare `scope` is `Skills` |
+
+Three advertised names are never listed, each for a reason the protocol already gives:
+
+| Name | Why not |
+| --- | --- |
+| `always-approve` | Toggles "skip all permission prompts". Permission modes are `session.set`, and A27 says a device never gives a phone two controls for one thing — least of all one tap from approving everything |
+| `context` | Verified against the real agent: the turn ends in 10 ms having emitted no update at all, because the TUI renders it in its own pager. `/session-info` is the one that does answer over ACP, and it is listed |
+| `statusline` | Configures the Grok Build status line, a terminal surface no app draws |
+
+The last list is kept in `~/.rc-client/state/grok-commands.json` and rewritten only when it changes,
+so the plugin's module-level `commands(session)` can answer `session.commands` for a session with no
+live process, across a restart of the daemon. A session that has opened but whose advertisement has
+not landed yet — it is a notification, so it can lag the session by a beat — answers from the same
+file. `command()` refuses a name that is not in the list it just answered with, which is what keeps
+an unknown `/foo` from reaching the model as literal text.
 
 ### Terminal sessions
 
@@ -881,9 +983,11 @@ JSONL, LF only, one object per line. Both ends are ours, so the vocabulary is cl
 | From the device | Carries |
 | --- | --- |
 | `welcome` | the session's permission mode, and whether this link should stream events |
-| `command` `send` | text, `block_id`, optional `images`, optional `deliver: "steer"` |
+| `command` `send` | text, `block_id`, optional `images`, optional `deliver: "steer"`, optional `expand` and `echo`. `expand` lets pi dispatch an extension command and expand a skill command or a prompt template before the turn; `echo: false` drops the `input` frame for that one injection, because the device has already drawn its bubble (A27) |
 | `command` `abort` | `ctx.abort()` |
 | `command` `set_model`, `set_thinking`, `set_permission_mode` | live setting changes |
+| `command` `commands` | `pi.getCommands()`: the extension commands, prompt templates and skills this session offers (A27) |
+| `command` `compact` | `ctx.compact()`, answered when the compaction finishes or when pi refuses it (A27) |
 | `command` `stats` | the session's totals, summed from the branch, in the shape `get_session_stats` returns |
 | `answer` | an app's decision on an `ask` |
 
@@ -913,6 +1017,42 @@ In a terminal session the extension opens pi's own dialog as well and races it a
 resolves in the apps as `elsewhere`. In an RPC session there is no terminal at all, so the question
 goes to the daemon alone — calling `ctx.ui` there would make pi raise a second copy of it through
 its extension UI protocol.
+
+### Slash commands
+
+pi calls three things commands — the prompt templates and the skills it finds on disk, and the
+commands an extension registers — and lists all three the same way: `get_commands` on an RPC child,
+`pi.getCommands()` inside the extension for an attached terminal. Neither list carries any of pi's
+own TUI commands, and that is deliberate on pi's part: its documentation says they are handled only
+in interactive mode and would not execute if sent as a prompt, and a probe confirms it — `/session`
+reaches the model as literal text. So the device offers exactly one built-in of its own, `compact`,
+which pi exposes as a command rather than as text, and groups the rest as `Extensions`, `Prompts`
+and `Skills`.
+
+Running one takes one of two paths. `compact` is pi's own call — the `compact` command on an RPC
+child, `ctx.compact()` through the extension on an attached one — and its refusal is the app's
+error: "Nothing to compact (session too small)" comes back as `bad_request` carrying pi's words.
+Everything else is sent as the text of a turn, `/name argument` exactly as it was typed, and pi
+expands it: a prompt template becomes its body with the arguments substituted, a skill command loads
+the skill, an extension command runs outright without any turn at all. That last case is why the
+device draws the bubble itself and opens no turn: pi raises no `input` event for an extension
+command and starts no run, so a turn opened here would never end. The turn, when there is one, opens
+on `agent_start` like a turn somebody typed in the terminal.
+
+pi's list carries no argument hint — only a name, a description and where the entry was loaded from
+— while the terminal's own `/` menu shows one. The device closes that gap by reading `argument-hint`
+back out of the file the entry names, which is a file on this machine. A command with no file of its
+own, such as pi's bundled llama.cpp extension, reports a `<inline:…>` placeholder instead of a path
+and simply gets no hint. A name that could not survive the protocol's `Command.name` pattern is
+dropped rather than offered, and a description longer than one row is cut, because some skills write
+a paragraph of trigger words.
+
+A session with no live process is answered from disk, and it is answered the way that session would
+actually be resumed. `pi --mode rpc --no-approve` makes pi ignore the working directory's own `.pi`,
+so only the global directories count: `~/.pi/agent/prompts/*.md` non-recursively, and the skills
+under `~/.pi/agent/skills` and `~/.agents/skills`, walked pi's way — a directory holding `SKILL.md`
+is one skill and is not descended into. A project's own templates are never promised, because a
+resumed session would not have them.
 
 ### Terminal sessions
 
@@ -954,7 +1094,7 @@ message cleared out of it counts as never read.
 | `message_end` with `stopReason: "error"` | an `error` event carrying pi's own message |
 | `agent_start` | the turn, when nobody here opened one — a prompt typed in the terminal, or a retry pi began on its own |
 | `queue_update` | not published. It is how a steered message's bubble is placed (above) |
-| `compaction_end`, `auto_retry_start` | `notice` |
+| `compaction_end`, `auto_retry_start` | `notice`. An attached terminal has no `compaction_end` of pi's own, so the extension makes one out of `session_compact`, which is how an app learns that a compaction the terminal ran — typed or automatic — happened at all. A compaction an app asked for and pi refused publishes no notice: that refusal is already the reply to `session.command` |
 | `agent_settled` | `turn_completed` |
 | `turn_start`, `turn_end`, `agent_end`, `bash_execution_update`, everything else | nothing |
 
@@ -991,6 +1131,10 @@ running binary accepts. Any other attachment is refused with `unsupported` rathe
   higher reports the level pi actually settled on.
 - **Whether `abort` always settles.** The turn is ended on `agent_settled`; if it does not arrive
   within sixty seconds of the abort, the device ends the turn itself with a warning.
+- **A prompt template or skill a project holds is invisible to a session this device starts.**
+  `--no-approve` is what keeps a remote session from running code checked into the repository, and
+  project-local prompts and skills are part of what it withholds. An attached terminal pi whose
+  project the person trusted does list them, and running one from an app works.
 - **A second device on the same machine** would install the same extension at the same path and
   both would be dialled, one socket each. Nothing shares a session between them.
 
