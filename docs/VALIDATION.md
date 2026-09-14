@@ -1339,6 +1339,48 @@ form ran a turn); a pi extension command that registers itself through `pi.regis
 listed by `pi.getCommands()` on a TUI session with third-party extensions installed; Grok's list
 after a plugin or skill reload mid-session.
 
+## 20. The device brings the Codex daemon up itself (2026-09-14)
+
+Three reports from other machines — Codex installed with npm, Codex upgraded, npm swapped for the
+curl build — turned out to be one missing daemon. Everything below ran on this Mac in isolated
+`CODEX_HOME` directories with Codex 0.154.0, 0.153.0 and 0.145.0; the real `~/.codex` daemon was
+never stopped, restarted or bootstrapped, and `codex app-server daemon version` on the real home
+reported the same three versions and `status: running` before and after.
+
+**What Codex does.** A bare standalone TUI with no daemon reached its prompt and exited 35 s later
+with the control socket still absent: it never starts the shared daemon. An npm-launched TUI
+(`@openai/codex@0.154.0` in a local prefix) joined a running daemon like any other, adding its
+thread to `thread/loaded/list`; the npm build cannot run any `daemon` subcommand against a home with
+no `packages/standalone` (exit 1). A daemon on 0.153.0 kept serving after 0.154.0 was installed over
+it and a 0.154.0 TUI joined it anyway, as did one across a nine-minor gap (daemon 0.145.0, CLI
+0.154.0); `daemon start` answered `alreadyRunning` and left the drift, `daemon restart` cleared it in
+one step, and `daemon version` was the only place it showed. `codex update` is `curl … | sh` in a
+wrapper: the daemon's pid file was byte-identical before and after. `daemon start` alone, with no
+bootstrap and no supervision, brought the daemon up in 0.33 s and a bare TUI then joined.
+
+**What the device does now.** In a lab home with the standalone installed and the socket absent,
+one `tick()` of `CodexDaemonService` ran `daemon start`, the socket appeared, `ready` went true and
+the handshake succeeded; the supervision step was stubbed as "loaded" so no launchd job was written
+under the lab, and that path is covered by unit tests. The `start`, `restart` and `version`
+wrappers parsed the real daemon's JSON. The official installer was run twice into lab homes, once
+plainly and once the way `codex setup` now runs it — `HOME` pointed at a throwaway directory,
+`CODEX_HOME` and `CODEX_INSTALL_DIR` pinned — and the two trees were identical apart from a per-run
+temporary directory name; the `# >>> Codex installer >>>` block landed in the throwaway home and
+the checksum of the real `~/.zprofile` did not change.
+
+**Two installer facts that changed the code.** The installer appends to a shell profile whenever
+another `codex` is on PATH, whatever else is true, and it classifies the standalone build itself as
+npm-managed because the binary embeds `#!/usr/bin/env node` in a bundled docs script — so on any
+machine that already has Codex the rewrite happens, and the old "`~/.local/bin` is on PATH"
+condition in `setup.py` never prevented it. During the research an installer run did repoint the
+real `~/.local/bin/codex` and `codex-code-mode-host` into a lab home and append to `~/.zprofile`;
+both were restored the same hour, which is the incident the throwaway `HOME` exists to prevent.
+
+Not verified: the restart path against a real drifted daemon with our device connected (the drift
+was produced and cleared by hand in the lab; the device's own restart was exercised against fakes),
+and the systemd variant of supervision-from-the-daemon on Linux. Unexplained and unrepeated: during
+the 0.145.0 sequence the `current` symlink once moved back to 0.154.0 on its own.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

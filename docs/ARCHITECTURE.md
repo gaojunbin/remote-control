@@ -331,9 +331,24 @@ an option the block offered, `elsewhere` included in the refusal, so an app can 
 If the socket is missing or does not answer, the device falls back to what it did before: one
 `codex app-server` process per session, spawned by the device, with terminal Codex sessions mirrored
 from their rollout files and left at `control: "terminal"`. The agent keeps reporting
-`attach: "daemon"` with `attach_ready: false`, which is what the apps' existing hint is for. The
-socket is re-probed on the ordinary ten-second scan, so bootstrapping the daemon later switches the
-mode without restarting the device daemon.
+`attach: "daemon"` with `attach_ready: false`, which is what the apps' hint is for. But the device
+does not wait for somebody else to bring the daemon up, because nobody else ever does: a bare Codex
+TUI runs its app-server embedded and joins the shared daemon only if it is already there, verified
+on 2026-09-14. So on the same ten-second scan the device runs `codex app-server daemon start` itself
+whenever the standalone build is installed and the socket is not answering — idempotent, a third of
+a second, rate-limited, never downloading — installs its supervision once if the machine has none,
+and connects the moment the socket answers, publishing `agents.updated` so the apps drop the hint.
+The one thing it never does from the background is install Codex: that stays in
+`rc-client codex setup`, where a person asked for it. This is what closed three reports at once — a
+device whose Codex came from npm, one that had upgraded Codex, and one enrolled under npm and later
+switched to the curl build — all of which were the same missing daemon.
+
+An upgrade has a second effect. `codex update` replaces the build on disk and leaves the running
+app-server alone, so the daemon serves an older version than the CLI until something restarts it;
+TUIs join it anyway, and only `codex app-server daemon version` shows the drift. Every fifteen
+minutes the device asks, and when the versions differ it runs `daemon restart` — only when no turn it
+drives is running and no terminal is attached to a daemon thread, because a restart drops every
+subscriber — then reconnects and backfills as it does after any drop.
 
 There is no rule about how to start Codex. Some flags make the CLI spawn its own embedded
 app-server, invisible to the shared daemon and unattachable — `-c` does on 0.154, verified on
@@ -349,8 +364,9 @@ Codex's own `daemon bootstrap` reports `backend: "pid"`: it starts the app-serve
 updater loop, and installs no launchd job and no unit, so nothing brings it back after a reboot. The
 device therefore supplies its own supervision — a launchd agent `dev.remote-control.codex-daemon` on
 macOS, an `rc-codex-daemon.service` user unit on Linux — each running the idempotent
-`codex app-server daemon start`. `rc-client codex setup` does the bootstrap and the supervision;
-`rc-client codex status` verifies with a handshake rather than a file test. Details are in
+`codex app-server daemon start`. `rc-client codex setup` installs the standalone build when it is
+missing, does the bootstrap and the supervision; `rc-client codex status` verifies with a handshake
+rather than a file test and reports the two versions. Details are in
 [`docs/CLIENT.md`](CLIENT.md#codex-on-the-shared-daemon).
 
 Four things about the daemon are known to be untested, and all four are properties of Codex rather

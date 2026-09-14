@@ -633,11 +633,13 @@ effort and speed pickers.
 
 ### Setup
 
-`install.sh` runs `rc-client codex setup` unless you pass `--no-codex`. It is idempotent:
+`install.sh` runs `rc-client codex setup` unless you pass `--no-codex`. It is idempotent, and it is
+the only thing in this project that downloads anything:
 
 1. Find the standalone Codex at `~/.codex/packages/standalone/current/bin/codex`. **Only that path
    counts.** An npm or Homebrew `codex` earlier on `PATH` is the same CLI but not the install the
-   daemon manages, and step 2 refuses to run without the standalone one whichever build invokes it:
+   daemon manages, and every `daemon` subcommand refuses to run without the standalone one whichever
+   build invokes it:
 
    ```
    Error: managed standalone Codex install not found at
@@ -647,44 +649,59 @@ effort and speed pickers.
    daemon starts and updates app-server from that fixed path.
    ```
 
-   If it is missing and `~/.local/bin` is already on `PATH`, download
-   `https://chatgpt.com/codex/install.sh` to a temporary file, check that it really is a shell
-   script, and run it with `CODEX_NON_INTERACTIVE=1`. Otherwise print the two commands to run by
-   hand and stop. The condition matters: Codex's own installer rewrites a shell profile when its
-   target directory is not on `PATH`, which would replace a symlinked dotfile with a regular file.
-   `CODEX_HOME` and `CODEX_INSTALL_DIR` move both of those directories, and are read here for the
-   same reason the installer reads them.
+   If it is missing, download `https://chatgpt.com/codex/install.sh` to a temporary file, check that
+   it really is a shell script, and run it with `CODEX_NON_INTERACTIVE=1`, `CODEX_HOME` and
+   `CODEX_INSTALL_DIR` pinned to the real directories, and **`HOME` pointed at
+   `~/.rc-client/state/codex-installer-home`**. That last one is the interesting part. Codex's
+   installer appends a `# >>> Codex installer >>>` block to a shell profile whenever it finds
+   another `codex` on `PATH`, whatever else is true — `add_to_path` returns early only when the
+   target directory is on `PATH` *and* no other install was detected — and it reads the standalone
+   build itself as npm-managed, because it greps the candidate for `#!/usr/bin/env node` and the
+   standalone binary embeds that string in a bundled docs script. So on any machine that already has
+   Codex the rewrite happens; `HOME` is the only thing that decides which file it writes, and the
+   dotfiles here are symlinks that a rewrite would replace with a regular file. Confining it to a
+   home of ours is what makes the install safe to run unattended. Nothing is prompted
+   (`CODEX_NON_INTERACTIVE=1` makes every `prompt_yes_no` answer no, including the offer to
+   `npm uninstall -g @openai/codex`), and the layout produced this way is identical to a plain run:
+   the two trees differ only in the name of a per-run temporary directory. If `~/.local/bin` is not
+   on `PATH` afterwards, `setup` prints one line — `export PATH="~/.local/bin:$PATH"` — and writes
+   nothing.
 2. `codex app-server daemon bootstrap` **on the standalone binary**, never `--remote-control`, and
    never on whatever `PATH` resolved. Remote control enrols the machine with OpenAI's relay, which
    this project does not use, and the device only ever logs the `remoteControl/status/changed` it
-   receives.
+   receives. The bootstrap is not what makes a TUI join — `daemon start` alone is enough, and takes
+   0.33 s — but it is what a machine set up by hand ends up with, and it is harmless to repeat.
 3. Install supervision on the same standalone binary, because the bootstrap uses a pid backend and
    leaves none: a launchd agent `dev.remote-control.codex-daemon` on macOS, a
    `rc-codex-daemon.service` systemd user unit on Linux. `codex app-server daemon start` is
    idempotent and returns immediately, so both run it at login and again every five minutes rather
-   than trying to hold a process open. On Linux run
-   `loginctl enable-linger $USER` so it survives logging out.
+   than trying to hold a process open. On Linux run `loginctl enable-linger $USER` so it survives
+   logging out.
 4. Verify with a real WebSocket handshake on the socket, not a file-exists check.
 
 `rc-client codex status` prints the standalone binary the daemon commands use, what `codex` on
-`PATH` resolves to, whether the socket is there, whether it answers, and the state of our
-supervision. When those first two are different installs it adds a warning, which `install.sh`
-prints too:
+`PATH` resolves to, whether the socket is there, whether it answers, the two versions involved, and
+the state of our supervision:
 
 ```
-warning: PATH resolves codex to /opt/homebrew/bin/codex, not the standalone build; terminal
-sessions started with it may not join the shared daemon.
-  Remove it (npm uninstall -g @openai/codex, or brew uninstall codex) or put
-  /Users/you/.local/bin first on PATH.
+daemon binary       /Users/you/.codex/packages/standalone/current/bin/codex
+codex on PATH       /Users/you/.local/bin/codex
+daemon socket       /Users/you/.codex/app-server-control/app-server-control.sock
+socket present      yes
+handshake           ok
+app-server version  0.154.0
+installed version   0.154.0
+supervision         loaded
 ```
 
-The comparison is by realpath, because the standalone build is normally reached through two
-symlinks. `rc-client status` carries the same warning in its one-line summary: `codex daemon
-healthy (loaded); warning: foreign codex on PATH`.
-
-Removing a Codex install is always yours to do — this tool never uninstalls one.
-`rc-client uninstall` removes our launchd agent or unit and leaves Codex, its daemon and its
-sessions completely alone.
+A `codex` on `PATH` from another build is reported and nothing more. It used to carry a warning that
+terminal sessions started with it "may not join the shared daemon"; that was a guess, and it was
+wrong. An npm-installed TUI joins the shared daemon exactly like the standalone one — verified by
+watching `thread/loaded/list` grow while one ran. What an npm-only install does lack is
+`$CODEX_HOME/packages/standalone`, without which no `daemon` subcommand will run at all, which is
+why step 1 installs the standalone build rather than asking anyone to remove anything. Removing a
+Codex install is always yours to do — this tool never uninstalls one. `rc-client uninstall` removes
+our launchd agent or unit and leaves Codex, its daemon and its sessions completely alone.
 
 ### How the device uses it
 
@@ -780,12 +797,59 @@ foreign work never appears on either path.
 
 ### When there is no daemon
 
-If the socket is missing or does not answer, the device falls back to today's behaviour: one
-`codex app-server` process per session, spawned by the device, with terminal sessions mirrored from
-their rollout files. The agent still reports `attach: "daemon"` but with `attach_ready: false`, which
-is what the apps' hint text is for. The socket is re-probed on the ordinary ten-second scan, so
-bootstrapping the daemon later switches the mode without restarting the device; sessions already
-discovered keep the runner they have until they are next resumed.
+**Nothing else on the machine ever starts the shared daemon.** A bare `codex` TUI does not: with the
+socket absent it runs its app-server embedded and never touches the control socket, verified by
+watching a TUI reach its prompt and exit with the socket still absent throughout. So a device whose
+daemon is not running would stay on rollout mirroring for ever — every terminal Codex
+`control: "terminal"`, takeover only — and nothing the person did in the terminal would change it.
+That is the same defect behind all three reports it came from: a machine where Codex was installed
+with npm (no standalone, so `daemon start` exits 1 and `codex setup` never left a daemon behind), a
+machine that upgraded Codex (the upgrade leaves no daemon running), and a machine enrolled under npm
+and later switched to the curl build (the standalone appeared, but nothing looked again).
+
+So the device does it itself, on the same ten-second scan that reconciles the thread index:
+
+- Socket absent, or present and not answering, and the standalone build is there: run
+  `codex app-server daemon start` and connect. It is idempotent, returns `alreadyRunning` when the
+  daemon is already up, and takes about a third of a second. At most once a minute; after three
+  consecutive failures, once every ten minutes, with Codex's own message logged once rather than
+  once a minute.
+- If the machine has no supervision at all (`status()` is "not installed" — a device enrolled before
+  the daemon existed, or one whose setup step failed), install it, once per device start.
+- Nothing is ever downloaded here. Installing Codex stays in `rc-client codex setup`, where somebody
+  asked for it.
+- A device pointed at a socket of somebody else's choosing (`RC_CODEX_DAEMON_SOCKET`) starts
+  nothing: `daemon start` only ever creates the socket under `CODEX_HOME`, so that socket is not
+  ours to bring up.
+
+When the daemon does come up, `_on_mode_change` publishes `agents.updated` and the apps drop the
+attach hint without anyone running anything. Until then the device falls back to today's behaviour:
+one `codex app-server` process per session, spawned by the device, with terminal sessions mirrored
+from their rollout files, and the agent reporting `attach: "daemon"` with `attach_ready: false`.
+Sessions already discovered keep the runner they have until they are next resumed.
+
+### When the daemon is out of date
+
+`codex update` is a thin wrapper around the installer: it replaces the build on disk and leaves the
+running app-server alone, printing "Please restart Codex", which means the TUI, not the daemon. So a
+machine that upgrades keeps serving the old app-server indefinitely — our own five-minute
+`daemon start` nudge returns `alreadyRunning` and never clears it. This costs nothing while it
+lasts: TUIs join a drifted daemon perfectly well, verified across a nine-minor gap (daemon 0.145.0,
+CLI 0.154.0), and neither the TUI nor the daemon says a word about the mismatch.
+`codex app-server daemon version` is the only place it is visible at all, as `appServerVersion`
+against `managedCodexVersion`, and `daemon restart` is the only thing that clears it.
+
+Every fifteen minutes while connected, the device asks. When the two versions differ it restarts the
+daemon — but only when nobody is in it, because a restart drops every subscriber: no session this
+device drives may be mid-turn, no daemon thread may have a terminal in it, and the terminal scan
+must have completed (an incomplete scan is not permission). Otherwise it logs once and asks again
+next time. The existing reconnect path resumes and backfills every followed thread afterwards, so
+the restart costs nothing visible. `rc-client codex status` says `drifted; restart pending` on both
+the version line and its one-line summary while that is true.
+
+The model catalogue follows the build too: it is cached per binary by real path, and
+`packages/standalone/current` is a symlink into a per-version release directory, so an upgraded Codex
+asks under a name of its own and never gets the old answer.
 
 ### `RC_CODEX_THREAD_CONFIG`
 
@@ -1291,16 +1355,9 @@ and Codex out of step.
 - The process scan runs about every ten seconds, so a very short terminal session can finish before
   the mirror sees the CLI holding it and appears directly as `control: "none"`. Only the live-control
   window is missed, never the timeline.
-- Whether a foreign `codex` on `PATH` joins the shared daemon is unverified, which is why the
-  warning in `codex status` says "may not join" rather than "will not". The npm package is a thin
-  launcher around the same native binary as the standalone build and reads the same `CODEX_HOME`,
-  so its TUI may well reach the same control socket; it may equally be refused, since the daemon
-  starts and updates app-server from the standalone path alone. Two attempts to settle it by
-  driving a TUI on a synthetic pty failed — neither build painted a frame or created a thread
-  there, so the standalone control run produced nothing either and the npm result means nothing.
-  Answering it needs a real terminal. What is verified: a foreign build cannot bootstrap the daemon
-  unless the standalone install is present, and when it is, the bootstrap delegates to the
-  standalone binary.
+- A build with no `$CODEX_HOME/packages/standalone` cannot run any `daemon` subcommand, which is why
+  `codex setup` installs the standalone build rather than asking anyone to remove anything. An
+  npm-launched TUI joins a running daemon like any other (verified 2026-09-14).
 - The Codex daemon path is macOS only so far. The systemd unit that supervises it renders and is
   unit-tested, but has never been enabled on a real Linux machine.
 - A Codex thread created from an app cannot be reopened with `codex resume` until its first turn
