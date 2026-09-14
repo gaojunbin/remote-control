@@ -12,6 +12,7 @@ from typing import Any
 from .apns import ApnsProvider
 from .auth_store import AuthSessionStore
 from .client_dist import ServedClient, served_client
+from .compat import apps_view
 from .config import Config
 from .devices import DeviceStore
 from .hub import Hub
@@ -61,6 +62,10 @@ class GatewayState:
     def polish_view(self) -> dict[str, Any]:
         return {"enabled": self.config.polish.enabled}
 
+    def apps_view(self) -> dict[str, Any]:
+        """A31: the oldest separately installed app this gateway works with."""
+        return apps_view(self.config)
+
     def client_view(self) -> dict[str, Any] | None:
         """The served wheel (A22), or None in a checkout where none has been built."""
         served = self.served_client()
@@ -76,6 +81,7 @@ class GatewayState:
             "public_origin": self.config.public_origin,
             "stt": self.stt_view(),
             "polish": self.polish_view(),
+            "apps": self.apps_view(),
             "push": {
                 "web_enabled": self.push.web_enabled,
                 "apns_enabled": self.push.apns_enabled,

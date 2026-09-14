@@ -38,6 +38,9 @@ async def health(request: Request) -> JSONResponse:
             "ok": True,
             "version": VERSION,
             "protocol": PROTOCOL_VERSION,
+            # A31. The one unauthenticated endpoint, so an iOS app too old for this gateway learns
+            # it before anyone signs in rather than after a credential it cannot use.
+            "apps": state.apps_view(),
             "auth": {
                 "mode": "password",
                 # A24. The only unauthenticated way an app learns whether to offer

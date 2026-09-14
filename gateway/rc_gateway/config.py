@@ -18,6 +18,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from dotenv import load_dotenv
 
+from .compat import IOS_MINIMUM_APP_VERSION, is_release_version
 from .origins import canonical_origin
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -102,6 +103,9 @@ class Config:
     #: proxy that appends to the header (the standard nginx recipe does) lets a caller choose the
     #: first element and therefore its own rate-limit bucket.
     trusted_proxy_networks: tuple[str, ...] = field(default=DEFAULT_TRUSTED_PROXIES)
+    #: A31: the oldest iOS app this gateway works with, and where a newer build is.
+    ios_minimum_version: str = IOS_MINIMUM_APP_VERSION
+    ios_update_url: str = ""
 
     @property
     def https_origin(self) -> bool:
@@ -212,6 +216,29 @@ def _polish_config() -> PolishConfig:
     )
 
 
+def _ios_minimum_version(raw: str) -> str:
+    """Read ``IOS_MIN_APP_VERSION``, the operator's override of the release constant (A31)."""
+    if not raw:
+        return IOS_MINIMUM_APP_VERSION
+    if not is_release_version(raw):
+        raise ConfigError(
+            f"IOS_MIN_APP_VERSION is not a major.minor.patch version: {raw!r} (for example 1.2.0)"
+        )
+    return raw
+
+
+def _ios_update_url(raw: str) -> str:
+    """Read ``IOS_UPDATE_URL``. Refusing a plain-http value beats shipping a link apps reject."""
+    if not raw:
+        return ""
+    if not raw.startswith("https://"):
+        raise ConfigError(
+            f"IOS_UPDATE_URL must be an https:// address: {raw!r} "
+            "(the TestFlight or App Store page for the new build)"
+        )
+    return raw
+
+
 def _default_path(env_name: str, docker_path: str, repo_relative: str) -> Path:
     configured = _env(env_name)
     if configured:
@@ -249,6 +276,8 @@ def load_config(*, load_env_file: bool = True) -> Config:
     # Before DATA_DIR is touched: a typo in the provider name should not leave secrets behind.
     stt = _stt_config()
     polish = _polish_config()
+    ios_minimum_version = _ios_minimum_version(_env("IOS_MIN_APP_VERSION"))
+    ios_update_url = _ios_update_url(_env("IOS_UPDATE_URL"))
 
     data_dir = Path(_env("DATA_DIR", "/data") or "/data").expanduser()
     try:
@@ -287,6 +316,8 @@ def load_config(*, load_env_file: bool = True) -> Config:
         vapid_private_pem=vapid_private_pem,
         vapid_public_key=vapid_public_key,
         trusted_proxy_networks=_trusted_proxies(_env("TRUSTED_PROXIES")),
+        ios_minimum_version=ios_minimum_version,
+        ios_update_url=ios_update_url,
     )
 
 

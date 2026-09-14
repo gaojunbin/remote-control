@@ -563,7 +563,7 @@ class Hub:
                 pending.timer.cancel()
 
     async def app_hello_payload(
-        self, account: UserRecord, gateway_version: str, stt: Frame, polish: Frame
+        self, account: UserRecord, gateway_version: str, stt: Frame, polish: Frame, apps: Frame
     ) -> Frame:
         """The first frame of `/ws/app`: this account's devices and their sessions, nothing else."""
         records = await self.device_store.list_for_user(account.username)
@@ -588,6 +588,9 @@ class Hub:
             "sessions": await self.index.list_sessions(device_ids=device_ids),
             "stt": stt,
             "polish": polish,
+            # A31: repeated here so a gateway upgraded under a connected app is caught at the
+            # next connection, not only before sign-in.
+            "apps": apps,
             "server_time": _now_ms(),
         }
 

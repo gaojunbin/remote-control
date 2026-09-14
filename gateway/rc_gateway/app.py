@@ -119,6 +119,7 @@ def create_app(state: GatewayState | None = None) -> FastAPI:
             public_origin=resolved.config.public_origin,
             stt=resolved.config.stt.provider,
             polish=resolved.config.polish.enabled,
+            ios_min=resolved.config.ios_minimum_version,
             web_push=resolved.push.web_enabled,
             apns=resolved.push.apns_enabled,
         )

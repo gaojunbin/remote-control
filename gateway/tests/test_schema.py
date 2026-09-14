@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from rc_gateway.app import build_state, create_app
 from rc_gateway.state import GatewayState
 
 from .conftest import (
@@ -23,6 +24,7 @@ from .conftest import (
     device_hello,
     drain_until,
     enroll_device,
+    make_config,
     session_summary,
     write_wheel,
 )
@@ -139,6 +141,27 @@ def test_hello_ack_and_app_hello_match_the_schema(client: TestClient, auth: dict
         with client.websocket_connect("/ws/app", headers=auth) as app:
             hello = drain_until(app, "hello")
     check(hello, "app_frames.json", "Hello")
+
+
+def test_apps_minimum_matches_the_schema_in_all_three_bodies(tmp_path: Path) -> None:
+    """A31: `apps` with the optional `update_url`, in health, config and `hello`."""
+    config = make_config(
+        tmp_path,
+        ios_minimum_version="2.3.4",
+        ios_update_url="https://testflight.apple.com/join/EXAMPLE",
+    )
+    write_wheel(tmp_path)
+    with TestClient(create_app(build_state(config))) as configured:
+        check(configured.get("/api/health").json(), "http.json", "HealthResponse")
+        token = configured.post(
+            "/api/login",
+            json={"username": "admin", "password": config.password},
+            headers={"Origin": config.public_origin},
+        ).json()["token"]
+        auth = {"Authorization": f"Bearer {token}"}
+        check(configured.get("/api/config", headers=auth).json(), "http.json", "ConfigResponse")
+        with configured.websocket_connect("/ws/app", headers=auth) as app:
+            check(drain_until(app, "hello"), "app_frames.json", "Hello")
 
 
 def test_pushed_app_frames_match_the_schema(client: TestClient, auth: dict[str, str]) -> None:
