@@ -21,6 +21,7 @@ import httpx
 from . import __version__, linkstate, pairing, qr
 from . import config as config_module
 from .agents.codex.daemon import setup as codex_setup
+from .agents.grok import setup as grok_setup
 from .agents.pi import commands as pi_commands
 from .agents.registry import detect_all
 from .build import read_build
@@ -86,6 +87,10 @@ def build_parser() -> argparse.ArgumentParser:
     codex_parser.add_argument(
         "--no-install", action="store_true", help="never run the official Codex installer"
     )
+    grok_parser = sub.add_parser(
+        "grok", help="manage the Grok leader this device joins terminal sessions through"
+    )
+    grok_parser.add_argument("action", choices=["setup", "status"])
     pi_parser = sub.add_parser(
         "pi", help="manage the pi extension that lets the apps drive pi sessions"
     )
@@ -160,6 +165,16 @@ async def _cmd_codex(args: argparse.Namespace) -> int:
     return EXIT_OK if ok else EXIT_FAILURE
 
 
+async def _cmd_grok(args: argparse.Namespace) -> int:
+    if args.action == "setup":
+        ok, lines = await grok_setup.setup()
+    else:
+        ok, lines = True, (await grok_setup.status()).lines()
+    for line in lines:
+        print(line)
+    return EXIT_OK if ok else EXIT_FAILURE
+
+
 def _cmd_pi(args: argparse.Namespace) -> int:
     if args.action == "setup":
         lines = pi_commands.setup()
@@ -190,6 +205,7 @@ async def _cmd_status(args: argparse.Namespace) -> int:
     if link is not None:
         print(f"gateway link   {link.summary()}")
     print(f"codex daemon   {(await codex_setup.status()).summary()}")
+    print(f"grok leader    {(await grok_setup.status(probe=False)).summary()}")
     print(f"pi extension   {pi_commands.summary()}")
     return EXIT_OK
 
@@ -261,6 +277,7 @@ def main(argv: list[str] | None = None) -> int:
         "run": _cmd_run,
         "agents": _cmd_agents,
         "codex": _cmd_codex,
+        "grok": _cmd_grok,
         "status": _cmd_status,
         "self-update": _cmd_self_update,
     }

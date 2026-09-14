@@ -11,8 +11,8 @@ SessionState = Literal[
     "starting", "idle", "running", "needs_approval", "needs_input", "error", "stopped", "readonly"
 ]
 Control = Literal["remote", "terminal", "shared", "none"]
-# How a terminal session of this agent can be attached (amendments A10, A26).
-Attach = Literal["channel", "daemon", "extension"]
+# How a terminal session of this agent can be attached (amendments A10, A26, A28).
+Attach = Literal["channel", "daemon", "extension", "leader"]
 Origin = Literal["remote", "terminal"]
 
 

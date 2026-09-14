@@ -1,4 +1,12 @@
-"""Drive one Grok Build session over ACP on a private `agent agent stdio` child."""
+"""Drive one Grok Build session over ACP, on a private child or on the leader.
+
+Two transports, one runner. A session this device started for itself owns an
+`agent agent --no-leader stdio` child, exactly as before. A session on the
+machine's leader shares one connection with every other client of it (A28): the
+device joins with `session/load`, publishes the replay above the `eventId` it
+already applied, mirrors the words typed at the TUI as terminal messages, and
+never sends `session/close`, which would unload the session for everyone.
+"""
 
 from __future__ import annotations
 
@@ -14,16 +22,26 @@ from ...logging_setup import logger
 from ...models import UNSET, Command, SpeedSetting, now_ms
 from ...sessions.channel import SessionChannel
 from ..base import Emit
-from .acp import GrokAgent
+from . import cursor
+from .acp import GrokAgent, GrokTransport
 from .catalog import GrokCatalog
 from .commands import advertised, recall, remember
+from .echoes import EchoLog
+from .leader import LeaderClient, SessionRoute
 from .translate import SETTINGS, GrokTranslator, config_settings, session_update, stop_reason
 
 log = logger("rc_client.grok")
 
 APPROVAL_TIMEOUT = 300.0
 DRAIN_TIMEOUT = 15.0
+LOAD_TIMEOUT = 120.0
 PERMISSION_REQUEST = "session/request_permission"
+# The option that turns the whole session into always-approve mode. It is a
+# permission policy, so it belongs to `session.set` and never to an approval
+# button an app draws on the person's behalf (A27, A28).
+ALWAYS_APPROVE = "enable-always-approve"
+# What an approval that somebody else answered resolves as (A28, as for Codex).
+ELSEWHERE = "elsewhere"
 
 # ACP option kinds, and how firmly each reads in an app.
 _OPTION_STYLES = {
@@ -51,6 +69,7 @@ class GrokRunner:
         permission_mode: str | None = None,
         effort: str | None = None,
         resume: str | None = None,
+        leader: LeaderClient | None = None,
         on_turn_end: TurnEndCallback | None = None,
         on_session_id: SessionIdCallback | None = None,
     ) -> None:
@@ -62,20 +81,62 @@ class GrokRunner:
         self._permission_mode = permission_mode
         self._effort = effort
         self._resume = resume
+        self._leader = leader
         self._on_turn_end = on_turn_end
         self._on_session_id = on_session_id
-        self._agent: GrokAgent | None = None
+        self._child: GrokAgent | None = None
         self._session_id: str | None = None
-        self._translator = GrokTranslator(cwd=cwd, mirror_user_messages=False)
+        self._translator = GrokTranslator(
+            cwd=cwd,
+            # On the leader the prompts typed at the TUI arrive as ordinary
+            # `user_message_chunk`s and are the only record of what was said.
+            mirror_user_messages=leader is not None,
+            keep_replay=leader is not None,
+        )
+        self._echoes = EchoLog()
         self._turn: asyncio.Task[None] | None = None
         self._turn_started_at = 0
         self._interrupting = False
+        self._closed = False
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        # The approval each of the leader's tool calls opened, so an answer from
+        # another client can close ours.
+        self._tool_calls: dict[str, str] = {}
         self._commands: list[Command] = []
+        # The highest `eventId` counter applied, and the one this session started
+        # from: everything at or below it is history the apps already have.
+        self._cursor = 0
+        self._resume_from = 0
 
     # ------------------------------------------------------------- lifecycle
 
+    @property
+    def attached(self) -> bool:
+        """Whether this session is held on the machine's shared leader."""
+        return self._leader is not None
+
+    @property
+    def session_id(self) -> str | None:
+        return self._session_id
+
+    @property
+    def _transport(self) -> GrokTransport | None:
+        if self._closed:
+            return None
+        return self._leader if self._leader is not None else self._child
+
     async def start(self) -> None:
+        self._closed = False
+        if self._leader is not None:
+            await self._join_leader()
+        else:
+            await self._start_child()
+        assert self._session_id is not None
+        self._translator.context_window = self._catalog.context_window(self._model)
+        if self._on_session_id:
+            await self._on_session_id(self._session_id)
+
+    async def _start_child(self) -> None:
         agent = GrokAgent(
             self._binary,
             cwd=self._cwd,
@@ -85,23 +146,75 @@ class GrokRunner:
             on_request=self._on_request,
         )
         await agent.start()
-        self._agent = agent
+        self._child = agent
         params: dict[str, Any] = {"cwd": self._cwd, "mcpServers": []}
         if self._resume:
             params["sessionId"] = self._resume
+            self._session_id = self._resume
+            self._remember_cursor()
             result = await agent.request("session/load", params)
-            session_id = self._resume
         else:
             result = await agent.request("session/new", params)
-            session_id = str(result.get("sessionId") or "")
+            self._session_id = str(result.get("sessionId") or "")
+            self._remember_cursor()
+        if not self._session_id:
+            raise RcError("agent_unavailable", "grok did not return a session id")
+        await self._adopt_settings(result)
+        await self._apply_mode(self._permission_mode)
+
+    async def _join_leader(self) -> None:
+        """Take a lease on the shared leader, joining or creating one session.
+
+        A `session/load` replays before it answers, so the route is registered
+        first; a `session/new` says nothing until it has an id to say it under.
+        """
+        leader = self._leader
+        assert leader is not None
+        params: dict[str, Any] = {"cwd": self._cwd, "mcpServers": []}
+        if self._resume:
+            self._session_id = self._resume
+            self._remember_cursor()
+            leader.attach(self._resume, self._route())
+            params["sessionId"] = self._resume
+            result = await leader.request("session/load", params, timeout=LOAD_TIMEOUT)
+            await self._adopt_settings(result)
+            return
+        result = await leader.request("session/new", params)
+        session_id = str(result.get("sessionId") or "")
         if not session_id:
             raise RcError("agent_unavailable", "grok did not return a session id")
         self._session_id = session_id
-        self._translator.context_window = self._catalog.context_window(self._model)
+        self._remember_cursor()
+        leader.attach(session_id, self._route())
+        # Process flags are ignored in leader mode, so what the app asked for is
+        # applied to the session itself.
+        await self._choose_settings()
         await self._adopt_settings(result)
         await self._apply_mode(self._permission_mode)
-        if self._on_session_id:
-            await self._on_session_id(session_id)
+
+    def _route(self) -> SessionRoute:
+        return SessionRoute(on_notification=self._on_notification, on_request=self._on_request)
+
+    async def resubscribe(self) -> None:
+        """Re-join this session after the leader connection came back (A28)."""
+        leader = self._leader
+        if leader is None or self._session_id is None:
+            return
+        self._remember_cursor()
+        leader.attach(self._session_id, self._route())
+        result = await leader.request(
+            "session/load",
+            {"sessionId": self._session_id, "cwd": self._cwd, "mcpServers": []},
+            timeout=LOAD_TIMEOUT,
+        )
+        await self._adopt_settings(result)
+
+    def _remember_cursor(self) -> None:
+        """Everything at or below this counter has already reached the apps."""
+        if self._session_id is None:
+            return
+        self._resume_from = cursor.read(self.channel.registry, self._session_id)
+        self._cursor = max(self._cursor, self._resume_from)
 
     def _spawn_args(self) -> list[str]:
         """Model and effort are process options; everything else is per session."""
@@ -112,6 +225,14 @@ class GrokRunner:
         if effort:
             args.extend(["--reasoning-effort", effort])
         return args
+
+    async def _choose_settings(self) -> None:
+        """Apply the model and effort a new leader session was asked for."""
+        if self._model:
+            await self._set_option("model", self._model)
+        effort = self._catalog.clamp_effort(self._model, self._effort)
+        if effort:
+            await self._set_option("reasoning_effort", effort)
 
     async def _adopt_settings(self, result: dict[str, Any]) -> None:
         """Report what the agent actually runs with, which A17 says apps show."""
@@ -127,22 +248,35 @@ class GrokRunner:
             await self.channel.set_meta(**fields)
 
     async def close(self) -> None:
+        self._closed = True
         for future in self._pending.values():
             if not future.done():
                 future.cancel()
         self._pending.clear()
+        self._tool_calls.clear()
         if self._turn is not None:
             self._turn.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._turn
             self._turn = None
-        if self._agent is not None:
-            await self._agent.close()
-            self._agent = None
+        if self._leader is not None:
+            # Only stop routing. `session/close` unloads the session for every
+            # client of the leader, the terminal included (A28).
+            if self._session_id is not None:
+                self._leader.detach(self._session_id)
+            return
+        if self._child is not None:
+            await self._child.close()
+            self._child = None
 
     # ------------------------------------------------------------- streaming
 
     async def _on_notification(self, method: str, params: dict[str, Any]) -> None:
+        self._advance(params)
+        if self._replayed(params):
+            return
+        if await self._interaction(method, params):
+            return
         if self._note_commands(method, params):
             return
         completion: dict[str, Any] | None = None
@@ -150,9 +284,70 @@ class GrokRunner:
             if emit.kind == "turn_completed":
                 completion = dict(emit.fields)
                 continue
+            if emit.kind == "user_message":
+                await self._terminal_message(emit)
+                continue
             await self._apply(emit)
         if completion is not None:
             await self._finish_turn(completion)
+
+    def _advance(self, params: dict[str, Any]) -> None:
+        """Remember the highest counter seen, so a later reader resumes from it."""
+        index = cursor.index_of(params)
+        if index <= self._cursor or self._session_id is None:
+            return
+        self._cursor = index
+        cursor.write(self.channel.registry, self._session_id, index)
+
+    def _replayed(self, params: dict[str, Any]) -> bool:
+        """Whether this row is history the apps already have (A28).
+
+        Only a numbered conversation row can be recognised: the state rows a
+        replay carries — the model, the command list — have no counter and are
+        applied every time, which is what keeps them current.
+        """
+        if not cursor.is_replay(params):
+            return False
+        index = cursor.index_of(params)
+        return bool(index) and index <= self._resume_from
+
+    async def _terminal_message(self, emit: Emit) -> None:
+        """A prompt somebody typed, unless it is the echo of one we sent.
+
+        Every client of the leader sees every prompt and none of them says who
+        sent it, so the device drops the echo of its own and publishes the rest
+        as the terminal messages they are.
+        """
+        text = str(emit.fields.get("text") or "")
+        if self._echoes.claim(text):
+            return
+        await self._apply(emit)
+        if self.channel.session.turn is None:
+            self._turn_started_at = now_ms()
+            await self.channel.begin_turn("terminal")
+
+    async def _interaction(self, method: str, params: dict[str, Any]) -> bool:
+        """Grok's own signals that an approval opened or closed, for any client."""
+        found = session_update(method, params)
+        if found is None:
+            return False
+        kind, update = found
+        if kind == "pending_interaction":
+            # The request itself arrives as `session/request_permission`.
+            return True
+        if kind != "interaction_resolved":
+            return False
+        await self._resolved_elsewhere(str(update.get("tool_call_id") or ""))
+        return True
+
+    async def _resolved_elsewhere(self, tool_call_id: str) -> None:
+        """Somebody else answered an approval this device is still showing."""
+        request_id = self._tool_calls.get(tool_call_id)
+        if not request_id:
+            return
+        future = self._pending.get(request_id)
+        if future is not None and not future.done():
+            future.set_result({ELSEWHERE: True})
 
     async def _apply(self, emit: Emit) -> None:
         if emit.kind == SETTINGS:
@@ -199,6 +394,15 @@ class GrokRunner:
 
     @property
     def busy(self) -> bool:
+        if self._turn is not None and not self._turn.done():
+            return True
+        # On the leader a turn the terminal started is just as busy: a prompt
+        # sent now would queue behind it in Grok itself.
+        return self.attached and self.channel.session.turn is not None
+
+    @property
+    def local_turn(self) -> bool:
+        """Whether a turn this device started is running, for the A28 table."""
         return self._turn is not None and not self._turn.done()
 
     @property
@@ -216,13 +420,17 @@ class GrokRunner:
         source: str = "remote",
         block_id: str | None = None,
     ) -> None:
-        agent = self._agent
-        if agent is None or self._session_id is None:
+        transport = self._transport
+        if transport is None or self._session_id is None:
             raise RcError("agent_unavailable", "the Grok session is not connected")
         if attachments:
             # `promptCapabilities.image` is false on this build, so there is
             # nowhere for a file to go; the hub refuses before this is reached.
             raise RcError("unsupported", "grok sessions cannot carry attachments")
+        if self.attached:
+            # The leader will echo this prompt back to every client, this one
+            # included; the bubble below is the one the apps keep.
+            self._echoes.remember(text)
         await self.channel.emit(
             "user_message",
             block_id=block_id or f"user:{uuid.uuid4()}",
@@ -233,11 +441,11 @@ class GrokRunner:
         await self.channel.begin_turn(source)
         # `session/prompt` only answers when the turn is over, so it runs as a
         # task: the hub's caller must come back as soon as the prompt is in.
-        self._turn = asyncio.create_task(self._run_turn(agent, text), name="grok-turn")
+        self._turn = asyncio.create_task(self._run_turn(transport, text), name="grok-turn")
 
-    async def _run_turn(self, agent: GrokAgent, text: str) -> None:
+    async def _run_turn(self, transport: GrokTransport, text: str) -> None:
         try:
-            result = await agent.request(
+            result = await transport.request(
                 "session/prompt",
                 {"sessionId": self._session_id, "prompt": [{"type": "text", "text": text}]},
                 timeout=None,
@@ -268,26 +476,54 @@ class GrokRunner:
         await self._finish_turn({"stop_reason": "error", "duration_ms": 0})
 
     async def interrupt(self) -> bool:
-        agent = self._agent
+        transport = self._transport
+        if transport is None or self._session_id is None:
+            return False
         turn = self._turn
-        if agent is None or self._session_id is None or turn is None or turn.done():
+        if turn is None or turn.done():
+            return await self._interrupt_terminal(transport)
+        self._interrupting = True
+        await self.channel.set_state("running", "interrupting")
+        self._cancel_pending()
+        # ACP cancellation is a notification: the prompt request answers with
+        # its own stop reason once the agent has unwound the turn.
+        await transport.notify("session/cancel", {"sessionId": self._session_id})
+        try:
+            await asyncio.wait_for(asyncio.shield(turn), timeout=DRAIN_TIMEOUT)
+        except TimeoutError:
+            await self._did_not_settle()
+        return True
+
+    async def _interrupt_terminal(self, transport: GrokTransport) -> bool:
+        """Stop a turn somebody started at the TUI; the leader ends it for all."""
+        if not self.attached or self.channel.session.turn is None:
             return False
         self._interrupting = True
         await self.channel.set_state("running", "interrupting")
+        self._cancel_pending()
+        await transport.notify("session/cancel", {"sessionId": self._session_id})
+        return True
+
+    def _cancel_pending(self) -> None:
         for request_id, future in list(self._pending.items()):
             if not future.done():
                 future.set_result({"cancelled": True})
             self._pending.pop(request_id, None)
-        # ACP cancellation is a notification: the prompt request answers with
-        # its own stop reason once the agent has unwound the turn.
-        await agent.notify("session/cancel", {"sessionId": self._session_id})
-        try:
-            await asyncio.wait_for(asyncio.shield(turn), timeout=DRAIN_TIMEOUT)
-        except TimeoutError:
-            log.warning("grok did not settle after cancel; restarting the agent")
-            await self.channel.notice("warn", "the agent did not stop in time; reconnecting")
-            await self._restart()
-        return True
+
+    async def _did_not_settle(self) -> None:
+        """The agent kept going after a cancel. A private child is restarted.
+
+        A session on the leader is not: restarting it would mean unloading the
+        session every other client is in. The turn is closed here instead and
+        the leader's own `turn_completed`, whenever it comes, finds nothing open.
+        """
+        log.warning("grok did not settle after cancel")
+        await self.channel.notice("warn", "the agent did not stop in time")
+        if self.attached:
+            await self._finish_turn({"stop_reason": "interrupted", "duration_ms": 0})
+            return
+        await self.channel.notice("warn", "reconnecting to the agent")
+        await self._restart()
 
     async def _restart(self) -> None:
         session_id = self._session_id
@@ -349,11 +585,15 @@ class GrokRunner:
             raise RcError("unsupported", "grok has no speed tiers")
 
     async def _set_option(self, option: str, value: str) -> None:
-        """Live model and effort changes; the reply is the whole option list."""
-        agent = self._agent
-        if agent is None or self._session_id is None:
+        """Live model and effort changes; the reply is the whole option list.
+
+        On the leader this reaches every client, the TUI included, which is what
+        `shared_settings: true` promises (4.2).
+        """
+        transport = self._transport
+        if transport is None or self._session_id is None:
             return
-        result = await agent.request(
+        result = await transport.request(
             "session/set_config_option",
             {"sessionId": self._session_id, "configId": option, "value": value},
         )
@@ -362,10 +602,10 @@ class GrokRunner:
             await self.channel.set_meta(**fields)
 
     async def _apply_mode(self, mode: str | None) -> None:
-        agent = self._agent
-        if agent is None or self._session_id is None or not mode:
+        transport = self._transport
+        if transport is None or self._session_id is None or not mode:
             return
-        await agent.request("session/set_mode", {"sessionId": self._session_id, "modeId": mode})
+        await transport.request("session/set_mode", {"sessionId": self._session_id, "modeId": mode})
         await self.channel.set_meta(permission_mode=mode)
 
     # ------------------------------------------------------- prompts to user
@@ -380,6 +620,9 @@ class GrokRunner:
         options = _approval_options(params.get("options"))
         call = params.get("toolCall")
         call = call if isinstance(call, dict) else {}
+        tool_call_id = str(call.get("toolCallId") or "")
+        if tool_call_id:
+            self._tool_calls[tool_call_id] = request_id
         base: dict[str, Any] = {
             "block_id": f"approval:{request_id}",
             "request_id": request_id,
@@ -393,7 +636,20 @@ class GrokRunner:
             base["input"] = raw_input
         await self.channel.emit("approval", status="pending", **base)
         await self.channel.set_state("needs_approval")
-        decision = await self._wait_for(request_id)
+        try:
+            decision = await self._wait_for(request_id)
+        finally:
+            self._tool_calls.pop(tool_call_id, None)
+        if decision is not None and decision.get(ELSEWHERE):
+            # Another client of the leader answered; the turn is already moving.
+            await self.channel.emit(
+                "approval",
+                status="resolved",
+                decision={"option_id": ELSEWHERE, "by": "terminal"},
+                **base,
+            )
+            await self.channel.set_state("running")
+            return {"outcome": {"outcome": "cancelled"}}
         allowed = {option["id"] for option in options}
         option_id = str(decision.get("option_id") or "") if decision else ""
         if option_id not in allowed:
@@ -440,13 +696,18 @@ class GrokRunner:
 
 
 def _approval_options(options: Any) -> list[dict[str, str]]:
-    """The options the agent offered, styled so an app always has both poles."""
+    """The options the agent offered, styled so an app always has both poles.
+
+    The one that switches the session into always-approve mode is left out: it
+    is a permission policy for `session.set`, not a button to press on somebody
+    else's behalf, and its ACP kind calls it an ordinary single allow (A28).
+    """
     styled: list[dict[str, str]] = []
     for option in options or []:
         if not isinstance(option, dict):
             continue
         option_id = str(option.get("optionId") or option.get("id") or "")
-        if not option_id:
+        if not option_id or option_id == ALWAYS_APPROVE:
             continue
         kind = str(option.get("kind") or "")
         styled.append(

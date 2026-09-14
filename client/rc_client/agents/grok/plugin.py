@@ -7,7 +7,7 @@ from ...models import AgentInfo, Choice, Command, Session
 from ..base import SessionRunner
 from ..registry import DetectContext, RunnerSpec
 from . import catalog as catalogue
-from . import runtime
+from . import leader, runtime
 from .adapter import GrokRunner
 from .commands import recall
 
@@ -49,13 +49,16 @@ async def detect(context: DetectContext) -> AgentInfo:
         efforts=list(models.efforts),
         default_effort=models.default_effort,
         capabilities=list(CAPABILITIES),
-        # Grok's leader process could share a terminal session, but it is off by
-        # default and enabling it means editing a person's own configuration, so
-        # terminal sessions are mirrored and resumed rather than attached.
-        attach=None,
-        attach_ready=False,
-        shared_interrupt=False,
-        shared_settings=False,
+        # Grok Build attaches through its leader: one backend per machine that
+        # every `grok` joins when `[cli] use_leader` is on (A28). There is
+        # nothing to hand-shake with beforehand, because whichever client comes
+        # first starts it, so readiness is the person's own configuration.
+        attach="leader",
+        attach_ready=leader.config_ready(),
+        # `session/cancel` and `session/set_config_option` from any client act
+        # on the session every client is in; prompts carry no images.
+        shared_interrupt=True,
+        shared_settings=True,
         shared_attachments=False,
     )
 
@@ -72,6 +75,11 @@ async def commands(session: Session) -> list[Command]:
 async def build_runner(spec: RunnerSpec) -> SessionRunner:
     if not spec.info.path:
         raise RcError("agent_unavailable", "grok is not installed on this device")
+    service = spec.grok_leader
+    if service is not None and await service.ensure(spec.info.path):
+        # The same leader every `grok` on this machine joins, so a session
+        # started here can be resumed in a terminal and joined live (A28).
+        return service.runner_for(spec.entry, spec.resume)
     session = spec.session
     return GrokRunner(
         spec.channel,

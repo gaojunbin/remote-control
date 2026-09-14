@@ -17,7 +17,10 @@ from ..agents.claude.holders import SessionRef, scan_holders
 from ..agents.codex import rollouts
 from ..agents.codex.daemon.service import CodexDaemonService
 from ..agents.codex.runtime import resolve_binary as resolve_codex
+from ..agents.grok import cursor as grok_cursor
 from ..agents.grok import sessions as grok_sessions
+from ..agents.grok.runtime import resolve_binary as resolve_grok
+from ..agents.grok.service import GrokLeaderService
 from ..agents.grok.translate import SETTINGS as GROK_SETTINGS
 from ..config import MirrorConfig
 from ..logging_setup import logger
@@ -57,10 +60,12 @@ class MirrorService:
         limits: MirrorConfig | None = None,
         *,
         codex_daemon: CodexDaemonService | None = None,
+        grok_leader: GrokLeaderService | None = None,
     ) -> None:
         self.hub = hub
         self.limits = limits or MirrorConfig()
         self.codex_daemon = codex_daemon
+        self.grok_leader = grok_leader
         self._claude: dict[str, ClaudeMirror] = {}
         self._codex: dict[str, CodexMirror] = {}
         self._grok: dict[str, GrokMirror] = {}
@@ -120,6 +125,8 @@ class MirrorService:
         )
         if self.codex_daemon is not None:
             await self.codex_daemon.tick(resolve_codex())
+        if self.grok_leader is not None:
+            await self.grok_leader.tick(resolve_grok())
         adopted = self._adopt_claude(found_claude)
         # After the adoption, so a session whose transcript was just found is
         # never mistaken for one that never had one.
@@ -269,6 +276,15 @@ class MirrorService:
         """
         return self.codex_daemon is not None and self.codex_daemon.knows(thread_id)
 
+    def _grok_is_leaders(self, session_id: str) -> bool:
+        """A session the leader holds is read from the leader, never from disk.
+
+        What is left for the update-log mirror is A28's third row: a `grok`
+        started with `use_leader` off or under a sandbox profile, which runs its
+        own agent and is invisible to the leader.
+        """
+        return self.grok_leader is not None and self.grok_leader.knows(session_id)
+
     def _adopt_codex(self, found: list[rollouts.RolloutInfo]) -> None:
         for info in found:
             if info.thread_id in self._codex or self._codex_is_daemons(info.thread_id):
@@ -305,7 +321,7 @@ class MirrorService:
         read straight out of `summary.json` rather than waited for.
         """
         for info in found:
-            if info.session_id in self._grok:
+            if info.session_id in self._grok or self._grok_is_leaders(info.session_id):
                 continue
             entry = self.hub.entries.get(info.session_id)
             if entry is not None and not self._adoptable(entry):
@@ -328,7 +344,7 @@ class MirrorService:
                 )
             tailer = grok_sessions.GrokTailer(path=info.path, cwd=info.cwd)
             tailer.offset = self._initial_offset(info.session_id, info.path)
-            tailer.resume_from = self._grok_cursor(info.session_id)
+            tailer.resume_from = grok_cursor.read(self.hub.registry, info.session_id)
             entry.transcript = info.path
             entry.channel.start()
             self._grok[info.session_id] = GrokMirror(tailer=tailer)
@@ -337,18 +353,13 @@ class MirrorService:
             if info.title:
                 await titles.from_agent(entry.channel, info.title)
 
-    def _grok_cursor(self, session_id: str) -> int:
-        stored = self.hub.registry.get_kv(self._cursor_key(session_id))
-        return int(stored) if stored is not None and stored.isdigit() else 0
-
-    @staticmethod
-    def _cursor_key(session_id: str) -> str:
-        return f"grok-cursor:{session_id}"
-
     async def _refresh_grok_control(self) -> None:
         """Grok's own registry says who is live; the file's writers are the fallback."""
         active, known = await asyncio.to_thread(grok_sessions.active_ids)
         for session_id, mirror in list(self._grok.items()):
+            if self._grok_is_leaders(session_id):
+                self._grok.pop(session_id, None)
+                continue
             entry = self._live_entry(session_id, self._grok)
             if entry is None:
                 continue
@@ -506,6 +517,9 @@ class MirrorService:
                 continue
             await self._tail_one(session_id, entry, codex_mirror.tailer)
         for session_id, grok_mirror in list(self._grok.items()):
+            if self._grok_is_leaders(session_id):
+                self._grok.pop(session_id, None)
+                continue
             entry = self._live_entry(session_id, self._grok)
             if entry is None:
                 continue
@@ -526,8 +540,9 @@ class MirrorService:
                 await self._apply(entry, emit)
         self.hub.registry.set_kv(self._offset_key(session_id), str(tailer.offset))
         if isinstance(tailer, grok_sessions.GrokTailer):
-            # Grok's `eventId` counter resumes a tail even when the file moved.
-            self.hub.registry.set_kv(self._cursor_key(session_id), str(tailer.cursor))
+            # Grok's `eventId` counter resumes a tail even when the file moved,
+            # and is the same mark the leader reads when it joins (A28).
+            grok_cursor.write(self.hub.registry, session_id, tailer.cursor)
         await self._after_rows(entry, tailer.busy)
 
     async def _after_rows(self, entry: SessionEntry, running: bool) -> None:

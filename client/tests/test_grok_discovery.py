@@ -126,7 +126,8 @@ def test_an_effort_the_model_does_not_offer_is_dropped(grok_dir: Path) -> None:
 async def test_what_grok_advertises_matches_the_protocol_fixture(grok_dir: Path) -> None:
     """`fixtures/objects/agent.grok.json` is the contract for this agent."""
     write_cache(grok_dir)
-    binary = fake_binary(grok_dir / "bin", "agent", "grok 1.0.25 (f7e67d6988e2)")
+    binary = fake_binary(grok_dir / "bin", "agent", "grok 1.0.30 (f7e67d6988e2)")
+    (grok_dir / "config.toml").write_text("[cli]\nuse_leader = true\n", encoding="utf-8")
     info = await detect(DetectContext())
     expected = load_fixture("objects/agent.grok.json")
     payload = info.to_dict()
@@ -140,10 +141,28 @@ async def test_what_grok_advertises_matches_the_protocol_fixture(grok_dir: Path)
     assert payload["efforts"] == expected["efforts"]
     assert payload["default_effort"] == expected["default_effort"]
     assert payload["capabilities"] == expected["capabilities"]
-    assert payload["attach"] is None
-    assert payload["attach_ready"] is False
-    assert not payload["shared_interrupt"]
-    assert not payload["shared_settings"]
-    assert not payload["shared_attachments"]
+    # Grok Build attaches through its leader (A28); `attach_ready` is the
+    # person's own configuration, because the leader has nothing to hand-shake
+    # with until some client has started it.
+    assert payload["attach"] == expected["attach"] == "leader"
+    assert payload["attach_ready"] is True
+    assert payload["shared_interrupt"] is True
+    assert payload["shared_settings"] is True
+    assert payload["shared_attachments"] is False
     assert payload["speeds"] == []
     assert payload["path"] == str(binary)
+
+
+async def test_attach_ready_is_off_until_the_leader_flag_is_set(grok_dir: Path) -> None:
+    """`use_leader` is off by default, so the next `grok` runs its own agent."""
+    write_cache(grok_dir)
+    fake_binary(grok_dir / "bin", "agent", "grok 1.0.30")
+    info = await detect(DetectContext())
+    assert info.attach == "leader"
+    assert info.attach_ready is False
+
+    (grok_dir / "config.toml").write_text(
+        '[cli]\nuse_leader = true\n\n[sandbox]\nprofile = "workspace"\n', encoding="utf-8"
+    )
+    # A sandbox profile refuses leader mode however the flag is set.
+    assert (await detect(DetectContext())).attach_ready is False

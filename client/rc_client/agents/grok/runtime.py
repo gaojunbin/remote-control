@@ -14,7 +14,15 @@ _VERSION_RE = re.compile(r"(?<!\d)(\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?)")
 
 
 def home() -> Path:
-    """Grok's state directory. Read on every call so a test can move `$HOME`."""
+    """Grok's state directory. Read on every call so a test can move `$HOME`.
+
+    Grok honours `GROK_HOME`, so the device does too: it is what an isolated
+    check against the real binary runs under, and what a person who keeps their
+    Grok state elsewhere expects to be read.
+    """
+    override = os.environ.get("GROK_HOME", "").strip()
+    if override:
+        return Path(os.path.expanduser(override))
     return Path.home() / ".grok"
 
 

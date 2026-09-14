@@ -12,7 +12,7 @@ import asyncio
 import contextlib
 import json
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Protocol
 
 from ...errors import RcError
 from ...logging_setup import logger
@@ -28,6 +28,24 @@ NotificationHandler = Callable[[str, dict[str, Any]], Awaitable[None]]
 ServerRequestHandler = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
 
 PROTOCOL_VERSION = 1
+
+
+class GrokTransport(Protocol):
+    """What a session needs of its connection, whoever owns the process.
+
+    A session this device started for itself owns a private `GrokAgent`; one
+    that joined the machine's leader shares that connection with every other
+    client of it (A28). Both answer requests and carry notifications, and the
+    runner never needs to know which it has.
+    """
+
+    async def request(
+        self, method: str, params: dict[str, Any], timeout: float | None = ...
+    ) -> dict[str, Any]: ...
+
+    async def notify(self, method: str, params: dict[str, Any]) -> None: ...
+
+
 CLIENT_CAPABILITIES = {
     # The device never serves files or terminals back to the agent: Grok runs
     # on the same machine and reads them itself.
@@ -46,12 +64,14 @@ class GrokAgent:
         cwd: str,
         args: list[str] | None = None,
         env: dict[str, str] | None = None,
+        leader: bool = False,
         on_notification: NotificationHandler | None = None,
         on_request: ServerRequestHandler | None = None,
     ) -> None:
         self._binary = binary
         self._cwd = cwd
         self._args = list(args or [])
+        self._leader = leader
         self._env = env
         self._on_notification = on_notification
         self._on_request = on_request
@@ -70,9 +90,11 @@ class GrokAgent:
         self._process = await asyncio.create_subprocess_exec(
             self._binary,
             "agent",
-            # Never join a leader another client started: a shared backend would
-            # put this session's tools in someone else's process.
-            "--no-leader",
+            # A private child never joins a leader another client started: a
+            # shared backend would put this session's tools in someone else's
+            # process. `--leader` is the opposite, and deliberate: it is how the
+            # device joins the sessions a terminal is running (A28).
+            "--leader" if self._leader else "--no-leader",
             *self._args,
             "stdio",
             cwd=self._cwd,
@@ -91,6 +113,10 @@ class GrokAgent:
 
     async def close(self) -> None:
         self._closed = True
+        # Let every task already created take its first step. Cancelling one
+        # that has not started drops the notification coroutine inside it
+        # unawaited, which Python reports as a warning at collection time.
+        await asyncio.sleep(0)
         for future in self._pending.values():
             if not future.done():
                 future.cancel()

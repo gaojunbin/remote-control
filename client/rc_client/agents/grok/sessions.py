@@ -19,7 +19,7 @@ from typing import Any
 
 from ...tailing import FileTail
 from ..base import Emit
-from . import runtime
+from . import cursor, runtime
 from .translate import GrokTranslator, session_update
 
 MAX_SESSIONS = 50
@@ -53,12 +53,7 @@ class GrokSessionInfo:
 def event_index(row: dict[str, Any]) -> int:
     """The `n` of an `<sessionId>-<n>` event id, or 0 when there is none."""
     params = row.get("params")
-    meta = params.get("_meta") if isinstance(params, dict) else None
-    event_id = meta.get("eventId") if isinstance(meta, dict) else None
-    if not isinstance(event_id, str) or "-" not in event_id:
-        return 0
-    tail = event_id.rsplit("-", 1)[1]
-    return int(tail) if tail.isdigit() else 0
+    return cursor.index_of(params) if isinstance(params, dict) else 0
 
 
 def _summary(directory: Path) -> dict[str, Any]:
@@ -79,12 +74,23 @@ def _cwd_of(directory: Path, summary: dict[str, Any]) -> str:
     return urllib.parse.unquote(directory.parent.name)
 
 
-def _title_of(summary: dict[str, Any]) -> str:
+def title_of(summary: dict[str, Any]) -> str:
+    """The name Grok gave the conversation, in the order it prefers them."""
     for key in ("generated_title", "session_summary", "last_turn_summary"):
         value = summary.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
     return ""
+
+
+def session_dir(session_id: str, cwd: str) -> Path:
+    """Where Grok keeps one session: the working directory, percent-encoded."""
+    return runtime.sessions_dir() / urllib.parse.quote(cwd, safe="") / session_id
+
+
+def title_for(session_id: str, cwd: str) -> str:
+    """The title Grok wrote for one session, without walking the whole tree."""
+    return title_of(_summary(session_dir(session_id, cwd)))
 
 
 def discover(limit: int = MAX_SESSIONS, max_age_days: int = MAX_AGE_DAYS) -> list[GrokSessionInfo]:
@@ -114,7 +120,7 @@ def discover(limit: int = MAX_SESSIONS, max_age_days: int = MAX_AGE_DAYS) -> lis
                 session_id=directory.name,
                 path=str(path),
                 cwd=_cwd_of(directory, summary),
-                title=_title_of(summary),
+                title=title_of(summary),
                 model=model if isinstance(model, str) and model else None,
                 effort=effort if isinstance(effort, str) and effort else None,
                 size=os.path.getsize(path),
@@ -124,6 +130,88 @@ def discover(limit: int = MAX_SESSIONS, max_age_days: int = MAX_AGE_DAYS) -> lis
     return found
 
 
+@dataclass(slots=True)
+class RegisteredSession:
+    """One entry of Grok's cross-process registry: a TUI and the session it is in."""
+
+    session_id: str
+    pid: int
+    cwd: str
+
+    @property
+    def live(self) -> bool:
+        """Whether the process that registered the session is still running."""
+        if self.pid <= 0:
+            return False
+        try:
+            os.kill(self.pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            # Somebody else's process still exists; it is simply not ours to signal.
+            return True
+        except OSError:
+            return False
+        return True
+
+
+def _registry_rows() -> tuple[list[Any], bool]:
+    """The registry as a list of entries, whichever shape Grok wrote it in.
+
+    It is a list of objects today; a mapping keyed by session id is read as the
+    same entries, so one reader serves both.
+    """
+    try:
+        data = json.loads(runtime.active_sessions_file().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return [], False
+    if isinstance(data, list):
+        return data, True
+    if not isinstance(data, dict):
+        return [], False
+    rows: list[Any] = []
+    for session_id, value in data.items():
+        if isinstance(value, dict):
+            rows.append({**value, "session_id": session_id})
+        else:
+            rows.append(session_id)
+    return rows, True
+
+
+def active_entries() -> tuple[list[RegisteredSession], bool]:
+    """The TUIs Grok's registry lists, and whether the registry answered at all.
+
+    `~/.grok/active_sessions.json` is written only by TUIs, so an ACP-created
+    session never appears in it; it is the one signal there is that a person is
+    sitting in a session (A28).
+    """
+    rows, known = _registry_rows()
+    if not known:
+        return [], False
+    found: list[RegisteredSession] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        session_id = ""
+        for key in ("session_id", "sessionId", "id"):
+            value = row.get(key)
+            if isinstance(value, str) and value:
+                session_id = value
+                break
+        if not session_id:
+            continue
+        pid = row.get("pid")
+        cwd = row.get("cwd")
+        found.append(
+            RegisteredSession(
+                session_id=session_id,
+                pid=int(pid) if isinstance(pid, int) else 0,
+                cwd=cwd if isinstance(cwd, str) else "",
+            )
+        )
+    return found, True
+
+
 def active_ids() -> tuple[set[str], bool]:
     """The sessions Grok's cross-process registry lists, and whether it answered.
 
@@ -131,24 +219,16 @@ def active_ids() -> tuple[set[str], bool]:
     is on, so a device that cannot read it falls back to asking the operating
     system who holds the log open.
     """
-    try:
-        data = json.loads(runtime.active_sessions_file().read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return set(), False
-    entries: list[Any]
-    if isinstance(data, dict):
-        entries = list(data.keys())
-    elif isinstance(data, list):
-        entries = data
-    else:
+    rows, known = _registry_rows()
+    if not known:
         return set(), False
     ids: set[str] = set()
-    for entry in entries:
-        if isinstance(entry, str):
-            ids.add(entry)
-        elif isinstance(entry, dict):
+    for row in rows:
+        if isinstance(row, str) and row:
+            ids.add(row)
+        elif isinstance(row, dict):
             for key in ("session_id", "sessionId", "id"):
-                value = entry.get(key)
+                value = row.get(key)
                 if isinstance(value, str) and value:
                     ids.add(value)
                     break

@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 import pytest
 
+from rc_client.agents.grok import runtime as grok_runtime
 from rc_client.agents.registry import AGENT_IDS
 from rc_client.cli import EXIT_FAILURE, EXIT_OK, EXIT_REFUSED, build_parser, main
 from rc_client.config import Config, config_path, load_config, save_config
@@ -27,6 +28,8 @@ def test_the_parser_exposes_every_documented_command() -> None:
         ["agents"],
         ["service", "install"],
         ["service", "status"],
+        ["grok", "setup"],
+        ["grok", "status"],
         ["uninstall", "--purge"],
     ):
         assert parser.parse_args(argv).command == argv[0]
@@ -59,6 +62,57 @@ def test_status_prints_the_device_identity_without_the_token(capsys: Any) -> Non
     assert "dev-42" in output
     assert "mac-studio" in output
     assert "super-secret-token" not in output
+
+
+def test_grok_setup_turns_the_leader_flag_on_and_reports(
+    capsys: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "grok"
+    home.mkdir()
+    (home / "config.toml").write_text("[cli]\nshow_tips = false\n", encoding="utf-8")
+    monkeypatch.setattr(grok_runtime, "home", lambda: home)
+    monkeypatch.delenv("GROK_SANDBOX", raising=False)
+
+    assert main(["grok", "setup"]) == EXIT_OK
+    output = capsys.readouterr().out
+    assert "use_leader          on" in output
+    assert "Restart any running grok" in output
+    assert (home / "config.toml").read_text(encoding="utf-8") == (
+        "[cli]\nuse_leader = true\nshow_tips = false\n"
+    )
+
+    assert main(["grok", "status"]) == EXIT_OK
+    assert "use_leader          on" in capsys.readouterr().out
+
+
+def test_grok_status_says_what_to_run_when_the_flag_is_off(
+    capsys: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "grok"
+    home.mkdir()
+    monkeypatch.setattr(grok_runtime, "home", lambda: home)
+    monkeypatch.delenv("GROK_SANDBOX", raising=False)
+    assert main(["grok", "status"]) == EXIT_OK
+    assert "use_leader          off" in capsys.readouterr().out
+
+
+def test_status_summarises_the_grok_leader(
+    capsys: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "grok"
+    home.mkdir()
+    monkeypatch.setattr(grok_runtime, "home", lambda: home)
+    monkeypatch.delenv("GROK_SANDBOX", raising=False)
+    save_config(
+        Config(
+            gateway_origin="https://rc.example.com",
+            device_id="dev-42",
+            device_token="t",
+            name="mac-studio",
+        )
+    )
+    assert main(["status"]) == EXIT_OK
+    assert "grok leader" in capsys.readouterr().out
 
 
 def test_agents_prints_decodable_json(capsys: Any) -> None:
@@ -314,8 +368,10 @@ def test_the_served_install_script_accepts_its_own_origin(tmp_path: Path) -> Non
 def test_the_install_script_keeps_the_gateway_placeholder_and_flags() -> None:
     script = (Path(__file__).resolve().parents[1] / "install.sh").read_text(encoding="utf-8")
     assert 'GATEWAY="__GATEWAY_ORIGIN__"' in script
-    for flag in ("--pair", "--name", "--gateway", "--manual", "--uninstall"):
+    for flag in ("--pair", "--name", "--gateway", "--manual", "--uninstall", "--no-grok"):
         assert flag in script
+    # Grok attaches through its leader, which `grok setup` enables in place.
+    assert '"$RC" grok setup' in script
     assert "/dist/rc_client-latest.whl" in script
     assert "uv python install 3.12" in script
     # `pip install <url>` needs PEP 427 tags in the filename and the alias has none, so the

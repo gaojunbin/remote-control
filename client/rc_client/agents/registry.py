@@ -26,6 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover - imported for types only
     from ..sessions.channel import SessionChannel
     from ..sessions.hub import SessionEntry
     from .codex.daemon.service import CodexDaemonService
+    from .grok.service import GrokLeaderService
 
 # Detection order, and the order `hello` reports agents in.
 AGENT_IDS = ("claude", "codex", "grok", "pi")
@@ -53,6 +54,9 @@ class RunnerSpec:
     on_turn_end: TurnEndCallback
     on_session_id: SessionIdCallback
     codex_daemon: CodexDaemonService | None = None
+    # Set once the machine's Grok leader is in play (A28); absent means the
+    # private-child path.
+    grok_leader: GrokLeaderService | None = None
 
     @property
     def channel(self) -> SessionChannel:

@@ -15,6 +15,7 @@ from ..agents.base import SessionRunner
 from ..agents.claude import transcripts
 from ..agents.codex.daemon.service import CodexDaemonService
 from ..agents.codex.models import catalog_cache
+from ..agents.grok.service import GrokLeaderService
 from ..agents.pi.adapter import PiRunner
 from ..agents.pi.service import PiExtensionService
 from ..agents.registry import RunnerSpec, offline_commands, runner_for
@@ -82,6 +83,9 @@ class SessionHub:
         self.codex_daemon: CodexDaemonService | None = None
         # Set by the daemon when the pi extension socket is listening (A26).
         self.pi_extensions: PiExtensionService | None = None
+        # Set by the daemon so Grok sessions can run on the machine's shared
+        # leader when the person's configuration asks for it (A28).
+        self.grok_leader: GrokLeaderService | None = None
         # The session each terminal CLI last said it was in, by its own pid.
         self._terminals: dict[int, SessionStart] = {}
         # Removals the device made on its own initiative, and the link each
@@ -281,6 +285,7 @@ class SessionHub:
                 on_turn_end=on_turn_end,
                 on_session_id=on_session_id,
                 codex_daemon=self.codex_daemon,
+                grok_leader=self.grok_leader,
             ),
         )
         if isinstance(runner, PiRunner) and self.pi_extensions is not None:
@@ -465,6 +470,8 @@ class SessionHub:
         await entry.channel.set_state("idle")
         if self.codex_daemon is not None and entry.session.agent == "codex":
             await self.codex_daemon.publish_control(entry)
+        if self.grok_leader is not None and entry.session.agent == "grok":
+            await self.grok_leader.publish_control(entry)
         await entry.channel.notice("info", "resumed this session from its transcript")
 
     # -------------------------------------------------------------- controls

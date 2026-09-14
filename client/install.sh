@@ -25,6 +25,7 @@ MANUAL=0
 UNINSTALL=0
 SHELL_RC=1
 CODEX=1
+GROK=1
 
 RC_HOME="${RC_CLIENT_HOME:-$HOME/.rc-client}"
 VENV="$RC_HOME/venv"
@@ -201,6 +202,7 @@ Remote Control app, or to open its link in a signed-in browser.
   --gateway ORIGIN   override the gateway origin baked into this script
   --no-shell-rc      do not add the shim directory to your shell startup file
   --no-codex         skip the shared Codex app-server daemon setup
+  --no-grok          leave Grok's leader flag alone in ~/.grok/config.toml
   --manual           print the steps instead of running them
   --uninstall        stop and remove the service, keep ~/.rc-client
   -h, --help         show this message
@@ -217,6 +219,7 @@ while [ $# -gt 0 ]; do
         --gateway=*) GATEWAY="${1#*=}"; shift ;;
         --no-shell-rc) SHELL_RC=0; shift ;;
         --no-codex) CODEX=0; shift ;;
+        --no-grok) GROK=0; shift ;;
         --manual) MANUAL=1; shift ;;
         --uninstall) UNINSTALL=1; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -299,6 +302,7 @@ Manual installation on $PLATFORM/$ARCH:
   9. "$VENV/bin/rc-client" shim install   # lets the apps drive terminal Claude sessions
  10. "$VENV/bin/rc-client" codex setup    # lets the apps drive terminal Codex sessions
  11. "$VENV/bin/rc-client" pi setup       # lets the apps drive terminal pi sessions
+ 12. "$VENV/bin/rc-client" grok setup     # lets the apps drive terminal Grok sessions
 
 The pairing code is single use and expires after 10 minutes. Step 6 is what lets
 an app update this device later; skip it and the apps report no build for it.
@@ -491,6 +495,25 @@ else
     step_note "Could not install the pi extension; run 'rc-client pi setup'"
 fi
 
+# Grok Build attaches through its leader: one backend per machine that every
+# `grok` joins once `[cli] use_leader` is on. `grok setup` sets that flag in the
+# person's own config, in place, and is never fatal: a device without Grok
+# installed is a normal outcome, and so is a sandbox profile that refuses it.
+if [ "$GROK" -eq 1 ]; then
+    step_begin "Enabling the Grok leader"
+    if run_step "$RC" grok setup; then
+        step_ok "Grok leader enabled"
+    else
+        GROK_LINE="$(grep -m1 'not installed\|sandbox' "$LOG_FILE" || true)"
+        case "$GROK_LINE" in
+            "") step_note "Grok is not ready to attach; run 'rc-client grok status'" ;;
+            *) step_note "$GROK_LINE" ;;
+        esac
+    fi
+else
+    step_note "Grok leader setup skipped"
+fi
+
 # --- summary ----------------------------------------------------------------
 # `rc-client agents` prints one JSON object per agent, pretty-printed one key
 # per line, so the top-level keys are the ones indented by exactly four spaces.
@@ -552,9 +575,12 @@ tip "rc-client service stop" "stop the daemon"
 tip "rc-client uninstall" "remove the service (--purge also deletes $RC_HOME)"
 tip "rc-client shim status" "the claude shim behind terminal Claude sessions"
 tip "rc-client codex status" "the shared daemon behind terminal Codex sessions"
+tip "rc-client grok status" "the leader behind terminal Grok sessions"
 log ""
 log "  Start Codex as a bare \`codex\` with no -c, --enable or --disable flags:"
 log "  those launch a private app-server the apps cannot see."
+log ""
+log "  Restart any running grok so it joins the leader the apps attach to."
 log ""
 log "  Add $VENV/bin to your PATH to call rc-client directly."
 log ""

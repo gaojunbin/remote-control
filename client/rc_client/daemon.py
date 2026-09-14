@@ -13,6 +13,8 @@ from . import __version__
 from . import config as config_module
 from .agents.codex.daemon.service import CodexDaemonService
 from .agents.codex.runtime import resolve_binary as resolve_codex
+from .agents.grok.runtime import resolve_binary as resolve_grok
+from .agents.grok.service import GrokLeaderService
 from .agents.pi import paths as pi_paths
 from .agents.pi.link import PiExtensionServer
 from .agents.pi.service import PiExtensionService
@@ -52,7 +54,11 @@ class Daemon:
         self.hub = SessionHub(self.registry, self._publish, config.device_id, lambda: self.agents)
         self.codex = CodexDaemonService(self.hub, __version__, self._codex_mode_changed)
         self.hub.codex_daemon = self.codex
-        self.mirror = MirrorService(self.hub, config.mirror, codex_daemon=self.codex)
+        self.grok = GrokLeaderService(self.hub)
+        self.hub.grok_leader = self.grok
+        self.mirror = MirrorService(
+            self.hub, config.mirror, codex_daemon=self.codex, grok_leader=self.grok
+        )
         self.attach = AttachServer(channel_paths.socket_path(), self.hub)
         self.pi = PiExtensionService(self.hub)
         self.hub.pi_extensions = self.pi
@@ -75,6 +81,10 @@ class Daemon:
         scrub_parent_secrets()
         self.hub.load()
         await self.codex.start(resolve_codex())
+        # A leader the person's configuration asks for, started here when no TUI
+        # has started one yet (A28). Failing to reach it is not fatal: Grok
+        # sessions then run on private children and terminal ones are mirrored.
+        await self.grok.ensure(resolve_grok())
         self.agents = await detect_all(DetectContext(codex_daemon_ready=self.codex.ready))
         log.info(
             "device daemon starting",
@@ -136,6 +146,7 @@ class Daemon:
                 setattr(self, name, None)
         await self.mirror.stop()
         await self.codex.stop()
+        await self.grok.stop()
         await self.attach.stop()
         await self.pi_socket.stop()
         await self.hub.close()

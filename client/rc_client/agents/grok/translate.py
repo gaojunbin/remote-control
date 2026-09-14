@@ -124,17 +124,29 @@ class _Tool:
 class GrokTranslator:
     """Stateful per-session mapping from ACP updates to protocol events."""
 
-    def __init__(self, cwd: str | None = None, *, mirror_user_messages: bool = True) -> None:
+    def __init__(
+        self,
+        cwd: str | None = None,
+        *,
+        mirror_user_messages: bool = True,
+        keep_replay: bool = False,
+    ) -> None:
         """`mirror_user_messages` publishes Grok's echo of the prompt as a bubble.
 
         A terminal session's update log is the only record of what a person
         typed, so it mirrors. A session this device drives has already published
         the bubble with its own `block_id`, so it does not.
+
+        `keep_replay` lets the history `session/load` replays through. A private
+        child replays a conversation the apps already have; a session joined on
+        the leader may be one this device has never seen, so its caller keeps
+        the rows and decides for itself which are news (A28).
         """
         self.cwd = cwd
         self.usage: dict[str, Any] = {}
         self.context_window: int | None = None
         self._mirror_user_messages = mirror_user_messages
+        self._keep_replay = keep_replay
         self._open: dict[str, _Stream] = {}
         self._tools: dict[str, _Tool] = {}
         self._prompt_id = ""
@@ -161,7 +173,7 @@ class GrokTranslator:
         kind, update = found
         meta = params.get("_meta")
         meta = meta if isinstance(meta, dict) else {}
-        if meta.get("isReplay") or update.get("isReplay"):
+        if not self._keep_replay and (meta.get("isReplay") or update.get("isReplay")):
             # `session/load` replays the whole conversation; the device already
             # has every one of those events under its own block ids.
             return []
