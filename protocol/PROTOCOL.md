@@ -1037,7 +1037,7 @@ are timeline entries or state updates.
 | `first_seq` | integer | no | Where the block started; order by `first_seq ?? seq` |
 | `text` | string | yes | |
 | `attachments` | `Attachment[]` | no | Metadata only |
-| `source` | `remote` \| `terminal` \| `queue` | yes | Where the message came from |
+| `source` | `remote` \| `terminal` \| `queue` \| `agent` | yes | Where the message came from. `agent` is a message the CLI put into the conversation on behalf of another agent — a teammate's message, a background task's notification — that nobody typed (A30) |
 | `delivery` | `delivered` \| `absorbed` | no | Set only on `shared` sessions; see below |
 
 The `user_message` a device emits for an app's `session.send` carries the request's `id` as its
@@ -1067,6 +1067,32 @@ places it after the output of the turn it waited for — the order the terminal 
 keeps its `block_id` throughout, and each re-injection is a replacement event carrying
 `delivery: "delivered"`. `source` stays `remote` for messages apps send into a shared session and
 `terminal` for messages typed in the CLI.
+
+`source: "agent"` (amendment A30) is for the words Claude Code files as user turns that no person
+typed: the message one Claude session sends another ("Another Claude session sent a message:" with a
+`<teammate-message>` envelope) and the notification a background task or subagent leaves
+(`<task-notification>`). The device publishes them as `user_message` with `source: "agent"` and
+`text` reduced to what a reader wants — who reported and what they said, a task's summary and
+result — never the envelope, and never the `<system-reminder>` blocks the CLI attaches to a turn,
+which are dropped wherever they appear; a row that held nothing else produces no block. A subagent's
+result that arrives as a tool result is a `tool_call` already and is unchanged. Apps draw an `agent`
+message in the user's bubble shape but muted, captioned "from another agent", and a turn such a
+message starts carries `trigger: "agent"` (5.9), which the status line treats as it treats
+`terminal`. Rows the CLI marks `isMeta`, including the echo of a message this device injected through
+its channel, stay out of the timeline as before.
+
+`fixtures/events/user_message.agent.json`
+
+```json
+{
+  "seq": 9,
+  "ts": 1788944409000,
+  "kind": "user_message",
+  "block_id": "3a1f9d2c-6b7e-4c5d-9e8f-0a1b2c3d4e5f",
+  "text": "recon-ios: Recon complete. Fact sheet written to the scratchpad; three findings need a decision.",
+  "source": "agent"
+}
+```
 
 `fixtures/events/user_message.json`
 
@@ -1501,7 +1527,7 @@ answered.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `turn_id` | uuid | yes | Matches `Session.turn.turn_id` |
-| `trigger` | `remote` \| `terminal` \| `queue` | yes | `turn_started` only |
+| `trigger` | `remote` \| `terminal` \| `queue` \| `agent` | yes | `turn_started` only. `agent` is a turn started by a message another agent put into the conversation (A30) |
 | `stop_reason` | `completed` \| `interrupted` \| `error` | yes | `turn_completed` only |
 | `duration_ms` | integer | yes | `turn_completed` only |
 | `usage` | `Usage` | no | `turn_completed` only |
@@ -3108,6 +3134,9 @@ by `block_id` like any other.
 - [ ] Offers the leader's approval options except the one enabling always-approve mode, and resolves
       an approval another client answered with `decision: {option_id: "elsewhere", by: "terminal"}`
       (A28).
+- [ ] Publishes a teammate's message or a task notification the Claude CLI filed as a user turn as
+      `user_message {source: "agent"}` with the envelope and every `<system-reminder>` removed,
+      never as `terminal`, and starts its turn with `trigger: "agent"` (A30).
 - [ ] Moves a Claude attachment to the session id the CLI's `SessionStart` hook names, and removes
       a terminal-origin session with no events and no transcript with `session.removed` the moment
       its terminal leaves it (A16).
@@ -3165,6 +3194,9 @@ by `block_id` like any other.
       description and argument hint, sends a matched first word as `session.command` and
       anything else as `session.send`, and draws nothing for an agent without the capability
       (A27).
+- [ ] Draws a `user_message` with `source: "agent"` muted and captioned "from another agent", never
+      as the person's own words, and treats `trigger: "agent"` like `terminal` in the status line
+      (A30).
 - [ ] Offers the dictation polish switch, model and strength only when `polish.enabled` is true
       (disabled with a note otherwise), polishes only the dictated span, keeps the dictated words one
       undo away, sends the words as dictated when the user sends first, and never sends a polished
@@ -3477,3 +3509,12 @@ gateway stores nothing and forwards nothing to a device. 8.15 fixes the app beha
 the user's and off by default; dictated words land at once and the dictated span alone is replaced
 when the answer arrives, one undo away; a send while polishing sends the words as dictated. See 1,
 3.5, 8, 9.1 and 9.3.
+
+**2026-09-14 A30 — words another agent put into a Claude conversation are not the person's.** Claude
+Code files a teammate's message and a background task's notification as user turns, so a mirror
+that trusted the role showed them as terminal input and a phone read a teammate's JSON as its
+owner's words. `user_message.source` and `turn_started.trigger` gain `agent`: the device publishes
+such a row with `source: "agent"` and a text reduced to who reported and what they said, drops every
+`<system-reminder>` block and every envelope, and starts the turn with `trigger: "agent"`; apps draw
+the bubble muted with the caption "from another agent". Tool results and `isMeta` rows are unchanged.
+See 5.2, 5.9, 9.2 and 9.3.

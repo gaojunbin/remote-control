@@ -142,10 +142,12 @@
       ]
     },
     "Trigger": {
+      "description": "Who caused a message or a turn: an app, a person at the terminal, the device's queue, or another agent whose words the CLI filed as a user turn (A30).",
       "enum": [
         "remote",
         "terminal",
-        "queue"
+        "queue",
+        "agent"
       ]
     },
     "Delivery": {
