@@ -13,7 +13,13 @@ import type {
   SessionEvent,
   Usage,
 } from '../src/protocol/types';
-import type { User, UserRecord } from '../src/protocol/types';
+import type {
+  PolishModelsResponse,
+  PolishRequest,
+  PolishResponse,
+  User,
+  UserRecord,
+} from '../src/protocol/types';
 import type { HelloFrame, Reply, SubscribeResult } from '../src/protocol/frames';
 import { toolCategory } from '../src/features/chat/blocks/toolCategory';
 import {
@@ -21,6 +27,7 @@ import {
   filterCommands,
   matchCommand,
 } from '../src/features/chat/commands';
+import { CONTEXT_LIMIT, CONTEXT_TEXT_LIMIT } from '../src/features/voice/polish';
 import { fixturesAvailable, listFixtures, readFixture } from './fixtures';
 
 const EVENT_KINDS = new Set([
@@ -478,6 +485,38 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
     expect(['needs_approval', 'needs_input', 'turn_completed', 'error']).toContain(payload.rc.kind);
     expect(typeof payload.rc.device_id).toBe('string');
     expect(typeof payload.rc.session_id).toBe('string');
+  });
+
+  it('decodes the dictation polish bodies of A29', () => {
+    const models = readFixture<PolishModelsResponse>('http/polish.models.response.json');
+    expect(models.models.length).toBeGreaterThan(0);
+    for (const model of models.models) {
+      expect(typeof model.id).toBe('string');
+      expect(typeof model.label).toBe('string');
+    }
+
+    const request = readFixture<PolishRequest>('http/polish.request.json');
+    expect(request.text.length).toBeGreaterThan(0);
+    // The model comes from the list the gateway serves, and the strength is one
+    // of the two §3.5 fixes.
+    expect(models.models.some((model) => model.id === request.model)).toBe(true);
+    expect(['moderate', 'strong']).toContain(request.strength);
+    expect(request.context.length).toBeLessThanOrEqual(CONTEXT_LIMIT);
+    for (const item of request.context) {
+      expect(['user', 'assistant']).toContain(item.role);
+      expect(item.text.length).toBeLessThanOrEqual(CONTEXT_TEXT_LIMIT);
+    }
+
+    const response = readFixture<PolishResponse>('http/polish.response.json');
+    expect(typeof response.text).toBe('string');
+    // The answer is the same request said cleanly, never an empty string.
+    expect(response.text.trim().length).toBeGreaterThan(0);
+
+    // `hello` and `GET /api/config` both say whether the gateway can do this.
+    expect(readFixture<HelloFrame>('app/hello.json').polish?.enabled).toBe(true);
+    expect(
+      readFixture<{ polish?: { enabled: boolean } }>('http/config.response.json').polish?.enabled,
+    ).toBe(true);
   });
 
   it('decodes the STT socket frames', () => {

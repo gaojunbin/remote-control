@@ -462,3 +462,46 @@ export type SessionEvent =
   | ErrorEvent;
 
 export type SessionEventKind = SessionEvent['kind'];
+
+/* ------------------------------------------- dictation polish (A29, §3.5) */
+
+/** Whether the gateway can polish a dictation through the model its operator configured. */
+export interface PolishInfo {
+  enabled: boolean;
+}
+
+/** One model of the operator's OpenAI-compatible provider. */
+export interface PolishModel {
+  id: string;
+  label: string;
+}
+
+export interface PolishModelsResponse {
+  models: PolishModel[];
+}
+
+/**
+ * How far the model may go. `moderate` removes fillers, false starts and
+ * repetitions, corrects plain mishearings and punctuates; `strong` also
+ * restructures for clarity and resolves vague references from the conversation.
+ */
+export type PolishStrength = 'moderate' | 'strong';
+
+/** One message of the conversation the app already shows, as the model sees it. */
+export interface PolishContextItem {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+export interface PolishRequest {
+  text: string;
+  model: string;
+  strength: PolishStrength;
+  /** The dictation language the user chose, or `auto`. A hint, not a rule. */
+  language?: string;
+  context: PolishContextItem[];
+}
+
+export interface PolishResponse {
+  text: string;
+}

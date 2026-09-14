@@ -342,6 +342,10 @@ export const zhHans: StringTable = {
     denied: '麦克风权限被拒绝。',
     unsupported: '此浏览器无法采集音频。',
     failed: '转写失败。',
+    polishing: '润色中…',
+    polished: '已润色',
+    undo: '撤销',
+    polishFailed: '润色失败，你的原话未改动',
   },
 
   settings: {
@@ -363,6 +367,16 @@ export const zhHans: StringTable = {
     voice: '语音',
     voiceLanguage: '默认语言',
     voiceServerDisabled: '此网关未配置语音转文字。',
+    polish: '用 AI 润色口述',
+    polishModel: '模型',
+    polishStrength: '力度',
+    polishModerate: '适中',
+    polishStrong: '较强',
+    polishChooseModel: '选择模型',
+    polishNote:
+      '开启后，你口述的内容与最近几条对话消息会发送到此网关配置的模型。关闭时不发送任何内容。',
+    polishServerDisabled: '此网关未配置润色模型',
+    polishModelsFailed: '无法加载模型列表。',
     language: '语言',
     timeline: '时间线',
     timelineDetail: '详细程度',

@@ -273,6 +273,26 @@ const unauthorized = (res: ServerResponse): void =>
 
 const failure = (code: string, message: string) => ({ ok: false, error: { code, message } });
 
+/** A29: long enough for the composer to say "Polishing…", short enough to wait. */
+const POLISH_DELAY_MS = 600;
+
+/**
+ * A29: what a polish model would have done to a dictation, done with two
+ * regular expressions — the fillers go, a stammered word is said once, and the
+ * sentence starts with a capital and ends with a stop. The real thing reads the
+ * conversation too; this one only has to make the flow visible in the app.
+ */
+function fakePolish(text: string): string {
+  const said = text
+    .replace(/\b(?:um|uh|erm|you know)\b[,]?\s*/gi, '')
+    .replace(/\b(\w+)(\s+\1\b)+/gi, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  if (said.length === 0) return text.trim();
+  const sentence = said[0]!.toUpperCase() + said.slice(1);
+  return /[.!?]$/.test(sentence) ? sentence : `${sentence}.`;
+}
+
 /** A24: the account a request carries, by cookie or by bearer, or nobody. */
 function caller(req: IncomingMessage): Account | undefined {
   const cookie = req.headers.cookie ?? '';
@@ -552,10 +572,36 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
     json(res, 200, {
       public_origin: `http://127.0.0.1:5173`,
       stt: { enabled: true, languages: ['auto', 'zh', 'en'] },
+      polish: { enabled: true },
       push: { web_enabled: true, apns_enabled: false },
       version: GATEWAY_VERSION,
       client: { version: CLIENT_VERSION, build: CLIENT_BUILD, url: '/dist/rc_client-latest.whl' },
     });
+    return;
+  }
+
+  // A29: the two models a configured provider would offer, and a polish that
+  // does what the smallest useful model does — drop the fillers and the
+  // stammered repeats, and start the sentence with a capital.
+  if (path === '/api/polish/models' && method === 'GET') {
+    json(res, 200, {
+      models: [
+        { id: 'gpt-4.1-mini', label: 'gpt-4.1-mini' },
+        { id: 'gpt-4.1', label: 'gpt-4.1' },
+      ],
+    });
+    return;
+  }
+
+  if (path === '/api/polish' && method === 'POST') {
+    const body = await readBody(req);
+    const text = typeof body.text === 'string' ? body.text : '';
+    if (text.trim().length === 0) {
+      json(res, 400, failure('bad_request', 'empty text'));
+      return;
+    }
+    // Long enough to see "Polishing…" in the composer, short enough to wait for.
+    setTimeout(() => json(res, 200, { text: fakePolish(text) }), POLISH_DELAY_MS);
     return;
   }
 
@@ -795,6 +841,7 @@ function onAppSocket(socket: WebSocket, account: Account): void {
     devices: devicesOf(account.username),
     sessions: sessionsOf(account.username),
     stt: { enabled: true, languages: ['auto', 'zh', 'en'] },
+    polish: { enabled: true },
     server_time: Date.now(),
   });
 
@@ -1463,8 +1510,10 @@ function onSttSocket(socket: WebSocket): void {
     }
     if (frame.type === 'stt.stop') {
       send(socket, {
+        // A29: spoken the way speech arrives — a filler and two stammers — so
+        // what the polish model does to it can be seen in the composer.
         type: 'stt.final',
-        text: 'also add a retry to the token refresh path and re-run the suite on the CI runner too',
+        text: 'um so also add a retry to the the token refresh path and re-run the suite on on the CI runner too',
         language: 'en',
       });
       clearInterval(timer);

@@ -362,6 +362,11 @@ export const en = {
     denied: 'Microphone permission was denied.',
     unsupported: 'This browser cannot capture audio.',
     failed: 'Transcription failed.',
+    /** A29: the one word the status line reads while the model is working. */
+    polishing: 'Polishing…',
+    polished: 'Polished',
+    undo: 'Undo',
+    polishFailed: 'Polishing failed, your words are unchanged',
   },
 
   settings: {
@@ -383,6 +388,16 @@ export const en = {
     voice: 'Voice',
     voiceLanguage: 'Default language',
     voiceServerDisabled: 'Speech-to-text is not configured on this gateway.',
+    polish: 'Polish dictation with AI',
+    polishModel: 'Model',
+    polishStrength: 'Strength',
+    polishModerate: 'Moderate',
+    polishStrong: 'Strong',
+    polishChooseModel: 'Choose a model',
+    polishNote:
+      'When this is on, what you dictated and the last few messages of the conversation are sent to the model this gateway is configured with. Nothing is sent while it is off.',
+    polishServerDisabled: 'This gateway has no polish model configured',
+    polishModelsFailed: 'The model list could not be loaded.',
     language: 'Language',
     timeline: 'Timeline',
     timelineDetail: 'Detail',

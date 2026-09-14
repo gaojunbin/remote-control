@@ -12,6 +12,7 @@ import { sessionKey, useSessions } from '../../stores/sessions';
 import { emptyTimeline, selectPendingQuestion } from '../../stores/timeline';
 import type { SendMode } from '../../protocol/frames';
 import type { Command, QuestionAnswers } from '../../protocol/types';
+import { polishContext } from '../voice/polish';
 import { NewSessionDrawer } from '../sessions/NewSessionDrawer';
 import { ChatHeader } from './ChatHeader';
 import { Composer } from './Composer';
@@ -51,6 +52,7 @@ export function ChatPage() {
   const devices = useDevices((s) => s.devices);
   const socketStatus = useConnection((s) => s.status);
   const stt = useConnection((s) => s.stt);
+  const polish = useConnection((s) => s.polish);
   const pending = useOutbox((s) => s.pending);
 
   const [stopping, setStopping] = useState(false);
@@ -109,6 +111,10 @@ export function ChatPage() {
   // A20: the composer answers the question the timeline is waiting on.
   const timeline = chat?.timeline ?? NO_TIMELINE;
   const question = useMemo(() => selectPendingQuestion(timeline), [timeline]);
+
+  // A29: the conversation a dictation is polished against, read at the moment
+  // the dictation ends rather than held by the composer.
+  const buildPolishContext = useCallback(() => polishContext(timeline), [timeline]);
 
   const onSend = useCallback(
     async (text: string, attachments: AttachmentDraft[], mode: SendMode) => {
@@ -315,6 +321,8 @@ export function ChatPage() {
           question={question}
           sttEnabled={stt.enabled}
           sttLanguages={stt.languages}
+          polishEnabled={polish.enabled}
+          polishContext={buildPolishContext}
           commands={hasCommands ? commands : EMPTY_COMMANDS}
           onCommandsNeeded={onCommandsNeeded}
           onRunCommand={onRunCommand}

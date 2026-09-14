@@ -2,6 +2,10 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button } from '../../components/Button';
 import { Menu } from '../../components/Popover';
+import { Segmented } from '../../components/Segmented';
+import { Switch } from '../../components/Switch';
+import { api } from '../../lib/api';
+import type { PolishModel, PolishStrength } from '../../protocol/types';
 import {
   interfaceLanguageLabels,
   languageLabel,
@@ -31,9 +35,16 @@ export function SettingsPage() {
   const gatewayVersion = useConnection((s) => s.gatewayVersion);
   const protocol = useConnection((s) => s.protocol);
   const stt = useConnection((s) => s.stt);
+  const polish = useConnection((s) => s.polish);
 
   const sttLanguage = useSettings((s) => s.sttLanguage);
   const setSttLanguage = useSettings((s) => s.setSttLanguage);
+  const polishEnabled = useSettings((s) => s.polishEnabled);
+  const setPolishEnabled = useSettings((s) => s.setPolishEnabled);
+  const polishModel = useSettings((s) => s.polishModel);
+  const setPolishModel = useSettings((s) => s.setPolishModel);
+  const polishStrength = useSettings((s) => s.polishStrength);
+  const setPolishStrength = useSettings((s) => s.setPolishStrength);
   const uiLanguage = useSettings((s) => s.language);
   const setUiLanguage = useSettings((s) => s.setLanguage);
   const detail = useSettings((s) => s.timelineDetail);
@@ -42,11 +53,39 @@ export function SettingsPage() {
   const [push, setPush] = useState<PushState>('unsupported');
   const [pushBusy, setPushBusy] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  // A29: the provider's models, and whether asking for them failed.
+  const [polishModels, setPolishModels] = useState<PolishModel[]>([]);
+  const [polishModelsFailed, setPolishModelsFailed] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     void currentPushState().then(setPush);
   }, []);
+
+  // A29: the list belongs to the gateway's provider, so it is asked for when
+  // this screen is drawn and only when the gateway says it has one. A gateway
+  // that lists nothing leaves the select where it is, with what was chosen
+  // before; a list with nothing chosen yet settles on its first model, so the
+  // switch is all a first-time reader has to touch.
+  useEffect(() => {
+    if (!polish.enabled) return;
+    let live = true;
+    api
+      .polishModels()
+      .then((result) => {
+        if (!live) return;
+        setPolishModels(result.models);
+        setPolishModelsFailed(false);
+        const first = result.models[0];
+        if (first && useSettings.getState().polishModel.length === 0) setPolishModel(first.id);
+      })
+      .catch(() => {
+        if (live) setPolishModelsFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [polish.enabled, setPolishModel]);
 
   const webPushAvailable = config?.push.web_enabled !== false && push !== 'unsupported';
   const connection =
@@ -148,19 +187,76 @@ export function SettingsPage() {
         <section className="settings-section">
           <h2 className="group-title">{strings.settings.voice}</h2>
           {stt.enabled ? (
-            <div className="settings-group surface">
-              <div className="settings-row">
-                <span>{strings.settings.voiceLanguage}</span>
-                <Menu
-                  align="end"
-                  ariaLabel={strings.settings.voiceLanguage}
-                  value={sttLanguage}
-                  onSelect={setSttLanguage}
-                  options={stt.languages.map((code) => ({ id: code, label: languageLabel(code) }))}
-                  label={languageLabel(sttLanguage)}
-                />
+            <>
+              <div className="settings-group surface">
+                <div className="settings-row">
+                  <span>{strings.settings.voiceLanguage}</span>
+                  <Menu
+                    align="end"
+                    ariaLabel={strings.settings.voiceLanguage}
+                    value={sttLanguage}
+                    onSelect={setSttLanguage}
+                    options={stt.languages.map((code) => ({ id: code, label: languageLabel(code) }))}
+                    label={languageLabel(sttLanguage)}
+                  />
+                </div>
+
+                {/* A29: the switch is always shown, so the feature exists even
+                    where this gateway cannot offer it; the model and the
+                    strength appear once it is on, because they mean nothing
+                    while it is off. */}
+                <div className="settings-row">
+                  <span>{strings.settings.polish}</span>
+                  <Switch
+                    label={strings.settings.polish}
+                    checked={polish.enabled && polishEnabled}
+                    disabled={!polish.enabled}
+                    onChange={setPolishEnabled}
+                  />
+                </div>
+
+                {polish.enabled && polishEnabled ? (
+                  <>
+                    <div className="settings-row">
+                      <span>{strings.settings.polishModel}</span>
+                      <Menu
+                        align="end"
+                        ariaLabel={strings.settings.polishModel}
+                        value={polishModel}
+                        onSelect={setPolishModel}
+                        options={polishModels.map((model) => ({
+                          id: model.id,
+                          label: model.label,
+                        }))}
+                        label={
+                          polishModels.find((model) => model.id === polishModel)?.label ||
+                          polishModel ||
+                          strings.settings.polishChooseModel
+                        }
+                      />
+                    </div>
+                    <div className="settings-row">
+                      <span>{strings.settings.polishStrength}</span>
+                      <Segmented<PolishStrength>
+                        ariaLabel={strings.settings.polishStrength}
+                        value={polishStrength}
+                        onChange={setPolishStrength}
+                        options={[
+                          { value: 'moderate', label: strings.settings.polishModerate },
+                          { value: 'strong', label: strings.settings.polishStrong },
+                        ]}
+                      />
+                    </div>
+                  </>
+                ) : null}
               </div>
-            </div>
+              <p className="settings-note">
+                {polish.enabled ? strings.settings.polishNote : strings.settings.polishServerDisabled}
+              </p>
+              {polish.enabled && polishEnabled && polishModelsFailed ? (
+                <p className="settings-note">{strings.settings.polishModelsFailed}</p>
+              ) : null}
+            </>
           ) : (
             <p className="settings-note">{strings.settings.voiceServerDisabled}</p>
           )}

@@ -2,12 +2,13 @@
  * The Timeline group in Settings: the detail level the transcript is drawn at,
  * `docs/DESIGN.md` § "The timeline". Simple is the default.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { SettingsPage } from '../src/features/settings/SettingsPage';
 import { useAuth } from '../src/stores/auth';
+import { useConnection } from '../src/stores/connection';
 import { useSettings } from '../src/stores/settings';
 import { strings } from '../src/strings';
 
@@ -150,5 +151,110 @@ describe('settings: the account', () => {
       new_password: 'devdevdev',
     });
     vi.unstubAllGlobals();
+  });
+});
+
+/**
+ * A29 — the Voice group carries dictation polish: one switch, the model the
+ * gateway's provider offers, and how far the model may go. `docs/DESIGN.md`
+ * § "Polishing what you dictated".
+ */
+describe('settings: dictation polish', () => {
+  const models = [
+    { id: 'gpt-4.1-mini', label: 'gpt-4.1-mini' },
+    { id: 'gpt-4.1', label: 'gpt-4.1' },
+  ];
+
+  const gateway = (polishEnabled: boolean) =>
+    useConnection.setState({
+      stt: { enabled: true, languages: ['auto', 'en'] },
+      polish: { enabled: polishEnabled },
+    });
+
+  const answerModels = (status = 200) =>
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify(
+            status === 200 ? { models } : { error: { code: 'upstream', message: 'provider' } },
+          ),
+          { status, headers: { 'content-type': 'application/json' } },
+        ),
+      ),
+    );
+
+  beforeEach(() => {
+    useSettings.setState({ polishEnabled: false, polishModel: '', polishStrength: 'moderate' });
+    answerModels();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    useConnection.setState({
+      stt: { enabled: false, languages: ['auto'] },
+      polish: { enabled: false },
+    });
+  });
+
+  it('starts off, with no model and the gentler strength', () => {
+    expect(useSettings.getState().polishEnabled).toBe(false);
+    expect(useSettings.getState().polishModel).toBe('');
+    expect(useSettings.getState().polishStrength).toBe('moderate');
+  });
+
+  it('offers the switch and, once it is on, the model and the strength', async () => {
+    const user = userEvent.setup();
+    gateway(true);
+    renderPage();
+
+    const polish = screen.getByRole('switch', { name: strings.settings.polish });
+    expect(polish).toBeEnabled();
+    expect(polish).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText(strings.settings.polishNote)).toBeInTheDocument();
+    // Nothing to choose while it is off.
+    expect(screen.queryByRole('button', { name: strings.settings.polishModel })).toBeNull();
+
+    await user.click(polish);
+
+    expect(useSettings.getState().polishEnabled).toBe(true);
+    // The first model the gateway listed is chosen, so the switch is enough.
+    await waitFor(() => expect(useSettings.getState().polishModel).toBe('gpt-4.1-mini'));
+    expect(screen.getByRole('button', { name: strings.settings.polishModel })).toHaveTextContent(
+      'gpt-4.1-mini',
+    );
+
+    await user.click(screen.getByRole('button', { name: strings.settings.polishModel }));
+    await user.click(screen.getByRole('option', { name: 'gpt-4.1' }));
+    expect(useSettings.getState().polishModel).toBe('gpt-4.1');
+
+    await user.click(screen.getByRole('button', { name: strings.settings.polishStrong }));
+    expect(useSettings.getState().polishStrength).toBe('strong');
+  });
+
+  it('keeps the select and says one line when the model list cannot be read', async () => {
+    const user = userEvent.setup();
+    gateway(true);
+    useSettings.setState({ polishEnabled: true, polishModel: 'gpt-4.1' });
+    answerModels(502);
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByText(strings.settings.polishModelsFailed)).toBeInTheDocument(),
+    );
+    const select = screen.getByRole('button', { name: strings.settings.polishModel });
+    expect(select).toHaveTextContent('gpt-4.1');
+    await user.click(select);
+    expect(screen.getByRole('listbox', { name: strings.settings.polishModel })).toBeInTheDocument();
+  });
+
+  it('disables the switch and says why when the gateway has no polish model', () => {
+    gateway(false);
+    renderPage();
+
+    expect(screen.getByRole('switch', { name: strings.settings.polish })).toBeDisabled();
+    expect(screen.getByText(strings.settings.polishServerDisabled)).toBeInTheDocument();
+    expect(screen.queryByText(strings.settings.polishNote)).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

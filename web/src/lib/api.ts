@@ -1,5 +1,17 @@
 /** Thin fetch wrapper for the gateway HTTP API (PROTOCOL-FROZEN.md §2). */
-import type { Device, Session, User, UserRecord, UserRole, UserState, WireError } from '../protocol/types';
+import type {
+  Device,
+  PolishInfo,
+  PolishModelsResponse,
+  PolishRequest,
+  PolishResponse,
+  Session,
+  User,
+  UserRecord,
+  UserRole,
+  UserState,
+  WireError,
+} from '../protocol/types';
 
 export type { User, UserRecord, UserRole, UserState };
 
@@ -67,6 +79,8 @@ export interface ClientBuildInfo {
 export interface ConfigResponse {
   public_origin: string;
   stt: { enabled: boolean; languages: string[] };
+  /** A29: absent from a gateway too old to polish dictation, which is "off". */
+  polish?: PolishInfo;
   push: { web_enabled: boolean; apns_enabled: boolean };
   version: string;
   client?: ClientBuildInfo;
@@ -152,6 +166,11 @@ export const api = {
     const qs = q.toString();
     return get<{ sessions: Session[] }>(`/api/sessions${qs ? `?${qs}` : ''}`);
   },
+
+  /** A29: the models the operator's provider offers, for the Voice settings. */
+  polishModels: () => get<PolishModelsResponse>('/api/polish/models'),
+  /** A29: one dictation said cleanly. Nothing is stored and nothing is sent on. */
+  polish: (body: PolishRequest) => post<PolishResponse>('/api/polish', body),
 
   vapidKey: () => get<{ public_key: string }>('/api/push/web/vapid'),
   subscribePush: (subscription: unknown) =>

@@ -6,7 +6,7 @@ import { create } from 'zustand';
 import { getSocket, setSocket } from '../lib/gateway';
 import { AppSocket, socketUrl, type SocketStatus } from '../lib/ws';
 import type { PairingStep, PushFrame } from '../protocol/frames';
-import type { Device } from '../protocol/types';
+import type { Device, PolishInfo } from '../protocol/types';
 import { useChat } from './chat';
 import { useDevices } from './devices';
 import { useSessions } from './sessions';
@@ -24,6 +24,8 @@ interface ConnectionState {
   protocol: number | null;
   username: string | null;
   stt: { enabled: boolean; languages: string[] };
+  /** A29: whether this gateway can polish a dictation. Off until `hello` says so. */
+  polish: PolishInfo;
   /** server_time minus the local clock at the last hello, in milliseconds. */
   clockSkewMs: number;
   pairing: PairingProgress | null;
@@ -40,6 +42,7 @@ export const useConnection = create<ConnectionState>((set, get) => ({
   protocol: null,
   username: null,
   stt: { enabled: false, languages: ['auto'] },
+  polish: { enabled: false },
   clockSkewMs: 0,
   pairing: null,
   onUnauthorized: null,
@@ -79,6 +82,7 @@ function handleFrame(frame: PushFrame, set: Setter): void {
         protocol: frame.protocol,
         username: frame.user.username,
         stt: frame.stt,
+        polish: frame.polish ?? { enabled: false },
         clockSkewMs:
           typeof frame.server_time === 'number' ? frame.server_time - Date.now() : 0,
       });

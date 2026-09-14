@@ -1,6 +1,7 @@
 /** Local, per-browser preferences. Persisted in localStorage when available. */
 import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
+import type { PolishStrength } from '../protocol/types';
 import type { TimelineDetail } from './timeline';
 
 /**
@@ -17,6 +18,13 @@ interface SettingsState {
   /** The app's own words. Never applied to anything a device reported. */
   language: InterfaceLanguage;
   sttLanguage: string;
+  /**
+   * A29: whether a finished dictation is passed through the gateway's polish
+   * model. Off until the reader turns it on, and useless without a model.
+   */
+  polishEnabled: boolean;
+  polishModel: string;
+  polishStrength: PolishStrength;
   /** How much of a transcript is drawn. Simple by default, and never sent. */
   timelineDetail: TimelineDetail;
   /** Device groups the user folded shut in a session list. Expanded by default. */
@@ -25,6 +33,9 @@ interface SettingsState {
   archiveExpanded: string[];
   setLanguage: (language: InterfaceLanguage) => void;
   setSttLanguage: (language: string) => void;
+  setPolishEnabled: (enabled: boolean) => void;
+  setPolishModel: (model: string) => void;
+  setPolishStrength: (strength: PolishStrength) => void;
   setTimelineDetail: (detail: TimelineDetail) => void;
   toggleDeviceCollapsed: (deviceId: string) => void;
   toggleArchiveExpanded: (deviceId: string) => void;
@@ -77,10 +88,20 @@ const keyFor = (username: string | null): string =>
 /** What an account that has chosen nothing yet reads. */
 const defaults = (): Pick<
   SettingsState,
-  'language' | 'sttLanguage' | 'timelineDetail' | 'collapsedDevices' | 'archiveExpanded'
+  | 'language'
+  | 'sttLanguage'
+  | 'polishEnabled'
+  | 'polishModel'
+  | 'polishStrength'
+  | 'timelineDetail'
+  | 'collapsedDevices'
+  | 'archiveExpanded'
 > => ({
   language: 'en',
   sttLanguage: 'auto',
+  polishEnabled: false,
+  polishModel: '',
+  polishStrength: 'moderate',
   timelineDetail: 'simple',
   collapsedDevices: [],
   archiveExpanded: [],
@@ -92,6 +113,9 @@ export const useSettings = create<SettingsState>()(
       ...defaults(),
       setLanguage: (language) => set({ language }),
       setSttLanguage: (sttLanguage) => set({ sttLanguage }),
+      setPolishEnabled: (polishEnabled) => set({ polishEnabled }),
+      setPolishModel: (polishModel) => set({ polishModel }),
+      setPolishStrength: (polishStrength) => set({ polishStrength }),
       setTimelineDetail: (timelineDetail) => set({ timelineDetail }),
       toggleDeviceCollapsed: (deviceId) =>
         set((s) => ({ collapsedDevices: toggle(s.collapsedDevices, deviceId) })),

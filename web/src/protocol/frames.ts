@@ -6,6 +6,7 @@ import type {
   Device,
   GitInfo,
   OutgoingAttachment,
+  PolishInfo,
   QuestionAnswers,
   QueuedMessage,
   Session,
@@ -36,6 +37,8 @@ export interface HelloFrame {
   devices: Device[];
   sessions: Session[];
   stt: { enabled: boolean; languages: string[] };
+  /** A29: absent from a gateway too old to polish dictation, which is "off". */
+  polish?: PolishInfo;
   server_time: number;
 }
 

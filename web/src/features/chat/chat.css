@@ -1332,6 +1332,20 @@
 }
 
 /*
+ * A29: what the polish model did, under the field — "Polished · Undo" until the
+ * next edit or send, or the one line that says a failed request changed nothing.
+ * It sits where the composer's own row of chips sits, and reads as quietly.
+ */
+.polish-note {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0 0;
+  padding-left: var(--sp-1);
+  font-size: var(--fs-12);
+}
+
+/*
  * Listening replaces the composer's control row: the waveform, the elapsed
  * timer and the only two ways out. It takes the full width of the box so it
  * stays legible beside the field on a phone, and the field keeps its own row.

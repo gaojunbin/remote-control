@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { ArrowUp, ChevronRight, Mic, Paperclip, X, Zap } from 'lucide-react';
 import { Menu, Popover } from '../../components/Popover';
+import { api } from '../../lib/api';
 import { bytes } from '../../lib/format';
 import { cx } from '../../lib/cx';
 import { agentLabel, languageLabel, strings } from '../../strings';
@@ -18,6 +19,7 @@ import type {
   AgentInfo,
   Choice,
   Command,
+  PolishContextItem,
   QuestionAnswers,
   QuestionEvent,
   QueuedMessage,
@@ -26,6 +28,13 @@ import type {
 import { draftOf, useAnswers } from '../../stores/answers';
 import { VoiceControls } from '../voice/VoiceControls';
 import { mergeDraft } from '../voice/draft';
+import {
+  applyPolished,
+  canPolish,
+  polishRequest,
+  undoPolished,
+  type PolishSpan,
+} from '../voice/polish';
 import { useVoice } from '../voice/useVoice';
 import { composeAnswer } from './answering';
 import { attachHint, canAttachShared, canInterruptShared, canSetShared } from './attach';
@@ -45,6 +54,13 @@ interface Props {
   question: QuestionEvent | null;
   sttEnabled: boolean;
   sttLanguages: string[];
+  /** A29: this gateway has a polish model, so the setting can take effect. */
+  polishEnabled?: boolean;
+  /**
+   * A29: the conversation the polish model is given, read when a dictation ends
+   * rather than on every render — the page owns the timeline, not the composer.
+   */
+  polishContext?: () => PolishContextItem[];
   /**
    * A27: the slash commands this session offers now. Empty for an agent
    * without capability `commands` — every Claude session — and the panel is
@@ -64,6 +80,22 @@ interface Props {
 
 const NO_COMMANDS: Command[] = [];
 
+/**
+ * A29 — where a dictation is between the recogniser and the model: nowhere,
+ * waiting for the answer, holding one that can still be undone, or told that the
+ * request failed and the words were left alone.
+ */
+type PolishState =
+  | { phase: 'idle' }
+  | { phase: 'polishing' }
+  | { phase: 'polished'; span: PolishSpan; text: string }
+  | { phase: 'failed' };
+
+const POLISH_IDLE: PolishState = { phase: 'idle' };
+
+/** How long the one line about a failed polish stays before it goes away. */
+const POLISH_FAILED_MS = 5_000;
+
 export function Composer({
   session,
   agent,
@@ -72,6 +104,8 @@ export function Composer({
   question,
   sttEnabled,
   sttLanguages,
+  polishEnabled = false,
+  polishContext,
   commands = NO_COMMANDS,
   onSend,
   onAnswer,
@@ -117,10 +151,28 @@ export function Composer({
 
   const language = useSettings((s) => s.sttLanguage);
   const setLanguage = useSettings((s) => s.setSttLanguage);
+  // A29: the reader's own choices. The gateway only says whether it can polish.
+  const polishChosen = useSettings((s) => s.polishEnabled);
+  const polishModel = useSettings((s) => s.polishModel);
+  const polishStrength = useSettings((s) => s.polishStrength);
   // A20: what the card on screen already holds, so the draft completes it
   // rather than competing with it.
   const answerDraft = useAnswers(draftOf(question?.request_id ?? ''));
   const clearAnswer = useAnswers((s) => s.clear);
+
+  /**
+   * A29: the polish run, and the counter that ends one. A send, an edit or a
+   * new dictation bumps it, and an answer whose run is no longer current is
+   * dropped — the words on screen are the person's, not a late model's.
+   */
+  const [polish, setPolish] = useState<PolishState>(POLISH_IDLE);
+  const polishRun = useRef(0);
+  const polishReady = polishEnabled && polishChosen && polishModel.length > 0;
+
+  const dropPolish = useCallback(() => {
+    polishRun.current += 1;
+    setPolish((current) => (current.phase === 'idle' ? current : POLISH_IDLE));
+  }, []);
 
   const terminalControlled = session.control === 'terminal';
   // A10: a shared session is a live CLI the device is attached to. Everything
@@ -183,6 +235,9 @@ export function Composer({
    */
   const submitAnswer = useCallback(() => {
     if (!question || answer === null) return;
+    // A29: what is sent is what is in the field, polished or not, and a request
+    // still running is dropped rather than allowed to rewrite an empty field.
+    dropPolish();
     const requestId = question.request_id;
     const value = text;
     setDraft('');
@@ -193,7 +248,7 @@ export function Composer({
       .catch(() => {
         if (textRef.current.length === 0) setDraft(value);
       });
-  }, [question, answer, text, onAnswer, clearAnswer, setDraft]);
+  }, [question, answer, text, onAnswer, clearAnswer, setDraft, dropPolish]);
 
   /**
    * A12: the field is cleared and the message is put in the timeline in this
@@ -204,6 +259,9 @@ export function Composer({
     (mode: SendMode, source?: string) => {
       const value = (source ?? text).trim();
       if (disabled || (value.length === 0 && attachments.length === 0)) return;
+      // A29: a send while polishing sends the words as they were dictated, and
+      // the answer, whenever it arrives, is nobody's business any more.
+      dropPolish();
       if (textTooLong(value)) {
         setErrors([strings.composer.textTooLong]);
         return;
@@ -236,8 +294,71 @@ export function Composer({
         setAttachments((current) => (current.length === 0 ? files : current));
       });
     },
-    [text, attachments, disabled, onSend, setDraft, commandable, commands, onRunCommand, running],
+    [
+      text,
+      attachments,
+      disabled,
+      onSend,
+      setDraft,
+      commandable,
+      commands,
+      onRunCommand,
+      running,
+      dropPolish,
+    ],
   );
+
+  /**
+   * A29: the words a dictation just left go to the gateway's model with the
+   * conversation the page already shows, and come back said cleanly. Only the
+   * dictated span is ever replaced, and only while the field still holds it.
+   */
+  const startPolish = useCallback(
+    (span: PolishSpan) => {
+      if (!polishReady || !canPolish(span.dictated)) return;
+      polishRun.current += 1;
+      const run = polishRun.current;
+      setPolish({ phase: 'polishing' });
+      const body = polishRequest(
+        span,
+        { model: polishModel, strength: polishStrength, language },
+        polishContext?.() ?? [],
+      );
+      api
+        .polish(body)
+        .then((result) => {
+          if (run !== polishRun.current) return;
+          const next = applyPolished(textRef.current, span, result.text);
+          if (next === null) {
+            setPolish(POLISH_IDLE);
+            return;
+          }
+          setDraft(next);
+          setPolish({ phase: 'polished', span, text: result.text.trim() });
+        })
+        .catch(() => {
+          if (run !== polishRun.current) return;
+          setPolish({ phase: 'failed' });
+        });
+    },
+    [polishReady, polishModel, polishStrength, language, polishContext, setDraft],
+  );
+
+  /** Put the dictated words back, and take the note away with them. */
+  const undoPolish = () => {
+    if (polish.phase !== 'polished') return;
+    const back = undoPolished(textRef.current, polish.span, polish.text);
+    if (back !== null) setDraft(back);
+    dropPolish();
+  };
+
+  // The one line about a failed polish says what happened and then goes away;
+  // the words it is about are in the field, where they always were.
+  useEffect(() => {
+    if (polish.phase !== 'failed') return;
+    const timer = window.setTimeout(() => setPolish(POLISH_IDLE), POLISH_FAILED_MS);
+    return () => window.clearTimeout(timer);
+  }, [polish.phase]);
 
   /**
    * Dictation writes into this field and nothing else: no utterance is sent by
@@ -254,6 +375,9 @@ export function Composer({
       run.applied = next;
       if (isFinal) dictation.current = null;
       setDraft(next);
+      // A29: polishing starts on the last transcript of a dictation, once the
+      // words are in the field and the field is the person's again.
+      if (isFinal) startPolish({ base: run.base, dictated: transcript });
     },
   });
 
@@ -261,6 +385,7 @@ export function Composer({
     voice.state === 'starting' || voice.state === 'listening' || voice.state === 'finishing';
 
   const startVoice = () => {
+    dropPolish();
     dictation.current = { base: textRef.current, applied: textRef.current };
     voice.start();
   };
@@ -421,9 +546,13 @@ export function Composer({
         </div>
       ) : null}
 
-      {voiceBusy ? (
+      {voiceBusy || polish.phase === 'polishing' ? (
         <p className="voice-status hint">
-          {voice.state === 'starting' ? strings.voice.connecting : strings.voice.transcribing}
+          {voiceBusy
+            ? voice.state === 'starting'
+              ? strings.voice.connecting
+              : strings.voice.transcribing
+            : strings.voice.polishing}
         </p>
       ) : null}
 
@@ -460,6 +589,9 @@ export function Composer({
             onCompositionEnd={() => (composing.current = false)}
             onChange={(e) => {
               stopDictationForTyping();
+              // A29: an edit is the person taking the words back; the note goes,
+              // and an answer still in flight is no longer wanted.
+              dropPolish();
               const next = e.target.value;
               // A27: the list is asked for again on the keystroke that opens the
               // panel, so it is current the moment it is on screen.
@@ -561,6 +693,20 @@ export function Composer({
           )}
         </div>
       </div>
+
+      {polish.phase === 'polished' ? (
+        <p className="polish-note hint">
+          <span>{strings.voice.polished}</span>
+          <span aria-hidden>·</span>
+          <button type="button" className="link-btn" onClick={undoPolish}>
+            {strings.voice.undo}
+          </button>
+        </p>
+      ) : polish.phase === 'failed' ? (
+        <p className="polish-note hint" role="status">
+          {strings.voice.polishFailed}
+        </p>
+      ) : null}
 
       <ComposerBottomRow
         agent={agent}

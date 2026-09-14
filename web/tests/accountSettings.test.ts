@@ -9,12 +9,23 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { readSettingsFor, useSettings } from '../src/stores/settings';
 
-const defaults = { language: 'en', sttLanguage: 'auto', timelineDetail: 'simple' };
+const defaults = {
+  language: 'en',
+  sttLanguage: 'auto',
+  timelineDetail: 'simple',
+  // A29: dictation polish is off, with no model and the gentler strength.
+  polishEnabled: false,
+  polishModel: '',
+  polishStrength: 'moderate',
+};
 
 const current = () => ({
   language: useSettings.getState().language,
   sttLanguage: useSettings.getState().sttLanguage,
   timelineDetail: useSettings.getState().timelineDetail,
+  polishEnabled: useSettings.getState().polishEnabled,
+  polishModel: useSettings.getState().polishModel,
+  polishStrength: useSettings.getState().polishStrength,
 });
 
 beforeEach(() => {
@@ -26,6 +37,9 @@ describe('per-account settings', () => {
     readSettingsFor('one.a');
     useSettings.getState().setLanguage('zh-Hans');
     useSettings.getState().setSttLanguage('zh');
+    useSettings.getState().setPolishEnabled(true);
+    useSettings.getState().setPolishModel('gpt-4.1-mini');
+    useSettings.getState().setPolishStrength('strong');
 
     readSettingsFor('one.b');
     expect(current()).toEqual(defaults);
@@ -35,15 +49,17 @@ describe('per-account settings', () => {
     readSettingsFor('two.a');
     useSettings.getState().setLanguage('zh-Hans');
     useSettings.getState().setTimelineDetail('detailed');
+    useSettings.getState().setPolishModel('gpt-4.1');
 
     readSettingsFor('two.b');
     expect(current()).toEqual(defaults);
 
     readSettingsFor('two.a');
     expect(current()).toEqual({
+      ...defaults,
       language: 'zh-Hans',
-      sttLanguage: 'auto',
       timelineDetail: 'detailed',
+      polishModel: 'gpt-4.1',
     });
   });
 
