@@ -22,6 +22,13 @@ public final class AppModel {
     public var isLocked = false
     public var toast: String?
     public let push: PushController
+    /// Raises the app's own banner when a turn ends while it is open.
+    public let turns: TurnNotifier
+    /// Whether the app is in the foreground. The conversation holds the screen
+    /// awake only while it is, and a turn is announced only while it is: a
+    /// suspended app cannot watch the stream, and the gateway's push is the
+    /// channel that reaches a locked phone.
+    public private(set) var isSceneActive = false
     /// Whether there is an account to come back to, from launch until the
     /// keychain has answered. The root draws the page colour and nothing else
     /// while it holds: a sign-in form that flashes for the length of a restore
@@ -48,6 +55,7 @@ public final class AppModel {
     public init(connection: ConnectionStore? = nil,
                 settings: SettingsStore = SettingsStore(),
                 push: PushController? = nil,
+                turns: TurnNotifier? = nil,
                 arguments: [String] = ProcessInfo.processInfo.arguments) {
         // `--demo-account` puts the offline gateway behind the sign-in form
         // instead of around it, which is how the account screens are driven
@@ -57,6 +65,7 @@ public final class AppModel {
             : ConnectionStore())
         self.settings = settings
         self.push = push ?? PushController(platform: SystemNotifications.shared)
+        self.turns = turns ?? TurnNotifier()
         isUITesting = arguments.contains("--ui-testing")
         if arguments.contains("--reset-state") {
             self.settings.reset()
@@ -74,6 +83,9 @@ public final class AppModel {
         // The demo is an account like any other: the app is coming back to
         // something, so the first frame belongs to the main screens.
         isResuming = entersDemo || !self.settings.lastOrigin.isEmpty
+        self.connection.onSessionTransition = { [weak self] previous, current in
+            self?.announceTurn(previous: previous, current: current)
+        }
         if entersDemo {
             launch = Task { await self.enterDemo() }
         }
@@ -240,6 +252,33 @@ public final class AppModel {
         guard let link = pendingLink, connection.hasSnapshot else { return }
         pendingLink = nil
         handle(link)
+    }
+
+    /// The foreground, which both the awake screen and the app's own banners
+    /// are conditioned on.
+    public func setSceneActive(_ active: Bool) {
+        isSceneActive = active
+        syncRemoteBanners()
+    }
+
+    /// A push for a transition this app has already announced is not shown a
+    /// second time (`docs/DESIGN.md` § "Being told when a turn ends"). It is
+    /// only ever this app's own banner that replaces it, so the push is dropped
+    /// exactly while this app is open and reading the stream.
+    public func syncRemoteBanners() {
+        SystemNotifications.shared.suppressesRemoteBanners =
+            isSceneActive && connection.phase == .connected
+    }
+
+    /// A session the app already knew has been replaced by a newer version of
+    /// itself. The three gates live in `TurnNotifier`; the name does not, so it
+    /// is resolved here where the device list is.
+    private func announceTurn(previous: Session, current: Session) {
+        turns.announce(previous: previous, current: current,
+                       deviceName: device(for: current)?.name ?? current.deviceID,
+                       sceneActive: isSceneActive,
+                       enabled: settings.notificationsEnabled,
+                       authorization: push.authorization)
     }
 
     // MARK: - Convenience for the screens

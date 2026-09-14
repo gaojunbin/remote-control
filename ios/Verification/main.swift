@@ -13,7 +13,8 @@ let results = [
     MarkdownChecks.run(),
     LocalizationChecks.run(),
     await AccountChecks.run(),
-    await StoreChecks.run()
+    await StoreChecks.run(),
+    await AlertChecks.run()
 ]
 
 var total = 0

@@ -20,6 +20,11 @@ public final class SystemNotifications: NotificationPlatform {
         }
     }
     public private(set) var token: String?
+    /// Whether the app is in the foreground and connected, in which case it has
+    /// already announced every transition itself and the gateway's push for one
+    /// is not shown a second time. The model owns the answer; this is where the
+    /// delegate reads it.
+    public var suppressesRemoteBanners = false
     private var pending: PushRoute?
     private var registrationRequested = false
     private var registrationFailed = false
@@ -127,6 +132,11 @@ public final class SystemNotifications: NotificationPlatform {
         guard let route = try? PushRoute(userInfo: data) else { return }
         if let onOpen { onOpen(route) } else { pending = route }
     }
+
+    /// Whether a notification that has just arrived is drawn over the open app.
+    public func presents(remote: Bool) -> Bool {
+        ForegroundBanner.shows(remote: remote, suppressesRemote: suppressesRemoteBanners)
+    }
 }
 
 #if os(iOS)
@@ -174,7 +184,13 @@ private final class NotificationDelegate: NSObject, UNUserNotificationCenterDele
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .sound])
+        // Only the trigger's type crosses the actor boundary; the notification
+        // itself is not Sendable and stays here.
+        let remote = notification.request.trigger is UNPushNotificationTrigger
+        Task { @MainActor in
+            let shows = SystemNotifications.shared.presents(remote: remote)
+            completionHandler(shows ? [.banner, .sound] : [])
+        }
     }
 }
 #endif

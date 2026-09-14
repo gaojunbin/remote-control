@@ -51,11 +51,16 @@ public struct RootView: View {
         .pageBackground()
         .task { await model.restoreOrPrompt() }
         .onOpenURL { model.handle(url: $0) }
+        .onAppear { model.setSceneActive(scenePhase == .active) }
         .onChange(of: scenePhase) { _, phase in
+            model.setSceneActive(phase == .active)
             guard phase != .active else { return }
             model.lockIfNeeded()
             Task { await model.persistForBackground() }
         }
+        // The other half of the suppression rule: a push is dropped only while
+        // this app is both open and reading the stream it would duplicate.
+        .onChange(of: model.connection.phase) { _, _ in model.syncRemoteBanners() }
         #if os(iOS)
         .overlay { PrivacyShield(visible: scenePhase != .active).allowsHitTesting(false) }
         #endif

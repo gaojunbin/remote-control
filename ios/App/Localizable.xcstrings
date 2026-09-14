@@ -392,23 +392,6 @@
         }
       }
     },
-    "A notification says which device and session needs you, and nothing else. No prompt text, output or file contents leave the gateway.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A notification says which device and session needs you, and nothing else. No prompt text, output or file contents leave the gateway."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知只说明哪台设备的哪个会话需要你，不包含其他内容。提示词、输出和文件内容都不会离开网关。"
-          }
-        }
-      }
-    },
     "A worktree gives the agent its own checkout, so your working copy stays untouched.": {
       "extractionState": "manual",
       "localizations": {
@@ -1939,6 +1922,23 @@
         }
       }
     },
+    "Errored": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Errored"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出错了"
+          }
+        }
+      }
+    },
     "Files": {
       "extractionState": "manual",
       "localizations": {
@@ -2466,6 +2466,23 @@
         }
       }
     },
+    "Needs your approval": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs your approval"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你批准"
+          }
+        }
+      }
+    },
     "New password": {
       "extractionState": "manual",
       "localizations": {
@@ -2819,6 +2836,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "在本机"
+          }
+        }
+      }
+    },
+    "On, in this app only": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On, in this app only"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已开启（仅本应用内提醒）"
+          }
+        }
+      }
+    },
+    "One switch for the gateway's notifications and the alerts this app raises while it is open: each says which device and session needs you, and nothing else. No prompt text, output or file contents leave the gateway.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One switch for the gateway's notifications and the alerts this app raises while it is open: each says which device and session needs you, and nothing else. No prompt text, output or file contents leave the gateway."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网关的通知和本应用打开时自行弹出的提醒共用这一个开关：两者都只说明哪台设备的哪个会话需要你，不包含其他内容。提示词、输出和文件内容都不会离开网关。"
           }
         }
       }
@@ -5050,6 +5101,23 @@
         }
       }
     },
+    "Turn finished": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn finished"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本轮已完成"
+          }
+        }
+      }
+    },
     "Unlock": {
       "extractionState": "manual",
       "localizations": {
@@ -5386,23 +5454,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "等待授权"
-          }
-        }
-      }
-    },
-    "Waiting for the gateway": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Waiting for the gateway"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "等待网关"
           }
         }
       }

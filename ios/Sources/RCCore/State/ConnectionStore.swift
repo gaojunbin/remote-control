@@ -60,6 +60,12 @@ public final class ConnectionStore {
     @ObservationIgnored private let makeChannel: @Sendable (any GatewayAPI) -> any GatewayChannel
     @ObservationIgnored private var pump: Task<Void, Never>?
     @ObservationIgnored private var frameHandlers: [String: @MainActor (AppFrame) -> Void] = [:]
+    /// Called with both versions whenever a session the app already knew is
+    /// replaced by a newer one. A session arriving for the first time — the
+    /// `hello` list, or one the device just created — is not a transition and
+    /// never reaches this. Nothing in the store reads it; the app announces
+    /// finished turns from it (`docs/DESIGN.md` § "Being told when a turn ends").
+    @ObservationIgnored public var onSessionTransition: (@MainActor (Session, Session) -> Void)?
 
     public init(cache: LocalCache = LocalCache(),
                 makeAPI: @escaping @Sendable (GatewayEndpoint) -> any GatewayAPI = { GatewayHTTPClient(endpoint: $0) },
@@ -401,7 +407,9 @@ public final class ConnectionStore {
             sessions.removeAll { $0.deviceID == deviceID }
         case .sessionUpdated(let session):
             if let index = sessions.firstIndex(where: { $0.id == session.id }) {
+                let previous = sessions[index]
                 sessions[index] = session
+                onSessionTransition?(previous, session)
             } else {
                 sessions.append(session)
             }

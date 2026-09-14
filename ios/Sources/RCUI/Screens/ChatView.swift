@@ -36,6 +36,9 @@ struct ChatView: View {
         // Reading is the usual reason to touch this screen, so a tap
         // anywhere off the message field puts the keyboard away.
         .dismissesKeyboardOnBackgroundTap()
+        // The conversation is the unit: the composer, dictation included, is
+        // inside it, so one rule covers typing and talking alike.
+        .keepsScreenAwake()
         .task {
             guard model.chat?.key != sessionKey, let session else { return }
             await model.open(session)

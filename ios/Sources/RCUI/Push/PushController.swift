@@ -120,13 +120,16 @@ public final class PushController {
         default:
             break
         }
+        // With no gateway to hand a device token to — the demo, or before a
+        // sign-in — nothing is registered with Apple at all. The switch still
+        // holds: the app's own banners for a finished turn need no gateway.
+        guard let api, let environment = platform.environment else {
+            statusText = L10n.string("On, in this app only")
+            return
+        }
         platform.register()
         guard let token = platform.token else {
             statusText = L10n.string("Registering with Apple")
-            return
-        }
-        guard let api, let environment = platform.environment else {
-            statusText = L10n.string("Waiting for the gateway")
             return
         }
         guard token != registeredToken else { return }

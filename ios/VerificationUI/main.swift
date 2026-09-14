@@ -471,6 +471,105 @@ func run() async -> (passed: Int, failures: [String]) {
                                deviceName: "mac", title: "mac: approval needed"))
     equal(opened?.sessionID, "s", "a notification tap is routed to the app")
 
+    // The demo, and the moment before a sign-in: the switch is on and the app's
+    // own banners work, but there is nobody to hand a device token to, so Apple
+    // is never asked for one.
+    let local = FakeNotificationPlatform()
+    local.authorizationValue = .authorized
+    let localPush = PushController(platform: local, bundleID: "com.junbingao.remotecontrol")
+    localPush.attach(api: nil, enabled: true) { _ in }
+    await settle { localPush.statusText.contains("this app only") }
+    equal(localPush.statusText, "On, in this app only", "with no gateway the switch still reads on")
+    equal(local.registerCalls, 0, "and nothing is registered with Apple")
+
+    // MARK: - The app's own banner when a turn ends
+    //
+    // `docs/DESIGN.md` § "Being told when a turn ends". Three gates, and a
+    // payload that is the gateway's own, so tapping the banner opens the
+    // session through the path a push already takes.
+
+    let alerts = FakeTurnAlertPlatform()
+    let notifier = TurnNotifier(platform: alerts)
+    func demoSession(_ state: SessionState) -> Session {
+        Session(sessionID: "s-1", deviceID: "d-1", agent: "claude", title: "Fix the flake",
+                cwd: "/w", state: state, updatedAt: 1_700_000_000_000)
+    }
+    let ran = demoSession(.running)
+    let quiet = demoSession(.idle)
+
+    expect(notifier.announce(previous: ran, current: quiet, deviceName: "mac",
+                             sceneActive: false, enabled: true, authorization: .authorized) == nil,
+           "a suspended app raises nothing: the gateway's push is what reaches a locked phone")
+    expect(notifier.announce(previous: ran, current: quiet, deviceName: "mac",
+                             sceneActive: true, enabled: false, authorization: .authorized) == nil,
+           "the Notifications switch is the one switch, and off means off")
+    expect(notifier.announce(previous: ran, current: quiet, deviceName: "mac",
+                             sceneActive: true, enabled: true, authorization: .notDetermined) == nil,
+           "nothing is raised before the system has granted permission")
+    expect(notifier.announce(previous: ran, current: quiet, deviceName: "mac",
+                             sceneActive: true, enabled: true, authorization: .denied) == nil,
+           "and nothing after it has been refused")
+    expect(notifier.announce(previous: quiet, current: quiet, deviceName: "mac",
+                             sceneActive: true, enabled: true, authorization: .authorized) == nil,
+           "a session that was already quiet is not a finished turn")
+    equal(alerts.posted.count, 0, "none of those reached the system")
+
+    guard let finished = notifier.announce(previous: ran, current: quiet, deviceName: "mac",
+                                           sceneActive: true, enabled: true,
+                                           authorization: .authorized) else {
+        expect(false, "an authorized app in the foreground announces a finished turn")
+        return (passed, failures)
+    }
+    equal(alerts.posted.count, 1, "one request, once")
+    equal(finished.title, "mac", "the banner is headed by the device's name")
+    equal(finished.body, "Turn finished", "and says the status word, and nothing about the turn")
+    equal(finished.threadIdentifier, quiet.id, "banners stack under the session they belong to")
+    equal(finished.route.title, "mac: Turn finished", "the payload carries the push's own sentence")
+
+    // The payload shape of `build_payload()` in `gateway/rc_gateway/push.py`:
+    // it has to parse back through the path a tap takes.
+    if let data = try? JSONSerialization.data(withJSONObject: finished.userInfo),
+       let parsed = try? PushRoute(userInfo: data) {
+        equal(parsed, finished.route, "the userInfo parses back into the route it was built from")
+        equal(parsed.deepLink?.absoluteString, "remotecontrol://session?device=d-1&id=s-1",
+              "which is the deep link that opens the session")
+    } else {
+        expect(false, "the userInfo is the gateway's payload and parses as one")
+    }
+
+    let asking = demoSession(.needsInput)
+    equal(notifier.announce(previous: ran, current: asking, deviceName: "mac",
+                            sceneActive: true, enabled: true, authorization: .provisional)?.body,
+          "Waiting for your answer", "a provisional grant still delivers, with the same word")
+
+    // No double banners: the gateway's push for a transition this app has
+    // already announced is not drawn a second time over the open app.
+    expect(ForegroundBanner.shows(remote: false, suppressesRemote: true),
+           "the app's own banner is always shown")
+    expect(ForegroundBanner.shows(remote: true, suppressesRemote: false),
+           "and so is a push, while the app is not reading the stream")
+    expect(!ForegroundBanner.shows(remote: true, suppressesRemote: true),
+           "but not while it is: that one has already been announced")
+    SystemNotifications.shared.suppressesRemoteBanners = true
+    expect(!SystemNotifications.shared.presents(remote: true),
+           "the flag the model sets is what the delegate reads")
+    expect(SystemNotifications.shared.presents(remote: false), "local alerts pass it")
+    SystemNotifications.shared.suppressesRemoteBanners = false
+
+    // The model owns the flag, and sets it from the two facts it is made of.
+    let foreground = AppModel(arguments: [])
+    foreground.setSceneActive(true)
+    expect(!SystemNotifications.shared.suppressesRemoteBanners,
+           "an app with no connection suppresses nothing")
+    await foreground.enterDemo()
+    await settle { foreground.connection.hasSnapshot }
+    foreground.setSceneActive(true)
+    expect(SystemNotifications.shared.suppressesRemoteBanners,
+           "open and connected is what drops the second banner")
+    foreground.setSceneActive(false)
+    expect(!SystemNotifications.shared.suppressesRemoteBanners,
+           "and leaving the foreground hands the push back its banner")
+
     // MARK: - Dictation lifecycle
 
     let scripted = ScriptedSpeechInput(transcript: "run the suite again")
@@ -994,6 +1093,13 @@ actor StoredAccountGateway: GatewayAPI, GatewayChannel {
     func restoreToken(username: String) async -> Bool { true }
     func bearerToken() async -> String? { "stored" }
     func forgetToken(username: String) async {}
+}
+
+/// The posting side of a local banner, with no UserNotifications behind it.
+@MainActor
+final class FakeTurnAlertPlatform: TurnAlertPlatform {
+    private(set) var posted: [TurnAlert] = []
+    func post(_ alert: TurnAlert) { posted.append(alert) }
 }
 
 /// A notification platform with no UserNotifications behind it.

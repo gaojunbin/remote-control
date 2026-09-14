@@ -50,7 +50,9 @@ struct SettingsView: View {
                 Toggle("Notify me", isOn: $settings.notificationsEnabled)
                     .font(Theme.Text.label)
                     .settingsRowLayout()
-                    .disabled(!push.isSupported || model.isDemo)
+                    // The app's own alerts need no gateway, so the switch works
+                    // in the demo too wherever the system can raise one.
+                    .disabled(!push.isSupported)
                     .accessibilityIdentifier("settings.notifications")
                 SettingsRow("Status", value: push.statusText)
                 if push.authorization == .denied {
@@ -61,7 +63,7 @@ struct SettingsView: View {
             } header: {
                 FieldLabel("Notifications")
             } footer: {
-                SettingsFooter(L10n.string("A notification says which device and session needs you, and nothing else. No prompt text, output or file contents leave the gateway."))
+                SettingsFooter(L10n.string("One switch for the gateway's notifications and the alerts this app raises while it is open: each says which device and session needs you, and nothing else. No prompt text, output or file contents leave the gateway."))
             }
 
             Section {
