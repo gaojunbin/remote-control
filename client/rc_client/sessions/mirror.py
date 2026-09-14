@@ -38,6 +38,17 @@ BACKFILL_BYTES = 4 * 1024 * 1024
 Tailer = transcripts.TranscriptTailer | rollouts.RolloutTailer | grok_sessions.GrokTailer
 
 
+def _turn_trigger(tailer: Tailer) -> str:
+    """What the rows just read say started the turn (amendment A30).
+
+    Only Claude sessions are shared with a terminal, and only their transcripts
+    carry a message another agent filed as a user turn.
+    """
+    if isinstance(tailer, transcripts.TranscriptTailer):
+        return tailer.turn_trigger
+    return "terminal"
+
+
 @dataclass(slots=True)
 class ClaudeMirror:
     tailer: transcripts.TranscriptTailer
@@ -444,7 +455,8 @@ class MirrorService:
         for session_id, entry, mirror in tracked:
             running = mirror.tailer.awaiting_reply if mirror is not None else False
             if entry.shared is not None:
-                await self.hub.shared.tick(entry, running)
+                trigger = mirror.tailer.turn_trigger if mirror is not None else "terminal"
+                await self.hub.shared.tick(entry, running, trigger)
                 continue
             if not scan.complete:
                 continue
@@ -543,12 +555,12 @@ class MirrorService:
             # Grok's `eventId` counter resumes a tail even when the file moved,
             # and is the same mark the leader reads when it joins (A28).
             grok_cursor.write(self.hub.registry, session_id, tailer.cursor)
-        await self._after_rows(entry, tailer.busy)
+        await self._after_rows(entry, tailer.busy, _turn_trigger(tailer))
 
-    async def _after_rows(self, entry: SessionEntry, running: bool) -> None:
+    async def _after_rows(self, entry: SessionEntry, running: bool, trigger: str) -> None:
         entry.session.updated_at = now_ms()
         if entry.shared is not None:
-            await self.hub.shared.tick(entry, running)
+            await self.hub.shared.tick(entry, running, trigger)
         elif entry.session.control == "terminal":
             await entry.channel.set_state("running" if running else "readonly")
         await entry.channel.publish_summary()
@@ -585,7 +597,9 @@ class MirrorService:
         if emit.kind == "todos":
             await entry.channel.publish_todos(list(emit.fields.get("items") or []))
             return
-        if emit.kind == "user_message":
+        if emit.kind == "user_message" and emit.fields.get("source") != "agent":
+            # A session is named after its first message, and a teammate's
+            # report is not one the person sent (amendment A30).
             await titles.from_prompt(entry.channel, str(emit.fields.get("text") or ""))
         await entry.channel.emit(emit.kind, **emit.fields)
 

@@ -17,6 +17,7 @@ from ...diffs import from_tool_input
 from ...models import now_ms
 from ...tailing import FileTail
 from ..base import Emit
+from .injected import classify
 from .questions import QUESTION_TOOL
 from .runtime import PROJECTS_DIR
 from .tools import todos_from_input, tool_kind, tool_title
@@ -298,6 +299,10 @@ class TranscriptTailer:
     cwd: str
     tools: dict[str, dict[str, Any]] = field(default_factory=dict)
     awaiting_reply: bool = False
+    # What started the turn the rows read so far leave open (amendment A30):
+    # the person at the keyboard, this device's own injection, or another agent
+    # whose words the CLI filed as a user turn.
+    turn_trigger: str = "terminal"
     tail: FileTail = field(init=False)
 
     def __post_init__(self) -> None:
@@ -351,6 +356,7 @@ class TranscriptTailer:
         if message_id is None:
             return []
         self.awaiting_reply = True
+        self.turn_trigger = "remote"
         return [Emit(CHANNEL_DELIVERED, {"message_id": message_id})]
 
     def _attachment(self, row: dict[str, Any]) -> list[Emit]:
@@ -369,19 +375,7 @@ class TranscriptTailer:
         message = row.get("message") or {}
         content = message.get("content")
         if isinstance(content, str):
-            if _is_meta(row, content) or not content.strip():
-                return []
-            self.awaiting_reply = True
-            return [
-                Emit(
-                    "user_message",
-                    {
-                        "block_id": str(row.get("uuid") or f"user:{now_ms()}"),
-                        "text": content,
-                        "source": "terminal",
-                    },
-                )
-            ]
+            return self._message(row, content)
         emits: list[Emit] = []
         text_parts: list[str] = []
         for block in content or []:
@@ -391,20 +385,34 @@ class TranscriptTailer:
                 emits.extend(self._tool_result(block, row))
             elif block.get("type") == "text":
                 text_parts.append(str(block.get("text") or ""))
-        text = "\n".join(part for part in text_parts if part)
-        if text and not _is_meta(row, text):
-            self.awaiting_reply = True
-            emits.append(
-                Emit(
-                    "user_message",
-                    {
-                        "block_id": str(row.get("uuid") or f"user:{now_ms()}"),
-                        "text": text,
-                        "source": "terminal",
-                    },
-                )
+        return emits + self._message(row, "\n".join(part for part in text_parts if part))
+
+    def _message(self, row: dict[str, Any], text: str) -> list[Emit]:
+        """Publish a user row as whosever words it holds (amendment A30).
+
+        A teammate's message and a task's notification are user turns nobody
+        typed, so they are published as `agent` and start their turn as one; a
+        row left empty once the CLI's own reminders come off is not a message
+        at all.
+        """
+        if not text.strip() or _is_meta(row, text):
+            return []
+        said = classify(row, text)
+        if said is None:
+            return []
+        source = "agent" if said.by_agent else "terminal"
+        self.awaiting_reply = True
+        self.turn_trigger = source
+        return [
+            Emit(
+                "user_message",
+                {
+                    "block_id": str(row.get("uuid") or f"user:{now_ms()}"),
+                    "text": said.text,
+                    "source": source,
+                },
             )
-        return emits
+        ]
 
     def _assistant(self, row: dict[str, Any]) -> list[Emit]:
         message = row.get("message") or {}

@@ -222,13 +222,19 @@ class SharedControl:
 
     # ------------------------------------------------------------ transcript
 
-    async def tick(self, entry: SessionEntry, running: bool) -> None:
-        """Called after every transcript read: the only source of turn state."""
+    async def tick(self, entry: SessionEntry, running: bool, trigger: str = "terminal") -> None:
+        """Called after every transcript read: the only source of turn state.
+
+        `trigger` is what the rows just read say started the turn: the person at
+        the keyboard, or another agent whose message the CLI filed as a user
+        turn (amendment A30). An injection of our own names itself when it goes
+        out and is still in flight here, which is what `waiting` protects.
+        """
         state = entry.shared
         if state is None:
             return
         if running and not state.running and not state.waiting:
-            state.trigger = "terminal"
+            state.trigger = trigger
         state.running = running
         await self._settle(entry)
         if not running:

@@ -28,6 +28,15 @@ QUESTION_INPUT = {
 }
 PROMPT = "How should the refresh window treat skew?"
 
+# Amendment A30: what one Claude session sends another, as the CLI files it.
+TEAMMATE_MESSAGE = (
+    "Another Claude session sent a message:\n"
+    '<teammate-message teammate_id="web-polish" color="green">\n'
+    '{"type":"idle_notification","from":"web-polish","idleReason":"available",'
+    '"result":"Screenshots are in the scratchpad."}\n'
+    "</teammate-message>"
+)
+
 
 class FakeHookQuestion(HookQuestion):
     """A question hook that records the single reply it is given."""
@@ -451,6 +460,26 @@ async def test_a_turn_the_terminal_started_is_labelled_as_such(harness: Harness)
     entry = await harness.attach()
     await harness.hub.shared.tick(entry, running=True)
     assert harness.events("turn_started")[-1]["trigger"] == "terminal"
+    await harness.hub.shared.tick(entry, running=False)
+    assert harness.events("turn_completed")[-1]["stop_reason"] == "completed"
+
+
+async def test_a_turn_another_agent_started_is_labelled_agent(harness: Harness) -> None:
+    """Amendment A30: the trigger comes from the rows the transcript just gave up."""
+    entry = await harness.attach()
+    reader = transcripts.TranscriptTailer(path="/nonexistent", cwd="/repo")
+    reader.translate(
+        {
+            "type": "user",
+            "uuid": "row-teammate",
+            "message": {"role": "user", "content": TEAMMATE_MESSAGE},
+        }
+    )
+    assert reader.turn_trigger == "agent"
+
+    await harness.hub.shared.tick(entry, reader.busy, reader.turn_trigger)
+    assert harness.events("turn_started")[-1]["trigger"] == "agent"
+
     await harness.hub.shared.tick(entry, running=False)
     assert harness.events("turn_completed")[-1]["stop_reason"] == "completed"
 

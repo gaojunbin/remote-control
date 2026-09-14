@@ -6,6 +6,7 @@ tool result belongs to and which message id the current stream deltas carry.
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from claude_agent_sdk import (
@@ -23,6 +24,7 @@ from claude_agent_sdk import (
 from ...diffs import from_tool_input
 from ...models import now_ms
 from ..base import Emit
+from .injected import classify
 from .tools import todos_from_input, tool_kind, tool_title
 
 MAX_TOOL_BLOCKS = 2000
@@ -208,12 +210,33 @@ class ClaudeTranslator:
     def _feed_user(self, message: UserMessage) -> list[Emit]:
         content = message.content
         if isinstance(content, str):
-            return []
+            return self._injected(message, content)
         emits: list[Emit] = []
         for block in content:
             if isinstance(block, ToolResultBlock):
                 emits.extend(self._tool_result(block, message.parent_tool_use_id))
         return emits
+
+    def _injected(self, message: UserMessage, text: str) -> list[Emit]:
+        """Amendment A30: words another agent put into a session this device drives.
+
+        The prompts this device sends are published under the request's own id
+        before the SDK is touched, so the only user text worth a block here is
+        the text nobody typed — a teammate's message, a task's notification.
+        """
+        said = classify({"origin": message.origin}, text)
+        if said is None or not said.by_agent:
+            return []
+        return [
+            Emit(
+                "user_message",
+                {
+                    "block_id": message.uuid or f"agent:{uuid.uuid4()}",
+                    "text": said.text,
+                    "source": "agent",
+                },
+            )
+        ]
 
     def _feed_system(self, message: SystemMessage) -> list[Emit]:
         data = message.data or {}
