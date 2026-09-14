@@ -18,6 +18,8 @@ from fastapi.testclient import TestClient
 from rc_gateway.state import GatewayState
 
 from .conftest import (
+    FIXTURE_DIR,
+    FakePolisher,
     device_hello,
     drain_until,
     enroll_device,
@@ -109,6 +111,20 @@ def test_config_and_pairing_request_bodies_match_the_schema(
         "http.json",
         "PairingRequestStatusResponse",
     )
+
+
+def test_polish_bodies_match_the_schema(
+    client: TestClient, auth: dict[str, str], polisher: FakePolisher
+) -> None:
+    """A29: the model list, the body the apps send and the answer they get back."""
+    check(
+        client.get("/api/polish/models", headers=auth).json(), "http.json", "PolishModelsResponse"
+    )
+    request = json.loads((FIXTURE_DIR / "http" / "polish.request.json").read_text(encoding="utf-8"))
+    check(request, "http.json", "PolishRequest")
+    answered = client.post("/api/polish", json=request, headers=auth)
+    assert answered.status_code == 200, answered.text
+    check(answered.json(), "http.json", "PolishResponse")
 
 
 def test_hello_ack_and_app_hello_match_the_schema(client: TestClient, auth: dict[str, str]) -> None:

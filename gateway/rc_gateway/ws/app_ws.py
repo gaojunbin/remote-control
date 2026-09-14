@@ -41,7 +41,11 @@ async def app_socket(ws: WebSocket) -> None:
     await state.hub.attach_app(connection)
     watchdog = asyncio.create_task(_watch_revocation(ws, connection, state, credential))
     try:
-        await connection.send(await state.hub.app_hello_payload(account, VERSION, state.stt_view()))
+        await connection.send(
+            await state.hub.app_hello_payload(
+                account, VERSION, state.stt_view(), state.polish_view()
+            )
+        )
         while True:
             raw = await ws.receive_text()
             connection.note_frame()

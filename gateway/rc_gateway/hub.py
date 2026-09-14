@@ -563,7 +563,7 @@ class Hub:
                 pending.timer.cancel()
 
     async def app_hello_payload(
-        self, account: UserRecord, gateway_version: str, stt: Frame
+        self, account: UserRecord, gateway_version: str, stt: Frame, polish: Frame
     ) -> Frame:
         """The first frame of `/ws/app`: this account's devices and their sessions, nothing else."""
         records = await self.device_store.list_for_user(account.username)
@@ -587,6 +587,7 @@ class Hub:
             "devices": devices,
             "sessions": await self.index.list_sessions(device_ids=device_ids),
             "stt": stt,
+            "polish": polish,
             "server_time": _now_ms(),
         }
 

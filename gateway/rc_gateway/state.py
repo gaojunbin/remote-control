@@ -17,6 +17,7 @@ from .devices import DeviceStore
 from .hub import Hub
 from .index import SessionIndex
 from .pairing_requests import PairingRequests
+from .polish import Polisher
 from .push import PushService
 from .push_store import PushStore
 from .ratelimit import RateLimiter
@@ -40,9 +41,11 @@ class GatewayState:
     login_limiter: RateLimiter
     enroll_limiter: RateLimiter
     pairing_limiter: RateLimiter
+    polish_limiter: RateLimiter
     hub: Hub = field(init=False)
     push: PushService = field(init=False)
     transcriber: Transcriber | None = None
+    polisher: Polisher | None = None
     apns: ApnsProvider | None = None
     #: Refused `/ws/device` upgrades, so an orphaned daemon is visible without flooding the log.
     device_rejects: RejectionLog = field(default_factory=RejectionLog)
@@ -54,6 +57,9 @@ class GatewayState:
             "enabled": self.config.stt.enabled,
             "languages": list(self.config.stt.languages),
         }
+
+    def polish_view(self) -> dict[str, Any]:
+        return {"enabled": self.config.polish.enabled}
 
     def client_view(self) -> dict[str, Any] | None:
         """The served wheel (A22), or None in a checkout where none has been built."""
@@ -69,6 +75,7 @@ class GatewayState:
         view: dict[str, Any] = {
             "public_origin": self.config.public_origin,
             "stt": self.stt_view(),
+            "polish": self.polish_view(),
             "push": {
                 "web_enabled": self.push.web_enabled,
                 "apns_enabled": self.push.apns_enabled,

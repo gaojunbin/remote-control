@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rc_gateway.app import build_state, create_app
-from rc_gateway.config import ApnsConfig, Config, SttConfig
+from rc_gateway.config import ApnsConfig, Config, PolishConfig, SttConfig
 from rc_gateway.connections import AppConnection, Connection, DeviceConnection
 from rc_gateway.devices import DeviceStore
 from rc_gateway.frames import REQUEST_TIMEOUT_SECONDS
@@ -24,6 +24,8 @@ from rc_gateway.hub import (
     TransitionHook,
 )
 from rc_gateway.index import SessionIndex
+from rc_gateway.polish import PolishError, PolishModel
+from rc_gateway.polish_prompt import ContextMessage
 from rc_gateway.push_store import WebPushSubscription
 from rc_gateway.state import GatewayState
 from rc_gateway.stt import SttError, Transcript
@@ -59,6 +61,44 @@ class FakeTranscriber:
         return Transcript(text=self.text, language=self.language)
 
 
+class FakePolisher:
+    """Returns a canned polished text and records what it was asked to polish (A29)."""
+
+    def __init__(self, text: str = "Polished words.") -> None:
+        self.text = text
+        self.models_offered = [PolishModel(id="fake-a", label="fake-a")]
+        self.calls: list[dict[str, Any]] = []
+        self.fail: str | None = None
+        self.models_fail: str | None = None
+
+    async def models(self) -> list[PolishModel]:
+        if self.models_fail is not None:
+            raise PolishError(self.models_fail)
+        return list(self.models_offered)
+
+    async def polish(
+        self,
+        text: str,
+        *,
+        model: str,
+        strength: str,
+        language: str | None,
+        context: Sequence[ContextMessage],
+    ) -> str:
+        self.calls.append(
+            {
+                "text": text,
+                "model": model,
+                "strength": strength,
+                "language": language,
+                "context": list(context),
+            }
+        )
+        if self.fail is not None:
+            raise PolishError(self.fail)
+        return self.text
+
+
 class FakeWebPushSender:
     def __init__(self) -> None:
         self.sent: list[tuple[str, dict[str, Any]]] = []
@@ -89,6 +129,12 @@ def make_config(tmp_path: Path, **overrides: Any) -> Config:
             model="whisper-1",
             languages=("auto", "zh", "en"),
         ),
+        "polish": PolishConfig(
+            base_url="http://polish.invalid/v1",
+            api_key="k",
+            models=(),
+            timeout_seconds=20.0,
+        ),
         "apns": ApnsConfig(team_id="", key_id="", key_path="", topic="", environment="production"),
         "vapid_private_pem": tmp_path / "vapid_private.pem",
         "vapid_public_key": "BJ" + "A" * 84,
@@ -103,15 +149,28 @@ def transcriber() -> FakeTranscriber:
 
 
 @pytest.fixture
+def polisher() -> FakePolisher:
+    return FakePolisher()
+
+
+@pytest.fixture
 def web_sender() -> FakeWebPushSender:
     return FakeWebPushSender()
 
 
 @pytest.fixture
 def state(
-    tmp_path: Path, transcriber: FakeTranscriber, web_sender: FakeWebPushSender
+    tmp_path: Path,
+    transcriber: FakeTranscriber,
+    polisher: FakePolisher,
+    web_sender: FakeWebPushSender,
 ) -> GatewayState:
-    built = build_state(make_config(tmp_path), transcriber=transcriber, web_sender=web_sender)
+    built = build_state(
+        make_config(tmp_path),
+        transcriber=transcriber,
+        polisher=polisher,
+        web_sender=web_sender,
+    )
     built.hub = Hub(
         built.index,
         built.devices,

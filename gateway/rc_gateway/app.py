@@ -25,11 +25,13 @@ from .headers import SecurityHeaders
 from .hub import Hub
 from .index import SessionIndex
 from .logging import logger
+from .polish import PolishClient, Polisher
 from .push import PushService
 from .push_store import PushStore
 from .ratelimit import MAX_PER_IP, RateLimiter
 from .routes import (
     device_routes,
+    polish_routes,
     push_routes,
     session_routes,
     static_routes,
@@ -48,6 +50,8 @@ log = logger("rc_gateway.app")
 ENROLL_MAX_PER_IP = 30
 #: A23: an unauthenticated host may ask to be claimed this often per minute.
 PAIRING_MAX_PER_IP = 6
+#: A29: polish calls spend the operator's own model credit, so one address gets this many a minute.
+POLISH_MAX_PER_IP = 30
 _STATUS_CODES = {
     "bad_request": 400,
     "unauthorized": 401,
@@ -65,6 +69,7 @@ def build_state(
     config: Config,
     *,
     transcriber: Transcriber | None = None,
+    polisher: Polisher | None = None,
     apns: ApnsProvider | None = None,
     web_sender: Any = None,
 ) -> GatewayState:
@@ -81,6 +86,7 @@ def build_state(
         login_limiter=RateLimiter(max_per_ip=MAX_PER_IP),
         enroll_limiter=RateLimiter(max_per_ip=ENROLL_MAX_PER_IP),
         pairing_limiter=RateLimiter(max_per_ip=PAIRING_MAX_PER_IP),
+        polish_limiter=RateLimiter(max_per_ip=POLISH_MAX_PER_IP),
     )
     state.apns = apns if apns is not None else _build_apns(config)
     state.push = PushService(
@@ -95,6 +101,7 @@ def build_state(
         state.index, state.devices, on_session_transition=state.push.on_session_transition
     )
     state.transcriber = transcriber if transcriber is not None else _build_transcriber(config)
+    state.polisher = polisher if polisher is not None else _build_polisher(config)
     return state
 
 
@@ -111,6 +118,7 @@ def create_app(state: GatewayState | None = None) -> FastAPI:
             version=VERSION,
             public_origin=resolved.config.public_origin,
             stt=resolved.config.stt.provider,
+            polish=resolved.config.polish.enabled,
             web_push=resolved.push.web_enabled,
             apns=resolved.push.apns_enabled,
         )
@@ -123,9 +131,10 @@ def create_app(state: GatewayState | None = None) -> FastAPI:
             await resolved.hub.stop()
             await resolved.push.stop()
             await resolved.index.close()
-            closer = getattr(resolved.transcriber, "close", None)
-            if closer is not None:
-                await closer()
+            for service in (resolved.transcriber, resolved.polisher):
+                closer = getattr(service, "close", None)
+                if closer is not None:
+                    await closer()
 
     app = FastAPI(
         title="remote-control gateway",
@@ -142,6 +151,7 @@ def create_app(state: GatewayState | None = None) -> FastAPI:
     app.include_router(device_routes.router)
     app.include_router(push_routes.router)
     app.include_router(stt_routes.router)
+    app.include_router(polish_routes.router)
     app.include_router(device_ws.router)
     app.include_router(app_ws.router)
     app.include_router(stt_ws.router)
@@ -205,6 +215,11 @@ def _build_transcriber(config: Config) -> Transcriber | None:
     if config.stt.provider == "mimo":
         return MimoTranscriber(config.stt)
     return OpenAiTranscriber(config.stt)
+
+
+def _build_polisher(config: Config) -> Polisher | None:
+    """A29: the polish client exists only when the operator configured a base URL and a key."""
+    return PolishClient(config.polish) if config.polish.enabled else None
 
 
 def _build_apns(config: Config) -> ApnsProvider | None:

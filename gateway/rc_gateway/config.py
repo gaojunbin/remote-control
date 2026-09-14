@@ -28,6 +28,7 @@ DEFAULT_STT_LANGUAGES = ("auto", "zh", "en")
 STT_BACKENDS = ("openai", "mimo")
 STT_PROVIDERS = ("none", *STT_BACKENDS)
 DEFAULT_TRUSTED_PROXIES = ("127.0.0.0/8", "::1/128")
+DEFAULT_POLISH_TIMEOUT_SECONDS = 20.0
 
 
 class ConfigError(RuntimeError):
@@ -45,6 +46,25 @@ class SttConfig:
     @property
     def enabled(self) -> bool:
         return self.provider in STT_BACKENDS
+
+
+@dataclass(frozen=True)
+class PolishConfig:
+    """The operator's own OpenAI-compatible model for polishing dictation (A29).
+
+    Both a base URL and a key are needed: a provider reached without a key would answer every
+    request with an error, which is a worse setting to offer than none at all. ``models`` is an
+    optional allowlist that also stands in for a provider with no ``/models`` endpoint.
+    """
+
+    base_url: str
+    api_key: str
+    models: tuple[str, ...]
+    timeout_seconds: float
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.base_url and self.api_key)
 
 
 @dataclass(frozen=True)
@@ -74,6 +94,7 @@ class Config:
     client_dist_dir: Path
     web_push_contact: str
     stt: SttConfig
+    polish: PolishConfig
     apns: ApnsConfig
     vapid_private_pem: Path
     vapid_public_key: str = ""
@@ -159,6 +180,38 @@ def _stt_config() -> SttConfig:
     )
 
 
+def _split_models(raw: str) -> tuple[str, ...]:
+    """Parse ``POLISH_MODELS``, keeping the operator's order and dropping repeats."""
+    models: list[str] = []
+    for item in raw.split(","):
+        candidate = item.strip()
+        if candidate and candidate not in models:
+            models.append(candidate)
+    return tuple(models)
+
+
+def _polish_timeout(raw: str) -> float:
+    if not raw:
+        return DEFAULT_POLISH_TIMEOUT_SECONDS
+    try:
+        seconds = float(raw)
+    except ValueError as exc:
+        raise ConfigError(f"POLISH_TIMEOUT_SECONDS is not a number of seconds: {raw!r}") from exc
+    if seconds <= 0:
+        raise ConfigError("POLISH_TIMEOUT_SECONDS must be greater than zero")
+    return seconds
+
+
+def _polish_config() -> PolishConfig:
+    """Read the ``POLISH_*`` block. Missing values simply leave the feature off."""
+    return PolishConfig(
+        base_url=_env("POLISH_BASE_URL").rstrip("/"),
+        api_key=_env("POLISH_API_KEY"),
+        models=_split_models(_env("POLISH_MODELS")),
+        timeout_seconds=_polish_timeout(_env("POLISH_TIMEOUT_SECONDS")),
+    )
+
+
 def _default_path(env_name: str, docker_path: str, repo_relative: str) -> Path:
     configured = _env(env_name)
     if configured:
@@ -195,6 +248,7 @@ def load_config(*, load_env_file: bool = True) -> Config:
 
     # Before DATA_DIR is touched: a typo in the provider name should not leave secrets behind.
     stt = _stt_config()
+    polish = _polish_config()
 
     data_dir = Path(_env("DATA_DIR", "/data") or "/data").expanduser()
     try:
@@ -222,6 +276,7 @@ def load_config(*, load_env_file: bool = True) -> Config:
         client_dist_dir=_default_path("CLIENT_DIST_DIR", "/app/client/dist", "client/dist"),
         web_push_contact=web_push_contact,
         stt=stt,
+        polish=polish,
         apns=ApnsConfig(
             team_id=_env("APNS_TEAM_ID"),
             key_id=_env("APNS_KEY_ID"),
