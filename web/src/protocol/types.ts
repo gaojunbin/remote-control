@@ -282,12 +282,20 @@ interface EventBase {
  */
 export type MessageDelivery = 'delivered' | 'absorbed';
 
+/**
+ * Who caused a message or a turn — the schema's one `Trigger`, shared by
+ * `user_message.source` and `turn_started.trigger`. Amendment A30 adds `agent`:
+ * words the CLI filed as a user turn that no person typed, another agent's
+ * message or a background task's notification.
+ */
+export type Trigger = 'remote' | 'terminal' | 'queue' | 'agent';
+
 export interface UserMessageEvent extends EventBase {
   kind: 'user_message';
   block_id: string;
   text: string;
   attachments?: Attachment[];
-  source: 'remote' | 'terminal' | 'queue';
+  source: Trigger;
   delivery?: MessageDelivery;
 }
 
@@ -390,7 +398,8 @@ export interface QuestionEvent extends EventBase {
 export interface TurnStartedEvent extends EventBase {
   kind: 'turn_started';
   turn_id: string;
-  trigger: 'remote' | 'terminal' | 'queue';
+  /** A30: `agent` is a turn another agent's message started; read as `terminal`. */
+  trigger: Trigger;
 }
 
 export interface TurnCompletedEvent extends EventBase {

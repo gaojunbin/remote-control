@@ -1014,9 +1014,27 @@ function terminalHistory(): SessionEvent[] {
       done: true,
       text: 'Splitting `router.py` into `router/devices.py` and `router/sessions.py`.',
     },
+    // A30: a teammate reported back and the CLI filed it as a user turn. The
+    // device reduced the envelope to who reported and what they said.
     {
       seq: 3,
       ts: base + 2_000,
+      kind: 'user_message',
+      block_id: 't-u2',
+      source: 'agent',
+      text: 'recon-ios: Recon complete. The session list already pages; three call sites still read the old cursor.',
+    },
+    {
+      seq: 4,
+      ts: base + 3_600,
+      kind: 'assistant_text',
+      block_id: 't-a2',
+      done: true,
+      text: 'Taking the three call sites onto the new cursor before the split lands.',
+    },
+    {
+      seq: 5,
+      ts: base + 4_000,
       kind: 'notice',
       level: 'info',
       text: 'This session is driven from a terminal on mac-studio-office.',

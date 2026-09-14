@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SubscribeResult } from '../src/protocol/frames';
-import type { Session, SessionEvent } from '../src/protocol/types';
+import type { Session, SessionEvent, Trigger } from '../src/protocol/types';
 
 const rpc = vi.fn();
 const subscribe = vi.fn();
@@ -68,6 +68,34 @@ const queueEvent = (seq: number, ids: string[]): SessionEvent =>
 
 const userMessage = (seq: number, blockId: string, text: string): SessionEvent =>
   ({ seq, ts: 1_000 + seq, kind: 'user_message', block_id: blockId, text, source: 'remote' }) as SessionEvent;
+
+/** A30: a message the CLI filed as a user turn that nobody typed. */
+const agentMessage = (seq: number, blockId: string, text: string): SessionEvent => ({
+  seq,
+  ts: 1_000 + seq,
+  kind: 'user_message',
+  block_id: blockId,
+  text,
+  source: 'agent',
+});
+
+/** Written without a cast, so the compiler checks the trigger against A30. */
+const turnStarted = (seq: number, trigger: Trigger, turnId: string): SessionEvent => ({
+  seq,
+  ts: 1_000 + seq,
+  kind: 'turn_started',
+  turn_id: turnId,
+  trigger,
+});
+
+const turnCompleted = (seq: number, turnId: string): SessionEvent => ({
+  seq,
+  ts: 1_000 + seq,
+  kind: 'turn_completed',
+  turn_id: turnId,
+  stop_reason: 'completed',
+  duration_ms: 1_200,
+});
 
 const textEvent = (seq: number, text: string): SessionEvent =>
   ({ seq, ts: 1_000 + seq, kind: 'assistant_text', block_id: `b${seq}`, text, done: true }) as SessionEvent;
@@ -260,6 +288,25 @@ describe('live events', () => {
   it('ignores events for a session that is not open', () => {
     useChat.getState().ingestEvent('other-session', textEvent(1, 'nope'));
     expect(useChat.getState().sessions).toEqual({});
+  });
+
+  // A30: a turn another agent's message started is a turn like any other — the
+  // status line reads it as it reads a terminal-started one.
+  it('runs a turn another agent started exactly as a terminal-started one', () => {
+    const handlers = openSession();
+    handlers.onResult({ session, resync: false, events: [] });
+
+    useChat.getState().ingestEvent(SESSION, turnStarted(20, 'agent', 'turn-agent'), DEVICE);
+    expect(summary()?.turn).toEqual({ turn_id: 'turn-agent', started_at: 1_020 });
+    // And the bubble that started it is a block like any other.
+    useChat.getState().ingestEvent(SESSION, agentMessage(21, 'ba', 'recon-ios: done.'), DEVICE);
+    expect(chat()?.timeline.order).toEqual(['ba']);
+
+    useChat.getState().ingestEvent(SESSION, turnCompleted(22, 'turn-agent'), DEVICE);
+    expect(summary()?.turn).toBeNull();
+
+    useChat.getState().ingestEvent(SESSION, turnStarted(23, 'terminal', 'turn-terminal'), DEVICE);
+    expect(summary()?.turn).toEqual({ turn_id: 'turn-terminal', started_at: 1_023 });
   });
 });
 

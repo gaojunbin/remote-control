@@ -344,6 +344,16 @@
   color: var(--ink-secondary);
 }
 
+/*
+ * A30: a message another agent put into the conversation. It keeps the user's
+ * bubble so the timeline still reads as a conversation, but says it quietly —
+ * nobody typed these words, so they must not carry a person's weight.
+ */
+.user-bubble.from-agent {
+  background: var(--surface-sunken);
+  color: var(--ink-secondary);
+}
+
 /* A12: sent from here, not yet echoed back by the device. */
 .user-bubble.pending {
   opacity: 0.62;

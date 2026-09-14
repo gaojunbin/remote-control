@@ -253,6 +253,8 @@ export const zhHans: StringTable = {
     failed: '失败',
     cancelled: '已取消',
     queuedLabel: '已排队',
+    fromTerminal: '终端',
+    fromAgent: '来自其他代理',
     sending: '发送中…',
     steering: 'agent 会在下一步读到它',
     deliveryAbsorbed: '将重新发送',

@@ -60,6 +60,9 @@ const TOOL_KINDS = new Set([
   'other',
 ]);
 
+/** The one `Trigger` of `schema/events.json`, behind both `source` and `trigger`. */
+const TRIGGERS = new Set(['remote', 'terminal', 'queue', 'agent']);
+
 /** A27: `Command.name` of PROTOCOL.md §4.11 — lower case, never with the slash. */
 const COMMAND_NAME = /^[a-z0-9][a-z0-9_:.-]*$/;
 
@@ -191,7 +194,9 @@ function assertEvent(event: SessionEvent): void {
       }
       break;
     case 'user_message':
-      expect(['remote', 'terminal', 'queue']).toContain(event.source);
+      // A30 added `agent`: words the CLI filed as a user turn that no person
+      // typed, which the app draws muted and captioned, never as the person's.
+      expect(TRIGGERS).toContain(event.source);
       // A10: delivery is present on shared sessions only. A19 took `pending`
       // away: a message the device still holds is a queue entry, not a block.
       if (event.delivery !== undefined) {
@@ -207,6 +212,9 @@ function assertEvent(event: SessionEvent): void {
     case 'thinking':
       expect(typeof event.done).toBe('boolean');
       expect(event.delta !== undefined || event.text !== undefined).toBe(true);
+      break;
+    case 'turn_started':
+      expect(TRIGGERS).toContain(event.trigger);
       break;
     case 'turn_completed':
       expect(['completed', 'interrupted', 'error']).toContain(event.stop_reason);
@@ -248,6 +256,18 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
     for (const file of files) {
       assertEvent(readFixture<SessionEvent>(file.name));
     }
+  });
+
+  it('decodes the message another agent put into the conversation (A30)', () => {
+    const event = readFixture<SessionEvent>('events/user_message.agent.json');
+    if (event.kind !== 'user_message') throw new Error('not a user_message fixture');
+    expect(event.source).toBe('agent');
+    // The device sends what a reader wants — who reported and what they said —
+    // so neither the envelope nor a system reminder ever reaches a bubble.
+    expect(event.text).not.toContain('<teammate-message');
+    expect(event.text).not.toContain('<task-notification');
+    expect(event.text).not.toContain('<system-reminder');
+    expect(event.text.trim().length).toBeGreaterThan(0);
   });
 
   it('decodes the standalone object fixtures', () => {

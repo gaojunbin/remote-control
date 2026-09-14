@@ -261,6 +261,10 @@ export const en = {
     failed: 'failed',
     cancelled: 'cancelled',
     queuedLabel: 'Queued',
+    /** The caption above a message nobody here sent: typed at the keyboard, or
+     * put into the conversation by another agent (A30). */
+    fromTerminal: 'terminal',
+    fromAgent: 'from another agent',
     sending: 'Sending…',
     steering: 'the agent will read it at its next step',
     deliveryAbsorbed: 'will be re-sent',
