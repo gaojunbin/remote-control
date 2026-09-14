@@ -257,7 +257,7 @@ export const zhHans: StringTable = {
     steering: 'agent 会在下一步读到它',
     deliveryAbsorbed: '将重新发送',
     attachHintChannel: '通过 Remote Control 垫片启动 claude，才能从这里控制它',
-    attachHintDaemon: '在此设备上启动 Codex app-server 守护进程，才能从这里控制它',
+    attachHintDaemon: '在该设备上运行 rc-client codex setup，才能附着它的 Codex 会话',
     attachHintExtension: '在该设备上运行 rc-client pi setup，才能附着它的 pi 会话',
     attachHintRestart: '这个终端会话启动时没有附着；重启它才能从这里控制',
     queuedRemove: '从队列中移除',

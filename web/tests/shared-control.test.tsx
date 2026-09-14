@@ -225,7 +225,7 @@ describe.runIf(fixturesAvailable())('A10 takeover bar on a terminal session', ()
     expect(attachHint(null)).toBeNull();
     expect(attachHint(claudeAgent)).toContain('restart it');
     expect(attachHint(claudeNoShim)).toContain('Remote Control shim');
-    expect(attachHint(codexNoDaemon)).toContain('Codex app-server daemon');
+    expect(attachHint(codexNoDaemon)).toContain('rc-client codex setup');
     // No `attach` and no readiness flag mean there is nothing to hint at.
     expect(attachHint({ ...codexAgent, attach: null })).toBeNull();
     expect(attachHint({ ...claudeAgent, attach_ready: undefined })).toBeNull();
@@ -525,7 +525,7 @@ describe.runIf(fixturesAvailable())('A11 composer on a shared Codex session', ()
       />,
     );
     expect(
-      screen.getByText('Start the Codex app-server daemon on this device to control it from here'),
+      screen.getByText('Run rc-client codex setup on the device to attach its Codex sessions'),
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Take over' })).not.toBeInTheDocument();
   });

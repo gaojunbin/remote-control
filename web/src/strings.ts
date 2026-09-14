@@ -265,7 +265,7 @@ export const en = {
     steering: 'the agent will read it at its next step',
     deliveryAbsorbed: 'will be re-sent',
     attachHintChannel: 'Start claude through the Remote Control shim to control it from here',
-    attachHintDaemon: 'Start the Codex app-server daemon on this device to control it from here',
+    attachHintDaemon: 'Run rc-client codex setup on the device to attach its Codex sessions',
     attachHintExtension: 'Run rc-client pi setup on the device to attach its pi sessions',
     attachHintRestart:
       'This terminal session was started without the attachment; restart it to control it from here',

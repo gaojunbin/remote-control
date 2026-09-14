@@ -451,7 +451,7 @@ terminal", saying why this session cannot be driven from here:
 | `attach` | `attach_ready` | Hint |
 | --- | --- | --- |
 | `channel` | `false` | "Start claude through the remote-control shim to control it from here" |
-| `daemon` | `false` | "Start the Codex app-server daemon on this device to control it from here" |
+| `daemon` | `false` | "Run rc-client codex setup on the device to attach its Codex sessions" |
 | either | `true` | "This terminal session was started without the attachment; restart it to control it from here" |
 
 The "Take over" button beside the hint follows the agent's `takeover` capability, in the composer
