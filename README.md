@@ -121,6 +121,21 @@ already installed. To check it, or to set it up after installing pi later:
 A `pi` you start in a terminal then appears in the apps as a shared session with a live composer,
 and its tool calls ask for permission on the phone or in the terminal, whichever answers first.
 
+Terminal **Grok Build** sessions attach through Grok's own *leader*, one shared backend process per
+machine that every `grok` joins once `[cli] use_leader = true` is in your `~/.grok/config.toml`.
+The installer turns that flag on when Grok is installed, unless you passed `--no-grok`; to check
+it, or to turn it on after installing Grok later:
+
+```sh
+~/.rc-client/venv/bin/rc-client grok status   # the flag, the leader socket, registered terminals
+~/.rc-client/venv/bin/rc-client grok setup    # idempotent: set [cli] use_leader = true, in place
+```
+
+The file is edited where it is, never replaced, so a symlinked dotfile stays a symlink. A `grok`
+that was already running keeps its own process until you restart it; every `grok` started after
+that joins the leader and appears in the apps as a shared session — send, stop, change the model or
+the effort, answer its permission prompts — with the terminal still showing everything.
+
 One rule applies from then on: start Codex as a bare `codex`. Any `-c`, `--enable`, `--disable` or
 `--dangerously-bypass-approvals-and-sandbox` on the command line makes the CLI run its own private
 app-server, which the device cannot join, and the session falls back to read-only mirroring.
@@ -210,6 +225,11 @@ RCVerify` checks the protocol fixtures with plain Command Line Tools and needs n
   fan out to the terminal and the apps at once with the daemon's own options — Allow, Allow for this
   session, Always allow commands like this, Deny — and a card the terminal answered first reads
   "answered in the terminal". A thread started from a phone reopens with `codex resume <id>`.
+- **Terminal Grok Build, attached through its leader** — with `[cli] use_leader` on, every `grok` on
+  the machine runs inside one leader process and the device joins it as another client of Grok's
+  Agent Client Protocol. Sessions started at the keyboard are shared: read, send, stop, re-model and
+  approve from a phone, with the terminal drawing every turn; a session started from a phone
+  reopens live with `grok --resume <id>`. `rc-client grok setup` turns the flag on in place.
 - **Voice** — dictation through the gateway's speech-to-text proxy, streamed as 16 kHz PCM16 with
   live partial transcripts. iOS can use on-device recognition instead. The transcript is always an
   editable draft; sending stays a separate action.

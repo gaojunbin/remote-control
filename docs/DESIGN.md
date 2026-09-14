@@ -144,9 +144,14 @@ shipped agent is empty today: pi's three modes — Ask for everything, Ask when 
 are the device's own, enforced by the extension it loads into every pi session (A26), and an app
 draws them exactly as it draws Codex's.
 
-**Terminal sessions of the new agents.** Grok Build writes its own update log, so a Grok session
-started in a terminal appears in the lists as a terminal-held session, readable but not writable
-from an app, exactly as a Claude session did before channels. pi loads the device's extension
+**Terminal sessions of the new agents.** A Grok Build session started in a terminal is a *shared*
+session once the machine's Grok runs in leader mode (`[cli] use_leader = true`, which
+`rc-client grok setup` turns on): the device joins the same leader process the TUI is in, so the
+session is readable, writable, stoppable and re-modelled from an app while the terminal draws every
+turn, and an approval is one question asked in two places. Without leader mode — the flag off, a
+sandbox profile on, or a `grok` started before the flag was set — Grok still writes its own update
+log, and the session appears as a terminal-held session, readable but not writable, with a hint that
+says what to run and that Grok must be restarted (A28). pi loads the device's extension
 into every session it runs, so a pi session started in a terminal is a *shared* session —
 readable, writable, stoppable and re-modelled from an app, exactly as a Codex TUI under the shared
 daemon is — once `rc-client pi setup` has been run on that device; without the extension a
@@ -355,11 +360,11 @@ running turn's steer/queue notice, "Controlled by the terminal", "Device offline
 Everything else about it depends on what the attachment can carry, and the device says so in three
 booleans on the agent. Nothing in either app asks which agent it is looking at.
 
-| Boolean | What it turns on | Claude channel | Codex daemon |
-| --- | --- | --- | --- |
-| `shared_interrupt` | Stop, and "Interrupt & send" | off | on |
-| `shared_settings` | The model card and the permission-mode picker | off | on |
-| `shared_attachments` | The attachment button, and pasted files | off | on |
+| Boolean | What it turns on | Claude channel | Codex daemon | pi extension | Grok leader |
+| --- | --- | --- | --- | --- | --- |
+| `shared_interrupt` | Stop, and "Interrupt & send" | off | on | on | on |
+| `shared_settings` | The model card and the permission-mode picker | off | on | on | on |
+| `shared_attachments` | The attachment button, and pasted files | off | on | on | off |
 
 A control the attachment cannot drive is hidden, not disabled with a caption: a Claude channel
 session shows no attachment button, and nothing explains its absence in the composer. Its model,

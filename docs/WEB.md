@@ -46,10 +46,12 @@ CLI exited (`control: "none"`) and two archived by hand, spread over both device
 group has both halves of an Archive under it. Between them they show all five status-dot tones.
 One of the two devices advertises all four agents (A25, A26) — the two newest copied from
 `protocol/fixtures/objects/agent.grok.json` and `agent.pi.json`, which `tests/agents.test.tsx`
-asserts they still equal — and carries one session of each: a Grok Build session a terminal holds,
-whose transcript the device mirrors but cannot write to, a second Grok Build session an app
-started, so its command list can actually be opened, and a pi session on the `on-request`
-permission mode its extension enforces.
+asserts they still equal — and carries one session of each: a Grok Build session a terminal holds
+inside Grok's leader, which the device has joined (`control: "shared"`, A28), a second Grok Build
+session an app started, so its command list can actually be opened, and a pi session on the
+`on-request` permission mode its extension enforces. The other device carries a Grok Build agent
+whose leader mode is off (`attach_ready: false`) and a terminal Grok session under it, which is
+where the leader hint renders.
 Opening the running session plays a scripted turn: streamed thinking, streamed Markdown, tool rows
 with a live output box, a failing shell run, two diffs, an approval and a question. Both drive the
 turn to completion. The shared session plays the A10 path end to end: a send while the terminal is
@@ -460,6 +462,13 @@ the terminal", whatever the agent is; the status line adds " · take over to sen
 is, and stops at "Controlled by the terminal" where there is nothing to press. Grok Build and Codex
 advertise no `takeover`.
 
+The one line under the hint is worded per `attach` (`src/features/chat/attach.ts`): the shim for
+`channel`, `rc-client codex setup` for `daemon`, `rc-client pi setup` for `extension`, and for
+`leader` (A28) "Run rc-client grok setup on the device, then restart Grok to attach its sessions";
+with `attach_ready` true every kind says the CLI was started without the attachment and must be
+restarted. A shared Grok session needs nothing of its own: `shared_interrupt` shows Stop,
+`shared_settings` the pickers, and `shared_attachments: false` hides the attachment button.
+
 ## Slash commands (A27)
 
 Typing `/` into the composer of a session whose agent carries capability `commands` opens the same
@@ -578,6 +587,11 @@ session with no group headers, the same panel filtered to two rows with the high
 group headers, Grok Build's flat list with its argument hints, the argument hint under a complete
 first word, and the dimmed rows and footer on a running turn. Screenshots are not checked into the
 repository.
+
+The Grok leader of A28 was driven the same way, at 1280 px and 400 px: the leader hint under a
+terminal Grok session whose device has leader mode off, the restart wording once it is on, and the
+shared Grok session with its composer live, Stop while running, both pickers and no attachment
+button; neither width scrolled sideways.
 
 The logos of A26 were driven the same way, at 1280 px and 400 px: the four logos in the
 new-session form's agent control, in the open agent filter and on the session-row chips, and pi's

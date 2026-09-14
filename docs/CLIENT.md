@@ -78,6 +78,7 @@ fails, mint a fresh code or run the installer again.
 | `rc-client shim install\|remove\|status [--no-shell-rc]` | Manage the `claude` shim that makes terminal sessions attachable |
 | `rc-client codex setup\|status [--no-install]` | Bring up and check the shared Codex app-server daemon that makes terminal Codex sessions attachable |
 | `rc-client pi setup\|status\|remove` | Install, inspect and remove the pi extension that makes terminal pi sessions attachable |
+| `rc-client grok setup\|status` | Turn on Grok Build's leader mode in the person's own configuration, in place, and report the leader that makes terminal Grok sessions attachable |
 | `rc-client channel` | The channel bridge Claude Code spawns; never run it by hand |
 | `rc-client hook session-start\|permission-request` | The hooks Claude Code runs; never run them by hand |
 | `rc-client uninstall [--purge] [--no-shell-rc]` | Remove the service and the shim, and with `--purge` the config, state and logs |
@@ -860,14 +861,21 @@ you know you need it.
 
 ## Grok Build
 
-Grok is driven over the Agent Client Protocol: one `agent agent --no-leader <flags> stdio` child per
-session, speaking newline-delimited JSON-RPC on its stdin and stdout. `--no-leader` is deliberate —
-Grok can share one backend process between clients, and a device must not put its tools inside
-somebody else's.
+Grok is driven over the Agent Client Protocol, newline-delimited JSON-RPC on the stdin and stdout of
+an `agent agent … stdio` child. There are two ways to run that child, and the person's own
+configuration decides which (A28). When `~/.grok/config.toml` has `[cli] use_leader = true` and no
+sandbox profile, every `grok` on the machine runs its agent inside one **leader** process, and the
+device starts one `agent agent --leader stdio` client of that leader and puts every Grok session it
+drives or joins on that one connection (`agents/grok/leader.py`, `service.py`). Otherwise each
+session gets a private `agent agent --no-leader <flags> stdio` child of its own, as before, and a
+`grok` in a terminal is only mirrored. `--no-leader` there is deliberate: without the leader mode
+the person asked for, the device never shares a backend with anybody.
 
-Only the model and the effort are process flags (`--model`, `--reasoning-effort`). The working
-directory and the permission mode are **not**: `agent agent` rejects `--cwd` and `--permission-mode`,
-which belong to the TUI. The directory goes in `session/new {cwd, mcpServers: []}`, and the mode is
+Only the model and the effort are process flags (`--model`, `--reasoning-effort`) on a private
+child, and **the leader ignores them**: on the leader the device sets both with
+`session/set_config_option` right after `session/new`. The working directory and the permission mode
+are never flags — `agent agent` rejects `--cwd` and `--permission-mode`, which belong to the TUI.
+The directory goes in `session/new {cwd, mcpServers: []}`, and the mode is
 `session/set_mode {sessionId, modeId}`, whose ids are exactly the six of PROTOCOL.md section 4.3.
 Resuming is `session/load` with the session id; the session id on the wire is Grok's own UUID, so a
 session created here is rekeyed to it as soon as `session/new` answers.
@@ -934,12 +942,105 @@ not landed yet — it is a notification, so it can lag the session by a beat —
 file. `command()` refuses a name that is not in the list it just answered with, which is what keeps
 an unknown `/foo` from reaching the model as literal text.
 
-### Terminal sessions
+### Setup
+
+`install.sh` runs `rc-client grok setup` unless you pass `--no-grok`, and it is the one thing this
+project changes in a person's own agent configuration. It sets `[cli] use_leader = true` in
+`~/.grok/config.toml` — **in place**: the existing path is opened for writing, never unlinked,
+renamed or replaced, because these dotfiles are often symlinks into a synced folder and the inode has
+to survive; a `use_leader = …` line under an existing `[cli]` table is rewritten, a missing line is
+inserted right under the header, a missing table is appended, a missing file is created, and every
+other byte, comments included, stays as it was (`agents/grok/setup.py`). Then it prints what
+`rc-client grok status` prints:
+
+```
+grok binary         /Users/you/.grok/bin/agent
+use_leader          on
+sandbox             off
+leader socket       /Users/you/.grok/leader.sock
+leader version      1.0.30
+installed version   1.0.30
+terminal sessions   1 registered
+Restart any running grok to have it join the leader
+```
+
+`status` asks a leader its version only when the flag is on and no sandbox is set, and asking
+starts a leader when none is running — which is exactly what the next `grok` would do, so it is never
+a surprise; the summary line of `rc-client status` (`grok leader    ready (running); 1 terminal
+session(s)`) never connects. Neither command starts or stops anything a person is using: a `grok`
+that was already running keeps the agent it started with until it is restarted, which is why both
+end with the restart note and why the apps' hint says the same. A non-`off` sandbox profile —
+`GROK_SANDBOX`, or `[sandbox] profile` in the configuration — refuses leader mode in Grok itself, so
+`attach_ready` is false and the note says so.
+
+### On the leader
+
+The leader is Grok's own: one backend per machine, started by whichever client comes first and left
+running when they leave (`agent agent leader --no-exit-on-disconnect …`, a child of the TUI that
+started it, its stderr in `~/.grok/leader.log`). The device's client is `agents/grok/leader.py`:
+one `initialize`, whose `_meta.agentVersion` is the leader's version, and then every notification
+and every `session/request_permission` routed by `params.sessionId` to the runner of that session;
+rows for a session nothing here holds go to the service. When the child dies the service reconnects
+on the next scan, re-`initialize`s, re-`session/load`s every session it held and republishes each
+one's control.
+
+Who is in a session is Grok's own registry, `~/.grok/active_sessions.json` — `[{session_id, pid, cwd,
+opened_at}]`, written by every TUI while it runs and by nothing else — because the leader announces
+nothing when a TUI exits and offers no way to ask who is attached. On every ten second scan
+(`GrokLeaderService.tick`, driven from the mirror's scan) the service reads it. A live entry it does
+not yet hold gets one question, `_x.ai/session/info {sessionId}`, which answers a full object for a
+session the leader has loaded and `{}` for one it has not: loaded means a leader-mode TUI is in it,
+so the service takes the session — adopting it if the mirror never saw it, taking over the mirrored
+entry otherwise, at which point the mirror drops its tail (`_grok_is_leaders`) — and joins it with
+`session/load`, publishes `control: "shared"`, the holder pid, and the model and effort the load
+result's `configOptions` name; `{}` means a `grok` running its own agent, and the mirror keeps it as
+`terminal`. Titles come from `_x.ai/sessions/changed` (`upserted[].title`), from the leader's
+`_x.ai/session/list`, or from `summary.json`'s `generated_title`.
+
+`agents/grok/control.py` is the A28 table of PROTOCOL.md 4.4 as one pure function: registered and
+held here → `shared`; registered and not held → `terminal`; not registered and held → `remote`
+while a turn this device started is running, `none` otherwise; not held → `none`. A session a TUI
+leaves is therefore still the device's to drive, because the leader still holds it, and the next
+`session.send` goes straight to the runner already attached. Two things never happen: the runner
+never sends `session/close`, which unloads a session for every client of the leader including the
+terminal that is in it (verified: it broke the TUI's session), and a private child is never spawned
+for a session the leader holds.
+
+`session/load` replays the whole conversation, every conversation row carrying
+`_meta.isReplay: true` and `_meta.eventId` `<sessionId>-<n>`, the same counter `updates.jsonl`
+carries. The device keeps one cursor per session, `grok-cursor:<id>` in the registry
+(`agents/grok/cursor.py`), written by the mirror's tail and by the runner alike; on a join the
+replay rows above it are published as history and the rest are skipped, so a session handed from
+the mirror to the leader — or back, when the leader goes away — neither doubles nor loses a turn.
+Grok echoes every prompt back as a `user_message_chunk`, the TUI's and the device's alike; the TUI's
+become `user_message {source: "terminal"}` bubbles, and the device's are recognised by their text
+against what this device sent in the turn and dropped (`agents/grok/echoes.py`), the same problem
+Codex's daemon has and the same answer.
+
+A permission prompt is a `session/request_permission` sent to every client, the TUI's dialog
+included; the runner offers the leader's own options except `enable-always-approve` — Grok's "yes,
+and don't ask again for anything", which is a permission policy and so `session.set`'s business —
+and whichever side answers first wins. `pending_interaction {tool_call_id, kind: "permission"}` and
+`interaction_resolved {tool_call_id}` are broadcast around every prompt whoever answers, so a
+request the terminal answered ends here as `decision: {option_id: "elsewhere", by: "terminal"}` and
+the leader is told `cancelled`. Sessions the device creates on the leader are what a later
+`grok --resume <id>` joins live, which is the reason device-driven sessions take the leader too
+whenever the flag is on.
+
+After `grok update` the leader keeps serving the build it started with; `_meta.agentVersion` against
+`agent --version` is the drift. When they differ, no terminal is registered and no turn the device
+drives is running, the service runs `agent leader kill` once per fifteen minutes and reconnects,
+which starts a fresh leader; each attached session gets one notice. With a terminal registered the
+drift is left alone, because a restart would take that terminal's session down with it.
+
+### Terminal sessions outside the leader
 
 Grok writes every session to `~/.grok/sessions/<percent-encoded cwd>/<session-id>/`, and
 `updates.jsonl` there is an append-only log of the same ACP updates — written whether the session is
-driven over ACP or by a person at the TUI. Mirroring is therefore a file tail and needs no attachment
-and no change to anybody's configuration.
+driven over ACP or by a person at the TUI. A `grok` the leader does not have — `use_leader` off, a
+sandbox profile on, or one started before the flag was set — is mirrored from that log: a file tail
+that needs no attachment and no change to anybody's configuration, `control: "terminal"`, and the
+apps' hint saying what to run.
 
 - `summary.json` is the session row: `info.cwd`, `generated_title` (Grok titles its own sessions, so
   there is no first-prompt guessing), `current_model_id` and `reasoning_effort`, which are published
@@ -950,8 +1051,9 @@ and no change to anybody's configuration.
   below the last applied `n` are skipped. It is a floor, not a running high-water mark, because Grok
   writes ids slightly out of order — an `agent_message_chunk` can land after the hook rows that follow
   it, and filtering against the maximum would drop the agent's reply.
-- Whether a terminal holds the session comes from `~/.grok/active_sessions.json` when that registry is
-  there, and from the processes holding `updates.jsonl` open when it is not.
+- Whether a terminal holds the session comes from `~/.grok/active_sessions.json`. The old fallback,
+  the processes holding `updates.jsonl` open, never fires: nothing holds that file open in either
+  mode (a standalone TUI holds `events.jsonl`; on the leader, the leader does).
 - A session this device drives is never ingested from disk: it is `origin: "remote"` in the hub, which
   is the same rule that keeps Claude and Codex from doubling their own events.
 
@@ -967,9 +1069,13 @@ and no change to anybody's configuration.
   request, so no `question` block is raised for one; it appears as a tool call.
 - **Attachments.** This build answers `promptCapabilities.image: false`, so a prompt has nowhere to
   put a file. The capability is not advertised and an attachment sent anyway is refused.
-- **The leader process**, which would let a device share a person's running TUI, is off unless
-  `[cli] use_leader` is set in their configuration. Turning it on means editing their config file, so
-  it is left alone and terminal sessions are mirrored instead.
+- **Approvals on the leader were seen once.** One TUI-driven `rm` sent `session/request_permission`
+  to the joined device client and drew the TUI's dialog; the device's answer resolved both. Later
+  probes had Grok's default mode allow `rm` and writes outside the workspace by itself, so no second
+  run was obtained; whether the TUI draws a dialog for a turn the device started, and whether
+  `session/set_mode` from the device moves the TUI's mode, are unverified.
+- **The drift restart** ran only against fakes; a real leader older than the binary was not
+  produced. `agent leader kill` finds only `$GROK_HOME/leader.sock` and `leader-*.sock` there.
 
 ## pi
 

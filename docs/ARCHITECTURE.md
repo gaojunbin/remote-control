@@ -287,6 +287,7 @@ branching on the agent id:
 | Claude, through the channel shim | `channel` | false | false | false |
 | Codex, through the app-server daemon | `daemon` | true | true | true |
 | pi, through the device's extension | `extension` | true | true | true |
+| Grok Build, through its leader process | `leader` | true | true | false |
 
 `shared_interrupt` maps to `turn/interrupt`, which works whoever started the turn. `shared_settings`
 maps to `thread/settings/update`, so changing the model, the permission mode or the reasoning effort
@@ -309,6 +310,27 @@ asks nothing, so the extension holds a tool call until the app or the terminal a
 Codex vocabulary, `untrusted` / `on-request` / `never`, with the device deciding which tools each
 mode asks about. A pi session started in a terminal is therefore `shared` for as long as the
 process lives, and without the extension it does not exist for the apps at all.
+
+**Grok Build attaches through its own leader (A28).** Grok has what Codex has, under another name:
+a *leader* is one backend process per machine, and every `grok` on a machine whose
+`~/.grok/config.toml` says `[cli] use_leader = true` runs its session inside it instead of in its
+own process. Whichever client comes first starts the leader — the TUI, or the device's own
+`agent agent --leader stdio` client — and it stays up when they leave. A `session/load` from a
+second client of the leader does not open a second copy: it joins the session the TUI is in, and
+from then on every update reaches every client, a prompt from a phone runs in the one conversation
+and is drawn by the TUI, `session/cancel` stops the TUI's turn, `session/set_config_option` changes
+the model or the effort for everyone, and a permission prompt is a request sent to every client,
+answered by whichever comes first. Verified live on 2026-09-14 against grok 1.0.30, both directions,
+with two device clients joined at once. The flag is off by default and lives in the person's own
+configuration, which is why it took a round of its own: `rc-client grok setup` turns it on in
+place — the dotfile is often an iCloud symlink, so the file is edited where it is, never replaced —
+and a `grok` already running when that happens keeps its own process until it is restarted, which
+is what the apps' hint says. Who is in a session is read from Grok's own registry,
+`~/.grok/active_sessions.json`, because the leader announces nothing when a TUI exits; whether a
+registered TUI is inside the leader is one `_x.ai/session/info` away, which answers `{}` for a
+session the leader does not hold. Two things the device never does: `session/close`, which unloads
+a session for every client including the terminal that is in it, and offering the leader's "don't
+ask again for anything" approval option, which is a permission policy and so a `session.set` matter.
 
 ### Approvals are shared state, not a private modal
 

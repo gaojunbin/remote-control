@@ -1381,6 +1381,62 @@ was produced and cleared by hand in the lab; the device's own restart was exerci
 and the systemd variant of supervision-from-the-daemon on Linux. Unexplained and unrepeated: during
 the 0.145.0 sequence the `current` symlink once moved back to 0.154.0 on its own.
 
+## 21. Grok Build attached through its leader (2026-09-14, A28)
+
+A Grok session opened in a terminal showed "controlled by the terminal" in the apps, because the
+device only tailed the update log Grok writes. Everything below ran on this Mac against grok 1.0.30
+in isolated `GROK_HOME` directories (a copied `auth.json`, a scratch project, `[cli] use_leader =
+true`), with the leader on a short `--leader-socket` path because the default `$GROK_HOME/leader.sock`
+under the scratchpad exceeds the 104-byte socket limit; the real `~/.grok` was never written, no
+leader was ever started on the real socket, and every scratch home was deleted afterwards. Each probe
+turn was a one-word reply. Scripts: the session's `scratchpad/grok-leader/leader_probe*.py`.
+
+**What Grok does.** With `use_leader` on, a TUI started with no leader running starts one itself —
+`agent agent leader --no-exit-on-disconnect --relay-on-demand …`, a child that outlives it — and so
+does an `agent agent --leader stdio` client (0.4 s to `initialize`); the leader stays up with no
+clients at all. A `session/load` from a second client on a session the TUI has open joined it
+(leader log: "reconnecting to existing session") and replayed the conversation with
+`_meta.isReplay: true` and the same `eventId` counter the update log carries. A turn typed at the TUI
+arrived at two device clients as the same `user_message_chunk` → `agent_thought_chunk` →
+`agent_message_chunk` → `turn_completed` sequence; a `session/prompt` from a device client ran in
+the same conversation, the TUI rendered the reply, and both landed in `chat_history.jsonl`.
+`session/cancel` from a device client ended a TUI-started turn in 1.2 s with `stop_reason:
+"cancelled"`; `session/set_config_option` from a device client changed the effort for everyone and
+was mirrored as `config_option_update` + `model_changed`; process flags (`--reasoning-effort xhigh`)
+were ignored under the leader. When the TUI quit (`/exit`) no client was told anything, Grok's own
+registry `~/.grok/active_sessions.json` dropped the entry, and the session stayed loaded and
+promptable; a later `grok --resume <id>` joined it in the same leader. `_x.ai/session/info` answered
+a full object for a loaded session and `{}` for one on disk only, which is the test for "is a
+registered TUI inside the leader"; a TUI with `use_leader` off held its `events.jsonl` open itself,
+where in leader mode the leader holds it, and nobody ever holds `updates.jsonl` open in either mode.
+`session/close` from a device client unloaded the TUI's session under it — the TUI's next prompt
+never ran — so the device never sends it for a session a terminal registered. One TUI-driven turn
+that needed approval (`rm <file>`) sent `session/request_permission` to the joined device client and
+drew the TUI's dialog at once; the device's answer resolved both and the turn continued. The options
+included `enable-always-approve` ("Yes, and don't ask again for anything", kind `allow_once`),
+which the device never offers. `pending_interaction {tool_call_id, kind: "permission"}` and
+`interaction_resolved {tool_call_id}` were broadcast around every approval. Later probes had Grok's
+default mode allow `rm` and writes outside the workspace by itself in about ten milliseconds, so
+whether a command prompts is Grok's decision, not the attachment's.
+
+**What the device does now.** Against the same isolated home, a real TUI in `tmux` and the new
+`GrokLeaderService` driven by a script: the registry entry became `shared` with the model and
+effort read from the load result and the leader reporting 1.0.30; a prompt sent from the device
+completed and its reply appeared in the TUI's frames; a turn typed at the TUI was ended by the
+device's `session/cancel` and the terminal's message had been mirrored; `/exit` moved the session
+to `none` and a further device prompt still ran; the leader's log showed no `session/close`. Three
+one-word turns, about $0.003. Unit tests cover the control table, the cursor hand-off between
+mirror and leader, echo dropping, the option filter, `interaction_resolved`, reconnection, the
+mirror standing down, and `setup` editing a symlinked configuration without changing its inode:
+912 passed, 3 skipped. The web app: 464 tests; the hint under a terminal Grok session and the live
+composer of a shared one were driven in Chrome at 1280 px and 400 px.
+
+One incident: during the work a `grok agent --leader stdio` was run without `GROK_HOME`, which
+started a leader on the real `~/.grok/leader.sock` at 16:54. It loaded no session; it was stopped
+and its socket and log removed, and `~/.grok/config.toml` was never changed. Not verified: a real
+device daemon enrolled on a gateway joining a terminal `grok` end to end from a phone, the drift
+restart against a real drifted leader, and a second approval run.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
