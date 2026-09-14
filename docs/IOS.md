@@ -699,10 +699,75 @@ the system picker's own collection, which is identified rather than named becaus
 titled in the phone's language and not the app's.
 
 Above the field the composer draws one line at most, and only while something is happening to it: an
-attachment that was refused, or what dictation is doing. It never says who owns the session — the
+attachment that was refused, what dictation is doing, or where the argument of a slash command
+already named goes (A27). It never says who owns the session — the
 header above the transcript already reads `terminal · attached`, and a control the app cannot drive
 is absent rather than dimmed under a caption explaining why. So the composer is the field row plus
 one control row, with a strip of attachment pills between them while a message carries files.
+
+## Slash commands
+
+Amendment A27: a developer at a Codex, Grok Build or pi terminal types `/` and gets a list; the
+phone gives the same list for the same keystroke. `docs/DESIGN.md` § "The composer" is the contract
+and the web app implements the same one.
+
+The rule lives in `RCCore` so both the card and Send read one copy of it:
+`SlashDraft.parse(_:)` in `Sources/RCCore/State/SlashDraft.swift` says whether a draft is a command
+at all, `filter` and `match` say which rows are left and which command a finished word names, and
+`CommandSection.build` groups them. `ChatStore` exposes the whole of it — `offersCommands`,
+`commandRows`, `commandSections`, `commandHint`, `draftCommand`, `commandsWaitForTurn` — so the
+panel, the hint line and the send button can never disagree about what will happen.
+
+| What is typed | What is drawn |
+| --- | --- |
+| `/` on an agent with capability `commands` | the card, every command the session offers |
+| `/rel` | the same card, filtered by prefix of the name, case ignored |
+| a row is tapped | `/name ` when the command takes an argument, `/name` when it does not |
+| `/release-notes ` | no card; the hint line under it, `/name` and where the argument goes |
+| `/nonsense` | nothing; the words are an ordinary message |
+| anything, on Claude | nothing, ever: `/` is a character and no caption explains it |
+
+`CommandPanel` in `Sources/RCUI/Screens/CommandPanel.swift` is the card, above the message field
+and over the keyboard. One row per command: `/name` in the monospace face, the description after it
+in the secondary ink, and the argument placeholder at the trailing edge in the tertiary one, the
+description being the part that gives way when the line is tight. Group headers are drawn only when
+more than one group is on screen, because a single header over the whole list names nothing the list
+does not already say. A tap takes a row, gives one selection haptic, and asks for the keyboard back
+— the screen's background tap would otherwise lower it, since a row is not the message field. A
+screen reader reads each row as "Command, /compact, Summarise the conversation", and the group
+headers carry the header trait so it can jump between sources.
+
+**It is as tall as its rows and no taller.** The cap is `SlashDraft.visibleRows`, eight, past which
+the card scrolls; the frame is a *maximum* rather than a height, and `ChatView` gives the composer
+`.layoutPriority(1)`, so the transcript is the view that gives way and the control row under the
+field is never pushed off the screen by a long list.
+
+**A command runs between turns.** While one is running every row is dimmed, the card carries one
+footer, "Available when the turn finishes", and `canSend` is false for a command draft, so Send does
+not act. The send-mode menu is not offered either: a command has no queue to join and no turn to
+interrupt.
+
+Sending routes on the first word. A draft that names a command goes out as `session.command
+{name, argument}` with the request id as the block id, exactly as `session.send` does under A12, so
+the row is in the transcript before the request leaves; a refusal removes it and puts the words back
+in the field. Attachments are left where they are — a command carries none, and a pill the user
+added is not ours to discard. The primary button names itself Run rather than Send while a command
+draft stands.
+
+The list is fetched when the conversation opens (`ChatStore.open`) and asked for again when `/` is
+typed if the last answer is older than `ChatStore.commandsStaleAfter`, 60 seconds, or was empty; a
+failure keeps the last list rather than raising a banner, because nobody asked for that request.
+
+**What a command prints survives the Simple detail level.** A tool call whose `tool` begins with `/`
+is the whole answer to something the reader asked for by name, so `TimelineEntry.isDrawn(at:)` keeps
+it at every level. Simple hides the agent's own working, not the reply.
+
+In the demo, `mac-studio-office`'s pi session carries nine commands across Prompts, Skills,
+Extensions and Built-in, so the card sections and scrolls; the Codex thread carries the eight-entry
+table with no groups at all, and running `/usage` on it after Stop brings back the tool-call block
+the protocol's own fixture shows. Grok Build's twelve advertised commands are served too, but its
+demo session is held by a terminal, which takes nothing typed here, so no card opens on it.
+`DemoFixtures.commands(for:)` holds all three lists.
 
 ## The status line
 
@@ -974,7 +1039,8 @@ gateway address surviving a background, terminate and relaunch. Details in
 ## Not verified
 
 Everything beyond those four tests ran only against the offline demo: new session, add device, the
-directory picker, voice and push. The pairing camera is the one piece with no coverage at all: a
+directory picker, voice, push and slash commands — no command has been listed or run against a real
+device, so what the three agents really offer is the client's word rather than this app's. The pairing camera is the one piece with no coverage at all: a
 simulator has none, so the scan flow was driven through the injected stand-in and neither
 VisionKit's data scanner nor the `AVCaptureMetadataOutput` fallback has read a real QR code. Segment rollover is covered as a rule and against a fake backend,
 never against a real microphone: no dictation has run past one recognition request on a device, and

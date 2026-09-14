@@ -953,6 +953,23 @@
         }
       }
     },
+    "Available when the turn finishes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Available when the turn finishes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本轮结束后可用"
+          }
+        }
+      }
+    },
     "Blocked in iOS Settings": {
       "extractionState": "manual",
       "localizations": {
@@ -1085,6 +1102,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "代码"
+          }
+        }
+      }
+    },
+    "Command, %@, %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command, %@, %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令，%1$@，%2$@"
+          }
+        }
+      }
+    },
+    "Command, %@, %@, takes %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command, %@, %@, takes %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令，%1$@，%2$@，需要 %3$@"
           }
         }
       }
@@ -3316,6 +3367,23 @@
         }
       }
     },
+    "Run": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行"
+          }
+        }
+      }
+    },
     "Run one command on the machine where your agents live. It dials out to the gateway, so nothing is exposed on the host.": {
       "extractionState": "manual",
       "localizations": {
@@ -3860,19 +3928,19 @@
         }
       }
     },
-    "Start the Codex app-server daemon on this device to control it from here": {
+    "Run rc-client codex setup on the device to attach its Codex sessions": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start the Codex app-server daemon on this device to control it from here"
+            "value": "Run rc-client codex setup on the device to attach its Codex sessions"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在此设备上启动 Codex app-server 守护进程，才能从这里控制它"
+            "value": "在该设备上运行 rc-client codex setup，才能附着它的 Codex 会话"
           }
         }
       }

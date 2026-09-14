@@ -84,7 +84,8 @@ public enum DemoFixtures {
                       AgentOption(id: "high", label: "High")],
             defaultEffort: "medium",
             speeds: [AgentOption(id: "priority", label: "Fast")],
-            capabilities: [.worktree, .interrupt, .queue, .steer, .attachments, .effort, .history],
+            capabilities: [.worktree, .interrupt, .queue, .steer, .attachments, .effort, .history,
+                           .commands],
             attach: .daemon, attachReady: true, sharedInterrupt: true,
             sharedSettings: true, sharedAttachments: true)
     }
@@ -121,7 +122,7 @@ public enum DemoFixtures {
                       AgentOption(id: "high", label: "High"),
                       AgentOption(id: "xhigh", label: "Extra high")],
             defaultEffort: "high",
-            capabilities: [.worktree, .interrupt, .queue, .effort, .history])
+            capabilities: [.worktree, .interrupt, .queue, .effort, .history, .commands])
     }
 
     /// Amendment A26: the pi coding agent behind the device's own extension,
@@ -144,10 +145,76 @@ public enum DemoFixtures {
                       AgentOption(id: "medium", label: "Medium"),
                       AgentOption(id: "high", label: "High")],
             defaultEffort: "medium",
-            capabilities: [.worktree, .interrupt, .queue, .steer, .attachments, .effort, .history],
+            capabilities: [.worktree, .interrupt, .queue, .steer, .attachments, .effort, .history,
+                           .commands],
             attach: .extension, attachReady: true, sharedInterrupt: true,
             sharedSettings: true, sharedAttachments: true)
     }
+
+    // MARK: - Slash commands (A27)
+
+    /// What each agent offers the moment `/` is typed, in the shape the device
+    /// reports it: Codex a fixed table with one source and so no groups, Grok
+    /// Build the list its agent advertises over ACP, pi its prompt templates,
+    /// its skills, its extension commands and the device's own `compact`.
+    /// Claude offers none at all and never lists the capability.
+    public static func commands(for agent: String) -> [Command] {
+        switch agent {
+        case "codex": codexCommands
+        case "grok": grokCommands
+        case "pi": piCommands
+        default: []
+        }
+    }
+
+    public static let codexCommands = [
+        Command(name: "compact", description: "Summarise the conversation to free up context"),
+        Command(name: "review", description: "Review the working tree's changes and report issues",
+                argument: "instructions"),
+        Command(name: "init", description: "Write an AGENTS.md for this repository"),
+        Command(name: "status", description: "Show the session's model, settings and token use"),
+        Command(name: "usage", description: "Show account usage and when the limits reset"),
+        Command(name: "skills", description: "List the skills this session can use"),
+        Command(name: "hooks", description: "List the lifecycle hooks this session runs"),
+        Command(name: "mcp", description: "List the MCP servers and the tools they bring")
+    ]
+
+    public static let grokCommands = [
+        Command(name: "compact", description: "Compress the conversation so far"),
+        Command(name: "context", description: "Show what is filling the context window"),
+        Command(name: "session-info", description: "Show this session's id, model and token use"),
+        Command(name: "hooks-list", description: "List the hooks this project runs"),
+        Command(name: "hooks-add", description: "Add a hook to this project", argument: "event:command"),
+        Command(name: "plugins", description: "List the installed plugins"),
+        Command(name: "goal", description: "Set the goal for a long task", argument: "goal"),
+        Command(name: "loop", description: "Repeat a task until it passes", argument: "instructions"),
+        Command(name: "workflow", description: "Run a saved workflow", argument: "name"),
+        Command(name: "deep-research", description: "Research a question across the web",
+                argument: "question"),
+        Command(name: "review", description: "Review the working tree's changes"),
+        Command(name: "implement", description: "Implement a plan step by step", argument: "plan")
+    ]
+
+    public static let piCommands = [
+        Command(name: "release-notes", description: "Draft release notes from the commits since a tag",
+                argument: "tag", group: "Prompts"),
+        Command(name: "changelog", description: "Write the changelog entry for today's work",
+                group: "Prompts"),
+        Command(name: "standup", description: "Summarise yesterday's work for standup", group: "Prompts"),
+        Command(name: "skill:pdf-tables", description: "Extract tables from a PDF into CSV",
+                group: "Skills"),
+        Command(name: "skill:web-research", description: "Search the web and summarise what it finds",
+                argument: "question", group: "Skills"),
+        Command(name: "skill:screenshot", description: "Take a screenshot of a running page",
+                argument: "url", group: "Skills"),
+        Command(name: "remote-control:status",
+                description: "Show what the remote-control extension is attached to",
+                group: "Extensions"),
+        Command(name: "remote-control:handoff", description: "Hand this session back to the terminal",
+                group: "Extensions"),
+        Command(name: "compact", description: "Summarise the conversation to free up context",
+                argument: "instructions", group: "Built-in")
+    ]
 
     /// Amendment A22: the build this demo gateway serves, and the older one the
     /// laptop is still on so a row with an update available can be looked at.

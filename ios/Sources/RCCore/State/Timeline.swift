@@ -178,6 +178,11 @@ public struct TimelineEntry: Identifiable, Sendable, Equatable {
             return true
         case .turnCompleted(let payload):
             return payload.stopReason == .interrupted || payload.stopReason == .error
+        // Amendment A27: a tool call named after a slash command is the whole
+        // answer to something the reader asked for by name, so it is drawn at
+        // every level. Simple hides the agent's own working, not the reply.
+        case .toolCall(let payload):
+            return payload.tool.hasPrefix("/")
         default:
             return false
         }

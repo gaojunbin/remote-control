@@ -806,6 +806,119 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "86-pi-model-card")
     }
 
+    /// Amendment A27: `/` opens the terminal's own menu over the keyboard, the
+    /// letters after it filter the list, a tap writes the command into the
+    /// field, and Send runs it. `docs/DESIGN.md` § "The composer".
+    func testCommandPanelOpensFiltersAndRunsOnAPiSession() {
+        app.launch()
+        let row = app.buttons["session.demo-session-parser"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the pi demo session is listed")
+        row.tap()
+
+        let field = promptField()
+        XCTAssertTrue(field.waitForExistence(timeout: 15), "the composer is on screen")
+        field.tap()
+        field.typeText("/")
+
+        let panel = app.descendants(matching: .any)["composer.commands"].firstMatch
+        XCTAssertTrue(panel.waitForExistence(timeout: 10),
+                      "the card is there for the first slash, not a round trip later")
+        XCTAssertTrue(app.staticTexts["Prompts"].exists,
+                      "and pi distinguishes more than one source, so the rows are sectioned")
+        XCTAssertTrue(app.descendants(matching: .any)["command.release-notes"].firstMatch.exists,
+                      "with this project's own prompt templates on it")
+        attach(name: "90-commands-panel")
+
+        // Letters after the slash filter the list by the name's prefix.
+        field.typeText("com")
+        let compact = app.descendants(matching: .any)["command.compact"].firstMatch
+        XCTAssertTrue(compact.waitForExistence(timeout: 10), "the one match stays")
+        XCTAssertTrue(app.descendants(matching: .any)["command.changelog"].firstMatch
+            .waitForNonExistence(timeout: 10), "and everything else goes")
+        attach(name: "91-commands-filtered")
+
+        // Taking a row writes the command, with the space that shows where its
+        // argument goes, and hands over to the hint line under the card.
+        compact.tap()
+        let hint = app.descendants(matching: .any)["composer.commandHint"].firstMatch
+        XCTAssertTrue(hint.waitForExistence(timeout: 10), "the hint line takes over")
+        XCTAssertTrue(app.descendants(matching: .any)["composer.commands"].firstMatch
+            .waitForNonExistence(timeout: 10), "and the card closes")
+        XCTAssertEqual(field.value as? String, "/compact ",
+                       "the field holds the command and the space after it")
+        attach(name: "92-command-hint")
+
+        // Send runs it, and what it did comes back as a notice rather than as
+        // something the agent said.
+        app.buttons["composer.send"].tap()
+        let notice = app.staticTexts
+            .containing(NSPredicate(format: "label CONTAINS[c] %@", "compacted")).firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 20), "the transcript reports the compaction")
+        attach(name: "93-command-ran")
+    }
+
+    /// A command runs between turns, never inside one: the rows are dimmed, the
+    /// card says why, and Send does not act until the turn is over.
+    func testCommandPanelWaitsForTheRunningTurnOnACodexThread() {
+        app.launch()
+        let row = app.buttons["session.demo-session-typecheck"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the shared Codex thread is listed")
+        row.tap()
+
+        let field = promptField()
+        XCTAssertTrue(field.waitForExistence(timeout: 15), "the composer is on screen")
+        field.tap()
+        field.typeText("/usage")
+
+        XCTAssertTrue(app.descendants(matching: .any)["composer.commands"].firstMatch
+            .waitForExistence(timeout: 10), "the card opens on a running session too")
+        XCTAssertTrue(app.staticTexts["Available when the turn finishes"].exists,
+                      "and says once, under the rows, why nothing can be run yet")
+        XCTAssertFalse(app.buttons["composer.send"].isEnabled, "Send does not act")
+        attach(name: "94-commands-waiting")
+
+        // Codex has one source, so nothing is sectioned.
+        XCTAssertFalse(app.staticTexts["Built-in"].exists,
+                       "one group draws no header at all")
+
+        app.buttons["chat.stop"].tap()
+        XCTAssertTrue(app.staticTexts["Available when the turn finishes"]
+            .waitForNonExistence(timeout: 20), "the turn ends and the rows come back")
+        XCTAssertTrue(app.buttons["composer.send"].isEnabled, "and Send acts again")
+
+        app.buttons["composer.send"].tap()
+        let card = app.buttons.containing(NSPredicate(format: "label BEGINSWITH %@", "/usage")).firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 20),
+                      "information a terminal would have printed arrives as a tool call")
+        card.tap()
+        XCTAssertTrue(app.staticTexts
+            .containing(NSPredicate(format: "label CONTAINS[c] %@", "5-hour window")).firstMatch
+            .waitForExistence(timeout: 10), "and opens on what it printed")
+        attach(name: "95-command-output")
+    }
+
+    /// An agent that lists no `commands` capability draws no panel, and nothing
+    /// on the screen explains the difference: `/` is a character there.
+    func testClaudeSessionDrawsNoCommandPanel() {
+        app.launch()
+        let row = app.buttons["session.demo-session-auth"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "the Claude demo session is listed")
+        row.tap()
+
+        let field = promptField()
+        XCTAssertTrue(field.waitForExistence(timeout: 15), "the composer is on screen")
+        field.tap()
+        field.typeText("/compact")
+
+        XCTAssertFalse(app.descendants(matching: .any)["composer.commands"].firstMatch
+            .waitForExistence(timeout: 3), "a Claude session never opens the card")
+        XCTAssertFalse(app.descendants(matching: .any)["composer.commandHint"].firstMatch.exists,
+                       "and nothing under the field explains why")
+        XCTAssertTrue(app.buttons["composer.send"].isEnabled,
+                      "what was typed is an ordinary message")
+        attach(name: "96-no-command-panel")
+    }
+
     /// Amendment A25: Grok Build writes its own update log, so a session a
     /// terminal started is mirrored here — readable, not writable. Its summary
     /// carries the model and the level but never a permission mode, so one chip

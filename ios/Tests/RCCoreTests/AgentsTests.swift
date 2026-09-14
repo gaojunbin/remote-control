@@ -73,10 +73,27 @@ struct AgentsTests {
             #expect(demo.defaultPermissionMode == fixture.defaultPermissionMode)
             #expect(demo.efforts == fixture.efforts)
             #expect(demo.defaultEffort == fixture.defaultEffort)
+            // Amendment A27 put `commands` on both of these, so the demo device
+            // carries it too or the panel would never open on either agent.
             #expect(demo.capabilities == fixture.capabilities)
+            #expect(demo.supports(.commands))
             #expect(demo.attach == fixture.attach)
             #expect(demo.attachReady == fixture.attachReady)
         }
+    }
+
+    /// Amendment A27: three of the four agents take slash commands from an app,
+    /// and Claude never does — a channel carries user text and nothing else.
+    @Test("Three agents take commands, and Claude does not")
+    func commandCapability() {
+        #expect(DemoFixtures.codex.supports(.commands))
+        #expect(DemoFixtures.grok.supports(.commands))
+        #expect(DemoFixtures.pi.supports(.commands))
+        #expect(!DemoFixtures.claude.supports(.commands))
+        #expect(!DemoFixtures.claudeWithoutShim.supports(.commands))
+        // The capability belongs to the agent, not to its attachment: a device
+        // whose daemon is not running still takes commands on a session it runs.
+        #expect(DemoFixtures.codexWithoutDaemon.supports(.commands))
     }
 
     @Test("And carries one demo session of each new agent")

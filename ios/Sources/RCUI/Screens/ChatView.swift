@@ -68,7 +68,13 @@ struct ChatView: View {
             }
             Transcript(chat: chat)
             StatusLine(chat: chat)
+            // The transcript is the view that gives way. Everything in the
+            // composer is fixed except the command card (A27), which grows to
+            // its cap and no further, so the priority can never push the
+            // control row off the screen — it only stops the transcript from
+            // taking the space the card asked for.
             Composer(chat: chat, showsQueue: $showsQueue)
+                .layoutPriority(1)
         }
         .sheet(isPresented: $showsQueue) { QueueSheet(chat: chat) }
     }
@@ -386,7 +392,7 @@ private struct AttachHintLine: View {
         case .installShim:
             Text("Start claude through the remote-control shim to control it from here")
         case .startDaemon:
-            Text("Start the Codex app-server daemon on this device to control it from here")
+            Text("Run rc-client codex setup on the device to attach its Codex sessions")
         case .installExtension:
             Text("Run rc-client pi setup on the device to attach its pi sessions")
         case .restartSession:

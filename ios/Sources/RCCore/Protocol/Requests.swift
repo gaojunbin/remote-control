@@ -204,6 +204,24 @@ extension GatewayRequest {
                        body: ["session_id": .string(sessionID), "block_id": .string(blockID)])
     }
 
+    /// Amendment A27: what slash commands this session offers right now. The
+    /// device answers from the live process where there is one and from what it
+    /// knows without starting one where there is not, so the answer may be `[]`.
+    public static func commands(sessionID: String) -> GatewayRequest {
+        GatewayRequest(type: "session.commands", body: ["session_id": .string(sessionID)])
+    }
+
+    /// Amendment A27: run one. The request id is the block id the device echoes
+    /// the command under, exactly as A12 does for a message, so the row is in
+    /// the transcript before the request has left. The result is `{}`; what the
+    /// command did arrives as events.
+    public static func command(id: String = UUID().uuidString, sessionID: String,
+                               name: String, argument: String? = nil) -> GatewayRequest {
+        var body: [String: JSONValue] = ["session_id": .string(sessionID), "name": .string(name)]
+        if let argument, !argument.isEmpty { body["argument"] = .string(argument) }
+        return GatewayRequest(id: id, type: "session.command", body: body)
+    }
+
     public static func queueRemove(sessionID: String, queuedID: String) -> GatewayRequest {
         GatewayRequest(type: "session.queue_remove",
                        body: ["session_id": .string(sessionID), "queued_id": .string(queuedID)])

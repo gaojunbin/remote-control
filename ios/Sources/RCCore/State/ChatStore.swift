@@ -46,6 +46,12 @@ public final class ChatStore {
     @ObservationIgnored private var isSubscribing = false
     public private(set) var errorMessage: String?
     public private(set) var pendingSends: [PendingSend] = []
+    /// Amendment A27: the slash commands this session offers, as the device
+    /// last listed them. Empty for an agent without the capability, and empty
+    /// until the first answer arrives.
+    public private(set) var commands: [Command] = []
+    @ObservationIgnored private var commandsReadAt: Date?
+    @ObservationIgnored private var isLoadingCommands = false
     public private(set) var expandedBlockIDs: Set<String> = []
     /// Rows that arrived while the user was reading further up. Only rows the
     /// current detail level draws are counted: a burst of tool calls is nothing
@@ -244,7 +250,7 @@ public final class ChatStore {
     public enum AttachHint: Sendable, Hashable {
         /// Claude: the `claude` shim is not installed on the device.
         case installShim
-        /// Codex: the shared app-server daemon is not running.
+        /// Codex: the standalone build the shared daemon runs from is not installed.
         case startDaemon
         /// Amendment A26: pi's extension is not installed on the device.
         case installExtension
@@ -268,7 +274,114 @@ public final class ChatStore {
     public var steersRunningTurn: Bool { isRunning && agent?.supports(.steer) == true }
 
     public var canSend: Bool {
-        sendBlockReason == nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard sendBlockReason == nil,
+              !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        // Amendment A27: a command runs between turns, never inside one. The
+        // panel says so in its footer; Send simply does not act.
+        return !(draftCommand != nil && isRunning)
+    }
+
+    // MARK: - Slash commands (A27)
+
+    /// Whether this session's agent takes commands at all. An agent without the
+    /// capability draws no panel: `/` is an ordinary character there, and
+    /// nothing on the screen explains the difference.
+    public var offersCommands: Bool { agent?.supports(.commands) == true }
+
+    /// The draft read as a command, or nil when it is ordinary text. A session
+    /// the terminal holds takes nothing from here, and a question outranks
+    /// everything: while one is open the field is the answer field (A20).
+    public var commandDraft: SlashDraft? {
+        guard offersCommands, !isReadOnly, pendingQuestion == nil else { return nil }
+        return SlashDraft.parse(draft)
+    }
+
+    /// The rows the panel draws. Empty means no panel at all: the draft is not
+    /// a command draft, the name is already finished, or nothing matches.
+    public var commandRows: [Command] {
+        guard let draft = commandDraft, !draft.isComplete else { return [] }
+        return SlashDraft.filter(commands, query: draft.name)
+    }
+
+    /// Those rows grouped, with headers only where there is more than one group.
+    public var commandSections: [CommandSection] { CommandSection.build(commandRows) }
+
+    /// The command the draft would run, matched on its whole first word. A word
+    /// that names nothing is a message, which is how a terminal reads it too.
+    public var draftCommand: Command? {
+        guard let draft = commandDraft else { return nil }
+        return SlashDraft.match(commands, name: draft.name)
+    }
+
+    /// What a complete command draft is still missing, for the line under the
+    /// panel. Nil when the draft names no command.
+    public var commandHint: Command? {
+        guard let draft = commandDraft, draft.isComplete else { return nil }
+        return SlashDraft.match(commands, name: draft.name)
+    }
+
+    /// A turn is running, so every row is dimmed and the footer says why.
+    public var commandsWaitForTurn: Bool { isRunning }
+
+    /// Taking a row from the panel. The trailing space is what closes the panel
+    /// and shows where the argument goes; a command that takes none is left
+    /// ready to run on the next tap of Send.
+    public func take(_ command: Command) {
+        draft = command.takesArgument ? command.slash + " " : command.slash
+    }
+
+    /// Ask the device what this session offers now. Called when the
+    /// conversation opens; a failure keeps the last list rather than raising a
+    /// banner, because nobody asked for this request.
+    public func loadCommands() async {
+        guard offersCommands, !isLoadingCommands else { return }
+        isLoadingCommands = true
+        defer { isLoadingCommands = false }
+        guard let result = try? await channel.request(.commands(sessionID: sessionID),
+                                                      as: CommandsResult.self) else { return }
+        guard !Task.isCancelled else { return }
+        commands = result.commands
+        commandsReadAt = Date()
+    }
+
+    /// The refresh `/` asks for: only when the last answer is stale or was
+    /// empty, so the panel is on screen the moment it is wanted rather than a
+    /// round trip later.
+    public func refreshCommands(now: Date = Date()) async {
+        guard offersCommands else { return }
+        if !commands.isEmpty, let read = commandsReadAt,
+           now.timeIntervalSince(read) < Self.commandsStaleAfter { return }
+        await loadCommands()
+    }
+
+    /// How long an answer stands before `/` asks for another one.
+    public static let commandsStaleAfter: TimeInterval = 60
+
+    /// Run what the draft names. Amendment A27: the request id is the block id
+    /// the device echoes the command under, so the row is in the transcript
+    /// before the request leaves, exactly as a message is (A12). The result is
+    /// `{}` — what the command did arrives as ordinary events.
+    public func runCommand() async {
+        guard let command = draftCommand, let parsed = commandDraft, !isRunning else { return }
+        let typed = draft
+        let id = UUID().uuidString
+        draft = ""
+        isFollowingTail = true
+        timeline.addOptimistic(OptimisticMessage(id: id, text: command.line(argument: parsed.argument)))
+        do {
+            _ = try await channel.request(.command(id: id, sessionID: sessionID,
+                                                   name: command.name, argument: parsed.argument))
+        } catch let error as TransportError where error == .deliveryUncertain || error == .requestTimedOut {
+            // The device may well have run it, so nothing is retracted and
+            // nothing is sent again: the row says so for itself after a minute.
+            errorMessage = error.errorDescription
+        } catch {
+            // A reply means the request was read and refused, so the row goes
+            // and the words come back to the field the user was typing in.
+            timeline.removeOptimistic(id)
+            errorMessage = describe(error)
+            if draft.isEmpty { draft = typed }
+        }
     }
 
     /// Why the composer cannot send right now, in the words the user sees.
@@ -337,6 +450,9 @@ public final class ChatStore {
             if let newest = cached.map(\.seq).max() { timeline.adoptCursor(newest) }
         }
         await subscribe()
+        // Amendment A27: fetched when the conversation opens, so the panel is
+        // there for the first `/` rather than a round trip after it.
+        await loadCommands()
     }
 
     public func close() async {

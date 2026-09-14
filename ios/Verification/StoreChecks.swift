@@ -24,7 +24,91 @@ enum StoreChecks {
         timelineDetail(checks)
         terminalSettings(checks)
         await speedTier(checks)
+        await slashCommands(checks)
         return checks.result()
+    }
+
+    /// Amendment A27: the terminal's `/` menu, on the phone. One rule decides
+    /// whether a draft is a command, which rows are left on screen and what
+    /// Send does with it, so the panel, the hint and the button agree.
+    @MainActor
+    private static func slashCommands(_ checks: CheckRunner) async {
+        let gateway = DemoGateway()
+        func chat(_ sessionID: String, _ agent: AgentInfo) -> ChatStore? {
+            guard let session = DemoFixtures.sessions.first(where: { $0.sessionID == sessionID })
+            else {
+                checks.expect(false, "the demo carries \(sessionID)")
+                return nil
+            }
+            let store = ChatStore(session: session, channel: gateway)
+            store.agent = agent
+            return store
+        }
+
+        guard let pi = chat(DemoFixtures.piSessionID, DemoFixtures.pi) else { return }
+        checks.expect(pi.offersCommands, "pi takes commands from an app")
+        await pi.loadCommands()
+        checks.equal(pi.commands.count, DemoFixtures.piCommands.count,
+                     "and the device answers with what the session offers now")
+
+        pi.draft = "/"
+        checks.equal(pi.commandRows.count, pi.commands.count, "a bare slash opens the whole list")
+        checks.equal(pi.commandSections.map(\.title), ["Prompts", "Skills", "Extensions", "Built-in"],
+                     "sectioned by where each command came from")
+        pi.draft = "/skill:"
+        checks.equal(pi.commandRows.count, 3, "and filtered by prefix as more is typed")
+        checks.equal(pi.commandSections.count, 1,
+                     "a filter that leaves one group behind leaves its header behind too")
+        checks.expect(pi.draftCommand == nil, "a half-typed name runs nothing")
+
+        if let row = pi.commandRows.first {
+            pi.take(row)
+            checks.equal(pi.draft, "/skill:pdf-tables",
+                         "a command that takes nothing is written ready to run")
+            checks.equal(pi.commandRows.map(\.name), ["skill:pdf-tables"],
+                         "and the card is left showing the one row it now names")
+            checks.equal(pi.draftCommand?.name, "skill:pdf-tables", "which Send runs")
+        }
+        pi.draft = "/release-notes "
+        checks.expect(pi.commandRows.isEmpty, "a finished name closes the panel")
+        checks.equal(pi.commandHint?.argument, "tag", "and hands the placeholder to the line below")
+        checks.equal(pi.draftCommand?.name, "release-notes", "which is what Send would run")
+        checks.expect(pi.canSend, "on an idle session")
+
+        // A message that mentions a path is a message.
+        pi.draft = "read /etc/hosts"
+        checks.expect(pi.commandDraft == nil, "a slash inside a sentence is prose")
+        checks.expect(pi.draftCommand == nil, "and Send treats it as the message it is")
+
+        // Claude lists no capability, so `/` is an ordinary character and the
+        // app never asks the device anything.
+        guard let claude = chat(DemoFixtures.liveSessionID, DemoFixtures.claude) else { return }
+        await claude.loadCommands()
+        checks.expect(!claude.offersCommands, "Claude takes no commands")
+        checks.expect(claude.commands.isEmpty, "so nothing is fetched for it")
+        claude.draft = "/compact"
+        checks.expect(claude.commandRows.isEmpty, "and no panel is drawn")
+
+        // A session a terminal holds takes nothing typed here, whatever it
+        // offers, so the panel stays shut on it too.
+        guard let grok = chat(DemoFixtures.grokSessionID, DemoFixtures.grok) else { return }
+        await grok.loadCommands()
+        checks.equal(grok.commands.count, DemoFixtures.grokCommands.count,
+                     "Grok Build advertises its own list")
+        grok.draft = "/hooks"
+        checks.expect(grok.commandDraft == nil, "but a terminal-held session draws no panel")
+
+        // A turn is running: the rows are dimmed, the footer says why, and Send
+        // does not act until it finishes.
+        guard let codex = chat(DemoFixtures.codexSharedSessionID, DemoFixtures.codex) else { return }
+        await codex.loadCommands()
+        codex.draft = "/usage"
+        checks.expect(codex.commandsWaitForTurn, "a running turn dims the card")
+        checks.expect(!codex.commandRows.isEmpty, "which is still readable")
+        checks.expect(!codex.canSend, "and Send does not run a command inside a turn")
+        await codex.runCommand()
+        checks.equal(codex.draft, "/usage", "so nothing leaves the field")
+        checks.expect(codex.timeline.optimistic.isEmpty, "and nothing is drawn in the transcript")
     }
 
     /// Amendment A17: a session a terminal holds shows what the device read from

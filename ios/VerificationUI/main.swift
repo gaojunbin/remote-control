@@ -360,8 +360,49 @@ func run() async -> (passed: Int, failures: [String]) {
               "so the line above the composer names no way out")
         equal(chat.sendBlockReason, "Controlled by the terminal",
               "and the field says the short sentence, as it does for every agent")
+        // Amendment A27: the device still says what the session offers, and the
+        // app still draws no panel, because nothing here can type into it.
+        await chat.loadCommands()
+        chat.draft = "/hooks"
+        expect(chat.commandDraft == nil, "a terminal-held session opens no command panel")
     } else {
         expect(false, "the demo carries a Grok session a terminal holds")
+    }
+
+    // MARK: - Amendment A27: the terminal's `/` menu, opened from the composer
+    //
+    // `docs/DESIGN.md` § "The composer". The list is fetched as the
+    // conversation opens, so the card is there for the first `/` rather than a
+    // round trip after it.
+
+    if let parser = model.connection.sessions.first(where: { $0.sessionID == DemoFixtures.piSessionID }) {
+        await model.open(parser)
+        await settle { model.chat?.key == parser.id }
+        if let chat = model.chat {
+            await settle { !chat.commands.isEmpty }
+            expect(chat.offersCommands, "pi takes commands from an app")
+            equal(chat.commands.count, DemoFixtures.piCommands.count,
+                  "and opening the conversation is what fetched them")
+
+            chat.draft = "/"
+            equal(chat.commandSections.map(\.title), ["Prompts", "Skills", "Extensions", "Built-in"],
+                  "the card is sectioned by where each command came from")
+            expect(chat.commandRows.count > SlashDraft.visibleRows,
+                   "and is taller than the cap, so the demo shows it scrolling")
+
+            chat.draft = "/rel"
+            equal(chat.commandRows.map(\.name), ["release-notes"], "letters after the slash filter it")
+            if let row = chat.commandRows.first { chat.take(row) }
+            equal(chat.draft, "/release-notes ", "taking a row writes the name and the space after it")
+            equal(chat.commandHint?.argument, "tag", "which is where the placeholder is shown")
+            expect(chat.canSend, "and Send runs it")
+            chat.draft = ""
+        } else {
+            expect(false, "the pi session opens")
+        }
+        await model.closeChat()
+    } else {
+        expect(false, "the demo carries a pi session the app drives")
     }
 
     // MARK: - Push reconciliation

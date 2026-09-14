@@ -72,6 +72,20 @@ public struct BlockResult: Codable, Sendable {
     public init(event: SessionEvent) { self.event = event }
 }
 
+/// Amendment A27: the slash commands a session offers now. An empty list is an
+/// answer rather than a failure — a device with no live process may know of
+/// none — so the app draws nothing and asks again the next time `/` is typed.
+public struct CommandsResult: Codable, Sendable {
+    public let commands: [Command]
+
+    public init(commands: [Command]) { self.commands = commands }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        commands = try values.decodeIfPresent([Command].self, forKey: .commands) ?? []
+    }
+}
+
 public struct DirectoryEntry: Codable, Sendable, Hashable, Identifiable {
     public let name: String
     public let path: String

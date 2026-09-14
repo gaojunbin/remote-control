@@ -38,6 +38,7 @@ struct Composer: View {
     var body: some View {
         @Bindable var chat = chat
         return VStack(spacing: Theme.Space.small) {
+            commandPanel
             noticeLine
             if !attachments.isEmpty { attachmentStrip }
             promptField
@@ -56,6 +57,14 @@ struct Composer: View {
         .onChange(of: model.device(for: chat.session)?.online) { _, _ in syncSendability() }
         .onChange(of: model.settings.voiceBackend) { _, _ in prepareVoice() }
         .onChange(of: model.settings.voiceLanguage) { _, _ in prepareVoice() }
+        // Amendment A27: the list is fetched when the conversation opens and
+        // asked for again the moment `/` is typed, if the last answer has gone
+        // stale or was empty. Only the first slash asks; the letters after it
+        // filter what is already on screen.
+        .onChange(of: chat.draft.hasPrefix("/")) { was, isCommandDraft in
+            guard isCommandDraft, !was else { return }
+            Task { await chat.refreshCommands() }
+        }
         .onChange(of: photoItems) { _, items in Task { await ingest(items) } }
         .fileImporter(isPresented: $showsFileImporter, allowedContentTypes: [.item],
                       allowsMultipleSelection: true) { result in
@@ -74,9 +83,21 @@ struct Composer: View {
         #endif
     }
 
+    /// Amendment A27: the terminal's `/` menu, over the keyboard. It is drawn
+    /// only where the device says the agent takes commands and only while what
+    /// has been typed matches at least one of them, so `/` is an ordinary
+    /// character on a Claude session and on an empty list alike.
+    @ViewBuilder
+    private var commandPanel: some View {
+        if !chat.commandRows.isEmpty {
+            CommandPanel(chat: chat) { isWriting = true }
+        }
+    }
+
     /// One line above the field, and only when something is happening to it:
-    /// an attachment problem, or what dictation is doing. An attached session
-    /// says so in the header and prints nothing here.
+    /// an attachment problem, what dictation is doing, or where the argument of
+    /// a command already named goes. An attached session says so in the header
+    /// and prints nothing here.
     @ViewBuilder
     private var noticeLine: some View {
         if let attachmentError {
@@ -90,6 +111,10 @@ struct Composer: View {
                     guard !Task.isCancelled else { return }
                     voice.voice.dismissFailure()
                 }
+        // Something that is happening outranks something that is merely true,
+        // so the hint waits for dictation to finish before it takes the line.
+        } else if let command = chat.commandHint {
+            CommandHintLine(chat: chat, command: command)
         }
     }
 
@@ -158,7 +183,9 @@ struct Composer: View {
     /// glyph stays an arrow: it is still the button that takes what was typed.
     private var sendButton: some View {
         Button {
-            if chat.pendingQuestion != nil { answer() } else { send(mode: .auto) }
+            if chat.pendingQuestion != nil { answer() }
+            else if chat.draftCommand != nil { run() }
+            else { send(mode: .auto) }
         } label: {
             Image(systemName: "arrow.up")
                 .font(.body.weight(.semibold))
@@ -170,8 +197,16 @@ struct Composer: View {
         .disabled(!chat.canSend)
         .opacity(chat.canSend ? 1 : 0.4)
         .contextMenu { sendMenu }
-        .accessibilityLabel(L10n.string(chat.pendingQuestion != nil ? "Answer" : "Send"))
+        .accessibilityLabel(primaryAction)
         .accessibilityIdentifier("composer.send")
+    }
+
+    /// What the one primary in the row does right now. The glyph never changes —
+    /// it is still the button that takes what was typed — but its name does, so
+    /// a screen reader is never told Send where a command would run (A20, A27).
+    private var primaryAction: String {
+        if chat.pendingQuestion != nil { return L10n.string("Answer") }
+        return chat.draftCommand != nil ? L10n.string("Run") : L10n.string("Send")
     }
 
     private var isDictating: Bool { voice?.voice.phase.isBusy == true }
@@ -203,8 +238,20 @@ struct Composer: View {
             .frame(width: Theme.Touch.minimum, height: Theme.Touch.minimum)
     }
 
+    /// The send modes belong to a message. A command runs between turns and has
+    /// neither a queue nor a turn to interrupt, so the menu is not offered for
+    /// one (A27).
     @ViewBuilder
     private var sendMenu: some View {
+        if chat.draftCommand != nil {
+            EmptyView()
+        } else {
+            sendModes
+        }
+    }
+
+    @ViewBuilder
+    private var sendModes: some View {
         if agent?.supports(.queue) == true {
             Button { send(mode: .queue) } label: { Label("Queue", systemImage: "text.line.first.and.arrowtriangle.forward") }
         }
@@ -375,6 +422,16 @@ struct Composer: View {
         attachmentError = nil
         Task {
             await chat.send(mode: mode, attachments: outgoing)
+            await model.saveDraft()
+        }
+    }
+
+    /// Amendment A27: the first word names a command, so the same button runs it
+    /// instead of sending the words. Attachments are left where they are: a
+    /// command carries none, and a pill the user added is not ours to discard.
+    private func run() {
+        Task {
+            await chat.runCommand()
             await model.saveDraft()
         }
     }

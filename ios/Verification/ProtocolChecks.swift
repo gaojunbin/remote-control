@@ -17,6 +17,7 @@ enum ProtocolChecks {
         sharedControl(checks: checks)
         codexDaemon(checks: checks)
         events(checks: checks)
+        commands(checks: checks)
         frames(checks: checks)
         http(checks: checks)
         requests(checks: checks)
@@ -771,6 +772,55 @@ enum ProtocolChecks {
     }
 
     /// The request builders must produce the exact frames in `fixtures/app`.
+    /// Amendment A27: the list a session offers, what running one looks like in
+    /// the transcript, and which agents take them at all.
+    private static func commands(checks: CheckRunner) {
+        guard let reply = FixtureSource.json("app/reply.session.commands.json"),
+              let result = try? (reply["result"] ?? .object([:])).decode(CommandsResult.self) else {
+            checks.expect(false, "app/reply.session.commands.json decodes as a command list")
+            return
+        }
+        checks.equal(result.commands.map(\.name),
+                     ["compact", "review", "init", "status", "release-notes", "skill:pdf-tables"],
+                     "the worked list decodes in the order the device sent it")
+        checks.equal(result.commands.first { $0.name == "review" }?.argument, "instructions",
+                     "a command that takes an argument names the placeholder")
+        checks.expect(result.commands.first { $0.name == "compact" }?.takesArgument == false,
+                      "and one that takes none has no placeholder to show")
+        checks.equal(CommandSection.build(result.commands).map(\.title),
+                     ["Built-in", "Prompts", "Skills"],
+                     "groups section the list in the order they first appear")
+        checks.equal(result.commands.first?.slash, "/compact", "a row is drawn with its slash")
+        checks.equal(result.commands.first { $0.name == "review" }?.line(argument: "the retry logic"),
+                     "/review the retry logic", "and echoed as the line the user typed")
+        checks.equal(try? JSONValue.object([:]).decode(CommandsResult.self).commands.count, 0,
+                     "a device with nothing to offer answers an empty list rather than a failure")
+
+        // A command a terminal would have printed the answer to reads as a tool
+        // call titled with the command itself.
+        if let event = FixtureSource.json("events/tool_call.command.json"),
+           let decoded = try? event.decode(SessionEvent.self), let call = decoded.toolCall {
+            checks.equal(call.tool, "/usage", "the block is named after the command")
+            checks.equal(call.title, "/usage", "and titled with it")
+            checks.equal(call.kind, ToolKind.other, "information is not a shell call or an edit")
+            checks.equal(call.status, ToolStatus.succeeded, "and arrives finished")
+        } else {
+            checks.expect(false, "events/tool_call.command.json decodes as a tool call")
+        }
+
+        // The capability, from the protocol's own worked examples.
+        for (file, offers) in [("agent.codex-daemon.json", true), ("agent.grok.json", true),
+                               ("agent.pi.json", true), ("agent.claude-attach.json", false)] {
+            guard let agent = try? (FixtureSource.json("objects/\(file)") ?? .null).decode(AgentInfo.self)
+            else {
+                checks.expect(false, "objects/\(file) decodes")
+                continue
+            }
+            checks.equal(agent.supports(.commands), offers,
+                         "\(agent.agent) \(offers ? "takes" : "takes no") commands from an app")
+        }
+    }
+
     private static func requests(checks: CheckRunner) {
         func compare(_ built: GatewayRequest, with file: String, ignoring: Set<String> = []) {
             guard let expected = FixtureSource.json(file)?.objectValue else {
@@ -878,6 +928,20 @@ enum ProtocolChecks {
                                          blockID: block.string("block_id") ?? ""),
                     with: "app/session.block.json")
         }
+        if let list = FixtureSource.json("app/session.commands.json")?.objectValue {
+            compare(GatewayRequest.commands(sessionID: list.string("session_id") ?? ""),
+                    with: "app/session.commands.json")
+        }
+        if let run = FixtureSource.json("app/session.command.json")?.objectValue {
+            compare(GatewayRequest.command(sessionID: run.string("session_id") ?? "",
+                                           name: run.string("name") ?? "",
+                                           argument: run.string("argument")),
+                    with: "app/session.command.json")
+        }
+        // Amendment A27: a command that takes nothing sends no argument at all,
+        // rather than an empty one the device would have to read as a value.
+        checks.equal(GatewayRequest.command(sessionID: "s", name: "compact").json["argument"], nil,
+                     "session.command omits an argument it was not given")
         if let remove = FixtureSource.json("app/session.queue_remove.json")?.objectValue {
             compare(GatewayRequest.queueRemove(sessionID: remove.string("session_id") ?? "",
                                                queuedID: remove.string("queued_id") ?? ""),

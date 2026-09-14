@@ -212,6 +212,10 @@ public struct AgentCapability: WireEnum {
     public static let attachments = AgentCapability(rawValue: "attachments")
     public static let effort = AgentCapability(rawValue: "effort")
     public static let history = AgentCapability(rawValue: "history")
+    /// Amendment A27: this agent's sessions can list and run slash commands
+    /// from an app. Codex, Grok Build and pi carry it; Claude does not, because
+    /// its channel carries user text and nothing else.
+    public static let commands = AgentCapability(rawValue: "commands")
 }
 
 /// Category carried by a push payload.

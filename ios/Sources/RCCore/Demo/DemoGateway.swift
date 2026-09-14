@@ -51,6 +51,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// Amendment A22: the moment a device that took an update on comes back,
     /// running the build the gateway serves.
     private var updating: Task<Void, Never>?
+    /// Amendment A27: the turn a slash command started, which runs beside the
+    /// scripted reply rather than cancelling it.
+    private var commanding: Task<Void, Never>?
 
     /// The default is what a quick local device feels like. A UI test asks for
     /// a longer one so the state a real send passes through can be looked at
@@ -117,6 +120,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         asking?.cancel(); asking = nil
         answering?.cancel(); answering = nil
         updating?.cancel(); updating = nil
+        commanding?.cancel(); commanding = nil
         continuation.yield(.state(.disconnected))
     }
 
@@ -145,6 +149,10 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             return try create(request)
         case "session.block":
             return try fullBlock(request)
+        case "session.commands":
+            return try listCommands(request)
+        case "session.command":
+            return try runCommand(request)
         case "device.dirs":
             return try JSONValue.encode(DemoFixtures.directoryListing)
         case "device.git":
@@ -416,6 +424,135 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             throw GatewayErrorBody(code: .notFound, message: "No such block")
         }
         return try JSONValue.encode(BlockResult(event: event))
+    }
+
+    // MARK: - Slash commands (A27)
+
+    /// What the session offers right now. An agent without the capability is
+    /// refused rather than answered with an empty list, because "none" and "not
+    /// this agent" are different things and only the second one is permanent.
+    private func listCommands(_ request: GatewayRequest) throws -> JSONValue {
+        let session = try session(try requireSessionID(request))
+        try requireCommands(session)
+        return try JSONValue.encode(CommandsResult(commands: DemoFixtures.commands(for: session.agent)))
+    }
+
+    /// Run one. The device echoes it as a `user_message` under the request's id
+    /// and reports what it did as ordinary events; the result carries nothing.
+    private func runCommand(_ request: GatewayRequest) throws -> JSONValue {
+        let id = try requireSessionID(request)
+        let session = try session(id)
+        try requireCommands(session)
+        guard !session.isControlledByTerminal else {
+            throw GatewayErrorBody(code: .conflict, message: "Controlled by the terminal; take over first.")
+        }
+        let name = (request.body["name"]?.stringValue ?? "").lowercased()
+        guard let command = DemoFixtures.commands(for: session.agent)
+            .first(where: { $0.name == name }) else {
+            throw GatewayErrorBody(code: .notFound, message: "There is no /\(name) on this session.")
+        }
+        guard !session.state.isWorking else {
+            throw GatewayErrorBody(code: .conflict, message: "Wait for the turn to finish.")
+        }
+        let argument = request.body["argument"]?.stringValue
+        emit(sessionID: id, blockID: request.id,
+             body: .userMessage(UserMessagePayload(text: command.line(argument: argument),
+                                                   source: .remote)))
+        play(command: command, agent: session.agent, sessionID: id)
+        return .object([:])
+    }
+
+    private func requireCommands(_ session: Session) throws {
+        guard agent(for: session)?.supports(.commands) == true else {
+            throw GatewayErrorBody(code: .unsupported,
+                                   message: "\(session.agent) takes no commands from here.")
+        }
+    }
+
+    /// What each command does to the transcript. A state change is a `notice`,
+    /// information a terminal would have printed is a `tool_call` block titled
+    /// with the command, and everything else is an ordinary turn.
+    private func play(command: Command, agent: String, sessionID: String) {
+        if command.name == "compact" {
+            emit(sessionID: sessionID, body: .notice(NoticePayload(
+                level: .info, text: "Context was compacted; earlier turns are summarised.")))
+            return
+        }
+        if agent == "codex", let output = Self.codexOutput[command.name] {
+            emit(sessionID: sessionID, blockID: "cmd-\(UUID().uuidString.prefix(8))",
+                 body: .toolCall(ToolCallPayload(tool: command.slash, kind: .other, title: command.slash,
+                                                 status: .succeeded, output: output, durationMS: 180)))
+            return
+        }
+        update(sessionID: sessionID) { session in
+            session.state = .running
+            session.turn = TurnMarker(turnID: UUID().uuidString, startedAt: DemoFixtures.now)
+        }
+        commanding?.cancel()
+        commanding = Task { [weak self] in
+            await self?.playCommandTurn(command: command, agent: agent, sessionID: sessionID)
+        }
+    }
+
+    private func playCommandTurn(command: Command, agent: String, sessionID: String) async {
+        let reviews = agent == "codex" && command.name == "review"
+        if reviews {
+            emit(sessionID: sessionID, body: .notice(NoticePayload(level: .info, text: "Review started")))
+        }
+        try? await Task.sleep(for: .milliseconds(600))
+        guard !Task.isCancelled else { return }
+        emit(sessionID: sessionID, blockID: "cmd-a-\(UUID().uuidString.prefix(6))",
+             body: .assistantText(StreamTextPayload(text: Self.answer(to: command, agent: agent),
+                                                    done: true)))
+        if reviews {
+            emit(sessionID: sessionID, body: .notice(NoticePayload(level: .info, text: "Review finished")))
+        }
+        emit(sessionID: sessionID, body: .turnCompleted(TurnCompletedPayload(
+            turnID: "demo-turn-command", stopReason: .completed, durationMS: 6_000)))
+        emit(sessionID: sessionID, body: .status(StatusPayload(state: .idle)))
+        finishTurn(sessionID: sessionID)
+    }
+
+    /// The information commands, whose whole answer is the text a terminal would
+    /// have printed. `/usage` is the protocol's own worked example
+    /// (`fixtures/events/tool_call.command.json`).
+    private static let codexOutput: [String: String] = [
+        "status": """
+        Model: GPT-5.4 Codex · Medium
+        Speed: standard
+        Approval: Ask when needed
+        Sandbox: workspace-write
+        Working directory: /Users/me/dev/remote-control/web
+        Tokens: 16,720 of 272,000
+        """,
+        "usage": """
+        Plan: Pro
+        5-hour window: 38% used, resets 14:20
+        Weekly window: 12% used, resets Thu 09:00
+        """,
+        "skills": """
+        pdf-tables — Extract tables from a PDF into CSV
+        web-research — Search the web and summarise what it finds
+        """,
+        "hooks": """
+        pre-commit — npm run lint
+        turn-end — osascript -e 'display notification "done"'
+        """,
+        "mcp": """
+        github — connected, 14 tools
+        playwright — connected, 9 tools
+        """
+    ]
+
+    private static func answer(to command: Command, agent: String) -> String {
+        switch (agent, command.name) {
+        case ("codex", "review"):
+            "Reviewed 6 changed files. One finding: `SessionSettings` drops `effort` when the drawer is closed."
+        case ("codex", "init"):
+            "Wrote `AGENTS.md` with the build, test and lint commands this repository uses."
+        default:
+            "Ran \(command.slash) and finished."
+        }
     }
 
     private func send(_ request: GatewayRequest) async throws -> JSONValue {
