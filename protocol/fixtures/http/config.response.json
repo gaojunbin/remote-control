@@ -8,6 +8,9 @@
       "en"
     ]
   },
+  "polish": {
+    "enabled": true
+  },
   "push": {
     "web_enabled": true,
     "apns_enabled": false

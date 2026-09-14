@@ -316,5 +316,8 @@
       "en"
     ]
   },
+  "polish": {
+    "enabled": true
+  },
   "server_time": 1788944400000
 }

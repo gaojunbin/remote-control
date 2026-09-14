@@ -140,6 +140,7 @@
       "properties": {
         "public_origin": { "type": "string", "minLength": 1 },
         "stt": { "$ref": "app_frames.json#/$defs/SttInfo" },
+        "polish": { "$ref": "app_frames.json#/$defs/PolishInfo" },
         "push": {
           "type": "object",
           "properties": {
@@ -278,6 +279,58 @@
         "language": { "type": "string", "minLength": 1 }
       },
       "required": ["text", "language"]
+    },
+
+    "PolishModelsResponse": {
+      "description": "200 from GET /api/polish/models: the configured provider's models (A29). 503 with error code \"unsupported\" when no polish model is configured.",
+      "type": "object",
+      "properties": {
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "label": { "type": "string", "minLength": 1 }
+            },
+            "required": ["id", "label"]
+          }
+        }
+      },
+      "required": ["models"]
+    },
+
+    "PolishRequest": {
+      "description": "POST /api/polish (A29): the dictated text, the model and strength the user chose, a language hint, and the recent conversation the app shows, oldest first.",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 8192 },
+        "model": { "type": "string", "minLength": 1 },
+        "strength": { "enum": ["moderate", "strong"] },
+        "language": { "type": "string", "minLength": 1 },
+        "context": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": { "enum": ["user", "assistant"] },
+              "text": { "type": "string", "maxLength": 4000 }
+            },
+            "required": ["role", "text"]
+          }
+        }
+      },
+      "required": ["text", "model", "strength", "context"]
+    },
+
+    "PolishResponse": {
+      "description": "200 from POST /api/polish: the polished text and nothing else (A29).",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" }
+      },
+      "required": ["text"]
     },
 
     "VapidResponse": {

@@ -39,7 +39,7 @@ Section 5 uses the amended field names throughout.
 
 | Term | Meaning |
 | --- | --- |
-| gateway | The VPS service. Authenticates users and devices, routes frames, indexes sessions, buffers events for replay, proxies speech-to-text and push. It never runs an agent and never holds model credentials. |
+| gateway | The VPS service. Authenticates users and devices, routes frames, indexes sessions, buffers events for replay, proxies speech-to-text, dictation polish and push. It never runs an agent and never holds an agent's credentials; the only model keys it may hold are the operator's own for speech-to-text and for polishing dictation (A29). |
 | device | A developer machine running `rc-client`. It drives the locally installed agents and is the source of truth for session history. |
 | app | The web UI or the iOS app. Apps never talk to devices directly. |
 | agent | `"claude"` (Claude Code), `"codex"` (Codex CLI), `"grok"` (Grok Build) or `"pi"` (the pi coding agent) (A25, A26). The field is an **extensible string**: a UI that meets an unknown agent renders it generically, using the id as the label. |
@@ -295,6 +295,9 @@ and its `url`; a device whose `client_build` differs can be brought to it with `
       "en"
     ]
   },
+  "polish": {
+    "enabled": true
+  },
   "push": {
     "web_enabled": true,
     "apns_enabled": false
@@ -343,7 +346,7 @@ and its `url`; a device whose `client_build` differs can be brought to it with `
 
 This reads the gateway index, so it renders the last known summaries even while a device is offline.
 
-### 3.5 Authenticated — speech to text
+### 3.5 Authenticated — speech to text and dictation polish
 
 | Method | Path | Request | Response | Errors |
 | --- | --- | --- | --- | --- |
@@ -355,6 +358,74 @@ This reads the gateway index, so it renders the last known summaries even while 
 {
   "text": "Fix the flaky refresh test in tests slash test underscore auth dot py.",
   "language": "en"
+}
+```
+
+| Method | Path | Request | Response | Errors |
+| --- | --- | --- | --- | --- |
+| GET | `/api/polish/models` | — | `PolishModelsResponse` | `503` with code `unsupported` when no polish model is configured; `502` with code `upstream` when the provider fails |
+| POST | `/api/polish` | `PolishRequest` | `PolishResponse` | `503` `unsupported`; `400` `bad_request` for an empty or over-long text, an unknown strength or a malformed context; `502` `upstream` when the provider fails or times out |
+
+Dictation polish (amendment A29) is the one place the gateway calls a language model, and it does so
+only on an app's request: the operator configures an OpenAI-compatible base URL and key for it, the
+gateway lists that provider's models, and an app whose user turned the feature on sends the text a
+dictation produced together with the recent conversation and gets the same request back said
+cleanly. `hello` and `GET /api/config` report `polish.enabled` so an app can show or disable the
+setting. The gateway stores nothing from either call and never forwards the polished text to a
+device: the result is a draft in the app's composer, and sending it is the user's own action.
+
+`PolishRequest.strength` is `moderate` or `strong`. Moderate removes fillers, false starts and
+repetitions, corrects what the recogniser plainly misheard, punctuates, and otherwise keeps the
+speaker's words and order. Strong also restructures for clarity and precision and resolves vague
+references from the conversation, while adding no request the speaker did not make. Both keep the
+language the text was spoken in and return text only. `context` carries at most twenty of the
+session's most recent user and assistant messages as the app already shows them, oldest first, each
+trimmed by the app; the gateway passes them to the model as conversation and nothing else.
+`language` is a hint for the model, the dictation language the user chose or `auto`.
+
+`fixtures/http/polish.models.response.json`
+
+```json
+{
+  "models": [
+    {
+      "id": "gpt-4.1-mini",
+      "label": "gpt-4.1-mini"
+    },
+    {
+      "id": "gpt-4.1",
+      "label": "gpt-4.1"
+    }
+  ]
+}
+```
+
+`fixtures/http/polish.request.json`
+
+```json
+{
+  "text": "um so the the green dot the one that blinks it should stop blinking when when it's done and just stay green",
+  "model": "gpt-4.1-mini",
+  "strength": "strong",
+  "language": "en",
+  "context": [
+    {
+      "role": "user",
+      "text": "Make the session status dot pulse while a turn is running."
+    },
+    {
+      "role": "assistant",
+      "text": "Done: the dot now breathes while the state is running and stays solid green when idle."
+    }
+  ]
+}
+```
+
+`fixtures/http/polish.response.json`
+
+```json
+{
+  "text": "The pulsing status dot should stop pulsing when the turn finishes and stay solid green."
 }
 ```
 
@@ -1625,7 +1696,7 @@ device is answered `not_found`, exactly as one naming nothing would be.
 
 | Type | Payload | When |
 | --- | --- | --- |
-| `hello` | `protocol`, `gateway_version`, `user`, `devices`, `sessions`, `stt`, `server_time` | First frame |
+| `hello` | `protocol`, `gateway_version`, `user`, `devices`, `sessions`, `stt`, `polish`, `server_time` | First frame. `polish` (A29) may be absent on a gateway older than it, which means disabled |
 | `device.updated` | `device` | A device connects, disconnects, is renamed or re-detects agents |
 | `device.removed` | `device_id` | A device is deleted |
 | `session.updated` | `session` | Any change to a session summary |
@@ -1750,6 +1821,9 @@ informational and for routing.
       "zh",
       "en"
     ]
+  },
+  "polish": {
+    "enabled": true
   },
   "server_time": 1788944400000
 }
@@ -2900,6 +2974,14 @@ by `block_id` like any other.
     keeps its stored credential per gateway and account, offers "Create an account" only when
     `GET /api/health` reports `registration_open`, shows the signed-in account and its `role`, and
     shows the accounts screen of 3.9 only to `admin` (A24).
+15. **Polished dictation is a draft, never a send.** When the user has turned dictation polish on
+    (A29), the words the recogniser produced land in the composer the instant dictation ends; the
+    app then asks `POST /api/polish` with the dictated span, the chosen model and strength, and the
+    recent conversation, and replaces that span — never text the user typed — when the answer
+    arrives, keeping the dictated words one undo away until the next edit or send. A send while the
+    request is out sends the words as dictated and drops the request; a failure leaves the words as
+    dictated and says so in one line. The switch, the model and the strength are the user's own
+    settings, off by default, disabled with a note when `polish.enabled` is false.
 
 ---
 
@@ -2948,6 +3030,12 @@ by `block_id` like any other.
 - [ ] Uses close code 4401 for a missing, invalid, expired or revoked credential, 4403 for a
       credential that is valid but not allowed here, and 1008 only for protocol violations.
 - [ ] Push payloads contain only the `rc` object of 3.7 and no message content.
+- [ ] Reports `polish.enabled` in `hello` and `GET /api/config`, answers `GET /api/polish/models`
+      from the configured provider and `POST /api/polish` with the polished text only, refuses both
+      with `503` `unsupported` when no polish model is configured, and stores nothing from either
+      (A29).
+- [ ] Sends the model exactly the text and the context the app supplied, with the strength
+      instructions of 3.5, and never a device's history of its own reading (A29).
 
 ### 9.2 Device
 
@@ -3077,6 +3165,10 @@ by `block_id` like any other.
       description and argument hint, sends a matched first word as `session.command` and
       anything else as `session.send`, and draws nothing for an agent without the capability
       (A27).
+- [ ] Offers the dictation polish switch, model and strength only when `polish.enabled` is true
+      (disabled with a note otherwise), polishes only the dictated span, keeps the dictated words one
+      undo away, sends the words as dictated when the user sends first, and never sends a polished
+      text by itself (A29).
 - [ ] Decodes every fixture under `fixtures/` in its test suite.
 
 ---
@@ -3372,3 +3464,16 @@ nothing when a TUI exits; `session/close` is never sent for a session a terminal
 it unloads the session for everyone. `rc-client grok setup` turns the flag on in the person's
 configuration, in place. `fixtures/objects/agent.grok.json` is the worked example. See 4.2, 4.4,
 5.7, 9.2 and 9.3.
+
+**2026-09-14 A29 — dictation polish through an operator-configured model.** Speech is immediate
+and comes with fillers, false starts and references that made sense with the screen in front of the
+speaker; sent as-is, a transcript makes the agent guess. The gateway operator may now configure one
+OpenAI-compatible base URL and key for polishing dictation — the only model credential the gateway
+ever holds, used on an app's request and for nothing else. `hello` and `GET /api/config` gain
+`polish {enabled}`; 3.5 gains `GET /api/polish/models` (the provider's models) and `POST /api/polish`
+(`PolishRequest`: the dictated text, a model, a strength `moderate` | `strong`, a language hint and up
+to twenty recent conversation messages the app already shows; `PolishResponse`: the text only). The
+gateway stores nothing and forwards nothing to a device. 8.15 fixes the app behaviour: the setting is
+the user's and off by default; dictated words land at once and the dictated span alone is replaced
+when the answer arrives, one undo away; a send while polishing sends the words as dictated. See 1,
+3.5, 8, 9.1 and 9.3.
