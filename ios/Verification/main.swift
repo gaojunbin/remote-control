@@ -14,7 +14,8 @@ let results = [
     LocalizationChecks.run(),
     await AccountChecks.run(),
     await StoreChecks.run(),
-    await AlertChecks.run()
+    await AlertChecks.run(),
+    await PolishChecks.run()
 ]
 
 var total = 0

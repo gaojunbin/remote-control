@@ -1706,6 +1706,133 @@ final class RemoteControlUITests: XCTestCase {
         app.descendants(matching: .any)["photosView_content_scroll_view"].firstMatch
     }
 
+    // MARK: - A29, polishing what was dictated
+
+    /// `docs/DESIGN.md` § "Polishing what you dictated": the words land at once,
+    /// the status line says the model is working, and the dictated span alone is
+    /// replaced with "Polished · Undo" under the field until the next edit.
+    func testDictationIsPolishedAndOneUndoAway() {
+        app.launch()
+        turnPolishOn()
+        openLiveSession()
+        XCTAssertTrue(promptField().waitForExistence(timeout: 15))
+
+        app.buttons["composer.voice"].tap()
+        let done = app.buttons["voice.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 15), "dictation is listening")
+        XCTAssertTrue(waitFor { done.isEnabled })
+        done.tap()
+
+        // The words the recogniser produced are in the field the instant
+        // dictation ends, fillers and all.
+        let field = promptField()
+        XCTAssertTrue(field.waitForExistence(timeout: 15))
+        let dictated = field.value as? String ?? ""
+        XCTAssertTrue(dictated.contains("the the"), "the dictated words land unpolished")
+
+        let status = app.descendants(matching: .any)["chat.status"]
+        XCTAssertTrue(waitFor(timeout: 15) { status.exists && status.label.contains("Polishing") },
+                      "the status line says the model is working")
+        attach(name: "ios-polish-polishing")
+
+        let note = app.descendants(matching: .any)["composer.polished"]
+        XCTAssertTrue(note.waitForExistence(timeout: 20), "the note says the draft was polished")
+        let polished = promptField().value as? String ?? ""
+        XCTAssertFalse(polished.contains("the the"), "the doubled word is gone")
+        XCTAssertFalse(polished.contains("um "), "and so is the filler")
+        attach(name: "ios-polish-polished")
+
+        app.buttons["composer.polishUndo"].tap()
+        XCTAssertEqual(promptField().value as? String, dictated,
+                       "Undo puts the words back exactly as they were dictated")
+        XCTAssertFalse(app.descendants(matching: .any)["composer.polished"].exists,
+                       "and the note goes with them")
+    }
+
+    /// The switch, the model and the strength are the person's own settings,
+    /// off until they ask for them, and the group says what is sent and when.
+    func testVoiceSettingsOfferPolish() {
+        app.launch()
+        let settings = app.tabBars.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 20))
+        settings.tap()
+
+        let toggle = app.switches["settings.polish"]
+        XCTAssertTrue(scrollDown(to: toggle), "the Voice group offers dictation polish")
+        XCTAssertTrue(toggle.isEnabled, "the demo gateway has a model, so the switch is live")
+        XCTAssertEqual(toggle.value as? String, "0", "off on a fresh install")
+        XCTAssertFalse(app.descendants(matching: .any)["settings.polishModel"].exists,
+                       "with nothing under it until it is on")
+
+        turnOn(toggle)
+        XCTAssertTrue(app.descendants(matching: .any)["settings.polishModel"]
+            .waitForExistence(timeout: 10), "turning it on offers the gateway's models")
+        XCTAssertTrue(app.descendants(matching: .any)["settings.polishStrength"].exists,
+                      "and how hard the model may work")
+        attach(name: "ios-polish-settings")
+    }
+
+    // MARK: - A30, messages from other agents
+
+    /// `docs/DESIGN.md` § "Messages from other agents": a teammate's report the
+    /// CLI filed as a user turn is drawn muted, captioned as nobody's words.
+    func testAgentMessageIsCaptionedAsSomebodyElses() {
+        app.launch()
+        openSharedSession()
+        let bubble = app.descendants(matching: .any)["chat.message.agent"].firstMatch
+        XCTAssertTrue(bubble.waitForExistence(timeout: 20),
+                      "the transcript holds the message another agent filed")
+        XCTAssertTrue(bubble.label.contains("From another agent"),
+                      "and never says the person said it")
+        XCTAssertTrue(app.staticTexts["from another agent"].exists,
+                      "the caption stands where a terminal one says where it was typed")
+        attach(name: "ios-agent-message")
+    }
+
+    // MARK: - A31, an app older than its gateway
+
+    /// Protocol 8.16: below the gateway's minimum the app shows one screen and
+    /// nothing else — the two versions, where to get a newer build, Sign out.
+    func testAppBelowTheGatewayMinimumShowsOnlyTheUpdateScreen() {
+        app.launchArguments += ["--demo-update-required"]
+        app.launch()
+
+        let title = app.staticTexts["update.title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 20), "the blocking screen is up")
+        XCTAssertEqual(title.label, "Update required", "and says what is required")
+        XCTAssertTrue(app.staticTexts["update.versions"].firstMatch.exists,
+                      "with this build's version and the one the gateway asks for")
+        XCTAssertTrue(app.buttons["update.open"].exists, "with somewhere to get the newer build")
+        XCTAssertTrue(app.buttons["update.signOut"].exists, "and a way to another gateway")
+        attach(name: "ios-update-required")
+    }
+
+    /// Settings, Voice group: turn dictation polish on and come back to the
+    /// conversation. The demo gateway has a model, so the switch is live.
+    private func turnPolishOn() {
+        let settings = app.tabBars.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 20), "the Settings tab is there")
+        settings.tap()
+        let toggle = app.switches["settings.polish"]
+        XCTAssertTrue(scrollDown(to: toggle), "the polish switch is in the Voice group")
+        turnOn(toggle)
+        XCTAssertTrue(app.descendants(matching: .any)["settings.polishModel"]
+            .waitForExistence(timeout: 10), "a model is chosen for it")
+        app.tabBars.buttons["Sessions"].tap()
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 15),
+                      "and the list is back")
+    }
+
+    /// Flip a settings switch on. A `Toggle` row in a `Form` is one element
+    /// whose centre is the label, so a tap that lands there does nothing on
+    /// some layouts; the control itself is against the trailing edge.
+    private func turnOn(_ toggle: XCUIElement) {
+        toggle.tap()
+        if (toggle.value as? String) == "1" { return }
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        XCTAssertTrue(waitFor { (toggle.value as? String) == "1" }, "the switch turns on")
+    }
+
     private func attach(name: String, screenshot: XCUIScreenshot? = nil) {
         let attachment = XCTAttachment(screenshot: screenshot ?? XCUIScreen.main.screenshot())
         attachment.name = name

@@ -535,7 +535,25 @@ public enum DemoFixtures {
                             status: .resolved, answers: ["q1": .options(["changes"])], by: .terminal))),
             SessionEvent(seq: 4, ts: base + 1_400, kind: SessionEvent.turnCompletedKind,
                          body: .turnCompleted(TurnCompletedPayload(turnID: "demo-turn-shared",
-                                                                   stopReason: .completed, durationMS: 31_000)))
+                                                                   stopReason: .completed, durationMS: 31_000))),
+            // Amendment A30: a teammate's report the Claude CLI filed as a user
+            // turn. Nobody typed it, and the turn it started says so too.
+            SessionEvent(seq: 5, ts: base + 60_000, kind: SessionEvent.userMessageKind, blockID: "u-agent",
+                         body: .userMessage(UserMessagePayload(
+                            text: "recon-ios: Recon complete. Fact sheet written to the scratchpad; "
+                                + "three findings need a decision.",
+                            source: .agent))),
+            SessionEvent(seq: 6, ts: base + 60_100, kind: SessionEvent.turnStartedKind,
+                         body: .turnStarted(TurnStartedPayload(turnID: "demo-turn-shared-agent",
+                                                               trigger: .agent))),
+            SessionEvent(seq: 7, ts: base + 62_000, kind: SessionEvent.assistantTextKind, blockID: "a-agent",
+                         body: .assistantText(StreamTextPayload(
+                            text: "Read the fact sheet. The three open findings are listed below with "
+                                + "what each one costs.",
+                            done: true))),
+            SessionEvent(seq: 8, ts: base + 62_400, kind: SessionEvent.turnCompletedKind,
+                         body: .turnCompleted(TurnCompletedPayload(turnID: "demo-turn-shared-agent",
+                                                                   stopReason: .completed, durationMS: 2_300)))
         ]
     }
 
@@ -739,13 +757,52 @@ public enum DemoFixtures {
             ])
     }
 
-    public static var config: GatewayConfig {
+    public static func config(minimumAppVersion: String = AppBuild.version) -> GatewayConfig {
         GatewayConfig(publicOrigin: "https://demo.remote-control.invalid",
                       stt: STTConfig(enabled: true, languages: ["auto", "en", "zh"]),
                       push: PushConfig(webEnabled: true, apnsEnabled: true),
                       version: "0.1.0-demo",
+                      polish: PolishInfo(enabled: true),
+                      apps: apps(minimumAppVersion: minimumAppVersion),
                       client: ClientBuild(version: "0.1.0", build: servedBuild,
                                           url: "/dist/rc_client-latest.whl"))
+    }
+
+    /// Amendment A31: what the demo gateway says the oldest app it works with
+    /// is. It is this build by default, so the demo is never blocked; a demo
+    /// asked for a higher one is how the blocking screen is driven.
+    public static func apps(minimumAppVersion: String = AppBuild.version) -> AppsInfo {
+        AppsInfo(ios: AppSupport(minimumVersion: minimumAppVersion,
+                                 updateURL: "https://testflight.apple.com/join/EXAMPLE"))
+    }
+
+    /// One major version above this build, which is a minimum no installed app
+    /// can meet.
+    public static var laterAppVersion: String {
+        "\(AppVersion(AppBuild.version).major + 1).0.0"
+    }
+
+    /// Amendment A29: the two models the demo's polish provider offers.
+    public static var polishModels: PolishModelsResponse {
+        PolishModelsResponse(models: [PolishModel(id: "gpt-4.1-mini", label: "gpt-4.1-mini"),
+                                      PolishModel(id: "gpt-4.1", label: "gpt-4.1")])
+    }
+
+    /// A stand-in for the model: the fillers go, a doubled word goes, and the
+    /// first letter is capitalised. Enough that the replacement can be watched
+    /// happening, and it reaches nothing.
+    public static func polished(_ text: String) -> String {
+        let fillers: Set<String> = ["um", "uh", "erm", "like", "呃", "那个"]
+        var words: [String] = []
+        for word in text.split(separator: " ", omittingEmptySubsequences: true).map(String.init) {
+            let bare = word.trimmingCharacters(in: .punctuationCharacters).lowercased()
+            if fillers.contains(bare) { continue }
+            if words.last?.lowercased() == word.lowercased() { continue }
+            words.append(word)
+        }
+        let joined = words.joined(separator: " ")
+        guard let first = joined.first else { return joined }
+        return String(first).uppercased() + joined.dropFirst()
     }
 
     public static var pairingGrant: PairingGrant {

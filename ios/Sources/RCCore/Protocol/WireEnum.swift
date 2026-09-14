@@ -112,6 +112,15 @@ public struct EventSource: WireEnum {
     public static let terminal = EventSource(rawValue: "terminal")
     public static let queue = EventSource(rawValue: "queue")
     public static let policy = EventSource(rawValue: "policy")
+    /// Amendment A30: words the Claude CLI filed as a user turn that no person
+    /// typed — a teammate's message, a background task's notification. They are
+    /// neither the person nor the assistant, and the transcript says so.
+    public static let agent = EventSource(rawValue: "agent")
+
+    /// Amendment A30: a turn another agent's message started is not this app's
+    /// doing, so everything that asks "did I start this?" reads it as it reads
+    /// a turn typed at the terminal.
+    public var isElsewhere: Bool { self == .terminal || self == .agent }
 }
 
 /// Coarse classification of a tool call, used to pick an icon and a summary.

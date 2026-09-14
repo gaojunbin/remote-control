@@ -129,6 +129,19 @@ public actor GatewayHTTPClient {
         try await send(.get, "/api/config").decode(GatewayConfig.self)
     }
 
+    /// Amendment A29: the models the gateway's polish provider offers. `503`
+    /// with code `unsupported` when the operator configured none.
+    public func polishModels() async throws -> PolishModelsResponse {
+        try await send(.get, "/api/polish/models").decode(PolishModelsResponse.self)
+    }
+
+    /// Amendment A29: one dictation through that model. The gateway stores
+    /// nothing and forwards nothing to a device; the answer is a draft, and
+    /// sending it stays the user's own separate action.
+    public func polish(_ request: PolishRequest) async throws -> PolishResponse {
+        try await send(.post, "/api/polish", body: try .encode(request)).decode(PolishResponse.self)
+    }
+
     public func devices() async throws -> [Device] {
         try await send(.get, "/api/devices").decode(DeviceListResponse.self).devices
     }

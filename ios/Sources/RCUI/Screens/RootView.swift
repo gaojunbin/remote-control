@@ -13,6 +13,9 @@ public struct RootView: View {
         _model = State(initialValue: model)
     }
 
+    /// Amendment A31: the gateway will not talk to this build.
+    private var mustUpdate: Bool { model.connection.updateRequired != nil }
+
     public var body: some View {
         ZStack {
             if model.isSignedIn {
@@ -35,6 +38,11 @@ public struct RootView: View {
             }
             #endif
         }
+        // Amendment A31: below the gateway's minimum nothing here is reachable —
+        // not by a tap and not by a screen reader — and the screen over it is
+        // the only thing left to do.
+        .disabled(mustUpdate)
+        .accessibilityHidden(mustUpdate)
         #if os(iOS)
         .overlay {
             // Its own window, above the alert level, so an open sheet cannot
@@ -64,6 +72,21 @@ public struct RootView: View {
         #if os(iOS)
         .overlay { PrivacyShield(visible: scenePhase != .active).allowsHitTesting(false) }
         #endif
+        // Amendment A31: over everything, including the sign-in form, because
+        // `GET /api/health` answers before anyone has a credential. Nothing
+        // underneath is reachable until the app is updated or signed out.
+        .overlay {
+            if let requirement = model.connection.updateRequired {
+                UpdateRequiredView(requirement: requirement) {
+                    Task { await model.signOut() }
+                }
+                // An overlay added after the locale was set sits outside it, so
+                // this screen asks for the interface language of its own accord
+                // rather than reading the phone's.
+                .environment(\.locale, model.settings.language.locale)
+                .transition(.opacity)
+            }
+        }
         .overlay(alignment: .bottom) {
             if let toast = model.toast {
                 Text(toast)

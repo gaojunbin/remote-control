@@ -51,6 +51,24 @@ public struct STTConfig: Codable, Sendable, Hashable {
     public static let disabled = STTConfig(enabled: false, languages: [])
 }
 
+/// Amendment A29: whether this gateway can polish a dictation through a model
+/// its operator configured. A gateway older than the amendment sends nothing,
+/// which means it cannot.
+public struct PolishInfo: Codable, Sendable, Hashable {
+    public let enabled: Bool
+
+    public init(enabled: Bool) {
+        self.enabled = enabled
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+    }
+
+    public static let disabled = PolishInfo(enabled: false)
+}
+
 /// The first frame the gateway sends on `/ws/app`.
 public struct HelloFrame: Codable, Sendable, Hashable {
     public let protocolVersion: Int
@@ -59,21 +77,28 @@ public struct HelloFrame: Codable, Sendable, Hashable {
     public let devices: [Device]
     public let sessions: [Session]
     public let stt: STTConfig
+    /// Amendment A29. Absent on an older gateway, which means disabled.
+    public let polish: PolishInfo
+    /// Amendment A31. Absent on an older gateway, which means no minimum.
+    public let apps: AppsInfo?
     public let serverTime: Int64
 
     public init(protocolVersion: Int, gatewayVersion: String, user: UserIdentity,
-                devices: [Device], sessions: [Session], stt: STTConfig, serverTime: Int64) {
+                devices: [Device], sessions: [Session], stt: STTConfig,
+                polish: PolishInfo = .disabled, apps: AppsInfo? = nil, serverTime: Int64) {
         self.protocolVersion = protocolVersion
         self.gatewayVersion = gatewayVersion
         self.user = user
         self.devices = devices
         self.sessions = sessions
         self.stt = stt
+        self.polish = polish
+        self.apps = apps
         self.serverTime = serverTime
     }
 
     enum CodingKeys: String, CodingKey {
-        case user, devices, sessions, stt
+        case user, devices, sessions, stt, polish, apps
         case protocolVersion = "protocol"
         case gatewayVersion = "gateway_version"
         case serverTime = "server_time"
@@ -87,6 +112,8 @@ public struct HelloFrame: Codable, Sendable, Hashable {
         devices = try values.decodeIfPresent([Device].self, forKey: .devices) ?? []
         sessions = try values.decodeIfPresent([Session].self, forKey: .sessions) ?? []
         stt = try values.decodeIfPresent(STTConfig.self, forKey: .stt) ?? .disabled
+        polish = try values.decodeIfPresent(PolishInfo.self, forKey: .polish) ?? .disabled
+        apps = try values.decodeIfPresent(AppsInfo.self, forKey: .apps)
         serverTime = try values.decodeIfPresent(Int64.self, forKey: .serverTime) ?? 0
     }
 }

@@ -78,6 +78,9 @@ public final class SettingsStore {
         static let appLock = "preference.appLock"
         static let voiceBackend = "preference.voiceBackend"
         static let voiceLanguage = "preference.voiceLanguage"
+        static let polishEnabled = "preference.polishEnabled"
+        static let polishModel = "preference.polishModel"
+        static let polishStrength = "preference.polishStrength"
         static let timelineDetail = "preference.timelineDetail"
         static let language = "preference.language"
     }
@@ -96,6 +99,16 @@ public final class SettingsStore {
     public var voiceBackend: VoiceBackend { didSet { write(voiceBackend.rawValue, Key.voiceBackend) } }
     /// A BCP-47 code, or "auto" to let the gateway decide.
     public var voiceLanguage: String { didSet { write(voiceLanguage, Key.voiceLanguage) } }
+    /// Amendment A29: whether a finished dictation is passed through the
+    /// gateway's polish model. Off by default — nothing leaves the phone for a
+    /// model until the person asks for it.
+    public var polishEnabled: Bool { didSet { write(polishEnabled, Key.polishEnabled) } }
+    /// Which of the provider's models does the polishing. Empty until one is
+    /// chosen, which is when the feature can take effect.
+    public var polishModel: String { didSet { write(polishModel, Key.polishModel) } }
+    public var polishStrength: PolishStrength {
+        didSet { write(polishStrength.rawValue, Key.polishStrength) }
+    }
     /// How much of a transcript is drawn. Simple is the default: most of what an
     /// agent does is not addressed to the reader.
     public var timelineDetail: TimelineDetail {
@@ -120,6 +133,9 @@ public final class SettingsStore {
         appLockEnabled = false
         voiceBackend = .onDevice
         voiceLanguage = "auto"
+        polishEnabled = false
+        polishModel = ""
+        polishStrength = .moderate
         timelineDetail = .simple
         language = .en
         // The account the app is about to come back to owns the preferences it
@@ -158,6 +174,10 @@ public final class SettingsStore {
         appLockEnabled = defaults.bool(forKey: key(Key.appLock))
         voiceBackend = VoiceBackend(rawValue: defaults.string(forKey: key(Key.voiceBackend)) ?? "") ?? .onDevice
         voiceLanguage = defaults.string(forKey: key(Key.voiceLanguage)) ?? "auto"
+        polishEnabled = defaults.bool(forKey: key(Key.polishEnabled))
+        polishModel = defaults.string(forKey: key(Key.polishModel)) ?? ""
+        polishStrength = PolishStrength(rawValue: defaults.string(forKey: key(Key.polishStrength)) ?? "")
+            ?? .moderate
         timelineDetail = TimelineDetail(rawValue: defaults.string(forKey: key(Key.timelineDetail)) ?? "")
             ?? .simple
         // English whatever the phone is set to: the default is the product's
@@ -238,6 +258,7 @@ public final class SettingsStore {
         Sessions known: \(sessionCount)
         Gateway transcription: \(sttEnabled ? "available" : "unavailable")
         Voice backend: \(voiceBackend.rawValue)
+        Dictation polish: \(polishEnabled ? "on (\(polishStrength.rawValue))" : "off")
         Timeline detail: \(timelineDetail.rawValue)
         Interface language: \(language.rawValue)
         Notifications: \(notificationsEnabled ? "on" : "off")

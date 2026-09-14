@@ -46,6 +46,15 @@ public final class ConnectionStore {
     public private(set) var gatewayVersion = ""
     public private(set) var config: GatewayConfig = .empty
     public private(set) var stt: STTConfig = .disabled
+    /// Amendment A29: whether this gateway has a polish model at all. The
+    /// switch, the model and the strength are the user's own settings; this is
+    /// the only thing the gateway has a say in.
+    public private(set) var polish: PolishInfo = .disabled
+    /// Amendment A31: this build is older than the gateway will talk to, with
+    /// the minimum it asks for and where a newer build is. Nothing else in the
+    /// app is reachable while it is set, and only signing out clears it —
+    /// which is how a person reaches another gateway.
+    public private(set) var updateRequired: AppUpdateRequirement?
     public private(set) var devices: [Device] = []
     public private(set) var sessions: [Session] = []
     public private(set) var errorMessage: String?
@@ -120,7 +129,20 @@ public final class ConnectionStore {
     /// is offered where the gateway says it can be, and nowhere else.
     public func registrationOpen(origin: String) async -> Bool {
         guard let endpoint = try? GatewayEndpoint(origin) else { return false }
-        return (try? await makeAPI(endpoint).health().registrationOpen) ?? false
+        guard let health = try? await makeAPI(endpoint).health() else { return false }
+        // Amendment A31: this route needs no credential, so it is where an app
+        // the gateway is too new for finds out — before it has typed a password.
+        note(apps: health.apps)
+        return health.registrationOpen
+    }
+
+    /// Amendment A31: the first source to say this build is too old wins.
+    /// `GET /api/health`, `GET /api/config` and `hello` all carry `apps` and
+    /// arrive in no fixed order; nothing after the first refusal can lower the
+    /// bar, and only signing out clears it.
+    private func note(apps: AppsInfo?) {
+        guard updateRequired == nil, let requirement = AppUpdateRequirement.of(apps) else { return }
+        updateRequired = requirement
     }
 
     public func signIn(origin: String, username: String, password: String) async {
@@ -220,6 +242,10 @@ public final class ConnectionStore {
         user = UserIdentity(username: "")
         hasSnapshot = false
         isDemo = false
+        polish = .disabled
+        // Amendment A31: signing out is the way off a gateway this build is too
+        // old for, so the blocking screen goes with the connection.
+        updateRequired = nil
         phase = .signedOut
     }
 
@@ -309,6 +335,8 @@ public final class ConnectionStore {
         // `hello` and `/api/config` describe the same gateway. The one that
         // arrives later wins, and this call always follows the hello it races.
         stt = value.stt
+        polish = value.polish
+        note(apps: value.apps)
     }
 
     // MARK: - Frames
@@ -392,6 +420,10 @@ public final class ConnectionStore {
             devices = hello.devices
             sessions = hello.sessions
             stt = hello.stt
+            polish = hello.polish
+            // Amendment A31: a gateway upgraded under a connected app is caught
+            // here, at the next connection, rather than at the next launch.
+            note(apps: hello.apps)
             hasSnapshot = true
             phase = .connected
             errorMessage = nil

@@ -8,15 +8,21 @@ public struct HealthResponse: Codable, Sendable, Hashable {
     public let version: String
     public let protocolVersion: Int
     public let registrationOpen: Bool
+    /// Amendment A31: the oldest app build this gateway works with. This route
+    /// is the one that answers before anyone has a credential, so an app too
+    /// old for the gateway is stopped at the sign-in form.
+    public let apps: AppsInfo?
 
-    public init(version: String, protocolVersion: Int, registrationOpen: Bool) {
+    public init(version: String, protocolVersion: Int, registrationOpen: Bool,
+                apps: AppsInfo? = nil) {
         self.version = version
         self.protocolVersion = protocolVersion
         self.registrationOpen = registrationOpen
+        self.apps = apps
     }
 
     enum CodingKeys: String, CodingKey {
-        case version, auth
+        case version, auth, apps
         case protocolVersion = "protocol"
     }
 
@@ -30,12 +36,14 @@ public struct HealthResponse: Codable, Sendable, Hashable {
         protocolVersion = try values.decodeIfPresent(Int.self, forKey: .protocolVersion) ?? 0
         let auth = try? values.nestedContainer(keyedBy: AuthKeys.self, forKey: .auth)
         registrationOpen = (try? auth?.decodeIfPresent(Bool.self, forKey: .registrationOpen)) ?? false
+        apps = try values.decodeIfPresent(AppsInfo.self, forKey: .apps)
     }
 
     public func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
         try values.encode(version, forKey: .version)
         try values.encode(protocolVersion, forKey: .protocolVersion)
+        try values.encodeIfPresent(apps, forKey: .apps)
         var auth = values.nestedContainer(keyedBy: AuthKeys.self, forKey: .auth)
         try auth.encode(registrationOpen, forKey: .registrationOpen)
     }

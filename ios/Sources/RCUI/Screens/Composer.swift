@@ -42,6 +42,7 @@ struct Composer: View {
             noticeLine
             if !attachments.isEmpty { attachmentStrip }
             promptField
+            polishNote
             controlsRow
         }
         .padding(.horizontal, Theme.Space.page)
@@ -135,6 +136,43 @@ struct Composer: View {
                         in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
             .disabled(chat.isReadOnly)
             .overlay { dictationTakeover }
+    }
+
+    /// Amendment A29: the small line under the field once a dictation has been
+    /// polished, and the one line a failed polish gets. Both stand until the
+    /// next edit or send; the failure also goes by itself after a few seconds,
+    /// because nothing is wrong with the draft it is talking about.
+    @ViewBuilder
+    private var polishNote: some View {
+        switch chat.polishPhase {
+        case .polished:
+            HStack(spacing: Theme.Space.tight) {
+                // The identifiers go on the two elements themselves: one on the
+                // row would overwrite both.
+                Text("Polished").accessibilityIdentifier("composer.polished")
+                Text(verbatim: "·").accessibilityHidden(true)
+                Button("Undo") { chat.undoPolish() }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.ink)
+                    .accessibilityIdentifier("composer.polishUndo")
+                Spacer(minLength: 0)
+            }
+            .font(.caption)
+            .foregroundStyle(Theme.inkSecondary)
+        case .failed:
+            Text("Polishing failed, your words are unchanged")
+                .font(.caption)
+                .foregroundStyle(Theme.inkSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("composer.polishFailed")
+                .task {
+                    try? await Task.sleep(for: .seconds(6))
+                    guard !Task.isCancelled else { return }
+                    chat.clearPolishNote()
+                }
+        case .idle, .polishing:
+            EmptyView()
+        }
     }
 
     /// While dictation runs the field shows the transcript arriving. Reaching
@@ -453,7 +491,25 @@ struct Composer: View {
         voice?.reset()
         let backend = SpeechBackend.make(settings: model.settings, connection: model.connection)
         usesGateway = model.settings.voiceBackend == .gateway && model.connection.stt.enabled
-        voice = InlineVoiceDraftSession(platform: backend.platform, isPreview: backend.isScripted)
+        let session = InlineVoiceDraftSession(platform: backend.platform, isPreview: backend.isScripted)
+        // Amendment A29: the objects, not this view, so the callback outlives
+        // the body that installed it.
+        let appModel = model
+        let store = chat
+        session.onDictationFinished = { span in Self.polish(span, model: appModel, chat: store) }
+        voice = session
+    }
+
+    /// Amendment A29: the words are in the field already. This asks the
+    /// gateway's model to say the same thing cleanly, and only where the
+    /// gateway has one, the person has turned it on, and a model is chosen.
+    private static func polish(_ span: DictationSpan, model: AppModel, chat: ChatStore) {
+        guard model.connection.polish.enabled, model.settings.polishEnabled,
+              !model.settings.polishModel.isEmpty, let api = model.connection.api else { return }
+        chat.polishService = { request in try await api.polish(request).text }
+        chat.polish(span: span, model: model.settings.polishModel,
+                    strength: model.settings.polishStrength,
+                    language: model.settings.voiceLanguage)
     }
 
     /// The composer knows about the connection; the chat store does not.
@@ -466,6 +522,9 @@ struct Composer: View {
     private func startDictation() {
         guard let voice else { return }
         isWriting = false
+        // Amendment A29: a second dictation is a new span, so the note about
+        // the last one goes and its answer, if still out, is dropped.
+        chat.cancelPolish()
         voice.start(draft: chat.draft, target: target)
     }
 

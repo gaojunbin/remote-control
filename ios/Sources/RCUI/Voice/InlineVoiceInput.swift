@@ -185,5 +185,8 @@ private struct InlineVoiceInputModifier: ViewModifier {
 
     private func synchronize() {
         if let updated = session.updateDraft(currentDraft: draft, currentTarget: target) { draft = updated }
+        // Amendment A29: the words are in the field now; whether they are then
+        // polished is the composer's own decision, taken from this one call.
+        session.reportFinishedDictation()
     }
 }

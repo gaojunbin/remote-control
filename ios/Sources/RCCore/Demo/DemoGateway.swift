@@ -17,6 +17,12 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// Amendment A15: when the archived demo session is resumed, or nil to
     /// leave it in the Archive for the whole run.
     private let resumeDelay: Duration?
+    /// Amendment A31: the oldest app build this demo gateway claims to work
+    /// with. It is this build by default, so the demo runs; a demo asked for a
+    /// higher one is how the blocking "Update required" screen is driven.
+    private let minimumAppVersion: String
+    /// Amendment A29: how long this gateway's stand-in model takes to answer.
+    private let polishDelay: Duration
     private var devices = DemoFixtures.devices
     private var sessionList = DemoFixtures.sessions
     /// Amendment A24: the gateway's accounts, and which of them this app is.
@@ -76,12 +82,20 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// it and restart. Long enough that "Updating…" is a state you can read.
     private static let updateDelay = Duration.seconds(4)
 
+    /// Amendment A29: how long the demo's polish provider takes to answer.
+    /// Long enough that "Polishing…" is a state you can read.
+    public static let defaultPolishDelay = Duration.milliseconds(600)
+
     public init(echoDelay: Duration = DemoGateway.defaultEchoDelay,
                 resumeDelay: Duration? = DemoGateway.defaultResumeDelay,
-                registrationOpen: Bool = false) {
+                registrationOpen: Bool = false,
+                minimumAppVersion: String = AppBuild.version,
+                polishDelay: Duration = DemoGateway.defaultPolishDelay) {
         self.echoDelay = echoDelay
         self.resumeDelay = resumeDelay
         self.registrationOpen = registrationOpen
+        self.minimumAppVersion = minimumAppVersion
+        self.polishDelay = polishDelay
         endpoint = (try? GatewayEndpoint("https://demo.remote-control.invalid"))
             ?? GatewayEndpoint.placeholder
         let stream = AsyncStream<GatewayEvent>.makeStream(bufferingPolicy: .bufferingOldest(512))
@@ -103,7 +117,8 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         }
         let hello = HelloFrame(protocolVersion: RemoteProtocol.version, gatewayVersion: "0.1.0-demo",
                                user: signedIn.identity, devices: devices,
-                               sessions: sessionList, stt: DemoFixtures.config.stt,
+                               sessions: sessionList, stt: configuration.stt,
+                               polish: configuration.polish, apps: configuration.apps,
                                serverTime: DemoFixtures.now)
         continuation.yield(.state(.connected))
         continuation.yield(.frame(.hello(hello)))
@@ -168,9 +183,16 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
 
     // MARK: - GatewayAPI
 
+    /// What this demo gateway says about itself, built once from the minimum
+    /// app version it was asked for.
+    private var configuration: GatewayConfig {
+        DemoFixtures.config(minimumAppVersion: minimumAppVersion)
+    }
+
     public func health() async throws -> HealthResponse {
         HealthResponse(version: "0.1.0-demo", protocolVersion: RemoteProtocol.version,
-                       registrationOpen: registrationOpen)
+                       registrationOpen: registrationOpen,
+                       apps: DemoFixtures.apps(minimumAppVersion: minimumAppVersion))
     }
 
     /// A demo holds no secrets, so any password of the length the gateway
@@ -223,7 +245,16 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         SessionInfoResponse(user: signedIn.identity, exp: DemoFixtures.now + 86_400_000)
     }
     public func logout() async throws {}
-    public func config() async throws -> GatewayConfig { DemoFixtures.config }
+    public func config() async throws -> GatewayConfig { configuration }
+
+    /// Amendment A29: two models, and a stand-in that cleans the words rather
+    /// than reaching a provider. The delay is what makes "Polishing…" visible.
+    public func polishModels() async throws -> PolishModelsResponse { DemoFixtures.polishModels }
+
+    public func polish(_ request: PolishRequest) async throws -> PolishResponse {
+        try? await Task.sleep(for: polishDelay)
+        return PolishResponse(text: DemoFixtures.polished(request.text))
+    }
     public func devices() async throws -> [Device] { devices }
     public func renameDevice(_ deviceID: String, name: String) async throws -> Device {
         guard devices.contains(where: { $0.deviceID == deviceID }) else {

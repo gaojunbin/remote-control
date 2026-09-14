@@ -27,7 +27,9 @@ public struct VoiceDraftTarget: Equatable, Sendable, Hashable {
         guard matches(currentTarget) else { return nil }
         let text = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
-        return draft.isEmpty ? text : draft + (draft.last?.isWhitespace == true ? "" : "\n") + text
+        // Amendment A29: the join is `DictationSpan`'s, so a span can rebuild
+        // this exact draft when a polished answer comes back for it.
+        return DictationSpan.merge(draft, text)
     }
 }
 

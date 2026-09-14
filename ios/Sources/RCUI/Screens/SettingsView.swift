@@ -87,10 +87,16 @@ struct SettingsView: View {
                 }
                 .font(Theme.Text.label)
                 .settingsRowLayout()
+                // Amendment A29: dictation is the setting above; what happens
+                // to the words afterwards is the setting below it.
+                PolishSettingsRows()
             } header: {
                 FieldLabel("Voice")
             } footer: {
-                SettingsFooter(voiceFooter)
+                VStack(alignment: .leading, spacing: Theme.Space.tight) {
+                    SettingsFooter(voiceFooter)
+                    SettingsFooter(polishFooter)
+                }
             }
 
             Section {
@@ -187,6 +193,15 @@ struct SettingsView: View {
         return model.settings.voiceBackend.explanation
     }
 
+    /// Amendment A29: what polishing sends, and when. A gateway with no polish
+    /// model says so instead, under a switch that cannot be turned on.
+    private var polishFooter: String {
+        guard model.connection.polish.enabled else {
+            return L10n.string("This gateway has no polish model configured")
+        }
+        return L10n.string("When this is on, what you dictated and the last few messages of the conversation are sent to the model this gateway is configured with. Nothing is sent while it is off.")
+    }
+
     private var report: String {
         let system = ProcessInfo.processInfo.operatingSystemVersion
         #if os(iOS)
@@ -204,9 +219,9 @@ struct SettingsView: View {
             isDemo: model.isDemo)
     }
 
-    static var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
-    }
+    /// Amendment A31: the same number the gateway's minimum is measured
+    /// against, read in one place so the two can never disagree.
+    static var appVersion: String { AppBuild.version }
 }
 
 /// Who is signed in, with what they are allowed to do under it (A24). Two lines

@@ -29,6 +29,19 @@ public struct PendingSend: Identifiable, Sendable, Equatable {
     }
 }
 
+/// Amendment A29: where the polish of the words just dictated has got to.
+///
+/// The words themselves are in the field the instant dictation ends, whatever
+/// this says; the phase is only about the request that may replace them.
+public enum PolishPhase: Sendable, Equatable {
+    case idle
+    case polishing
+    /// The answer is in the field. The span and the text that went into it are
+    /// kept so Undo can put the dictated words back.
+    case polished(DictationSpan, String)
+    case failed
+}
+
 /// One open conversation: its transcript, its composer state, and the requests
 /// it has in flight.
 ///
@@ -68,7 +81,14 @@ public final class ChatStore {
     /// sets it from the scroll position and from nothing else, so "follows
     /// the newest content" and "is at the bottom" are the same thing.
     public var isFollowingTail = true { didSet { if isFollowingTail { updatesWhileAway = 0 } } }
-    public var draft = ""
+    public var draft = "" { didSet { forgetPolishOnEdit() } }
+    /// Amendment A29: what dictation polish is doing to the draft right now.
+    public private(set) var polishPhase: PolishPhase = .idle
+    /// Where a dictation is polished. Set by the view layer, which is what
+    /// knows the gateway; nil where no polish model is configured or the user
+    /// has not turned the feature on, and then nothing here runs.
+    @ObservationIgnored public var polishService: (@MainActor (PolishRequest) async throws -> String)?
+    @ObservationIgnored private var polishTask: Task<Void, Never>?
     /// Set by the view layer, which is what knows about the socket and the
     /// device inventory. A send that cannot succeed is refused with a reason
     /// rather than failing after the draft has been cleared.
@@ -369,6 +389,7 @@ public final class ChatStore {
         guard let command = draftCommand, let parsed = commandDraft, !isRunning else { return }
         let typed = draft
         let id = UUID().uuidString
+        cancelPolish()
         draft = ""
         isFollowingTail = true
         timeline.addOptimistic(OptimisticMessage(id: id, text: command.line(argument: parsed.argument)))
@@ -409,6 +430,9 @@ public final class ChatStore {
     /// typing here needs a takeover, what will become of a message typed into a
     /// running turn, and what the agent said when it failed.
     public var statusLine: String? {
+        // Amendment A29: the model is working on the words that just landed in
+        // the field. That is the news, and it is over in a second or two.
+        if polishPhase == .polishing { return L10n.string("Polishing…") }
         if !deviceOnline { return L10n.string("Device offline") }
         if isReadOnly { return terminalControlNotice }
         // Amendment A20: a question outranks the turn it interrupted. Nothing
@@ -432,6 +456,83 @@ public final class ChatStore {
     public var elapsedSinceTurnStart: TimeInterval? {
         guard let turn = session.turn else { return nil }
         return max(0, Date().timeIntervalSince1970 - Double(turn.startedAt) / 1000)
+    }
+
+    // MARK: - Dictation polish (A29)
+
+    /// Pass the words a dictation just produced through the gateway's polish
+    /// model, with the conversation they were spoken into.
+    ///
+    /// The words are already in the field: this replaces the dictated span and
+    /// nothing else, and only while the field still holds exactly what the
+    /// recogniser left there.
+    public func polish(span: DictationSpan, model: String, strength: PolishStrength,
+                       language: String) {
+        guard let polishService, !model.isEmpty, DictationPolish.canPolish(span.dictated) else { return }
+        polishTask?.cancel()
+        polishPhase = .polishing
+        let request = DictationPolish.request(span: span, model: model, strength: strength,
+                                              language: language,
+                                              context: DictationPolish.context(timeline))
+        polishTask = Task { [weak self] in
+            do {
+                let text = try await polishService(request)
+                guard !Task.isCancelled else { return }
+                self?.applyPolished(span: span, text: text)
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.polishPhase = .failed
+            }
+        }
+    }
+
+    private func applyPolished(span: DictationSpan, text: String) {
+        let polished = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let next = DictationPolish.applyPolished(current: draft, span: span, polished: polished) else {
+            // The field has moved on — typed, sent, or dictated over — and what
+            // is in it is the person's. There is nothing to say about that.
+            polishPhase = .idle
+            return
+        }
+        // The phase is set first: writing the draft is what tells the note it
+        // is looking at the model's words rather than at an edit.
+        polishPhase = .polished(span, polished)
+        draft = next
+    }
+
+    /// Put the dictated words back. The note goes with them.
+    public func undoPolish() {
+        guard case .polished(let span, let text) = polishPhase else { return }
+        let dictated = DictationPolish.undoPolished(current: draft, span: span, polished: text)
+        polishPhase = .idle
+        if let dictated { draft = dictated }
+    }
+
+    /// A send, or anything else that ends this dictation's claim on the field.
+    /// A late answer is dropped rather than pasted over what was sent.
+    public func cancelPolish() {
+        polishTask?.cancel()
+        polishTask = nil
+        polishPhase = .idle
+    }
+
+    /// The one line about a failure, once it has been read.
+    public func clearPolishNote() {
+        if polishPhase == .failed { polishPhase = .idle }
+    }
+
+    /// "Polished · Undo" stands until the next edit or send. An edit is any
+    /// draft that is no longer what the model wrote; the words arriving from
+    /// the model are not one, and neither is anything while the request is out.
+    private func forgetPolishOnEdit() {
+        switch polishPhase {
+        case .idle, .polishing:
+            return
+        case .polished(let span, let text):
+            if draft != span.polishedDraft(text) { polishPhase = .idle }
+        case .failed:
+            polishPhase = .idle
+        }
     }
 
     public func isExpanded(_ blockID: String) -> Bool { expandedBlockIDs.contains(blockID) }
@@ -460,6 +561,7 @@ public final class ChatStore {
     }
 
     public func close() async {
+        cancelPolish()
         _ = try? await channel.request(.unsubscribe(sessionID: sessionID))
     }
 
@@ -624,6 +726,9 @@ public final class ChatStore {
     public func send(mode: SendMode = .auto, attachments: [OutboundAttachment] = []) async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        // Amendment A29: what goes is what is in the field — the words as
+        // dictated while a polish is still out — and that answer is dropped.
+        cancelPolish()
         draft = ""
         await deliver(id: UUID().uuidString, text: text, attachments: attachments, mode: mode)
     }
@@ -743,6 +848,7 @@ public final class ChatStore {
         guard let answers = draft(for: question).answers(for: question.questions, composing: draft)
         else { return }
         let text = draft
+        cancelPolish()
         draft = ""
         do {
             try await channel.request(.answer(sessionID: sessionID, requestID: question.requestID,

@@ -83,21 +83,28 @@ public struct ClientBuild: Codable, Sendable, Hashable {
 public struct GatewayConfig: Codable, Sendable, Hashable {
     public let publicOrigin: String
     public let stt: STTConfig
+    /// Amendment A29. Absent on an older gateway, which means disabled.
+    public let polish: PolishInfo
+    /// Amendment A31. Absent on an older gateway, which means no minimum.
+    public let apps: AppsInfo?
     public let push: PushConfig
     public let version: String
     public let client: ClientBuild?
 
     public init(publicOrigin: String, stt: STTConfig, push: PushConfig, version: String,
+                polish: PolishInfo = .disabled, apps: AppsInfo? = nil,
                 client: ClientBuild? = nil) {
         self.publicOrigin = publicOrigin
         self.stt = stt
+        self.polish = polish
+        self.apps = apps
         self.push = push
         self.version = version
         self.client = client
     }
 
     enum CodingKeys: String, CodingKey {
-        case stt, push, version, client
+        case stt, polish, apps, push, version, client
         case publicOrigin = "public_origin"
     }
 
@@ -105,6 +112,8 @@ public struct GatewayConfig: Codable, Sendable, Hashable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         publicOrigin = try values.decodeIfPresent(String.self, forKey: .publicOrigin) ?? ""
         stt = try values.decodeIfPresent(STTConfig.self, forKey: .stt) ?? .disabled
+        polish = try values.decodeIfPresent(PolishInfo.self, forKey: .polish) ?? .disabled
+        apps = try values.decodeIfPresent(AppsInfo.self, forKey: .apps)
         push = try values.decodeIfPresent(PushConfig.self, forKey: .push) ?? .disabled
         version = try values.decodeIfPresent(String.self, forKey: .version) ?? ""
         client = try values.decodeIfPresent(ClientBuild.self, forKey: .client)

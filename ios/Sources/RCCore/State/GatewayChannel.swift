@@ -28,6 +28,10 @@ public protocol GatewayAPI: Sendable {
     func session() async throws -> SessionInfoResponse
     func logout() async throws
     func config() async throws -> GatewayConfig
+    /// Amendment A29: dictation polish, which the app offers only where the
+    /// gateway reports `polish.enabled`.
+    func polishModels() async throws -> PolishModelsResponse
+    func polish(_ request: PolishRequest) async throws -> PolishResponse
     func devices() async throws -> [Device]
     func renameDevice(_ deviceID: String, name: String) async throws -> Device
     func revokeDevice(_ deviceID: String) async throws

@@ -937,11 +937,76 @@ func run() async -> (passed: Int, failures: [String]) {
     cleared.remember(origin: "https://rc.example.com", username: "alice")
     equal(cleared.language, .en, "a reset forgets every account's preferences, not only the last one's")
 
+    // MARK: - A29, polishing what was dictated
+
+    // The demo gateway has a polish model, so the Voice group can offer the
+    // switch and the composer can act on it.
+    expect(model.connection.polish.enabled, "the demo gateway can polish a dictation")
+    expect(!model.settings.polishEnabled, "and the setting is the person's own, off until asked for")
+    let polishModels = try? await model.connection.api?.polishModels()
+    equal(polishModels?.models.count, 2, "the demo serves two models to choose between")
+    equal(PolishStrength.allCases.map(\.title), ["Moderate", "Strong"],
+          "with two strengths under them, gentler first")
+
+    if let shared = model.connection.sessions.first(where: {
+        $0.sessionID == DemoFixtures.sharedSessionID
+    }) {
+        await model.open(shared)
+        await settle { model.chat?.timeline.entries.isEmpty == false }
+        if let chat = model.chat {
+            let span = DictationSpan(base: "", dictated: "um the the dot should stop blinking")
+            chat.draft = span.dictatedDraft
+            chat.polishService = { [api = model.connection.api] request in
+                guard let api else { throw TransportError.notConnected }
+                return try await api.polish(request).text
+            }
+            chat.polish(span: span, model: "gpt-4.1-mini", strength: .moderate, language: "en")
+            equal(chat.statusLine, "Polishing…", "the status line says what is happening to the draft")
+            await settle(timeout: 5) { chat.polishPhase != .polishing }
+            equal(chat.draft, "The dot should stop blinking",
+                  "the demo's model hands back the same request said cleanly")
+            chat.undoPolish()
+            equal(chat.draft, span.dictatedDraft, "and Undo puts the dictated words back")
+
+            // A30: the demo's attached Claude session carries a message its CLI
+            // filed for another agent, which is not the person's own.
+            let fromAgent = chat.timeline.entries.filter {
+                if case .userMessage(let payload) = $0.body { return payload.source == .agent }
+                return false
+            }
+            equal(fromAgent.count, 1, "the transcript holds one message another agent filed")
+            equal(chat.timeline.entries.filter {
+                if case .turnStarted(let payload) = $0.body { return payload.trigger == .agent }
+                return false
+            }.count, 1, "and the turn it started says who started it")
+        }
+        await model.closeChat()
+    } else {
+        expect(false, "the demo carries the attached Claude session")
+    }
+
     // MARK: - Sign out
 
     await model.signOut()
     equal(model.connection.phase, .signedOut, "signing out returns to the login screen")
     expect(model.chat == nil, "signing out closes the open conversation")
+
+    // MARK: - A31, an app older than its gateway
+
+    let outdated = AppModel(arguments: ["--demo", "--demo-update-required"])
+    await outdated.restoreOrPrompt()
+    await settle { outdated.connection.updateRequired != nil }
+    if let requirement = outdated.connection.updateRequired {
+        equal(requirement.current, AppVersion(AppBuild.version), "the screen names this build")
+        equal(requirement.minimum, AppVersion(DemoFixtures.laterAppVersion),
+              "and the one the gateway asks for")
+        expect(requirement.updateURL != nil, "with somewhere to get it")
+    } else {
+        expect(false, "a gateway that wants a newer build blocks this one")
+    }
+    await outdated.signOut()
+    equal(outdated.connection.updateRequired, nil,
+          "and signing out is the way to a gateway this build can talk to")
 
     return (passed, failures)
 }
@@ -1063,6 +1128,10 @@ actor StoredAccountGateway: GatewayAPI, GatewayChannel {
         throw TransportError.notConnected
     }
     func changePassword(current: String, new: String) async throws {
+        throw TransportError.notConnected
+    }
+    func polishModels() async throws -> PolishModelsResponse { throw TransportError.notConnected }
+    func polish(_ request: PolishRequest) async throws -> PolishResponse {
         throw TransportError.notConnected
     }
     func users() async throws -> UserListResponse { throw TransportError.notConnected }

@@ -5,9 +5,15 @@ import RCCore
 @MainActor @Observable public final class InlineVoiceDraftSession {
     public let voice: VoiceInputController
     public let isPreview: Bool
+    /// Amendment A29: the span a finished dictation left in the field — the
+    /// draft it started from and the words it added — handed over exactly once.
+    /// The composer sets this, because it is what knows whether polishing is on
+    /// and which model does it.
+    public var onDictationFinished: (@MainActor (DictationSpan) -> Void)?
     @ObservationIgnored private var target: VoiceDraftTarget?
     @ObservationIgnored private var originalDraft = ""
     @ObservationIgnored private var appliedDraft = ""
+    @ObservationIgnored private var hasReported = false
 
     public init(platform: any SpeechInputPlatform, isPreview: Bool = false) {
         self.isPreview = isPreview
@@ -19,7 +25,19 @@ import RCCore
         self.target = target
         originalDraft = draft
         appliedDraft = draft
+        hasReported = false
         voice.start()
+    }
+
+    /// Amendment A29: called once the draft is up to date. A dictation that has
+    /// stopped — the final transcript, a failure, the scene leaving — hands its
+    /// span over, and only the first of those moments does.
+    public func reportFinishedDictation() {
+        guard !hasReported, target != nil, !voice.phase.isBusy else { return }
+        let dictated = voice.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !dictated.isEmpty else { return }
+        hasReported = true
+        onDictationFinished?(DictationSpan(base: originalDraft, dictated: dictated))
     }
 
     public func updateDraft(currentDraft: String, currentTarget: VoiceDraftTarget) -> String? {
@@ -40,6 +58,7 @@ import RCCore
         target = nil
         originalDraft = ""
         appliedDraft = ""
+        hasReported = false
         voice.cancel()
     }
 }
@@ -50,7 +69,9 @@ import RCCore
     private var onEvent: (@Sendable (SpeechInputEvent) -> Void)?
     private let transcript: String
 
-    public init(transcript: String = "Re-run the auth suite on the CI runner too.") {
+    /// Real speech, fillers and all: the default reads as something said rather
+    /// than typed, which is what dictation polish (A29) is there to clean up.
+    public init(transcript: String = "um re-run the the auth suite on the CI runner too.") {
         self.transcript = transcript
     }
 

@@ -42,6 +42,10 @@ public final class AppModel {
 
     @ObservationIgnored private let drafts = DraftStore()
     @ObservationIgnored private let isUITesting: Bool
+    /// Amendment A31: the oldest app build the demo gateway claims to work
+    /// with. This build, so the demo runs — unless `--demo-update-required`
+    /// asked for a higher one, which is how the blocking screen is driven.
+    @ObservationIgnored private let demoMinimumAppVersion: String
     @ObservationIgnored private var pendingLink: SessionLink?
     /// Whether the landing rule has already run for this sign-in. It decides
     /// from the first device list and never again, so a `device.updated` that
@@ -67,6 +71,8 @@ public final class AppModel {
         self.push = push ?? PushController(platform: SystemNotifications.shared)
         self.turns = turns ?? TurnNotifier()
         isUITesting = arguments.contains("--ui-testing")
+        demoMinimumAppVersion = arguments.contains("--demo-update-required")
+            ? DemoFixtures.laterAppVersion : AppBuild.version
         if arguments.contains("--reset-state") {
             self.settings.reset()
             self.sessions.forgetListState()
@@ -99,7 +105,12 @@ public final class AppModel {
         // A UI test looks at the moment between a tap and the device's echo, so
         // the scripted device takes its time over it rather than being raced.
         let gateway = DemoGateway(echoDelay: isUITesting ? .seconds(3) : DemoGateway.defaultEchoDelay,
-                                  resumeDelay: isUITesting ? nil : DemoGateway.defaultResumeDelay)
+                                  resumeDelay: isUITesting ? nil : DemoGateway.defaultResumeDelay,
+                                  minimumAppVersion: demoMinimumAppVersion,
+                                  // Amendment A29: "Polishing…" is a state a UI
+                                  // test looks at rather than races.
+                                  polishDelay: isUITesting ? .seconds(3)
+                                                           : DemoGateway.defaultPolishDelay)
         await connection.enterDemo(api: gateway, channel: gateway)
         attachPush()
     }
