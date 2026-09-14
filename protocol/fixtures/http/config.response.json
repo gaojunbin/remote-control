@@ -11,6 +11,12 @@
   "polish": {
     "enabled": true
   },
+  "apps": {
+    "ios": {
+      "minimum_version": "0.1.0",
+      "update_url": "https://testflight.apple.com/join/EXAMPLE"
+    }
+  },
   "push": {
     "web_enabled": true,
     "apns_enabled": false

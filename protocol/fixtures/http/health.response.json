@@ -2,6 +2,12 @@
   "ok": true,
   "version": "0.1.0",
   "protocol": 1,
+  "apps": {
+    "ios": {
+      "minimum_version": "0.1.0",
+      "update_url": "https://testflight.apple.com/join/EXAMPLE"
+    }
+  },
   "auth": {
     "mode": "password",
     "registration_open": false

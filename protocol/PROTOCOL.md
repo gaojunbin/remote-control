@@ -178,6 +178,14 @@ an `Origin` header equal to `PUBLIC_ORIGIN`. Bearer-authenticated requests need 
 | Method | Path | Request | Response | Errors |
 | --- | --- | --- | --- | --- |
 | GET | `/api/health` | – | `HealthResponse` | – |
+
+`HealthResponse`, `ConfigResponse` and `hello` all carry `apps` (amendment A31): the oldest build
+of each separately installed app this gateway still works with, today `apps.ios.minimum_version`
+as `major.minor.patch`, with an optional `apps.ios.update_url` naming where a newer build is
+(TestFlight or the App Store). It is here, on the one unauthenticated endpoint, so an app can refuse
+to sign in before it has a credential; `hello` repeats it so a gateway upgraded under a connected
+app is caught at the next connection. A gateway that omits `apps` states no requirement. The web
+app is served by the gateway itself and never needs it.
 | POST | `/api/login` | `LoginRequest` | `LoginResponse` + `Set-Cookie: rc_session` | `401 unauthorized` for a wrong password or an unknown account, `403 forbidden` for a disabled one. Rate limited to 5 per minute per IP. |
 | POST | `/api/register` | `RegisterRequest` | `LoginResponse` + `Set-Cookie: rc_session` | Creates a `member` account and signs it in (A24). `403 forbidden` while registration is closed, `409 conflict` for a taken username, `400 bad_request` for a username or password outside the rules below. Rate limited to 5 per minute per IP. |
 | POST | `/api/devices/enroll` | `EnrollRequest` | `EnrollResponse` | `404` unknown or expired code, `409` code already used |
@@ -297,6 +305,12 @@ and its `url`; a device whose `client_build` differs can be brought to it with `
   },
   "polish": {
     "enabled": true
+  },
+  "apps": {
+    "ios": {
+      "minimum_version": "0.1.0",
+      "update_url": "https://testflight.apple.com/join/EXAMPLE"
+    }
   },
   "push": {
     "web_enabled": true,
@@ -1722,7 +1736,7 @@ device is answered `not_found`, exactly as one naming nothing would be.
 
 | Type | Payload | When |
 | --- | --- | --- |
-| `hello` | `protocol`, `gateway_version`, `user`, `devices`, `sessions`, `stt`, `polish`, `server_time` | First frame. `polish` (A29) may be absent on a gateway older than it, which means disabled |
+| `hello` | `protocol`, `gateway_version`, `user`, `devices`, `sessions`, `stt`, `polish`, `apps`, `server_time` | First frame. `polish` (A29) may be absent on a gateway older than it, which means disabled; `apps` (A31) likewise, which means no minimum |
 | `device.updated` | `device` | A device connects, disconnects, is renamed or re-detects agents |
 | `device.removed` | `device_id` | A device is deleted |
 | `session.updated` | `session` | Any change to a session summary |
@@ -1850,6 +1864,12 @@ informational and for routing.
   },
   "polish": {
     "enabled": true
+  },
+  "apps": {
+    "ios": {
+      "minimum_version": "0.1.0",
+      "update_url": "https://testflight.apple.com/join/EXAMPLE"
+    }
   },
   "server_time": 1788944400000
 }
@@ -3008,6 +3028,12 @@ by `block_id` like any other.
     request is out sends the words as dictated and drops the request; a failure leaves the words as
     dictated and says so in one line. The switch, the model and the strength are the user's own
     settings, off by default, disabled with a note when `polish.enabled` is false.
+16. **An app below the gateway's minimum updates before it does anything else.** A separately
+    installed app compares its own `major.minor.patch` with `apps.<app>.minimum_version` from
+    `GET /api/health`, `GET /api/config` and `hello` (A31), whichever it sees first, and when it is
+    older shows a blocking "Update required" screen — its version, the gateway's minimum, a button
+    to `update_url` when there is one, and Sign out — and nothing else until it is updated. An equal
+    or newer version, or a gateway that sends no `apps`, changes nothing.
 
 ---
 
@@ -3062,6 +3088,9 @@ by `block_id` like any other.
       (A29).
 - [ ] Sends the model exactly the text and the context the app supplied, with the strength
       instructions of 3.5, and never a device's history of its own reading (A29).
+- [ ] Reports `apps.ios.minimum_version` as `major.minor.patch` in `GET /api/health`,
+      `GET /api/config` and `hello`, with `update_url` when configured, and raises the minimum in the
+      same release that stops supporting older iOS builds (A31).
 
 ### 9.2 Device
 
@@ -3197,6 +3226,8 @@ by `block_id` like any other.
 - [ ] Draws a `user_message` with `source: "agent"` muted and captioned "from another agent", never
       as the person's own words, and treats `trigger: "agent"` like `terminal` in the status line
       (A30).
+- [ ] (iOS) Compares its version with `apps.ios.minimum_version` from health, config and `hello`, and
+      below it shows the blocking "Update required" screen of 8.16 and nothing else (A31).
 - [ ] Offers the dictation polish switch, model and strength only when `polish.enabled` is true
       (disabled with a note otherwise), polishes only the dictated span, keeps the dictated words one
       undo away, sends the words as dictated when the user sends first, and never sends a polished
@@ -3518,3 +3549,12 @@ such a row with `source: "agent"` and a text reduced to who reported and what th
 `<system-reminder>` block and every envelope, and starts the turn with `trigger: "agent"`; apps draw
 the bubble muted with the caption "from another agent". Tool results and `isMeta` rows are unchanged.
 See 5.2, 5.9, 9.2 and 9.3.
+
+**2026-09-14 A31 — the gateway states the oldest iOS app it supports.** The web app is served by
+the gateway and the device client is updated from the apps, but the iOS app is installed on its own,
+so a gateway upgraded past what an installed app can talk to used to fail in ways the phone could not
+explain. `GET /api/health`, `GET /api/config` and `hello` gain `apps` — `apps.ios.minimum_version`
+as `major.minor.patch` and an optional `apps.ios.update_url` — and 8.16 fixes what an older app
+does: a blocking "Update required" screen with the two versions, a button to the URL and Sign out,
+and nothing else. A gateway raises the minimum in the same release that breaks compatibility and
+leaves it alone for an additive change. See 3, 6, 8, 9.1 and 9.3.

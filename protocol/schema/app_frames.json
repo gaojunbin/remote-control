@@ -208,6 +208,9 @@
         "polish": {
           "$ref": "#/$defs/PolishInfo"
         },
+        "apps": {
+          "$ref": "objects.json#/$defs/AppsInfo"
+        },
         "server_time": {
           "$ref": "objects.json#/$defs/Timestamp"
         }

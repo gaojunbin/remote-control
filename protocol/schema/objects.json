@@ -689,6 +689,31 @@
         }
       ]
     },
+    "AppsInfo": {
+      "description": "The oldest build of each separately installed app this gateway still works with (A31). Absent means no requirement.",
+      "type": "object",
+      "properties": {
+        "ios": {
+          "type": "object",
+          "properties": {
+            "minimum_version": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+            },
+            "update_url": {
+              "type": "string",
+              "pattern": "^https://"
+            }
+          },
+          "required": [
+            "minimum_version"
+          ]
+        }
+      },
+      "required": [
+        "ios"
+      ]
+    },
     "PairingToken": {
       "type": "string",
       "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
