@@ -607,8 +607,8 @@ The agent and option arrays are shortened here; the fixture holds the full objec
 | `default_effort` | string \| null | yes | |
 | `speeds` | `LabeledId[]` | no | Speed tiers the agent can run a session at beyond its standard speed, for example Codex's `priority` ("Fast"); empty or absent when it has none (amendment A21) |
 | `capabilities` | string[] | yes | Subset of `worktree`, `takeover`, `interrupt`, `queue`, `steer`, `attachments`, `effort`, `history`, `commands`. `commands` means the agent's sessions can list and run slash commands from an app through `session.commands` and `session.command` (A27); Codex, Grok Build and pi carry it, Claude does not |
-| `attach` | `channel` \| `daemon` \| `extension` \| null | no | How this agent's terminal sessions can be attached. `channel` is the Claude channel shim, `daemon` the Codex shared app-server, `extension` an extension of the device's own that the agent loads into every one of its processes (pi, A26). Null or absent means terminal sessions can only be taken over or resumed. |
-| `attach_ready` | boolean | no | Whether the device is prepared to attach: for Claude the `claude` shim is installed and on `PATH`, for Codex a handshake on the shared daemon socket succeeds, for pi the device's extension is installed in pi's global extension directory at the current build. Apps use it only to word the hint on a `terminal` session. |
+| `attach` | `channel` \| `daemon` \| `extension` \| `leader` \| null | no | How this agent's terminal sessions can be attached. `channel` is the Claude channel shim, `daemon` the Codex shared app-server, `extension` an extension of the device's own that the agent loads into every one of its processes (pi, A26), `leader` Grok Build's leader process — one shared backend per machine that its TUI joins when `[cli] use_leader` is on and that the device joins as another ACP client (A28). Null or absent means terminal sessions can only be taken over or resumed. |
+| `attach_ready` | boolean | no | Whether the device is prepared to attach: for Claude the `claude` shim is installed and on `PATH`, for Codex a handshake on the shared daemon socket succeeds, for pi the device's extension is installed in pi's global extension directory at the current build, for Grok Build the person's own `~/.grok/config.toml` turns `[cli] use_leader` on and requests no sandbox profile, so the next `grok` started on that machine joins the leader (A28). Apps use it only to word the hint on a `terminal` session. |
 | `shared_interrupt` | boolean | no | Whether the attachment can interrupt a running turn. `session.stop` on a `shared` session needs this **and** capability `interrupt`. False when absent. |
 | `shared_settings` | boolean | no | Whether `session.set` for `model`, `permission_mode`, `effort` and `speed` works on a `shared` session. False when absent. |
 | `shared_attachments` | boolean | no | Whether `session.send` attachments are delivered on a `shared` session. False when absent. |
@@ -630,8 +630,14 @@ is there, and `shared_interrupt`, `shared_settings` and `shared_attachments` all
 shared app-server accepts interrupts, settings updates and image inputs from every attached client.
 pi reports `attach: "extension"` and the same three flags true, because the extension runs inside
 the pi process and can abort its turn, change its model and thinking level, and hand it images
-(A26). `fixtures/objects/agent.claude-attach.json`, `fixtures/objects/agent.codex-daemon.json` and
-`fixtures/objects/agent.pi.json` are the three worked examples.
+(A26). Grok Build reports `attach: "leader"`, `attach_ready` from the person's configuration rather
+than from a handshake — the leader is started on demand by whichever client comes first, the TUI or
+the device, so there is nothing to handshake with before then — with `shared_interrupt` and
+`shared_settings` true, because `session/cancel` and `session/set_config_option` from any client of
+the leader act on the session everyone is in, and `shared_attachments` false, because its prompts
+take no images (A28). `fixtures/objects/agent.claude-attach.json`,
+`fixtures/objects/agent.codex-daemon.json`, `fixtures/objects/agent.pi.json` and
+`fixtures/objects/agent.grok.json` are the four worked examples.
 
 ### 4.3 Permission-mode ids exposed by the device
 
@@ -745,6 +751,38 @@ thread belongs to the application, or the parent thread, that started
 it: the device never publishes it, never mirrors its rollout, and sends `session.removed` for any
 it published before this rule, repeating the frame on the next link as A16 does. The apps need
 nothing for this; a session they never receive is a row they never draw.
+
+#### `origin` and `control` for Grok Build sessions on the leader
+
+Grok Build can run every `grok` on a machine inside one **leader** process, which the TUI joins
+when the person's `~/.grok/config.toml` has `[cli] use_leader = true`, and the device joins the same
+leader as another client of Grok's Agent Client Protocol (amendment A28). A `session/load` on a
+session a TUI has open joins that session rather than opening a second copy; every client then sees
+every update, a prompt from any client runs in the one conversation and is drawn by the TUI, and
+`session/cancel` and `session/set_config_option` from any client act on it for all. The device
+derives `origin` and `control` for a Grok session like this.
+
+| Situation | `origin` | `control` |
+| --- | --- | --- |
+| The device created the session and no terminal has registered it | `remote` | `remote` |
+| Grok's own session registry (`~/.grok/active_sessions.json`, written by every TUI while it runs) names the session with a live process **and** the leader reports it loaded, which is what a TUI inside the leader looks like | `terminal` when the device did not create the session, otherwise unchanged | `shared` |
+| The registry names it with a live process but the leader does not have it loaded: a `grok` started with `use_leader` off, or under a sandbox profile, which runs its own agent | `terminal` | `terminal`, mirrored from the update log as before; `attach_ready` words the hint |
+| No terminal has registered it and the device holds it in the leader | unchanged | `remote` while a turn the device started is running, `none` otherwise |
+| Known only from disk | unchanged | `none`; the next `session.send` loads it through the leader |
+
+The leader says nothing when a TUI exits and offers no way to ask who is attached, so the registry,
+read on the device's ten second scan, is the whole signal, and a session leaves `shared` the way a
+Codex thread does: to `remote` while a device turn runs, to `none` otherwise, resumable in place
+because the leader still holds it. `session/close` unloads a session for **every** client of the
+leader, the terminal included, so the device never sends it for a session a terminal has registered
+and never for one it did not create. `session/load` replays the whole conversation with
+`_meta.isReplay`; the device publishes only the rows whose `eventId` counter is above the one it
+already applied — from the mirror or an earlier attachment — so history is neither doubled nor
+lost. Permission prompts fan out to every client; the device offers the leader's own options except
+the one that switches the session into always-approve mode, which is a permission policy and so a
+`session.set` matter, and an approval another client answered ends as
+`decision: {option_id: "elsewhere", by: "terminal"}` exactly as a Codex one does. Apps need no Grok
+logic: `control` and the five attachment fields of 4.2 say everything.
 
 `fixtures/app/session.updated.json`
 
@@ -2972,6 +3010,16 @@ by `block_id` like any other.
       unloaded, and reports `terminal` for a rollout held by a Codex process that is not the daemon.
 - [ ] Resolves a Codex approval it did not answer with `decision: {option_id: "elsewhere",
       by: "terminal"}`.
+- [ ] Sets `attach_ready` for Grok Build from the person's configuration (`[cli] use_leader` on and
+      no sandbox profile), joins a registered leader-mode terminal session with `session/load` and
+      reports it `shared`, and leaves a session a terminal holds outside the leader as `terminal`
+      (A28).
+- [ ] Derives Grok `origin` and `control` as 4.4 describes, never sends `session/close` for a
+      session a terminal registered or one it did not create, and publishes a replay only above
+      the `eventId` it already applied (A28).
+- [ ] Offers the leader's approval options except the one enabling always-approve mode, and resolves
+      an approval another client answered with `decision: {option_id: "elsewhere", by: "terminal"}`
+      (A28).
 - [ ] Moves a Claude attachment to the session id the CLI's `SessionStart` hook names, and removes
       a terminal-origin session with no events and no transcript with `session.removed` the moment
       its terminal leaves it (A16).
@@ -3016,6 +3064,9 @@ by `block_id` like any other.
       `shared_attachments: true`.
 - [ ] Renders a `decision` of `option_id: "elsewhere"` with `by: "terminal"` as answered in the
       terminal, and never offers `elsewhere` as a button.
+- [ ] Words the hint on a `terminal` session per `attach` kind, `leader` included: with
+      `attach_ready: false`, that the device needs `rc-client grok setup` and Grok restarted; with
+      `attach_ready: true`, that this `grok` was started without the leader (A28).
 - [ ] Renders `user_message.delivery` rather than assuming every message reached the agent.
 - [ ] Stops reconnecting on close code 4401, clears the stored credential and returns to login;
       reconnects with backoff on any code other than 4401 and 4403.
@@ -3304,3 +3355,20 @@ of a fixed table to the app-server method it stands for and reports information 
 block titled with the command. Settings, lifecycle and terminal ergonomics are never commands.
 Claude does not list the capability: a channel carries user text and nothing else. See 4.2, 4.11,
 6.3, 9.2 and 9.3.
+
+**2026-09-14 A28 — Grok Build attaches through its leader process.** A `grok` started in a terminal
+was mirrored from its update log and reported `terminal`, so the apps could only watch it. Grok
+Build has a leader — one backend process per machine that its TUI joins when the person's
+`~/.grok/config.toml` has `[cli] use_leader = true`, started on demand by whichever client comes
+first — and a `session/load` from a second client of that leader joins the session the TUI is in,
+with every update fanned out to every client, prompts from any client run in the one conversation
+and drawn by the TUI, `session/cancel` and `session/set_config_option` acting for all, and
+permission prompts sent to every client. `AgentInfo.attach` gains `leader`; Grok reports it with
+`attach_ready` read from the person's configuration (the flag on and no sandbox profile, since the
+leader refuses sandboxed sessions and exists only once a client has started it), `shared_interrupt`
+and `shared_settings` true and `shared_attachments` false. 4.4 gains the `origin`/`control` table
+for a Grok session on the leader, keyed on Grok's own session registry because the leader reports
+nothing when a TUI exits; `session/close` is never sent for a session a terminal registered, because
+it unloads the session for everyone. `rc-client grok setup` turns the flag on in the person's
+configuration, in place. `fixtures/objects/agent.grok.json` is the worked example. See 4.2, 4.4,
+5.7, 9.2 and 9.3.

@@ -1,7 +1,7 @@
 {
   "agent": "grok",
   "available": true,
-  "version": "1.0.25",
+  "version": "1.0.30",
   "path": "/Users/me/.grok/bin/agent",
   "models": [
     {
@@ -68,9 +68,9 @@
     "history",
     "commands"
   ],
-  "attach": null,
-  "attach_ready": false,
-  "shared_interrupt": false,
-  "shared_settings": false,
+  "attach": "leader",
+  "attach_ready": true,
+  "shared_interrupt": true,
+  "shared_settings": true,
   "shared_attachments": false
 }

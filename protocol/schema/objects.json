@@ -93,11 +93,12 @@
       ]
     },
     "AttachMode": {
-      "description": "How an agent's terminal sessions can be attached, so that control becomes \"shared\" instead of \"terminal\". \"channel\" is the Claude channel shim, \"daemon\" the Codex shared app-server, \"extension\" the device's own extension that pi loads into every session (A26).",
+      "description": "How an agent's terminal sessions can be attached, so that control becomes \"shared\" instead of \"terminal\". \"channel\" is the Claude channel shim, \"daemon\" the Codex shared app-server, \"extension\" the device's own extension that pi loads into every session (A26), \"leader\" Grok Build's leader process that its TUI joins and the device joins as another client (A28).",
       "enum": [
         "channel",
         "daemon",
-        "extension"
+        "extension",
+        "leader"
       ]
     },
     "ErrorCode": {
