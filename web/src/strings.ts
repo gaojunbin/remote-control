@@ -267,6 +267,8 @@ export const en = {
     attachHintChannel: 'Start claude through the Remote Control shim to control it from here',
     attachHintDaemon: 'Run rc-client codex setup on the device to attach its Codex sessions',
     attachHintExtension: 'Run rc-client pi setup on the device to attach its pi sessions',
+    attachHintLeader:
+      'Run rc-client grok setup on the device, then restart Grok to attach its sessions',
     attachHintRestart:
       'This terminal session was started without the attachment; restart it to control it from here',
     queuedRemove: 'Remove from queue',

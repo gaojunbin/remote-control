@@ -259,6 +259,7 @@ export const zhHans: StringTable = {
     attachHintChannel: '通过 Remote Control 垫片启动 claude，才能从这里控制它',
     attachHintDaemon: '在该设备上运行 rc-client codex setup，才能附着它的 Codex 会话',
     attachHintExtension: '在该设备上运行 rc-client pi setup，才能附着它的 pi 会话',
+    attachHintLeader: '在该设备上运行 rc-client grok setup 并重启 Grok，才能附着它的会话',
     attachHintRestart: '这个终端会话启动时没有附着；重启它才能从这里控制',
     queuedRemove: '从队列中移除',
     approvalNeeded: '需要你的批准',

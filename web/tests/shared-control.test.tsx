@@ -27,7 +27,15 @@ import { foldChat, foldSession, type ChatSession } from '../src/stores/chat';
 import { emptyDraft, useAnswers } from '../src/stores/answers';
 import { sessionStateLabel } from '../src/strings';
 import { useSettings } from '../src/stores/settings';
-import { claudeAgent, claudeNoShim, codexAgent, codexNoDaemon } from '../mock/fixtures';
+import {
+  claudeAgent,
+  claudeNoShim,
+  codexAgent,
+  codexNoDaemon,
+  grokAgent,
+  grokNoLeader,
+  sessions,
+} from '../mock/fixtures';
 import { fixtureOrEmpty, fixturesAvailable } from './fixtures';
 import type {
   AgentInfo,
@@ -776,5 +784,86 @@ describe.runIf(fixturesAvailable())('A20 answering a question', () => {
     });
     // Nothing selected anywhere: the draft answers the first question.
     expect(composeAnswer(two, emptyDraft, 'clamp it')).toEqual({ q1: 'clamp it' });
+  });
+});
+
+/**
+ * A28 — Grok Build attaches through its leader, the one backend process a
+ * machine runs when `[cli] use_leader` is on. The app needs no Grok logic:
+ * `control` and the five attachment fields of §4.2 say the whole of it.
+ */
+describe('A28 Grok Build on the leader', () => {
+  const LEADER_HINT =
+    'Run rc-client grok setup on the device, then restart Grok to attach its sessions';
+  const RESTART_HINT =
+    'This terminal session was started without the attachment; restart it to control it from here';
+
+  const mockSession = (id: string): Session => {
+    const found = sessions.find((s) => s.session_id === id);
+    if (!found) throw new Error(`no such mock session ${id}`);
+    return found;
+  };
+
+  const grokShared = mockSession('ses-grok-shared');
+  const grokTerminal = mockSession('ses-grok-no-leader');
+
+  it('reports the leader attachment with images the one flag left false', () => {
+    expect(grokAgent.attach).toBe('leader');
+    expect(grokAgent.attach_ready).toBe(true);
+    expect(grokAgent.shared_interrupt).toBe(true);
+    expect(grokAgent.shared_settings).toBe(true);
+    expect(grokAgent.shared_attachments).toBe(false);
+  });
+
+  it('asks for the setup command while the config has not turned the leader on', () => {
+    expect(grokNoLeader.attach).toBe('leader');
+    expect(attachHint(grokNoLeader)).toBe(LEADER_HINT);
+  });
+
+  it('asks for a restart once the device is ready to attach', () => {
+    expect(attachHint(grokAgent)).toBe(RESTART_HINT);
+  });
+
+  it('words the hint under the terminal bar, with no Take over beside it', () => {
+    render(<Composer {...composerProps(grokTerminal, grokNoLeader)} />);
+    expect(screen.getByText(LEADER_HINT)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Take over' })).not.toBeInTheDocument();
+  });
+
+  it('leaves the composer and both pickers live on a shared Grok session', () => {
+    expect(grokShared.control).toBe('shared');
+    expect(grokShared.origin).toBe('terminal');
+    expect(canSetShared(grokAgent)).toBe(true);
+    render(<Composer {...composerProps(grokShared, grokAgent)} />);
+    expect(screen.getByLabelText('Message the agent…')).toBeEnabled();
+    for (const name of ['Model and effort', 'Permission mode']) {
+      expect(screen.getByRole('button', { name })).toBeEnabled();
+    }
+    expect(screen.queryByText(LEADER_HINT)).not.toBeInTheDocument();
+  });
+
+  it('draws no attachment button, because the leader takes no images', () => {
+    expect(canAttachShared(grokAgent)).toBe(false);
+    render(<Composer {...composerProps(grokShared, grokAgent)} />);
+    expect(screen.queryByRole('button', { name: 'Attach files' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Attach files')).not.toBeInTheDocument();
+  });
+
+  it('shows Stop while the turn the terminal started is running', () => {
+    expect(canInterruptShared(grokAgent)).toBe(true);
+    expect(grokShared.state).toBe('running');
+    render(
+      <MemoryRouter>
+        <ChatHeader
+          session={grokShared}
+          agent={grokAgent}
+          deviceName="mac-studio-office"
+          todos={[]}
+          stopping={false}
+          onStop={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
   });
 });

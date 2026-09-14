@@ -70,10 +70,11 @@ export interface Command {
 /**
  * How a terminal-started session can be attached (amendment A10).
  * `channel` is the Claude channel shim, `daemon` the Codex shared app-server,
- * and `extension` the device's own extension that pi loads into every one of
- * its sessions (A26).
+ * `extension` the device's own extension that pi loads into every one of its
+ * sessions (A26), and `leader` Grok Build's leader process — one shared backend
+ * per machine that its TUI joins and the device joins as another client (A28).
  */
-export type AttachMode = 'channel' | 'daemon' | 'extension';
+export type AttachMode = 'channel' | 'daemon' | 'extension' | 'leader';
 
 export interface AgentInfo {
   agent: AgentId;

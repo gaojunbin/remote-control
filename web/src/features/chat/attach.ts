@@ -6,7 +6,8 @@
  * What else the attachment carries is per agent: the device reports
  * `shared_interrupt`, `shared_settings` and `shared_attachments`, each
  * defaulting to false. The Claude channel carries none of them; the Codex
- * app-server daemon and pi's extension carry all three.
+ * app-server daemon and pi's extension carry all three; Grok Build's leader
+ * carries the interrupt and the settings but takes no images (A28).
  */
 import { strings } from '../../strings';
 import type { AgentInfo, Session } from '../../protocol/types';
@@ -53,6 +54,9 @@ export function attachHint(agent: AgentInfo | null): string | null {
     if (agent.attach === 'daemon') return strings.chat.attachHintDaemon;
     // A26: pi's attachment is an extension the device installs into pi itself.
     if (agent.attach === 'extension') return strings.chat.attachHintExtension;
+    // A28: Grok Build joins a leader only when the person's own config says so,
+    // so the hint asks for the setting and for the CLI to be started again.
+    if (agent.attach === 'leader') return strings.chat.attachHintLeader;
     return strings.chat.attachHintChannel;
   }
   return null;

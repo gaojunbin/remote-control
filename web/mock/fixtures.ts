@@ -119,16 +119,16 @@ export const codexNoDaemon: AgentInfo = {
 };
 
 /**
- * A25/A26 — the two agents the apps met last, copied from
- * `protocol/fixtures/objects/agent.grok.json` and `agent.pi.json`. Grok Build
- * leaves an update log on disk, so its terminal sessions are mirrored but
- * cannot be attached; pi's are attached through the extension the device
- * installs into it.
+ * A25/A26/A28 — the two agents the apps met last, copied from
+ * `protocol/fixtures/objects/agent.grok.json` and `agent.pi.json`. Grok Build's
+ * terminal sessions are attached through its leader, the one backend process a
+ * machine runs when `[cli] use_leader` is on; pi's through the extension the
+ * device installs into it.
  */
 export const grokAgent: AgentInfo = {
   agent: 'grok',
   available: true,
-  version: '1.0.25',
+  version: '1.0.30',
   path: '/Users/me/.grok/bin/agent',
   models: [
     { id: 'grok-4.6', label: 'Grok 4.6' },
@@ -153,11 +153,23 @@ export const grokAgent: AgentInfo = {
   default_effort: 'high',
   // A27: Grok Build advertises its whole list over ACP when a session opens.
   capabilities: ['worktree', 'interrupt', 'queue', 'effort', 'history', 'commands'],
-  attach: null,
+  // A28: `[cli] use_leader` is on here, so every `grok` this machine starts
+  // joins the leader the device is a client of. `session/cancel` and
+  // `session/set_config_option` act for everyone in the session; its prompts
+  // take no images, which is the one flag that stays false.
+  attach: 'leader',
+  attach_ready: true,
+  shared_interrupt: true,
+  shared_settings: true,
+  shared_attachments: false,
+};
+
+/** A28: the same agent on a device whose config has not turned the leader on. */
+export const grokNoLeader: AgentInfo = {
+  ...grokAgent,
   attach_ready: false,
   shared_interrupt: false,
   shared_settings: false,
-  shared_attachments: false,
 };
 
 /**
@@ -330,7 +342,9 @@ export const devices: Device[] = [
     last_seen: minutes(2),
     created_at: minutes(60 * 24 * 30),
     latency_ms: 42,
-    agents: [claudeNoShim, codexNoDaemon],
+    // A28: Grok is installed here too, but this machine's config never turned
+    // the leader on, so its terminal sessions are watched rather than attached.
+    agents: [claudeNoShim, codexNoDaemon, grokNoLeader],
   },
 ];
 
@@ -551,8 +565,9 @@ export const sessions: Session[] = [
     git: { branch: 'main', dirty: false, ahead: 0, behind: 1, worktree: false },
   }),
   session({
-    // A25: Grok Build is the one new agent whose terminal sessions are mirrored,
-    // so this row is held by a terminal and reads without writing.
+    // A28: this `grok` was started before the leader flag went on, so it runs
+    // its own agent and the device can only mirror it. The device is ready, so
+    // the hint asks for a restart rather than for the setup command.
     session_id: 'ses-grok-terminal',
     device_id: 'dev-mac',
     title: 'Trim the ACP update log',
@@ -566,6 +581,50 @@ export const sessions: Session[] = [
     control: 'terminal',
     updated_at: minutes(7),
     git: { branch: 'feat/grok-mirror', dirty: true, ahead: 1, behind: 0, worktree: false },
+  }),
+  session({
+    // A28: a `grok` TUI inside the machine's leader, which the device joined
+    // with `session/load`. The leader takes the interrupt and the settings from
+    // any of its clients, so Stop and the pickers are live; its prompts take no
+    // images, so the composer draws no attachment button.
+    session_id: 'ses-grok-shared',
+    device_id: 'dev-mac',
+    title: 'Rework the leader reconnect',
+    cwd: '/Users/me/dev/remote-control/client',
+    agent: 'grok',
+    model: 'grok-4.6',
+    permission_mode: 'auto',
+    effort: 'high',
+    state: 'running',
+    state_detail: 'Typed in the terminal',
+    origin: 'terminal',
+    control: 'shared',
+    turn: { turn_id: 'grok-turn-live', started_at: minutes(1) },
+    usage: {
+      input_tokens: 21_300,
+      output_tokens: 2_450,
+      total_tokens: 23_750,
+      context_used: 26_100,
+      context_window: 256_000,
+    },
+    git: { branch: 'feat/grok-leader', dirty: true, ahead: 3, behind: 0, worktree: false },
+    updated_at: minutes(1),
+  }),
+  session({
+    // A28: the leader was never turned on over here, so this TUI runs its own
+    // agent and the hint asks for `rc-client grok setup`.
+    session_id: 'ses-grok-no-leader',
+    device_id: 'dev-ci',
+    title: 'Profile the wheel build',
+    cwd: '/home/ci/work/infra',
+    agent: 'grok',
+    model: 'grok-4.5',
+    permission_mode: 'default',
+    effort: 'medium',
+    state: 'readonly',
+    origin: 'terminal',
+    control: 'terminal',
+    updated_at: minutes(11),
   }),
   session({
     // A27: a Grok session an app started, so its 75-command list can actually
@@ -664,6 +723,10 @@ export function historyFor(sessionId: string): SessionEvent[] {
       return codexHistory();
     case 'ses-grok-terminal':
       return grokTerminalHistory();
+    case 'ses-grok-shared':
+      return grokSharedHistory();
+    case 'ses-grok-no-leader':
+      return grokNoLeaderHistory();
     case 'ses-pi':
       return piHistory();
     default:
@@ -726,6 +789,87 @@ function grokTerminalHistory(): SessionEvent[] {
       turn_id: 'grok-turn-1',
       stop_reason: 'completed',
       duration_ms: 7_300,
+    },
+  ];
+}
+
+/**
+ * A28: a Grok Build session a TUI holds inside the leader. The prompt was typed
+ * in the terminal, the leader fanned every row out to the device as well, and
+ * the turn is still running, so the chat opens on a live tool row.
+ */
+function grokSharedHistory(): SessionEvent[] {
+  const base = minutes(3);
+  return [
+    {
+      seq: 1,
+      ts: base,
+      kind: 'user_message',
+      block_id: 'gs-u1',
+      source: 'terminal',
+      text: 'reconnect to the leader when the child dies and load every session we held',
+    },
+    {
+      seq: 2,
+      ts: base + 1_600,
+      kind: 'assistant_text',
+      block_id: 'gs-a1',
+      done: true,
+      text: 'Reconnecting re-runs `initialize` and then `session/load` for each held id, so the replay is bounded by the cursor rather than by the whole log.',
+    },
+    { seq: 3, ts: base + 2_000, kind: 'turn_started', turn_id: 'grok-turn-live', trigger: 'terminal' },
+    {
+      seq: 4,
+      ts: base + 2_400,
+      kind: 'user_message',
+      block_id: 'gs-u2',
+      source: 'terminal',
+      text: 'and cover the case where the leader came back on a newer build',
+    },
+    {
+      seq: 5,
+      ts: base + 5_800,
+      kind: 'thinking',
+      block_id: 'gs-th1',
+      done: true,
+      text: '`initialize` answers with the leader\'s own version, so comparing it against the installed binary is enough to spot the drift.',
+      duration_ms: 3_200,
+    },
+    {
+      seq: 6,
+      ts: base + 9_000,
+      kind: 'tool_call',
+      block_id: 'gs-t1',
+      tool: 'run_command',
+      tool_kind: 'shell',
+      title: 'pytest tests/test_grok_leader.py',
+      status: 'running',
+      started_at: base + 8_400,
+      input: { command: 'uv run pytest -q tests/test_grok_leader.py' },
+      output: 'collected 14 items\n',
+    },
+  ];
+}
+
+/** A28: a Grok TUI on a machine whose config never turned the leader on. */
+function grokNoLeaderHistory(): SessionEvent[] {
+  const base = minutes(11);
+  return [
+    {
+      seq: 1,
+      ts: base,
+      kind: 'user_message',
+      block_id: 'gn-u1',
+      source: 'terminal',
+      text: 'where does the wheel build spend its time on this runner?',
+    },
+    {
+      seq: 2,
+      ts: base + 5_200,
+      kind: 'assistant_text',
+      block_id: 'gn-a1',
+      done: true,
+      text: 'Almost all of it is the native extension: 94 s of the 112 s wall time, and none of it is cached between runs.',
     },
   ];
 }
