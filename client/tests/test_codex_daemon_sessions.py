@@ -11,6 +11,7 @@ import pytest
 
 from rc_client.agents.codex import provenance
 from rc_client.agents.codex.daemon import approvals, terminals, threads
+from rc_client.agents.codex.daemon.repair import DaemonRepair, SafetyCheck
 from rc_client.agents.codex.daemon.service import CodexDaemonService, thread_config
 from rc_client.agents.codex.daemon.session import CodexDaemonSession
 from rc_client.errors import RcError
@@ -1420,3 +1421,107 @@ async def test_an_interrupted_turn_says_the_message_was_never_read(harness: Harn
     assert harness.events("turn_completed")[-1]["stop_reason"] == "interrupted"
     notice = harness.events("notice")[-1]
     assert notice["level"] == "warn" and "read" in notice["text"]
+
+
+# ------------------------------------------------------- making the daemon run
+
+
+class RecordingRepair(DaemonRepair):
+    """The repairs, recorded rather than run against a real Codex."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.ensured = 0
+        self.checks: list[bool] = []
+
+    async def ensure_running(self) -> bool:
+        self.ensured += 1
+        return False
+
+    async def check_drift(self, safe: SafetyCheck) -> bool:
+        self.checks.append(await safe())
+        return False
+
+
+async def test_the_scan_starts_the_daemon_before_it_tries_to_connect(
+    tmp_path: Path, socket_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ruling R1: without this nothing on the machine ever runs `daemon start`."""
+    monkeypatch.setenv("RC_CODEX_DAEMON_SOCKET", str(socket_dir / "absent.sock"))
+
+    async def publish(frame: dict[str, Any]) -> None:
+        return None
+
+    registry = Registry(tmp_path / "state.sqlite3")
+    healer = RecordingRepair()
+    try:
+        hub = SessionHub(registry, publish, "dev-1", agents)
+        service = CodexDaemonService(hub, "0.1.0", repair=healer)
+        await service.tick("/bin/codex")
+        assert (healer.ensured, healer.checks, service.ready) == (1, [], False)
+    finally:
+        await service.stop()
+        registry.close()
+
+
+async def test_a_connected_device_looks_for_a_version_drift_on_the_scan(
+    tmp_path: Path, socket_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ruling R3: `codex update` leaves the old app-server running, and says nothing."""
+    socket = socket_dir / "drift.sock"
+    monkeypatch.setenv("RC_CODEX_DAEMON_SOCKET", str(socket))
+
+    async def publish(frame: dict[str, Any]) -> None:
+        return None
+
+    registry = Registry(tmp_path / "state.sqlite3")
+    server = FakeDaemon(socket)
+    await server.start()
+    server.replies["thread/list"] = {"data": []}
+    server.replies["thread/loaded/list"] = {"data": []}
+    healer = RecordingRepair()
+    quiet = FakeTerminals(set())
+    try:
+        hub = SessionHub(registry, publish, "dev-1", agents)
+        service = CodexDaemonService(hub, "0.1.0", scan_terminals=quiet, repair=healer)
+        await service.tick("/bin/codex")
+        assert (service.ready, healer.ensured, healer.checks) == (True, 1, [])
+        await service.tick("/bin/codex")
+        assert healer.checks == [True]
+    finally:
+        await service.stop()
+        await server.stop()
+        registry.close()
+
+
+async def test_a_restart_waits_for_the_terminals_the_daemon_is_serving(
+    harness: Harness,
+) -> None:
+    await started(harness, loaded=[THREAD])
+    # A TUI in the directory is a TUI a restart would take the app-server from.
+    assert await harness.service._restart_safe() is False
+    harness.terminals.cwds = set()
+    await harness.service.refresh_terminals()
+    assert await harness.service._restart_safe() is True
+
+
+async def test_a_restart_waits_for_a_turn_this_device_is_driving(harness: Harness) -> None:
+    await started(harness, loaded=[THREAD])
+    harness.terminals.cwds = set()
+    await harness.service.refresh_terminals()
+    await harness.hub.send({"id": "req-1", "session_id": THREAD, "text": "go"})
+    assert await harness.service._restart_safe() is False
+    await harness.daemon.notify(
+        "turn/completed", {"threadId": THREAD, "turn": {"id": "turn-1", "status": "completed"}}
+    )
+    await settle(lambda: bool(harness.events("turn_completed")))
+    assert await harness.service._restart_safe() is True
+
+
+async def test_a_scan_that_could_not_finish_is_never_permission_to_restart(
+    harness: Harness,
+) -> None:
+    """The terminal scan fails closed: an incomplete answer is not "nobody is there"."""
+    harness.terminals.cwds = set()
+    harness.terminals.complete = False
+    assert await harness.service._restart_safe() is False

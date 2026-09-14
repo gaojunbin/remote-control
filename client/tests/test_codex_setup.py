@@ -8,25 +8,18 @@ from pathlib import Path
 import pytest
 
 from rc_client.agents.codex import runtime
-from rc_client.agents.codex.daemon import setup
+from rc_client.agents.codex.daemon import control, setup
+from rc_client.agents.codex.runtime import CODEX_HOME
+from rc_client.config import client_home
 from rc_client.service import codex as supervision
 
-
-def test_a_present_standalone_is_never_reinstalled() -> None:
-    assert setup.installer_plan(has_standalone=True, local_bin_on_path=False) == (
-        setup.INSTALL_PRESENT
-    )
-    assert setup.installer_plan(has_standalone=True, local_bin_on_path=True) == (
-        setup.INSTALL_PRESENT
-    )
-
-
-def test_the_installer_only_runs_when_its_target_is_already_on_path() -> None:
-    """Codex's installer rewrites a shell profile otherwise, and those are symlinks here."""
-    assert setup.installer_plan(has_standalone=False, local_bin_on_path=True) == setup.INSTALL_RUN
-    assert setup.installer_plan(has_standalone=False, local_bin_on_path=False) == (
-        setup.INSTALL_MANUAL
-    )
+# The real thing, from `codex app-server daemon version` on a healthy machine.
+REAL_VERSION = (
+    '{"status":"running","backend":"pid","managedCodexPath":'
+    '"/Users/u/.codex/packages/standalone/current/bin/codex","managedCodexVersion":"0.154.0",'
+    '"socketPath":"/Users/u/.codex/app-server-control/app-server-control.sock",'
+    '"cliVersion":"0.154.0","appServerVersion":"0.154.0"}'
+)
 
 
 def test_a_codex_on_path_does_not_count_as_a_standalone_install(
@@ -41,7 +34,6 @@ def test_a_codex_on_path_does_not_count_as_a_standalone_install(
     monkeypatch.setenv("PATH", str(npm_bin))
     monkeypatch.setattr(setup, "STANDALONE", tmp_path / "absent/bin/codex")
     assert setup.standalone_binary() is None
-    assert setup.installer_plan(setup.standalone_binary() is not None, True) == setup.INSTALL_RUN
 
 
 def test_the_standalone_binary_is_the_one_the_daemon_commands_use(
@@ -55,12 +47,6 @@ def test_the_standalone_binary_is_the_one_the_daemon_commands_use(
     assert setup.standalone_binary() == str(standalone)
     standalone.chmod(0o644)
     assert setup.standalone_binary() is None
-
-
-def test_the_manual_route_prints_both_commands() -> None:
-    assert len(setup.MANUAL_COMMANDS) == 2
-    assert setup.INSTALL_URL in setup.MANUAL_COMMANDS[0]
-    assert str(setup.LOCAL_BIN) in setup.MANUAL_COMMANDS[1]
 
 
 def test_on_path_compares_resolved_directories(tmp_path: Path) -> None:
@@ -77,70 +63,62 @@ def test_a_download_that_is_not_a_script_is_never_executed() -> None:
     assert setup.looks_like_shell_script("") is False
 
 
-def test_the_status_summary_says_what_to_do_next() -> None:
-    healthy = setup.DaemonStatus("/bin/codex", "/bin/codex", "/s.sock", True, True, "loaded")
-    assert healthy.summary() == "healthy (loaded)"
-    assert healthy.healthy is True
-    stale = setup.DaemonStatus("/bin/codex", "/bin/codex", "/s.sock", True, False, "not installed")
-    assert stale.summary() == "socket present but not answering"
-    missing = setup.DaemonStatus(None, None, "/s.sock", False, False, "not installed")
-    assert missing.summary() == "not bootstrapped"
-    assert len(missing.lines()) == 6
+# ----------------------------------------------------------------- the installer
 
 
-def test_a_codex_on_path_from_another_build_is_warned_about_never_removed() -> None:
-    foreign = setup.DaemonStatus(
-        "/home/u/.codex/packages/standalone/current/bin/codex",
-        "/opt/homebrew/bin/codex",
-        "/s.sock",
-        True,
-        True,
-        "loaded",
-    )
-    assert foreign.foreign_codex == "/opt/homebrew/bin/codex"
-    assert foreign.summary() == "healthy (loaded); warning: foreign codex on PATH"
-    warning = " ".join(foreign.warnings())
-    assert warning.startswith("warning: PATH resolves codex to /opt/homebrew/bin/codex")
-    assert "npm uninstall -g @openai/codex" in warning
-    assert "brew uninstall codex" in warning
-    assert len(foreign.lines()) == 8
+def test_the_installer_writes_its_profile_block_into_a_home_of_ours() -> None:
+    """Ruling R2: the rewrite happens whatever we do, so it happens somewhere harmless."""
+    environment = setup.installer_env()
+    assert environment["HOME"] == str(setup.installer_home())
+    assert Path(environment["HOME"]).is_dir()
+    assert environment["CODEX_NON_INTERACTIVE"] == "1"
+    assert environment["CODEX_HOME"] == str(CODEX_HOME)
+    assert environment["CODEX_INSTALL_DIR"] == str(setup.LOCAL_BIN)
+    assert Path(environment["HOME"]) != Path.home()
 
 
-def test_no_warning_when_path_reaches_the_standalone_build(tmp_path: Path) -> None:
-    """`~/.local/bin/codex` is a symlink into `current`, so only realpath can decide."""
-    standalone = tmp_path / "current/bin/codex"
-    standalone.parent.mkdir(parents=True)
-    standalone.write_text("#!/bin/sh\n", encoding="utf-8")
-    link = tmp_path / "codex"
-    link.symlink_to(standalone)
-    status = setup.DaemonStatus(str(standalone), str(link), "/s.sock", True, True, "loaded")
-    assert status.foreign_codex is None
-    assert status.warnings() == []
-    assert status.summary() == "healthy (loaded)"
-    assert len(status.lines()) == 6
+def test_the_installer_home_is_inside_the_device_home() -> None:
+    assert setup.installer_home().is_relative_to(client_home())
 
 
-def test_a_path_codex_is_foreign_when_no_standalone_is_installed() -> None:
-    status = setup.DaemonStatus(
-        None, "/usr/local/bin/codex", "/s.sock", False, False, "not installed"
-    )
-    assert status.foreign_codex == "/usr/local/bin/codex"
-    assert status.summary() == "not bootstrapped; warning: foreign codex on PATH"
+def test_the_path_hint_is_a_line_we_print_not_a_file_we_write() -> None:
+    assert setup.PATH_HINT.startswith("Codex is not on your PATH")
+    assert f'export PATH="{setup.LOCAL_BIN}:$PATH"' in setup.PATH_HINT
 
 
-async def test_setup_stops_with_instructions_when_it_must_not_touch_a_dotfile(
-    monkeypatch: pytest.MonkeyPatch,
+async def test_setup_installs_codex_even_when_local_bin_is_not_on_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Ruling R2: the PATH gate never prevented the dotfile rewrite, so it only blocked the fix."""
+    standalone = str(tmp_path / "standalone-codex")
+    installed: list[bool] = []
+
+    async def fake_install() -> tuple[bool, str]:
+        installed.append(True)
+        monkeypatch.setattr(setup, "standalone_binary", lambda: standalone)
+        return True, "installed"
+
+    async def fake_bootstrap(binary: str) -> tuple[bool, str]:
+        return True, "bootstrapped"
+
+    async def fake_status() -> setup.DaemonStatus:
+        return setup.DaemonStatus(standalone, standalone, "/s", True, True, "loaded")
+
     monkeypatch.setattr(setup, "standalone_binary", lambda: None)
     monkeypatch.setattr(setup, "on_path", lambda directory, value=None: False)
+    monkeypatch.setattr(setup, "install_codex", fake_install)
+    monkeypatch.setattr(control, "bootstrap", fake_bootstrap)
+    monkeypatch.setattr(setup, "status", fake_status)
+    monkeypatch.setattr(supervision, "install", lambda binary: Path(binary + ".plist"))
+    monkeypatch.setattr(supervision, "post_install_hint", lambda: None)
+
     ok, lines = await setup.setup()
-    assert ok is False
-    assert any(setup.INSTALL_URL in line for line in lines)
+    assert (ok, installed) == (True, [True])
+    assert setup.PATH_HINT in lines
 
 
 async def test_setup_refuses_to_install_when_told_not_to(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(setup, "standalone_binary", lambda: None)
-    monkeypatch.setattr(setup, "on_path", lambda directory, value=None: True)
     ok, lines = await setup.setup(install_missing=False)
     assert ok is False
     assert "--no-install" in lines[0]
@@ -151,14 +129,19 @@ async def test_setup_bootstraps_and_supervises_the_standalone_binary_not_the_one
 ) -> None:
     standalone = str(tmp_path / "standalone-codex")
     used: list[str] = []
+    downloaded: list[bool] = []
 
     async def record_bootstrap(binary: str) -> tuple[bool, str]:
         used.append(binary)
         return True, "bootstrapped"
 
+    async def never_install() -> tuple[bool, str]:
+        downloaded.append(True)
+        return False, "should not run"
+
     monkeypatch.setattr(setup, "standalone_binary", lambda: standalone)
-    monkeypatch.setattr(setup, "on_path", lambda directory, value=None: True)
-    monkeypatch.setattr(setup, "bootstrap", record_bootstrap)
+    monkeypatch.setattr(setup, "install_codex", never_install)
+    monkeypatch.setattr(control, "bootstrap", record_bootstrap)
     monkeypatch.setattr(supervision, "install", lambda binary: Path(binary + ".plist"))
     monkeypatch.setattr(supervision, "post_install_hint", lambda: None)
 
@@ -167,10 +150,99 @@ async def test_setup_bootstraps_and_supervises_the_standalone_binary_not_the_one
 
     monkeypatch.setattr(setup, "status", fake_status)
     ok, lines = await setup.setup()
-    assert ok is True
-    assert used == [standalone]
+    assert (ok, used, downloaded) == (True, [standalone], [])
     assert any(line.startswith(f"Supervision installed at {standalone}") for line in lines)
-    assert any(line.startswith("warning: PATH resolves codex to") for line in lines)
+
+
+# --------------------------------------------------------------------- status
+
+
+def test_the_status_summary_says_what_to_do_next() -> None:
+    healthy = setup.DaemonStatus("/bin/codex", "/bin/codex", "/s.sock", True, True, "loaded")
+    assert healthy.summary() == "healthy (loaded)"
+    assert healthy.healthy is True
+    stale = setup.DaemonStatus("/bin/codex", "/bin/codex", "/s.sock", True, False, "not installed")
+    assert stale.summary() == "socket present but not answering"
+    missing = setup.DaemonStatus(None, None, "/s.sock", False, False, "not installed")
+    assert missing.summary() == "not running"
+    assert len(missing.lines()) == 6
+
+
+def test_a_codex_on_path_from_another_build_is_reported_never_warned_about() -> None:
+    """Ruling R5: an npm TUI joins the shared daemon like any other, so there is nothing to warn."""
+    status = setup.DaemonStatus(
+        "/home/u/.codex/packages/standalone/current/bin/codex",
+        "/opt/homebrew/bin/codex",
+        "/s.sock",
+        True,
+        True,
+        "loaded",
+    )
+    assert status.summary() == "healthy (loaded)"
+    printed = " ".join(status.lines())
+    assert "/opt/homebrew/bin/codex" in printed
+    assert "warning" not in printed
+    assert "uninstall" not in printed
+
+
+def test_status_prints_both_versions_and_says_a_restart_is_pending() -> None:
+    """Ruling R3: `daemon version` is the only place a drift is visible."""
+    drifted = setup.DaemonStatus(
+        "/bin/codex",
+        "/bin/codex",
+        "/s.sock",
+        True,
+        True,
+        "loaded",
+        control.DaemonVersion("running", app_server="0.153.0", managed="0.154.0", cli="0.154.0"),
+    )
+    assert drifted.drifted is True
+    assert drifted.summary() == "healthy (loaded); drifted; restart pending"
+    lines = drifted.lines()
+    assert "app-server version  0.153.0" in lines
+    assert "installed version   0.154.0 (drifted; restart pending)" in lines
+    assert len(lines) == 8
+
+
+def test_matching_versions_are_printed_without_a_drift_note() -> None:
+    current = setup.DaemonStatus(
+        "/bin/codex",
+        "/bin/codex",
+        "/s.sock",
+        True,
+        True,
+        "loaded",
+        control.read_version(REAL_VERSION),
+    )
+    assert current.drifted is False
+    assert current.summary() == "healthy (loaded)"
+    assert "installed version   0.154.0" in current.lines()
+
+
+def test_the_real_daemon_version_output_parses() -> None:
+    found = control.read_version(REAL_VERSION)
+    assert found is not None
+    assert (found.status, found.app_server, found.managed, found.cli) == (
+        "running",
+        "0.154.0",
+        "0.154.0",
+        "0.154.0",
+    )
+    assert (found.running, found.drifted) == (True, False)
+
+
+def test_output_that_is_not_the_daemons_json_is_not_a_version() -> None:
+    assert control.read_version("Error: failed to connect to /tmp/app-server-control.sock") is None
+    assert control.read_version("") is None
+    assert control.read_version("[]") is None
+
+
+def test_a_daemon_that_never_reported_a_version_is_never_drifted() -> None:
+    partial = control.DaemonVersion("running", app_server=None, managed="0.154.0", cli="0.154.0")
+    assert partial.drifted is False
+
+
+# ---------------------------------------------------------------- supervision
 
 
 def test_the_launchd_agent_runs_daemon_start_under_our_own_label() -> None:

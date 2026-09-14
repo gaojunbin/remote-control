@@ -22,12 +22,26 @@ CONNECT_TIMEOUT = 5.0
 MAX_FRAME_BYTES = 32 * 1024 * 1024
 
 
+SOCKET_ENV = "RC_CODEX_DAEMON_SOCKET"
+
+
 def socket_path() -> Path:
     """The control socket, honouring `CODEX_HOME` like the CLI does."""
-    override = os.environ.get("RC_CODEX_DAEMON_SOCKET", "").strip()
+    override = os.environ.get(SOCKET_ENV, "").strip()
     if override:
         return Path(override).expanduser()
     return CODEX_HOME / DAEMON_SOCKET
+
+
+def socket_overridden() -> bool:
+    """Whether the device was pointed at a socket somebody else is responsible for.
+
+    `codex app-server daemon start` only ever creates the socket under
+    `CODEX_HOME`, so a device told to use a different one is a device whose
+    daemon is not ours to start. It is the one case where the device leaves the
+    daemon alone however unhealthy it looks.
+    """
+    return bool(os.environ.get(SOCKET_ENV, "").strip())
 
 
 def socket_exists(path: Path | None = None) -> bool:

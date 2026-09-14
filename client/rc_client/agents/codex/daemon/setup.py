@@ -5,16 +5,19 @@ to bootstrap its shared daemon, and register our own supervision because the
 bootstrap leaves none. The one thing this never does is enable remote control:
 that enrols the machine with OpenAI's relay, which is not what this project is.
 
-"Codex exists" means the standalone build specifically. `daemon bootstrap`
-refuses to run without it whichever build invokes it, so an npm or Homebrew
+"Codex exists" means the standalone build specifically. The daemon commands
+refuse to run without it whichever build invokes it, so an npm or Homebrew
 `codex` earlier on PATH must never be mistaken for one, and is only ever
 reported. Nothing here removes another Codex install.
+
+This is also the only place that downloads anything. The running device repairs
+a daemon that is not up (`daemon/repair.py`), but installing Codex is a thing a
+person asks for.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import shutil
 import stat
@@ -25,35 +28,21 @@ from pathlib import Path
 import httpx
 
 from .... import __version__
-from ....logging_setup import logger
+from ....config import state_dir
 from ....service import codex as supervision
-from ..runtime import STANDALONE
+from ..runtime import CODEX_HOME, STANDALONE
+from . import control
 from .rpc import handshake_ok
 from .transport import socket_exists, socket_path
 
-log = logger("rc_client.codex.setup")
-
-# Where the official installer puts its `codex` symlink, and therefore the
-# directory whose absence from PATH makes it rewrite a shell profile.
+# Where the official installer puts its `codex` symlink.
 LOCAL_BIN = Path(os.environ.get("CODEX_INSTALL_DIR") or (Path.home() / ".local/bin"))
 INSTALL_URL = "https://chatgpt.com/codex/install.sh"
 DOWNLOAD_TIMEOUT = 60.0
-BOOTSTRAP_TIMEOUT = 60.0
 MAX_INSTALLER_BYTES = 1024 * 1024
 
-MANUAL_COMMANDS = (
-    f"curl -fsSL {INSTALL_URL} | sh",
-    f'export PATH="{LOCAL_BIN}:$PATH"',
-)
-
 MISSING = "The standalone Codex install is missing"
-
-# Codex's own installer rewrites the shell profile when its target directory is
-# not already on PATH, replacing a symlinked dotfile with a regular file. The
-# only lever that suppresses that branch is the directory already being there.
-INSTALL_PRESENT = "present"
-INSTALL_RUN = "run"
-INSTALL_MANUAL = "manual"
+PATH_HINT = f'Codex is not on your PATH. Add it with: export PATH="{LOCAL_BIN}:$PATH"'
 
 
 def path_entries(path_value: str | None = None) -> list[str]:
@@ -65,16 +54,19 @@ def on_path(directory: Path, path_value: str | None = None) -> bool:
     return str(directory.expanduser().resolve()) in path_entries(path_value)
 
 
-def installer_plan(has_standalone: bool, local_bin_on_path: bool) -> str:
-    """What to do about a missing standalone Codex, without ever touching a dotfile.
+def installer_home() -> Path:
+    """A throwaway `HOME` to run the official installer under.
 
-    Only the standalone build counts. An npm or Homebrew `codex` earlier on PATH
-    is the same CLI but not the install the daemon manages, and treating it as
-    "present" is what used to skip the installer and fail the bootstrap.
+    That installer rewrites a shell profile whenever another `codex` is on PATH,
+    whatever else is true, and it reads the standalone build itself as an
+    npm-managed one — so on a machine that already has Codex it always rewrites.
+    `HOME` is the only thing that decides which file it writes, and the dotfiles
+    here are symlinks a rewrite would replace with a regular file. Pointing
+    `HOME` at a directory of our own confines the write to a file nobody reads,
+    while `CODEX_HOME` and `CODEX_INSTALL_DIR` keep the install itself exactly
+    where it belongs.
     """
-    if has_standalone:
-        return INSTALL_PRESENT
-    return INSTALL_RUN if local_bin_on_path else INSTALL_MANUAL
+    return state_dir() / "codex-installer-home"
 
 
 def standalone_binary() -> str | None:
@@ -90,6 +82,9 @@ def looks_like_shell_script(text: str) -> bool:
     return first.startswith("#!") and "sh" in first
 
 
+DRIFTED = "drifted; restart pending"
+
+
 @dataclass(slots=True)
 class DaemonStatus:
     """What `rc-client codex status` reports, and `rc-client status` summarises."""
@@ -100,36 +95,29 @@ class DaemonStatus:
     socket_present: bool
     handshake: bool
     supervision: str
+    version: control.DaemonVersion | None = None
 
     @property
     def healthy(self) -> bool:
         return self.handshake
 
     @property
-    def foreign_codex(self) -> str | None:
-        """A `codex` on PATH that is not the build the shared daemon manages.
+    def drifted(self) -> bool:
+        """Whether the daemon is serving an older app-server than the build on disk.
 
-        Compared by realpath, because the standalone install is reached through
-        two symlinks: `~/.local/bin/codex` into `current`, and `current` into the
-        release directory.
+        Terminals join a drifted daemon regardless, so this is a note rather
+        than a fault; the device restarts it when nothing is in it.
         """
-        if self.path_codex is None:
-            return None
-        if self.binary is not None and os.path.realpath(self.path_codex) == os.path.realpath(
-            self.binary
-        ):
-            return None
-        return self.path_codex
+        return self.version is not None and self.version.drifted
 
-    def warnings(self) -> list[str]:
-        foreign = self.foreign_codex
-        if foreign is None:
+    def version_lines(self) -> list[str]:
+        found = self.version
+        if found is None:
             return []
+        installed = found.managed or "unknown"
         return [
-            f"warning: PATH resolves codex to {foreign}, not the standalone build; "
-            "terminal sessions started with it may not join the shared daemon.",
-            "  Remove it (npm uninstall -g @openai/codex, or brew uninstall codex) "
-            f"or put {LOCAL_BIN} first on PATH.",
+            f"app-server version  {found.app_server or 'unknown'}",
+            f"installed version   {installed}{f' ({DRIFTED})' if self.drifted else ''}",
         ]
 
     def lines(self) -> list[str]:
@@ -139,8 +127,8 @@ class DaemonStatus:
             f"daemon socket       {self.socket}",
             f"socket present      {'yes' if self.socket_present else 'no'}",
             f"handshake           {'ok' if self.handshake else 'failed'}",
+            *self.version_lines(),
             f"supervision         {self.supervision}",
-            *self.warnings(),
         ]
 
     def summary(self) -> str:
@@ -149,19 +137,38 @@ class DaemonStatus:
         elif self.socket_present:
             state = "socket present but not answering"
         else:
-            state = "not bootstrapped"
-        return f"{state}; warning: foreign codex on PATH" if self.foreign_codex else state
+            state = "not running"
+        return f"{state}; {DRIFTED}" if self.drifted else state
 
 
 async def status() -> DaemonStatus:
     present = socket_exists()
+    binary = standalone_binary()
     return DaemonStatus(
-        binary=standalone_binary(),
+        binary=binary,
         path_codex=shutil.which("codex"),
         socket=str(socket_path()),
         socket_present=present,
         handshake=await handshake_ok(__version__) if present else False,
         supervision=supervision.status(),
+        version=await control.version(binary) if binary and present else None,
+    )
+
+
+def installer_env() -> dict[str, str]:
+    """The environment the official installer runs under.
+
+    It takes its prompts off, pins both directories it installs into, and sends
+    the shell-profile rewrite it insists on into a home of ours.
+    """
+    home = installer_home()
+    home.mkdir(parents=True, exist_ok=True)
+    return dict(
+        os.environ,
+        CODEX_NON_INTERACTIVE="1",
+        HOME=str(home),
+        CODEX_HOME=str(CODEX_HOME),
+        CODEX_INSTALL_DIR=str(LOCAL_BIN),
     )
 
 
@@ -180,41 +187,16 @@ async def install_codex() -> tuple[bool, str]:
         script = Path(directory) / "codex-install.sh"
         script.write_text(body, encoding="utf-8")
         script.chmod(script.stat().st_mode | stat.S_IXUSR)
-        environment = dict(os.environ, CODEX_NON_INTERACTIVE="1")
         process = await asyncio.create_subprocess_exec(
             "/bin/sh",
             str(script),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-            env=environment,
+            env=installer_env(),
         )
         out, _ = await process.communicate()
     text = out.decode("utf-8", "replace").strip()
     return process.returncode == 0, text[-2000:]
-
-
-async def bootstrap(binary: str) -> tuple[bool, str]:
-    """`codex app-server daemon bootstrap`, never with `--remote-control`."""
-    try:
-        process = await asyncio.create_subprocess_exec(
-            binary,
-            "app-server",
-            "daemon",
-            "bootstrap",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        out, _ = await asyncio.wait_for(process.communicate(), timeout=BOOTSTRAP_TIMEOUT)
-    except (OSError, TimeoutError) as exc:
-        return False, f"could not bootstrap the Codex daemon: {exc}"
-    text = out.decode("utf-8", "replace").strip()
-    if process.returncode != 0:
-        return False, text[-2000:]
-    try:
-        parsed = json.loads(text.splitlines()[-1]) if text else {}
-    except (json.JSONDecodeError, IndexError):
-        parsed = {}
-    return True, str(parsed.get("status") or "bootstrapped")
 
 
 async def setup(install_missing: bool = True) -> tuple[bool, list[str]]:
@@ -225,13 +207,7 @@ async def setup(install_missing: bool = True) -> tuple[bool, list[str]]:
     """
     lines: list[str] = []
     binary = standalone_binary()
-    plan = installer_plan(binary is not None, on_path(LOCAL_BIN))
-    if plan == INSTALL_MANUAL:
-        lines.append(f"{MISSING} and {LOCAL_BIN} is not on your PATH.")
-        lines.append("Run these two commands, then re-run `rc-client codex setup`:")
-        lines.extend(f"  {command}" for command in MANUAL_COMMANDS)
-        return False, lines
-    if plan == INSTALL_RUN:
+    if binary is None:
         if not install_missing:
             lines.append(f"{MISSING}; re-run without --no-install to install it.")
             return False, lines
@@ -241,10 +217,12 @@ async def setup(install_missing: bool = True) -> tuple[bool, list[str]]:
             lines.append(f"  {detail}")
             return False, lines
         binary = standalone_binary()
+        if not on_path(LOCAL_BIN):
+            lines.append(PATH_HINT)
     if binary is None:
         lines.append(f"{MISSING} at {STANDALONE}; the installer did not leave a binary there.")
         return False, lines
-    ok, detail = await bootstrap(binary)
+    ok, detail = await control.bootstrap(binary)
     lines.append(f"Daemon bootstrap: {detail}")
     if not ok:
         return False, lines

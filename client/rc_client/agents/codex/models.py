@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -13,6 +14,8 @@ from .rpc import one_shot
 log = logger("rc_client.codex.models")
 
 CACHE_TTL = 600.0
+# Builds remembered at once: one live, one just replaced, and room to spare.
+MAX_CACHED_BUILDS = 4
 EFFORT_ORDER = ("minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 EFFORT_LABELS = {
     "minimal": "Minimal",
@@ -128,22 +131,36 @@ def parse_catalog(data: list[dict[str, Any]]) -> ModelCatalog:
 
 
 class CatalogCache:
+    """One catalogue per build, because an upgrade is a different catalogue.
+
+    The key is the real path: `packages/standalone/current` is a symlink into a
+    per-version release directory, so an upgraded Codex asks under a name of its
+    own and the stale answer is never handed to it. A machine sees a couple of
+    builds a month, and the entries are small, so the oldest are simply dropped.
+    """
+
     def __init__(self) -> None:
-        self._value: ModelCatalog | None = None
-        self._fetched_at = 0.0
+        self._entries: dict[str, tuple[float, ModelCatalog]] = {}
 
     async def get(self, binary: str) -> ModelCatalog:
-        if self._value is not None and time.monotonic() - self._fetched_at < CACHE_TTL:
-            return self._value
+        key = os.path.realpath(binary)
+        cached = self._entries.get(key)
+        if cached is not None and time.monotonic() - cached[0] < CACHE_TTL:
+            return cached[1]
         try:
             result = await one_shot(binary, "model/list", {})
             catalog = parse_catalog(list(result.get("data") or []))
         except Exception:
             log.warning("codex model/list failed; keeping the previous catalogue")
-            return self._value or ModelCatalog()
-        self._value = catalog
-        self._fetched_at = time.monotonic()
+            return cached[1] if cached is not None else ModelCatalog()
+        self._entries[key] = (time.monotonic(), catalog)
+        self._prune()
         return catalog
+
+    def _prune(self) -> None:
+        while len(self._entries) > MAX_CACHED_BUILDS:
+            oldest = min(self._entries, key=lambda key: self._entries[key][0])
+            del self._entries[oldest]
 
 
 catalog_cache = CatalogCache()

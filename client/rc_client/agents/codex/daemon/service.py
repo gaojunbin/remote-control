@@ -22,6 +22,7 @@ from ....models import Session
 from ....sessions import titles
 from ..models import ModelCatalog, catalog_cache
 from . import approvals, terminals, threads
+from .repair import DaemonRepair
 from .rpc import DaemonClient
 from .session import CodexDaemonSession
 from .transport import socket_exists
@@ -71,11 +72,13 @@ class CodexDaemonService:
         version: str,
         on_mode_change: ModeCallback | None = None,
         scan_terminals: TerminalScanner | None = None,
+        repair: DaemonRepair | None = None,
     ) -> None:
         self.hub = hub
         self._version = version
         self._on_mode_change = on_mode_change
         self._scan_terminals = scan_terminals or terminals.scan_terminals
+        self._repair = repair or DaemonRepair()
         self._client: DaemonClient | None = None
         self._known: set[str] = set()
         # Threads the daemon says are loaded. A brand-new one is loaded before
@@ -145,20 +148,40 @@ class CodexDaemonService:
             await client.close()
 
     async def tick(self, binary: str | None) -> None:
-        """Keep the mode and the thread index current, on the mirror's scan interval.
+        """Keep the daemon, the mode and the thread index current, on the scan interval.
 
-        A daemon bootstrapped after the device started switches the mode without
+        A daemon started here after the device started switches the mode without
         a restart; sessions already discovered on the fallback path keep the
         runner they have until they are next resumed.
         """
         if self.ready:
             await self.refresh()
+            await self._repair.check_drift(self._restart_safe)
             return
         if self._client is not None:
             # The client is reconnecting on its own backoff.
             return
+        # Nothing else on this machine ever starts the shared daemon, and
+        # without one every terminal Codex is takeover-only.
+        await self._repair.ensure_running()
         if await self.start(binary) and self._on_mode_change is not None:
             await self._on_mode_change()
+
+    async def _restart_safe(self) -> bool:
+        """Whether restarting the daemon right now would interrupt somebody.
+
+        A restart drops every subscriber, so it waits for two things: a turn
+        this device is driving, and any TUI the daemon is serving. The scan
+        counts the TUIs that hold no rollout of their own, which are exactly the
+        ones a restart would take the app-server away from; it fails closed, and
+        an incomplete answer is not permission.
+        """
+        for entry in list(self.hub.entries.values()):
+            runner = entry.runner
+            if isinstance(runner, CodexDaemonSession) and (runner.busy or runner.terminal_holds):
+                return False
+        scan = await self._scan_terminals()
+        return scan.complete and not scan.cwds
 
     # -------------------------------------------------------------- indexing
 
