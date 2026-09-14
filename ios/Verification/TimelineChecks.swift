@@ -119,6 +119,18 @@ enum TimelineChecks {
                                                    capabilities: [.takeover], attach: .daemon))
         checks.equal(daemonMissing.attachHint, .startDaemon, "and Codex names its daemon")
 
+        // Amendment A28: a Grok whose machine leaves the leader off, and the
+        // same agent on a machine that is ready, where the running process is
+        // what was started outside it.
+        let leaderOff = store(state: .readonly, control: .terminal,
+                              agent: DemoFixtures.grokWithoutLeader)
+        checks.equal(leaderOff.attachHint, .enableLeader,
+                     "a Grok device that is not in the leader says how to put it there")
+
+        let leaderReady = store(state: .readonly, control: .terminal, agent: DemoFixtures.grok)
+        checks.equal(leaderReady.attachHint, .restartSession,
+                     "and a prepared one blames this `grok` instead")
+
         let noAttach = store(state: .readonly, control: .terminal,
                              agent: AgentInfo(agent: "claude", available: true, capabilities: [.takeover]))
         checks.expect(noAttach.attachHint == nil, "an agent that cannot be attached says nothing")

@@ -296,7 +296,7 @@ func run() async -> (passed: Int, failures: [String]) {
     let sessions = SessionStore(defaults: UserDefaults(suiteName: "rc-ui-verify-\(UUID().uuidString)")!)
     let groups = sessions.groups(helloSessions, devices: model.connection.devices)
     equal(groups.count, 3, "the list is grouped by device")
-    equal(groups.flatMap { $0.active + $0.archive }.count, 11, "every demo session is placed")
+    equal(groups.flatMap { $0.active + $0.archive }.count, 12, "every demo session is placed")
     equal(groups.first?.active.first?.state, .needsApproval,
           "a session waiting on the user sorts first")
     equal(groups.first?.name, "mac-studio-office", "the machine with live work leads the list")
@@ -365,8 +365,44 @@ func run() async -> (passed: Int, failures: [String]) {
         await chat.loadCommands()
         chat.draft = "/hooks"
         expect(chat.commandDraft == nil, "a terminal-held session opens no command panel")
+        // Amendment A28: this machine leaves `[cli] use_leader` off, which is
+        // the only way a Grok session is still terminal-held, so the hint names
+        // the command that would put its terminals in the leader.
+        equal(chat.agent?.attach, AgentAttach.leader, "Grok Build attaches through its leader")
+        expect(chat.agent?.attachReady == false, "which this machine is not configured for")
+        equal(chat.attachHint, ChatStore.AttachHint.enableLeader,
+              "so the line under the status says how to configure it")
     } else {
         expect(false, "the demo carries a Grok session a terminal holds")
+    }
+
+    // MARK: - Amendment A28: a Grok session shared through the leader
+    //
+    // The device is another client of the same process, so the turn the TUI set
+    // off is stoppable here and the pickers are live — and the attachment
+    // button is gone, because a Grok prompt carries no images.
+
+    if let shared = model.connection.sessions.first(where: {
+        $0.sessionID == DemoFixtures.grokSharedSessionID
+    }) {
+        await model.open(shared)
+        await settle { model.chat?.key == shared.id }
+        if let chat = model.chat {
+            expect(chat.isAttached, "a Grok session on the leader is attached, not watched")
+            expect(!chat.isReadOnly, "so the composer takes what is typed into it")
+            equal(chat.session.origin, EventSource.terminal, "though the terminal started it")
+            expect(chat.canStop, "shared_interrupt and the capability together offer Stop")
+            expect(chat.allowsSettingsChanges, "shared_settings keeps the model card live")
+            expect(!chat.allowsAttachments, "and shared_attachments is false, so there is no `+`")
+            expect(chat.attachHint == nil, "an attached session explains nothing; it works")
+            equal(ModelCardText.words(for: chat.session, agent: chat.agent), "Grok 4.6 High",
+                  "and the card reads the model and the effort the leader loaded")
+        } else {
+            expect(false, "the shared Grok session opens")
+        }
+        await model.closeChat()
+    } else {
+        expect(false, "the demo carries a Grok session shared through the leader")
     }
 
     // MARK: - Amendment A27: the terminal's `/` menu, opened from the composer

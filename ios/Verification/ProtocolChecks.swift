@@ -16,6 +16,7 @@ enum ProtocolChecks {
         objects(checks: checks)
         sharedControl(checks: checks)
         codexDaemon(checks: checks)
+        grokLeader(checks: checks)
         events(checks: checks)
         commands(checks: checks)
         frames(checks: checks)
@@ -323,6 +324,34 @@ enum ProtocolChecks {
             status: .resolved, decision: ApprovalDecision(optionID: "allow_next_week", by: .terminal))
         checks.equal(unknown.resolvedOptionLabel, "allow_next_week",
                      "an unrecognised option id renders verbatim")
+    }
+
+    /// Amendment A28: Grok Build through the leader its terminals join. The
+    /// leader relays an interrupt and the session settings to every client of
+    /// it, and its prompts take no images, so one of the five fields is false.
+    private static func grokLeader(checks: CheckRunner) {
+        guard let json = FixtureSource.json("objects/agent.grok.json"),
+              let agent = try? json.decode(AgentInfo.self) else {
+            checks.expect(false, "objects/agent.grok.json decodes as an agent")
+            return
+        }
+        checks.equal(agent.attach, .leader, "Grok Build attaches through its leader")
+        checks.equal(AgentAttach(rawValue: "leader"), .leader, "which the app reads by that name")
+        checks.expect(agent.attachReady,
+                      "the device reports the person's configuration, not a handshake")
+        checks.expect(agent.sharedInterrupt, "session/cancel from any client stops the turn")
+        checks.expect(agent.sharedSettings, "and set_config_option retunes it for everyone")
+        checks.expect(!agent.sharedAttachments, "while a Grok prompt carries no images")
+        checks.expect(!agent.supports(.takeover), "there is nothing to take over from")
+        checks.noThrow("the attachment fields survive a re-encode") {
+            let encoded = try JSONValue.encode(agent)
+            guard encoded["attach"]?.stringValue == "leader",
+                  encoded["shared_interrupt"]?.boolValue == true,
+                  encoded["shared_settings"]?.boolValue == true,
+                  encoded["shared_attachments"]?.boolValue == false else {
+                throw ProtocolFailure.malformed("the leader fields changed")
+            }
+        }
     }
 
     private static func events(checks: CheckRunner) {

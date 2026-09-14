@@ -3435,6 +3435,23 @@
         }
       }
     },
+    "Run rc-client grok setup on the device, then restart Grok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run rc-client grok setup on the device, then restart Grok"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在该设备上运行 rc-client grok setup 并重启 Grok"
+          }
+        }
+      }
+    },
     "Save": {
       "extractionState": "manual",
       "localizations": {

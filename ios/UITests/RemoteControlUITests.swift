@@ -923,10 +923,17 @@ final class RemoteControlUITests: XCTestCase {
     /// terminal started is mirrored here — readable, not writable. Its summary
     /// carries the model and the level but never a permission mode, so one chip
     /// stands where two would (A17).
+    ///
+    /// Amendment A28: it is mirrored at all only because this machine leaves
+    /// `[cli] use_leader` off. The hint under the status line says so, and names
+    /// the command that would put its terminals in the leader.
     func testGrokTerminalSessionShowsWhatItsLogKnows() {
         app.launch()
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
+        // It runs on the second machine, under four agents' worth of rows on
+        // the first one, so the list is scrolled to it.
         let row = app.buttons["session.demo-session-migrations"]
-        XCTAssertTrue(row.waitForExistence(timeout: 20), "the Grok demo session is listed")
+        XCTAssertTrue(scrollDown(to: row), "the Grok demo session is listed")
         row.tap()
 
         let card = app.descendants(matching: .any)["composer.readonly.modelCard"]
@@ -945,6 +952,55 @@ final class RemoteControlUITests: XCTestCase {
             .containing(NSPredicate(format: "label CONTAINS[c] %@", "take over")).firstMatch.exists,
                        "and nothing on the screen invites a tap that would be refused")
         attach(name: "88-grok-terminal-composer")
+
+        // Amendment A28: the hint is the only place the leader is named, and it
+        // names the command rather than explaining the mechanism.
+        let hint = app.descendants(matching: .any)["chat.attachHint"]
+        XCTAssertTrue(hint.waitForExistence(timeout: 15),
+                      "the session says what would make it controllable")
+        XCTAssertTrue(app.staticTexts["Run rc-client grok setup on the device, then restart Grok"]
+            .exists, "which is the setup command and a restart, in one line")
+        attach(name: "89-grok-leader-hint")
+    }
+
+    /// Amendment A28: the same agent on a machine that is in the leader. The
+    /// device joined the session the TUI is in, so the turn the terminal set
+    /// off is stoppable here and the pickers are live — and the attachment
+    /// button is gone, because a Grok prompt carries no images.
+    func testSharedGrokSessionStopsAndRetunesButTakesNoAttachments() {
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
+        let row = app.buttons["session.demo-session-retries"]
+        XCTAssertTrue(scrollDown(to: row), "the Grok session on the leader is listed")
+        row.tap()
+
+        let composer = app.textViews["composer.prompt"].firstMatch
+        let composerField = composer.exists ? composer : app.textFields["composer.prompt"].firstMatch
+        XCTAssertTrue(composerField.waitForExistence(timeout: 15),
+                      "the composer takes what is typed into a session the leader shares")
+
+        XCTAssertTrue(app.buttons["chat.stop"].exists,
+                      "shared_interrupt and the capability together offer Stop")
+        XCTAssertTrue(app.buttons["composer.modelCard"].exists,
+                      "shared_settings keeps the model card a control")
+        XCTAssertTrue(app.buttons["composer.permissions"].exists, "and the permission chip with it")
+        XCTAssertFalse(app.descendants(matching: .any)["composer.readonly.modelCard"].exists,
+                       "so nothing is shown where a control stands (A17)")
+        XCTAssertFalse(app.buttons["composer.attach"].exists,
+                       "while shared_attachments is false, so there is no attach button")
+        XCTAssertFalse(app.descendants(matching: .any)["chat.attachHint"].exists,
+                       "an attached session explains nothing; it works")
+        attach(name: "90-grok-shared-composer")
+
+        // The card behind the chip is the agent's own: its models, its four
+        // effort levels, and no speed tier, because Grok Build lists none.
+        app.buttons["composer.modelCard"].tap()
+        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 10),
+                      "the card opens on a session the leader shares")
+        XCTAssertTrue(app.descendants(matching: .any)["composer.effort"].firstMatch.exists,
+                      "with the effort the leader would set for every client")
+        XCTAssertFalse(app.buttons["composer.speed"].exists, "and no tier this agent never named")
+        attach(name: "91-grok-shared-model")
     }
 
     private func scrollDown(to element: XCUIElement, swipes: Int = 6) -> Bool {

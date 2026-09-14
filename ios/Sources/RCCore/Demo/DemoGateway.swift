@@ -601,12 +601,14 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// supports. A channel can only hand keystrokes to a CLI, so it holds the
     /// message and injects it (amendment A10). A daemon is a real client of the
     /// agent's own server, so it starts, steers or interrupts the thread the
-    /// terminal is on (amendment A11). Only the device branches on this; the
-    /// apps read the acceptance and the agent's capabilities.
+    /// terminal is on (amendment A11), and Grok Build's leader is such a client
+    /// too: the prompt runs in the conversation the TUI is in (amendment A28).
+    /// Only the device branches on this; the apps read the acceptance and the
+    /// agent's capabilities.
     private func sendShared(session: Session, requestID: String, text: String,
                             mode: SendMode) throws -> JSONValue {
         let agent = agent(for: session)
-        guard agent?.attach == .daemon else {
+        guard agent?.attach == .daemon || agent?.attach == .leader else {
             return try inject(sessionID: session.sessionID, requestID: requestID, text: text)
         }
         let id = session.sessionID

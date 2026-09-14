@@ -39,13 +39,19 @@ struct AgentsTests {
     func fixturesDecode() throws {
         let grok = try agentFixture("agent.grok.json")
         #expect(grok.agent == "grok")
-        #expect(grok.version == "1.0.25")
+        #expect(grok.version == "1.0.30")
         #expect(grok.models.map(\.id) == ["grok-4.6", "grok-4.5"])
         #expect(grok.permissionModes.map(\.id)
                 == ["default", "acceptEdits", "auto", "dontAsk", "plan", "bypassPermissions"])
         #expect(grok.efforts.map(\.id) == ["low", "medium", "high", "xhigh"])
         #expect(grok.supports(.effort))
-        #expect(grok.attach == nil)
+        // Amendment A28: Grok Build attaches through the leader its terminals
+        // join. The leader relays an interrupt and the session settings to
+        // every client of it; a Grok prompt carries no images.
+        #expect(grok.attach == .leader)
+        #expect(grok.attachReady)
+        #expect(grok.sharedInterrupt && grok.sharedSettings)
+        #expect(!grok.sharedAttachments)
 
         // Amendment A26: pi's three permission modes are the device's own, and
         // the extension that enforces them attaches its terminal sessions too.
@@ -79,6 +85,12 @@ struct AgentsTests {
             #expect(demo.supports(.commands))
             #expect(demo.attach == fixture.attach)
             #expect(demo.attachReady == fixture.attachReady)
+            // Amendment A28: what an attachment relays is half the contract,
+            // and the demo has to report the same three answers or the composer
+            // would offer a control the real device refuses.
+            #expect(demo.sharedInterrupt == fixture.sharedInterrupt)
+            #expect(demo.sharedSettings == fixture.sharedSettings)
+            #expect(demo.sharedAttachments == fixture.sharedAttachments)
         }
     }
 
@@ -108,6 +120,27 @@ struct AgentsTests {
         let pi = try #require(sessions.first { $0.sessionID == DemoFixtures.piSessionID })
         #expect(pi.agent == "pi")
         #expect(pi.permissionMode == "on-request")
+    }
+
+    /// Amendment A28: the terminal-held Grok session lives on the machine that
+    /// leaves `[cli] use_leader` off, because that is the only way a Grok
+    /// session is still terminal-held — everywhere else it is shared.
+    @Test("A Grok terminal is watched only where the leader is off, and shared where it is on")
+    func grokSessionsFollowTheLeader() throws {
+        let sessions = DemoFixtures.sessions
+        let devices = DemoFixtures.devices
+        let watched = try #require(sessions.first { $0.sessionID == DemoFixtures.grokSessionID })
+        let laptop = try #require(devices.first { $0.deviceID == watched.deviceID })
+        #expect(laptop.agent("grok")?.attach == .leader)
+        #expect(laptop.agent("grok")?.attachReady == false)
+
+        let shared = try #require(sessions.first { $0.sessionID == DemoFixtures.grokSharedSessionID })
+        #expect(shared.agent == "grok")
+        #expect(shared.control == .shared)
+        #expect(shared.origin == .terminal)
+        #expect(shared.state == .running)
+        let mac = try #require(devices.first { $0.deviceID == shared.deviceID })
+        #expect(mac.agent("grok")?.attachReady == true)
     }
 
     @Test("And no session of an agent the protocol withdrew")

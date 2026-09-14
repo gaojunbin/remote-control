@@ -86,6 +86,9 @@ public struct AgentAttach: WireEnum {
     /// Amendment A26: the device's own extension, which pi loads into every
     /// session it runs, terminal sessions included.
     public static let `extension` = AgentAttach(rawValue: "extension")
+    /// Amendment A28: Grok Build's leader, one backend process per machine that
+    /// its TUI joins and the device joins as another client of the same server.
+    public static let leader = AgentAttach(rawValue: "leader")
 }
 
 /// Amendment A10: what became of a message sent into a `shared` session.

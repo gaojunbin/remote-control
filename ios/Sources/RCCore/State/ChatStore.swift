@@ -254,6 +254,9 @@ public final class ChatStore {
         case startDaemon
         /// Amendment A26: pi's extension is not installed on the device.
         case installExtension
+        /// Amendment A28: Grok Build's configuration on the device does not put
+        /// its terminals in the leader, so there is nothing to join.
+        case enableLeader
         /// The device is prepared, but this CLI was started without it.
         case restartSession
     }
@@ -264,6 +267,7 @@ public final class ChatStore {
         switch attach {
         case .daemon: return .startDaemon
         case .extension: return .installExtension
+        case .leader: return .enableLeader
         default: return .installShim
         }
     }

@@ -228,6 +228,16 @@ struct SharedControlTests {
         // Amendment A26: pi attaches through the extension the device installs.
         let pi = AgentInfo(agent: "pi", available: true, attach: .extension)
         #expect(store(state: .readonly, control: .terminal, agent: pi).attachHint == .installExtension)
+        // Amendment A28: Grok Build's terminals join the leader only where the
+        // person's own configuration puts them there.
+        let grok = AgentInfo(agent: "grok", available: true, attach: .leader)
+        #expect(store(state: .readonly, control: .terminal, agent: grok).attachHint == .enableLeader)
+        #expect(store(state: .readonly, control: .terminal,
+                      agent: DemoFixtures.grokWithoutLeader).attachHint == .enableLeader)
+        // A prepared machine blames this `grok` instead: it was started outside
+        // the leader, and restarting it is what joins.
+        #expect(store(state: .readonly, control: .terminal,
+                      agent: DemoFixtures.grok).attachHint == .restartSession)
     }
 
     @Test("An agent that cannot be attached says nothing about it")

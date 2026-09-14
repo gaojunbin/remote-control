@@ -28,7 +28,14 @@ public enum DemoFixtures {
     public static let revivedSessionID = "demo-session-changelog"
     /// Amendment A25: a Grok Build session a terminal started, mirrored from
     /// the update log Grok keeps, so the app reads it and cannot write to it.
+    /// Amendment A28: it runs on the machine whose Grok is configured without
+    /// the leader, which is the only way a Grok session is still terminal-held.
     public static let grokSessionID = "demo-session-migrations"
+    /// Amendment A28: a Grok Build session a terminal started inside the
+    /// leader, which the device joined as another client of the same process.
+    /// The leader relays an interrupt and the session settings but takes no
+    /// images, so the composer keeps every control except the attachment.
+    public static let grokSharedSessionID = "demo-session-retries"
     /// Amendment A26: a pi session. pi's permission modes are the device's own,
     /// enforced by the extension it loads, so the composer row carries the
     /// permission chip exactly as Codex's does.
@@ -102,11 +109,14 @@ public enum DemoFixtures {
             attach: .daemon, attachReady: false)
     }
 
-    /// Amendment A25: Grok Build, driven over its ACP JSON-RPC. Exactly what
-    /// `protocol/fixtures/objects/agent.grok.json` advertises.
+    /// Amendment A25: Grok Build, driven over its ACP JSON-RPC. Amendment A28:
+    /// its terminals join one leader process per machine, which the device
+    /// joins too, so `session/cancel` and `session/set_config_option` from here
+    /// act on the session everyone is in — and a prompt carries no images.
+    /// Exactly what `protocol/fixtures/objects/agent.grok.json` advertises.
     public static var grok: AgentInfo {
         AgentInfo(
-            agent: "grok", available: true, version: "1.0.25", path: "/Users/me/.grok/bin/agent",
+            agent: "grok", available: true, version: "1.0.30", path: "/Users/me/.grok/bin/agent",
             models: [AgentOption(id: "grok-4.6", label: "Grok 4.6"),
                      AgentOption(id: "grok-4.5", label: "Grok 4.5")],
             defaultModel: "grok-4.6",
@@ -122,7 +132,22 @@ public enum DemoFixtures {
                       AgentOption(id: "high", label: "High"),
                       AgentOption(id: "xhigh", label: "Extra high")],
             defaultEffort: "high",
-            capabilities: [.worktree, .interrupt, .queue, .effort, .history, .commands])
+            capabilities: [.worktree, .interrupt, .queue, .effort, .history, .commands],
+            attach: .leader, attachReady: true, sharedInterrupt: true, sharedSettings: true)
+    }
+
+    /// Amendment A28: the same agent on a machine whose `~/.grok/config.toml`
+    /// leaves `[cli] use_leader` off, so a `grok` started there runs its own
+    /// backend and nothing can join it. What the leader relays is a property of
+    /// the leader, not of this machine, so only the readiness differs.
+    public static var grokWithoutLeader: AgentInfo {
+        AgentInfo(
+            agent: "grok", available: true, version: grok.version, path: grok.path,
+            models: grok.models, defaultModel: grok.defaultModel,
+            permissionModes: grok.permissionModes, defaultPermissionMode: grok.defaultPermissionMode,
+            efforts: grok.efforts, defaultEffort: grok.defaultEffort,
+            capabilities: grok.capabilities,
+            attach: .leader, attachReady: false, sharedInterrupt: true, sharedSettings: true)
     }
 
     /// Amendment A26: the pi coding agent behind the device's own extension,
@@ -234,7 +259,9 @@ public enum DemoFixtures {
                    hostname: "macbook-air.local", arch: "arm64", clientVersion: "0.1.0",
                    clientBuild: outdatedBuild,
                    online: true, lastSeen: now, createdAt: now - 4_320_000, latencyMS: 41,
-                   agents: [claudeWithoutShim]),
+                   // Amendment A28: the machine that is prepared for neither
+                   // attachment, so both hints can be read on a real session.
+                   agents: [claudeWithoutShim, grokWithoutLeader]),
             Device(deviceID: ciDeviceID, name: "ci-runner-01", platform: .linux,
                    hostname: "ci-runner-01", arch: "x86_64", clientVersion: "0.1.0",
                    clientBuild: outdatedBuild,
@@ -328,12 +355,28 @@ public enum DemoFixtures {
             // started in a terminal is mirrored and read here. The summary
             // carries the model and the effort but never a permission mode, so
             // the composer shows one chip where three would have stood (A17).
-            Session(sessionID: grokSessionID, deviceID: macDeviceID, agent: "grok",
+            // Amendment A28: this `grok` was started on the machine that leaves
+            // `[cli] use_leader` off, so it runs its own backend and stays
+            // terminal-held however long the app looks at it.
+            Session(sessionID: grokSessionID, deviceID: laptopDeviceID, agent: "grok",
                     title: "Squash the pending migrations", cwd: "/Users/me/dev/remote-control/gateway",
                     git: GitInfo(branch: "migrations", dirty: true),
                     state: .readonly, origin: .terminal, control: .terminal,
                     model: "grok-4.6", effort: "high",
                     createdAt: now - 3_000_000, updatedAt: now - 240_000, lastSeq: 0),
+            // Amendment A28: a Grok session a terminal started inside the
+            // leader. The device joined the same process, so the turn the TUI
+            // set off is stoppable from here and the settings are live; only
+            // the attachment button is gone, because a prompt takes no images.
+            Session(sessionID: grokSharedSessionID, deviceID: macDeviceID, agent: "grok",
+                    title: "Trim the gateway's retry budget",
+                    cwd: "/Users/me/dev/remote-control/gateway",
+                    git: GitInfo(branch: "retries", dirty: true, ahead: 1),
+                    state: .running, stateDetail: "Typed in the terminal",
+                    origin: .terminal, control: .shared,
+                    model: "grok-4.6", permissionMode: "default", effort: "high",
+                    createdAt: now - 720_000, updatedAt: now - 8_000, lastSeq: 0,
+                    turn: TurnMarker(turnID: "demo-turn-grok-shared", startedAt: now - 36_000)),
             // Amendment A26: pi's permission modes are the device's own, so the
             // composer row carries the model card and the permission chip.
             Session(sessionID: piSessionID, deviceID: macDeviceID, agent: "pi",
@@ -578,6 +621,30 @@ public enum DemoFixtures {
         ]
     }
 
+    /// Amendment A28: a turn the terminal set off inside the leader, read by
+    /// the device as another client of the same session. The prompt is the
+    /// terminal's, and the turn is still running, so the app can stop it.
+    public static func grokSharedHistory(base: Int64 = now - 300_000) -> [SessionEvent] {
+        [
+            SessionEvent(seq: 1, ts: base, kind: SessionEvent.userMessageKind, blockID: "u-1",
+                         body: .userMessage(UserMessagePayload(
+                            text: "The gateway retries a failed publish forever. Give it a budget and a ceiling.",
+                            source: .terminal))),
+            SessionEvent(seq: 2, ts: base + 1_200, kind: SessionEvent.thinkingKind, blockID: "t-1",
+                         body: .thinking(StreamTextPayload(
+                            text: "The retry loop has no ceiling, so a device that never answers holds the queue open.",
+                            done: true, durationMS: 9_000))),
+            SessionEvent(seq: 3, ts: base + 2_600, kind: SessionEvent.assistantTextKind, blockID: "a-1",
+                         body: .assistantText(StreamTextPayload(
+                            text: "Five attempts with exponential backoff, capped at a minute. Writing it now.",
+                            done: true))),
+            SessionEvent(seq: 4, ts: base + 3_100, kind: SessionEvent.toolCallKind, blockID: "tool-grok-1",
+                         body: .toolCall(ToolCallPayload(
+                            tool: "Edit", kind: .edit, title: "gateway/publish.py",
+                            status: .running, startedAt: base + 3_100)))
+        ]
+    }
+
     /// Amendment A25: a pi turn. pi reports its usage and its cost at the end
     /// of a turn, and asks for no approvals on the way.
     public static func piHistory(base: Int64 = now - 1_200_000) -> [SessionEvent] {
@@ -642,6 +709,7 @@ public enum DemoFixtures {
         case erroredSessionID: erroredHistory()
         case revivedSessionID: revivedHistory()
         case grokSessionID: grokHistory()
+        case grokSharedSessionID: grokSharedHistory()
         case piSessionID: piHistory()
         default: [
             SessionEvent(seq: 1, ts: now - 3_600_000, kind: SessionEvent.userMessageKind, blockID: "u-1",

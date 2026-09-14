@@ -395,6 +395,8 @@ private struct AttachHintLine: View {
             Text("Run rc-client codex setup on the device to attach its Codex sessions")
         case .installExtension:
             Text("Run rc-client pi setup on the device to attach its pi sessions")
+        case .enableLeader:
+            Text("Run rc-client grok setup on the device, then restart Grok")
         case .restartSession:
             Text("This terminal session was started without the attachment; restart it to control it from here")
         }

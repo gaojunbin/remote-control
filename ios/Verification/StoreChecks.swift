@@ -584,7 +584,7 @@ enum StoreChecks {
         checks.expect(store.hasSnapshot, "the demo hello arrives")
         checks.equal(store.phase, .connected, "the store reports a connected phase")
         checks.equal(store.devices.count, 3, "hello populates the device list")
-        checks.equal(store.sessions.count, 11, "hello populates the session list")
+        checks.equal(store.sessions.count, 12, "hello populates the session list")
         checks.equal(store.inventorySummary, "3 devices · 1 waiting", "the inventory summary counts waiting sessions")
         checks.equal(store.onlineDevices.count, 2, "only the online devices are offered for a new session")
         checks.expect(store.device(DemoFixtures.macDeviceID)?.agent("claude")?.supports(.takeover) == true,
@@ -647,6 +647,7 @@ enum StoreChecks {
 
         await sharedSession(connection: connection, gateway: gateway, checks: checks)
         await codexSharedSession(connection: connection, gateway: gateway, checks: checks)
+        await grokSharedSession(connection: connection, gateway: gateway, checks: checks)
 
         // Approvals send only the option ids the device supplied.
         guard let waiting = connection.sessions.first(where: { $0.state == .needsApproval }) else {
@@ -849,6 +850,52 @@ enum StoreChecks {
         await chat.stop()
         await settle(timeout: 10) { !chat.isRunning }
         checks.expect(!chat.isRunning, "Stop interrupts the turn through the daemon")
+    }
+
+    /// Amendment A28: a Grok session the terminal started inside the leader.
+    /// The device is another client of the same process, so the turn the TUI
+    /// set off is stoppable and its settings are live here — and the attachment
+    /// button is gone, because a Grok prompt carries no images.
+    @MainActor
+    private static func grokSharedSession(connection: ConnectionStore, gateway: DemoGateway,
+                                          checks: CheckRunner) async {
+        guard let session = connection.sessions.first(where: {
+            $0.sessionID == DemoFixtures.grokSharedSessionID
+        }) else {
+            checks.expect(false, "the demo has a Grok session shared through the leader")
+            return
+        }
+        let chat = ChatStore(session: session, channel: gateway)
+        chat.agent = connection.device(session.deviceID)?.agent(session.agent)
+        connection.addFrameHandler("grok-shared") { [weak chat] frame in chat?.receive(frame) }
+        defer { connection.removeFrameHandler("grok-shared") }
+        await chat.open()
+        await settle { chat.timeline.entries.count >= 3 }
+
+        checks.equal(chat.agent?.attach, .leader, "the agent attaches through the leader")
+        checks.expect(chat.isAttached, "the leader shares the session with the terminal")
+        checks.equal(chat.session.origin, .terminal, "which is where it was started")
+        checks.expect(chat.allowsSettingsChanges, "the pickers open because shared_settings is true")
+        checks.expect(!chat.allowsAttachments, "and the attachment button is gone, because it is not")
+        checks.expect(chat.canStop, "session/cancel from here stops the terminal's turn")
+        checks.expect(!chat.canTakeover, "and an attached session never offers a takeover")
+
+        await chat.set(effort: "low")
+        await settle { chat.session.effort == "low" }
+        checks.equal(chat.session.effort, "low", "set_config_option retunes it for every client")
+
+        // The prompt runs in the conversation the TUI is in, so an interrupt
+        // ends that turn and starts the new one rather than holding a message
+        // for a shim to type.
+        chat.draft = "cap it at thirty seconds instead"
+        await chat.send(mode: .interrupt)
+        checks.equal(chat.lastAcceptance, .sent, "a message through the leader is sent, never held")
+        checks.expect(chat.timeline.roots.contains { $0.userMessage?.text.contains("thirty") == true },
+                      "and stands in the transcript the terminal is reading")
+
+        await chat.stop()
+        await settle(timeout: 10) { !chat.isRunning }
+        checks.expect(!chat.isRunning, "Stop interrupts the turn through the leader")
     }
 
     @MainActor
