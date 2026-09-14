@@ -463,8 +463,8 @@ fi
 # session started in a terminal. Only the standalone build can bootstrap it, so
 # `codex setup` installs that build when it is missing, whatever other `codex`
 # happens to be on PATH. It is idempotent and never enables OpenAI remote
-# control. It never removes another Codex install either: a foreign one on PATH
-# is only warned about, in the lines printed below.
+# control. It never removes another Codex install either: an npm or Homebrew
+# TUI joins the shared daemon just as well, it simply cannot start it.
 if [ "$CODEX" -eq 1 ]; then
     step_begin "Setting up the shared Codex daemon"
     if run_step "$RC" codex setup; then
