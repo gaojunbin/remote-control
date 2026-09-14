@@ -193,9 +193,12 @@ session shows two. A session whose agent this build has never met keeps A17's fa
 raw ids, because with no `AgentInfo` at hand there is no list to say the setting does not exist.
 
 The demo device `mac-studio-office` advertises all four agents, copied from
-`protocol/fixtures/objects/agent.grok.json` and `agent.pi.json` to the letter, and the demo list
-carries one session of each new agent: the Grok one terminal-held and mirrored, the pi one the
-app's own.
+`protocol/fixtures/objects/agent.grok.json` and `agent.pi.json` to the letter — so its Grok Build
+reports `attach: "leader"` and is ready (A28) — and the demo list carries one session of each new
+agent: a Grok session a terminal holds inside Grok's leader, which the device has joined
+(`control: "shared"`, a turn running), and the pi one the app's own. `macbook-air` carries a Grok
+Build whose leader mode is off (`attachReady: false`) and the terminal-held, mirrored Grok session
+under it, which is where the leader hint renders.
 
 ## The shell: three tabs, one order, one landing rule
 
@@ -463,6 +466,7 @@ driven by `ChatStore.attachHint`:
 | `attach: "channel"`, `attach_ready: false` | Start claude through the remote-control shim to control it from here |
 | `attach: "daemon"`, `attach_ready: false` | Start the Codex app-server daemon on this device to control it from here |
 | `attach: "extension"`, `attach_ready: false` (A26) | Run rc-client pi setup on the device to attach its pi sessions |
+| `attach: "leader"`, `attach_ready: false` (A28) | Run rc-client grok setup on the device, then restart Grok |
 | `attach_ready: true` | This terminal session was started without the attachment; restart it to control it from here |
 
 Nothing is offered that the device cannot do: `session.takeover` is never shown on a `shared`
