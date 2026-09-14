@@ -76,7 +76,7 @@ against is there in the demo: one demo machine runs an older build and the demo 
 `device.update`, reports the device as updating and brings it back on the new build a few seconds
 later (A22). It also claims one printed pairing token, which is what the scan flow is driven with.
 
-Other launch arguments: `--ui-testing`, `--reset-state`, `--demo-account`, `--registration-open`,
+Other launch arguments: `--ui-testing`, `--reset-state`, `--demo-account`, `--demo-update-required`, `--registration-open`,
 and in debug builds `--voice-preview`, which swaps in a scripted speech platform so a UI test never
 opens the microphone. The listening state, the full-screen glow included, is screenshotted through
 it.
@@ -955,6 +955,46 @@ local alert needs no gateway — and `PushController` no longer registers a devi
 no gateway to hand it to (its status reads "On, in this app only"), so the demo still sends nothing
 anywhere. The switch is off by default: turning it on in Settings and granting the system permission
 is what makes the banners appear.
+
+
+## Dictation polish (A29)
+
+The Voice group of Settings offers the polish switch, the model and the strength only when the
+gateway says it can (`hello.polish.enabled`, also in `GET /api/config`; absent on an older gateway
+means disabled, and the switch is then shown disabled with "This gateway has no polish model
+configured"). `PolishSettings.swift` draws the three controls; the model list comes from
+`GatewayAPI.polishModels()` when the group appears with the switch on; the three values are
+per-account keys of `SettingsStore` (`polishEnabled`, `polishModel`, `polishStrength`). When a
+dictation ends with polish on, the words land in the field at once as before, `ChatStore` enters its
+polish phase — the status line reads "Polishing…" — and `polish(_:)` is sent the dictated span alone
+(`VoiceDraftTarget` already knows where it starts), the model, the strength, the dictation language
+and the open session's last twenty user and assistant text blocks, oldest first, each trimmed to
+4000 characters (`State/DictationPolish.swift`, pure). The answer replaces only that span and
+"Polished · Undo" appears under the field until the next edit or send; a failure leaves the words
+and says "Polishing failed, your words are unchanged"; sending while the request is out sends the
+words as dictated and cancels it. The demo gateway serves two models and a fake polish with a short
+delay, which is what the screenshots and the checks drive; no real provider was called from the app.
+
+## Messages from other agents (A30)
+
+`EventSource` decodes `agent` for `user_message.source` and `turn_started.trigger`. `ChatRows`
+draws such a message in the user bubble's shape but muted, captioned "from another agent" where a
+terminal one says "sent from the terminal" (zh-Hans "来自其他代理"). The status line never switched on
+`trigger`, so an `agent`-triggered turn already reads as a terminal one; the demo's shared Claude
+session carries one such message and turn.
+
+## Update required (A31)
+
+`AppsInfo` is decoded from `GET /api/health`, `GET /api/config` and `hello` alike — the health call
+answers before sign-in, so a too-old app is stopped at the login screen — and `AppVersion` compares
+`CFBundleShortVersionString` (`AppBuild.version`, falling back to "0.1.0" without a bundle, which
+must match `MARKETING_VERSION` in `project.yml`) with `apps.ios.minimum_version` as
+`major.minor.patch`. The first source to say "below" sets `ConnectionStore.updateRequired`, and
+`UpdateRequiredView` then covers everything: "Update required", the app's version and the gateway's
+minimum, "Open TestFlight" / "Open the App Store" when `update_url` is present, and Sign out, which
+clears it. Equal, newer, or a gateway without `apps` changes nothing. `--demo-update-required`
+starts the demo with a minimum above the app's version so the screen can be seen and is what the UI
+test drives.
 
 ## Connection lifecycle
 
