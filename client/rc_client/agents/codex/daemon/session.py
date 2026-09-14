@@ -20,8 +20,10 @@ from ....errors import RcError
 from ....logging_setup import logger
 from ....models import UNSET, Command, SpeedSetting, now_ms
 from ....sessions.channel import SessionChannel
+from .. import commands as slash
 from ..echoes import Echo, EchoLog
 from ..models import ModelCatalog, tier_id
+from ..reports import ThreadFacts
 from ..translate import CodexTranslator, item_type, normalise, text_of
 from .dialogs import DialogDesk
 from .rpc import DaemonClient
@@ -74,6 +76,7 @@ class CodexDaemonSession:
         self._speed = speed
         self._thread_id = thread_id
         self._thread_config = thread_config
+        self._sandbox: dict[str, Any] | None = None
         self._on_turn_end = on_turn_end
         self._on_control_change = on_control_change
         self._on_thread_id = on_thread_id
@@ -256,6 +259,9 @@ class CodexDaemonSession:
         return True
 
     def _adopt_settings(self, result: dict[str, Any]) -> None:
+        sandbox = result.get("sandbox")
+        if isinstance(sandbox, dict):
+            self._sandbox = sandbox
         model = result.get("model")
         if isinstance(model, str) and model:
             self._model = model
@@ -534,14 +540,31 @@ class CodexDaemonSession:
         block_id: str | None = None,
     ) -> None:
         """Publish the message, then start the turn that answers it."""
+        written = materialise(self.channel.session.session_id, attachments) if attachments else []
+        await self._deliver(text, self._inputs(text, written), written, source, block_id)
+
+    async def run_prompt(self, prompt: str, shown: str, block_id: str) -> None:
+        """Start a turn on a prompt the user never typed, such as `/init` (A27).
+
+        The bubble keeps the command; the daemon's own echo of the prompt is
+        recognised by `_deliver` and never becomes a second message.
+        """
+        await self._deliver(shown, [{"type": "text", "text": prompt}], [], "remote", block_id)
+
+    async def _deliver(
+        self,
+        shown: str,
+        inputs: list[dict[str, Any]],
+        written: list[Attachment],
+        source: str,
+        block_id: str | None,
+    ) -> None:
         thread_id = self._thread_id
         if thread_id is None:
             raise RcError("agent_unavailable", "the codex thread is not connected")
-        written = materialise(self.channel.session.session_id, attachments) if attachments else []
-        inputs = self._inputs(text, written)
         fields: dict[str, Any] = {
             "block_id": block_id or f"user:{uuid.uuid4()}",
-            "text": text,
+            "text": shown,
             "source": source,
         }
         if written:
@@ -632,11 +655,28 @@ class CodexDaemonSession:
             await asyncio.wait_for(self._turn_done.wait(), timeout=DRAIN_TIMEOUT)
         return True
 
+    # -------------------------------------------------------------- commands
+
+    def facts(self) -> ThreadFacts:
+        """What `/status` reports, all of it already known to this session."""
+        return ThreadFacts(
+            cwd=self._cwd,
+            model=self._model,
+            effort=self._effort,
+            speed=self._speed,
+            permission_mode=self._permission_mode,
+            sandbox=self._sandbox,
+            usage=dict(self._translator.usage),
+        )
+
+    async def call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        return await self._client.request(method, params)
+
     async def commands(self) -> list[Command]:
-        return []
+        return slash.listing()
 
     async def command(self, name: str, argument: str | None, block_id: str) -> None:
-        raise RcError("not_found", f"/{name} is not a command this session offers")
+        await slash.run(self, name, argument, block_id)
 
     async def apply_settings(
         self,

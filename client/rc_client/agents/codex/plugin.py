@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from ... import __version__
 from ...errors import RcError
-from ...models import AgentInfo, Choice
+from ...models import AgentInfo, Choice, Command, Session
 from ..base import SessionRunner
 from ..registry import DetectContext, RunnerSpec
+from . import commands as slash
 from . import runtime
 from .adapter import CodexRunner
 from .daemon.rpc import handshake_ok
@@ -28,6 +29,7 @@ CAPABILITIES = [
     "worktree",
     "attachments",
     "effort",
+    "commands",
 ]
 
 
@@ -63,6 +65,15 @@ async def detect(context: DetectContext) -> AgentInfo:
         shared_settings=True,
         shared_attachments=True,
     )
+
+
+async def commands(session: Session) -> list[Command]:
+    """The table a session offers before anything is running (A27).
+
+    Codex's list is fixed, so a session with no process answers exactly what a
+    live one does and an app can draw the menu without waking the agent.
+    """
+    return slash.listing()
 
 
 async def build_runner(spec: RunnerSpec) -> SessionRunner:

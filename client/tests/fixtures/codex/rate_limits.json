@@ -1,0 +1,18 @@
+{
+  "accountId": null,
+  "ordinaryUsageAllowed": true,
+  "rateLimits": {
+    "limitId": "codex",
+    "limitName": null,
+    "normalModelSlug": null,
+    "primary": {"usedPercent": 5, "windowDurationMins": 300, "resetsAt": 1789351976},
+    "secondary": {"usedPercent": 12, "windowDurationMins": 10080, "resetsAt": 1789938776},
+    "credits": {"hasCredits": false, "unlimited": false, "balance": "0"},
+    "individualLimit": null,
+    "spendControlReached": false,
+    "planType": "pro",
+    "rateLimitReachedType": null
+  },
+  "rateLimitResetCredits": {"availableCount": 3, "credits": []},
+  "rateLimitsByLimitId": {}
+}

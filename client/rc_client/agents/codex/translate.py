@@ -28,7 +28,13 @@ _TOOL_KIND_BY_ITEM = {
     "imageGeneration": "other",
     "functionCallOutput": "other",
     "sleep": "other",
-    "contextCompaction": "other",
+}
+# Items that are a state change rather than work: a terminal draws a banner for
+# each, so the apps get the one-line `notice` that says the same thing (A27).
+_NOTICES = {
+    "contextCompaction": "Context was compacted; earlier turns are summarised.",
+    "enteredReviewMode": "Review started",
+    "exitedReviewMode": "Review finished",
 }
 _STATUS_MAP = {
     "inProgress": "running",
@@ -133,6 +139,10 @@ class CodexTranslator:
         self.turn_id: str | None = None
         self.usage: dict[str, Any] = {}
         self._mirror_user_messages = mirror_user_messages
+        # A review runs as a turn of its own on this thread, and the brief the
+        # reviewer is given arrives as a `userMessage` item. Nobody typed it, so
+        # it is not a bubble (A27).
+        self._reviewing = False
         self._started_at: dict[str, int] = {}
         self._items: dict[str, dict[str, Any]] = {}
         self._output: dict[str, str] = {}
@@ -264,8 +274,17 @@ class CodexTranslator:
             elif self._output.get(item_id) and not item.get("aggregatedOutput"):
                 item = dict(item, aggregatedOutput=self._output[item_id])
 
+        if kind in _NOTICES:
+            if kind == "enteredReviewMode":
+                self._reviewing = True
+            elif kind == "exitedReviewMode":
+                self._reviewing = False
+            # The item arrives twice, and a `notice` owns no block to replace,
+            # so only the completion of it is published.
+            return [Emit("notice", {"level": "info", "text": _NOTICES[kind]})] if completed else []
+
         if kind == "userMessage":
-            if not self._mirror_user_messages:
+            if not self._mirror_user_messages or self._reviewing:
                 return []
             text = text_of(item.get("content"))
             if not text:
