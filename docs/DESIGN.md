@@ -485,6 +485,19 @@ edit before sending", and it means it — the transcript is a draft you edit and
 ordinary Send button; no utterance is ever sent by the act of stopping the recording. The mic
 disappears entirely when the gateway has no speech backend rather than failing when pressed.
 
+**Done becomes a spinner, and the spinner becomes Send.** The tap on Done is answered at once: the
+capsule gives way to Send's circle holding a spinner, in the same slot at the same height, and
+nothing in it can be tapped. It stays a spinner for as long as the words are still on their way —
+the backend's final transcript, and then, when polish is on, the model's answer — and turns into
+Send the moment the field holds what will be sent: the final transcript when polish is off, the
+polished words when the model answers, the dictated words when it fails. The level meter rests and
+the elapsed time stops at the moment Done was tapped; once the transcript is final the ordinary row
+returns around the spinner. A control that looks live and does nothing is the one thing the row
+must never show: the earlier form, Done still drawn as tappable while the transcript was finishing
+and Send offered while the model was still writing, was exactly that. Typing into the field while
+the spinner is up ends the wait: the person's words win, the request out is dropped, and Send comes
+back.
+
 **Composer layout** on the phone: the text field has a row to itself and grows with its content
 up to eight lines, then scrolls inside; the `+`, mic and Send controls sit on the row below it. Once
 it scrolls, the system scroll indicator runs down its trailing edge while the draft is being
@@ -617,8 +630,10 @@ In the composer the words the recogniser produced land in the field the instant 
 they do today; the status line then reads "Polishing…" while the request runs, and the dictated span
 — never anything that was typed — is replaced when the answer arrives, with a small "Polished ·
 Undo" note under the field until the next edit or send. Nothing is sent by itself: polished text is
-still a draft the person reads before sending. Send while polishing sends the words as dictated and
-drops the request; a failure leaves the words as dictated and says so in one line. When the gateway
+still a draft the person reads before sending. While the request is out Send is not offered: the
+spinner Done turned into stands in its slot (§ "The composer", **Done becomes a spinner**), and an
+edit to the field drops the request and brings Send back; a failure leaves the words as dictated,
+says so in one line, and brings Send back too. When the gateway
 has no polish service the switch is shown disabled with a note saying so, and dictation is untouched.
 The conversation the model sees is what the app already shows — the last few user and assistant
 messages, trimmed — and it goes to the operator's provider only when the switch is on, which the
