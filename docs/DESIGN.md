@@ -496,7 +496,9 @@ returns around the spinner. A control that looks live and does nothing is the on
 must never show: the earlier form, Done still drawn as tappable while the transcript was finishing
 and Send offered while the model was still writing, was exactly that. Typing into the field while
 the spinner is up ends the wait: the person's words win, the request out is dropped, and Send comes
-back.
+back. The rule is the composer's, on both apps. On the web, Enter is Send and waits with it — a
+keystroke that sent while the spinner is up would be the button in another guise — and the "⋯"
+menu beside Send, whose only item is a send, is not drawn while the spinner is.
 
 **Composer layout** on the phone: the text field has a row to itself and grows with its content
 up to eight lines, then scrolls inside; the `+`, mic and Send controls sit on the row below it. Once
