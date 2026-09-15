@@ -36,6 +36,8 @@ ModeCallback = Callable[[], Awaitable[None]]
 TerminalScanner = Callable[[], Awaitable[terminals.TerminalScan]]
 
 HISTORY_LIMIT = 100
+# The app-server method that reports what is left of the account's quota (A33).
+RATE_LIMITS = "account/rateLimits/read"
 THREAD_CONFIG_ENV = "RC_CODEX_THREAD_CONFIG"
 # Threads seen opened but still empty. One per TUI that is started and not
 # typed into, so a handful covers a working day and the oldest may be dropped.
@@ -113,6 +115,10 @@ class CodexDaemonService:
         if client is None:
             raise RcError("agent_unavailable", "the codex daemon is not connected")
         return client
+
+    async def rate_limits(self) -> dict[str, Any]:
+        """The account's rate-limit windows, where `/usage` reads them too (A33)."""
+        return await self.client.request(RATE_LIMITS, {})
 
     def knows(self, thread_id: str) -> bool:
         """Whether this thread is the daemon's, so the rollout mirror leaves it alone."""

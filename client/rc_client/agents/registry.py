@@ -16,7 +16,7 @@ import asyncio
 import importlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from ..errors import RcError
 from ..models import AgentInfo, Command, Session
@@ -33,6 +33,8 @@ AGENT_IDS = ("claude", "codex", "grok", "pi")
 
 TurnEndCallback = Callable[[], Awaitable[None]]
 SessionIdCallback = Callable[[str], Awaitable[None]]
+# Reads `account/rateLimits/read` on the shared Codex daemon (A33).
+RateLimitsReader = Callable[[], Awaitable[dict[str, Any]]]
 
 
 @dataclass(slots=True)
@@ -42,6 +44,13 @@ class DetectContext:
     # Whether the shared Codex app-server answered a handshake (A11). `None`
     # asks the Codex plugin to find out for itself.
     codex_daemon_ready: bool | None = None
+    # Whether this detection answers `device.agents`, the one frame that carries
+    # each account's rate-limit windows read fresh (A33). `hello` and
+    # `agents.updated` never do, so they cost no network call.
+    limits: bool = False
+    # How to ask the shared Codex daemon for its account's windows; absent when
+    # there is no daemon connection to ask.
+    codex_rate_limits: RateLimitsReader | None = None
 
 
 @dataclass(slots=True)

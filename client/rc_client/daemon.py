@@ -85,7 +85,7 @@ class Daemon:
         # has started one yet (A28). Failing to reach it is not fatal: Grok
         # sessions then run on private children and terminal ones are mirrored.
         await self.grok.ensure(resolve_grok())
-        self.agents = await detect_all(DetectContext(codex_daemon_ready=self.codex.ready))
+        self.agents = await detect_all(self._detect_context())
         log.info(
             "device daemon starting",
             device=self.config.device_id,
@@ -157,7 +157,7 @@ class Daemon:
         while True:
             await asyncio.sleep(AGENT_REFRESH_INTERVAL)
             try:
-                agents = await detect_all(DetectContext(codex_daemon_ready=self.codex.ready))
+                agents = await detect_all(self._detect_context())
             except Exception:
                 log.exception("agent re-detection failed")
                 continue
@@ -169,7 +169,7 @@ class Daemon:
 
     async def _codex_mode_changed(self) -> None:
         """The shared daemon appeared: apps learn about it through `agents.updated`."""
-        self.agents = await detect_all(DetectContext(codex_daemon_ready=self.codex.ready))
+        self.agents = await detect_all(self._detect_context())
         await self._publish(
             {"type": "agents.updated", "agents": [info.to_dict() for info in self.agents]}
         )
@@ -233,8 +233,22 @@ class Daemon:
         return await git_info(path)
 
     async def _device_agents(self, params: dict[str, Any]) -> dict[str, Any]:
-        self.agents = await detect_all(DetectContext(codex_daemon_ready=self.codex.ready))
-        return {"agents": [info.to_dict() for info in self.agents]}
+        agents = await detect_all(self._detect_context(limits=True))
+        # This reply is the only frame that carries quota (A33). What the device
+        # stores is what it publishes, so it keeps the accounts without their
+        # windows: otherwise every reply would look like news to the refresh
+        # loop and `agents.updated` would follow each one.
+        self.agents = [info.without_limits() for info in agents]
+        return {"agents": [info.to_dict() for info in agents]}
+
+    def _detect_context(self, limits: bool = False) -> DetectContext:
+        """What detection needs from the daemon, and quota only when asked."""
+        ready = self.codex.ready
+        return DetectContext(
+            codex_daemon_ready=ready,
+            limits=limits,
+            codex_rate_limits=self.codex.rate_limits if limits and ready else None,
+        )
 
     # ----------------------------------------------------------------- update
 

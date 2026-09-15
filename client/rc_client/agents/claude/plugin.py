@@ -6,7 +6,7 @@ from ...channel import shim
 from ...models import AgentInfo, Choice
 from ..base import SessionRunner
 from ..registry import DetectContext, RunnerSpec
-from . import runtime
+from . import account, runtime
 from .adapter import ClaudeRunner
 
 AGENT = "claude"
@@ -49,6 +49,9 @@ DEFAULT_MODEL = "default"
 async def detect(context: DetectContext) -> AgentInfo:
     path = runtime.resolve_binary()
     version = await runtime.probe_version(path) if path else None
+    # An agent that is not here is not signed in anywhere either, and the wire
+    # says "the device did not look" by leaving `accounts` out altogether (A33).
+    accounts = await account.detect(context.limits) if path else None
     return AgentInfo(
         agent=AGENT,
         available=bool(path),
@@ -66,6 +69,7 @@ async def detect(context: DetectContext) -> AgentInfo:
         shared_interrupt=False,
         shared_settings=False,
         shared_attachments=False,
+        accounts=accounts,
     )
 
 

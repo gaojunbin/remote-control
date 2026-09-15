@@ -7,8 +7,8 @@ from ...errors import RcError
 from ...models import AgentInfo, Choice, Command, Session
 from ..base import SessionRunner
 from ..registry import DetectContext, RunnerSpec
+from . import account, runtime
 from . import commands as slash
-from . import runtime
 from .adapter import CodexRunner
 from .daemon.rpc import handshake_ok
 from .daemon.transport import socket_exists
@@ -46,6 +46,7 @@ async def detect(context: DetectContext) -> AgentInfo:
     catalog = await catalog_cache.get(path) if path else None
     known = context.codex_daemon_ready
     ready = await daemon_ready() if known is None else known
+    accounts = await account.detect(context.limits, context.codex_rate_limits) if path else None
     return AgentInfo(
         agent=AGENT,
         available=bool(path),
@@ -64,6 +65,7 @@ async def detect(context: DetectContext) -> AgentInfo:
         shared_interrupt=True,
         shared_settings=True,
         shared_attachments=True,
+        accounts=accounts,
     )
 
 

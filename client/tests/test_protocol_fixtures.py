@@ -11,7 +11,7 @@ import pytest
 
 from rc_client.errors import RcError
 from rc_client.events import HISTORY_KINDS, bound_event, dedup_key, should_store
-from rc_client.models import AgentInfo, Choice, Session
+from rc_client.models import UNSET, AgentAccount, AgentInfo, AgentLimit, Choice, Session
 from rc_client.registry import Registry
 from tests.helpers import FIXTURE_ROOT, event_validator, load_fixture
 
@@ -42,7 +42,34 @@ def fixture_names(subdirectory: str) -> list[str]:
     return sorted(path.name for path in directory.glob("*.json"))
 
 
+def agent_limit_from(payload: dict[str, Any]) -> AgentLimit:
+    return AgentLimit(
+        window_minutes=payload["window_minutes"],
+        used_percent=payload["used_percent"],
+        resets_at=payload.get("resets_at"),
+        scope=payload.get("scope"),
+    )
+
+
+def agent_account_from(payload: dict[str, Any]) -> AgentAccount:
+    limits = payload.get("limits")
+    return AgentAccount(
+        provider=payload["provider"],
+        method=payload["method"],
+        # A plan the fixture leaves out is one the agent records none of, which
+        # `None` cannot say for a nullable field (A33).
+        plan=payload.get("plan", UNSET),
+        tier=payload.get("tier"),
+        email=payload.get("email"),
+        endpoint=payload.get("endpoint"),
+        limits=[agent_limit_from(item) for item in limits] if limits is not None else None,
+        limits_error=payload.get("limits_error"),
+        limits_checked_at=payload.get("limits_checked_at"),
+    )
+
+
 def agent_info_from(payload: dict[str, Any]) -> AgentInfo:
+    accounts = payload.get("accounts")
     return AgentInfo(
         agent=payload["agent"],
         available=payload["available"],
@@ -61,6 +88,7 @@ def agent_info_from(payload: dict[str, Any]) -> AgentInfo:
         shared_interrupt=bool(payload.get("shared_interrupt")),
         shared_settings=bool(payload.get("shared_settings")),
         shared_attachments=bool(payload.get("shared_attachments")),
+        accounts=[agent_account_from(item) for item in accounts] if accounts is not None else None,
     )
 
 
@@ -208,6 +236,29 @@ def test_every_object_fixture_decodes_with_the_device_types(name: str) -> None:
         assert_round_trip(agent_info_from(payload).to_dict(), payload, OPTIONAL_AGENT_FIELDS)
     else:  # pragma: no cover - a new object family needs a decoder here
         pytest.fail(f"no device decoder for objects/{name}")
+
+
+def test_the_account_fixtures_decode_as_a_device_agents_reply_carries_them() -> None:
+    """A33: the four worked examples, each with the sign-in it shows."""
+    accounts = {
+        name: agent_info_from(load_fixture(f"objects/agent.{name}.json")).accounts or []
+        for name in ("claude-attach", "codex-daemon", "grok", "pi")
+    }
+    assert [account.provider for account in accounts["claude-attach"]] == ["anthropic"]
+    claude = accounts["claude-attach"][0]
+    assert claude.method == "account" and claude.tier == "Max 5x"
+    assert [limit.window_minutes for limit in claude.limits or []] == [300, 10080, 10080]
+    assert (claude.limits or [])[2].scope == "Fable"
+    assert accounts["codex-daemon"][0].plan == "pro"
+    # Grok records the account but no plan, and exposes no windows to read.
+    grok = accounts["grok"][0]
+    assert grok.plan is None and grok.limits is None and grok.limits_error is None
+    # pi holds one credential per provider: an account beside a key.
+    assert [(a.provider, a.method) for a in accounts["pi"]] == [
+        ("anthropic", "account"),
+        ("openai", "api_key"),
+    ]
+    assert accounts["pi"][1].endpoint == "api.relay.example"
 
 
 def test_the_shared_session_fixtures_match_what_an_attached_session_reports() -> None:

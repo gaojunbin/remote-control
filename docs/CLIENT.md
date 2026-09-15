@@ -228,6 +228,52 @@ process beyond `--version`.
 An agent that is not installed is reported with `available: false` rather than hidden, so the apps
 can say why a device offers only one agent.
 
+### Accounts and quota (A33)
+
+An agent runs on somebody's credentials, so detection also reports how each installed agent is
+signed in: `AgentInfo.accounts`, one `AgentAccount` per credential the agent holds here, read from
+the agent's own files and never from a running session. An agent that is not installed carries no
+`accounts` key at all — the device did not look — and one that is installed and signed in nowhere
+carries an empty list.
+
+| Agent | Where the credential is read | What an account reports |
+| --- | --- | --- |
+| Claude Code | The login Keychain item `Claude Code-credentials`, read with `security find-generic-password -s "Claude Code-credentials" -w`, else `~/.claude/.credentials.json` where there is no Keychain. The email comes from `oauthAccount.emailAddress` in `~/.claude.json`. A key in `env.ANTHROPIC_API_KEY`, `env.ANTHROPIC_AUTH_TOKEN` or `apiKeyHelper` of `~/.claude/settings.json` and `settings.local.json`, or in the daemon's own environment, wins over an OAuth credential, and `ANTHROPIC_BASE_URL` names the `endpoint` when it is not Anthropic's own host | `provider: "anthropic"`, `plan` from `subscriptionType` (`pro`, `max`, `team`, `enterprise`), `tier` from `rateLimitTier` put into words: a leading `default_claude_` is stripped, underscores become spaces and the first letter is raised, so `default_claude_max_5x` becomes `Max 5x`; any other shape passes through unchanged, and a tier that says no more than the plan is left out |
+| Codex | `~/.codex/auth.json` (honouring `CODEX_HOME`): `auth_mode` `chatgpt` is an account, `apikey` or a bare `OPENAI_API_KEY` a key. The plan and email are claims of the `id_token` beside it, whose payload is base64url-decoded and nothing else — never verified, never refreshed. The `endpoint` comes from the `[model_providers.<name>] base_url` that `model_provider` names in `~/.codex/config.toml`, or from `OPENAI_BASE_URL` | `provider: "openai"`, `plan` from `chatgpt_plan_type` (`pro`, `plus`, `team`, `business`) |
+| Grok Build | `~/.grok/auth.json` (honouring `GROK_HOME`): an entry with `auth_mode: "oidc"` is an account and records its own email; any other entry with a `key` is a key | `provider: "xai"`, no plan |
+| pi | `~/.pi/agent/auth.json`, one account per provider in the file's own order: `type: "oauth"` is an account, `type: "api_key"` a key. `openai-codex` is reported as `openai`; every other provider keeps pi's name | `provider` as pi names it, no plan |
+
+**What the device never does.** It never writes a credential file, never refreshes a token, and
+never logs, prints or puts on the wire a token, a key or a decoded id token. Reading the Keychain
+through `security` is the only Keychain call there is, and it raises no new permission prompt
+because Claude Code writes that item through the same tool. An endpoint is reported as a host and
+never as a URL, because a person's own relay is exactly where a base URL could carry a secret in
+its query string.
+
+**Quota is read on request, not on a timer.** `hello` and `agents.updated` carry accounts without
+`limits`, so re-detecting every quarter hour publishes nothing new; only the reply to
+`device.agents` carries `limits`, `limits_error` and `limits_checked_at`, and the daemon stores that
+reply's agents `without_limits()` so the refresh loop's diff stays quiet. Each check has a five
+second budget:
+
+- **Anthropic** (Claude Code, and a pi `anthropic` OAuth entry): `GET
+  https://api.anthropic.com/api/oauth/usage` with the account's own access token. Its `limits[]`
+  rows become one `AgentLimit` each — `session` a 300-minute window, `weekly_all` and
+  `weekly_scoped` a 10080-minute one, with `scope` the model's display name — and a body without
+  them falls back to `five_hour` and `seven_day`. A token whose `expiresAt` has passed is reported
+  as a `limits_error` and never sent anywhere; only the person can refresh it, by opening the agent.
+- **Codex**: `account/rateLimits/read` on the shared app-server daemon, which is where the `/usage`
+  command reads it too. `primary` and `secondary` become the windows, seconds turned into
+  milliseconds; an account with only a weekly window reports one. No daemon means the one line
+  "Codex shared daemon is not running".
+- **Grok Build**: nothing. The leader protocol of 1.0.30 is `session/*` and has no account or usage
+  method, so `limits` stays absent with no `limits_error`, which is the wire's way of saying the
+  vendor exposes no windows.
+
+Every read is best effort: a missing, unreadable or malformed file is "signed in nowhere", and a
+dead daemon, a failed request or a timeout is one line of `limits_error` against an account that is
+still reported.
+
 `session.set` validates `permission_mode` and `effort` against what the device advertises and
 answers `bad_request` otherwise. `model` stays open, because model ids are the agents' own and a
 cached catalogue can lag a release. `speed` is validated against the catalogue entry for the model

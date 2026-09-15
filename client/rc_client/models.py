@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any, Literal
 
@@ -31,6 +31,13 @@ UNSET = Unset.TOKEN
 
 # A speed tier id, `None` for the agent's standard speed, `UNSET` when unmentioned.
 SpeedSetting = str | None | Unset
+
+# How an agent signs in with a vendor: its own subscription, or a key (A33).
+AccountMethod = Literal["account", "api_key"]
+# The plan word a vendor records: a word, `None` when the vendor records none
+# for an account that could have one, `UNSET` when the agent keeps no plan at
+# all — the key is then absent, which is what "the device cannot say" means.
+PlanSetting = str | None | Unset
 
 
 # The longest title the apps are given for a session (PROTOCOL.md section 8).
@@ -76,6 +83,74 @@ class Command:
 
 
 @dataclass(slots=True)
+class AgentLimit:
+    """One rate-limit window of a vendor account, as the device read it (A33)."""
+
+    window_minutes: int
+    used_percent: float
+    resets_at: int | None = None
+    # What the window is confined to when it is not everything, in the vendor's
+    # words: the model a weekly limit applies to.
+    scope: str | None = None
+
+    def __post_init__(self) -> None:
+        # The wire says 0-100, so a vendor that reports more does not put a
+        # meter past its end; a whole number stays whole.
+        percent = min(100.0, max(0.0, float(self.used_percent)))
+        self.used_percent = int(percent) if percent.is_integer() else percent
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "window_minutes": self.window_minutes,
+            "used_percent": self.used_percent,
+        }
+        if self.scope:
+            result["scope"] = self.scope
+        if self.resets_at is not None:
+            result["resets_at"] = self.resets_at
+        return result
+
+
+@dataclass(slots=True)
+class AgentAccount:
+    """One credential an agent holds on this device (A33).
+
+    `limits`, `limits_error` and `limits_checked_at` belong to a `device.agents`
+    reply and nowhere else: `hello` and `agents.updated` carry accounts as
+    `without_limits` leaves them, so re-detection every quarter hour publishes
+    nothing new.
+    """
+
+    provider: str
+    method: AccountMethod
+    plan: PlanSetting = UNSET
+    tier: str | None = None
+    email: str | None = None
+    endpoint: str | None = None
+    limits: list[AgentLimit] | None = None
+    limits_error: str | None = None
+    limits_checked_at: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {"provider": self.provider, "method": self.method}
+        if not isinstance(self.plan, Unset):
+            result["plan"] = self.plan
+        for key, value in (("tier", self.tier), ("email", self.email), ("endpoint", self.endpoint)):
+            if value:
+                result[key] = value
+        if self.limits is not None:
+            result["limits"] = [limit.to_dict() for limit in self.limits]
+        if self.limits_error:
+            result["limits_error"] = self.limits_error
+        if self.limits_checked_at is not None:
+            result["limits_checked_at"] = self.limits_checked_at
+        return result
+
+    def without_limits(self) -> AgentAccount:
+        return replace(self, limits=None, limits_error=None, limits_checked_at=None)
+
+
+@dataclass(slots=True)
 class AgentInfo:
     agent: str
     available: bool
@@ -95,9 +170,12 @@ class AgentInfo:
     shared_interrupt: bool = False
     shared_settings: bool = False
     shared_attachments: bool = False
+    # How the agent is signed in here; `None` is "the device did not look",
+    # which is what an agent that is not installed reports (A33).
+    accounts: list[AgentAccount] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "agent": self.agent,
             "available": self.available,
             "version": self.version,
@@ -116,6 +194,15 @@ class AgentInfo:
             "shared_settings": self.shared_settings,
             "shared_attachments": self.shared_attachments,
         }
+        if self.accounts is not None:
+            result["accounts"] = [account.to_dict() for account in self.accounts]
+        return result
+
+    def without_limits(self) -> AgentInfo:
+        """The same agent as `hello` and `agents.updated` report it (A33)."""
+        if self.accounts is None:
+            return self
+        return replace(self, accounts=[account.without_limits() for account in self.accounts])
 
 
 @dataclass(slots=True)

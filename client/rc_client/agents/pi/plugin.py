@@ -6,8 +6,8 @@ from ...errors import RcError
 from ...models import AgentInfo, Command, Session
 from ..base import SessionRunner
 from ..registry import DetectContext, RunnerSpec
+from . import account, install, runtime, slash
 from . import catalog as catalogue
-from . import install, runtime, slash
 from .adapter import PiRunner
 
 AGENT = "pi"
@@ -32,6 +32,7 @@ async def detect(context: DetectContext) -> AgentInfo:
     path = runtime.resolve_binary()
     version = await runtime.probe_version(path) if path else None
     catalog = await catalogue.load(path)
+    accounts = await account.detect(context.limits) if path else None
     return AgentInfo(
         agent=AGENT,
         available=bool(path),
@@ -53,6 +54,7 @@ async def detect(context: DetectContext) -> AgentInfo:
         shared_interrupt=True,
         shared_settings=True,
         shared_attachments=True,
+        accounts=accounts,
     )
 
 

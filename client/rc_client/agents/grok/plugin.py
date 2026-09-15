@@ -6,8 +6,8 @@ from ...errors import RcError
 from ...models import AgentInfo, Choice, Command, Session
 from ..base import SessionRunner
 from ..registry import DetectContext, RunnerSpec
+from . import account, leader, runtime
 from . import catalog as catalogue
-from . import leader, runtime
 from .adapter import GrokRunner
 from .commands import recall
 
@@ -37,6 +37,7 @@ async def detect(context: DetectContext) -> AgentInfo:
     path = runtime.resolve_binary()
     version = await runtime.probe_version(path) if path else None
     models = catalogue.load()
+    accounts = await account.detect() if path else None
     return AgentInfo(
         agent=AGENT,
         available=bool(path),
@@ -60,6 +61,7 @@ async def detect(context: DetectContext) -> AgentInfo:
         shared_interrupt=True,
         shared_settings=True,
         shared_attachments=False,
+        accounts=accounts,
     )
 
 
