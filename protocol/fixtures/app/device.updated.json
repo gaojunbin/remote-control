@@ -85,7 +85,7 @@
             "provider": "anthropic",
             "method": "account",
             "plan": "max",
-            "tier": "default_claude_max_5x",
+            "tier": "Max 5x",
             "email": "me@example.com"
           }
         ]

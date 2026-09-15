@@ -710,7 +710,7 @@ session. pi holds one per provider it is signed in to; the other three hold at m
 | `provider` | string | yes | The vendor the credential belongs to, as the agent names it: `anthropic`, `openai`, `xai`, or another id. Apps show a known name and otherwise the id |
 | `method` | `account` \| `api_key` | yes | `account` is the vendor's own subscription account, signed in with OAuth; `api_key` is a key |
 | `plan` | string \| null | no | The plan word the vendor records, lowercase as reported: `pro`, `max`, `team`, `enterprise`, `plus`, `business`, `free`… Null or absent when the agent records none |
-| `tier` | string | no | A finer tier when the vendor exposes one, for example Claude's rate-limit tier `default_claude_max_5x` |
+| `tier` | string | no | A finer tier when the vendor exposes one, in words the device vouches for: `Max 5x` from Claude's rate-limit tier id `default_claude_max_5x`. Omitted when it only repeats `plan` |
 | `email` | string | no | The account's email when the agent records it locally |
 | `endpoint` | string | no | For `api_key`: the host the key is sent to when it is not the vendor's own (`ANTHROPIC_BASE_URL`, a Codex `model_providers` entry). Host only, never a path or a secret |
 | `limits` | `AgentLimit[]` | no | The rate-limit windows the device read for an `account`. Present only in a `device.agents` reply; empty when the vendor reported none. Absent, with no `limits_error`, when the vendor exposes no windows the device can read (Grok Build) |

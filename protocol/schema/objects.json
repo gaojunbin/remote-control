@@ -162,7 +162,7 @@
           ]
         },
         "tier": {
-          "description": "A finer tier when the vendor exposes one, for example Claude's rate-limit tier default_claude_max_5x.",
+          "description": "A finer tier when the vendor exposes one, in words the device vouches for: Max 5x from Claude's rate-limit tier id default_claude_max_5x. Omitted when it only repeats plan.",
           "type": "string"
         },
         "email": {
