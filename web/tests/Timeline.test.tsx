@@ -72,6 +72,17 @@ const toolCall = (seq: number): SessionEvent =>
     ended_at: 2_100,
   }) as SessionEvent;
 
+/** A34: a teammate's report, which Claude Code files as a user turn. */
+const agentMessage = (seq: number): SessionEvent =>
+  ({
+    seq,
+    ts: 3_000 + seq,
+    kind: 'user_message',
+    block_id: `ag${seq}`,
+    source: 'agent',
+    text: `recon-${seq}: reporting back`,
+  }) as SessionEvent;
+
 const stateOf = (...events: SessionEvent[]): TimelineState => events.reduce(applyEvent, emptyTimeline());
 
 function setup(initial: TimelineState) {
@@ -219,6 +230,31 @@ describe('back to latest at Simple', () => {
     arrive(h, start, burst(2, 4));
     expect(document.querySelectorAll('.tool')).toHaveLength(3);
     expect(h.button()).toHaveTextContent('3 new');
+  });
+
+  it('counts nothing for another agent’s words either (A34)', () => {
+    useSettings.setState({ timelineDetail: 'simple' });
+    const start = stateOf(notice(1, 'one'));
+    const h = setup(start);
+    h.scrollTo(300);
+
+    const state = arrive(h, start, [agentMessage(2), agentMessage(3)]);
+    expect(document.querySelectorAll('.agent-message')).toHaveLength(0);
+    expect(h.button()?.textContent).toBe('');
+
+    // What is written to the reader still counts.
+    arrive(h, state, [notice(4, 'two')]);
+    expect(h.button()).toHaveTextContent('1 new');
+  });
+
+  it('counts one per block for them at Detailed', () => {
+    const start = stateOf(notice(1, 'one'));
+    const h = setup(start);
+    h.scrollTo(300);
+
+    arrive(h, start, [agentMessage(2), agentMessage(3)]);
+    expect(document.querySelectorAll('.agent-message')).toHaveLength(2);
+    expect(h.button()).toHaveTextContent('2 new');
   });
 
   it('starts the count again when the level changes', () => {

@@ -347,13 +347,28 @@
 }
 
 /*
- * A30: a message another agent put into the conversation. It keeps the user's
- * bubble so the timeline still reads as a conversation, but says it quietly —
- * nobody typed these words, so they must not carry a person's weight.
+ * A34: a message another agent put into the conversation. Nobody typed these
+ * words, so they are not the person's side of it: the block sits on the left
+ * with the agent's own output, at the full width of the content, on the quiet
+ * surface and in the quiet ink — never in the bubble on the right.
  */
-.user-bubble.from-agent {
+.agent-message {
+  padding: 10px var(--sp-4);
+  border-radius: var(--r-md);
   background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  font-size: var(--fs-14);
+  line-height: 1.55;
   color: var(--ink-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agent-message-origin {
+  display: block;
+  font-size: var(--fs-11);
+  color: var(--ink-tertiary);
+  margin-bottom: 2px;
 }
 
 /* A12: sent from here, not yet echoed back by the device. */

@@ -21,6 +21,7 @@ import { ErrorRow, NoticeRow, TurnEndRow } from './blocks/NoticeRow';
 import { QuestionCard } from './blocks/QuestionCard';
 import { ThinkingRow } from './blocks/ThinkingRow';
 import { ToolRow } from './blocks/ToolRow';
+import { AgentMessageRow } from './blocks/AgentMessageRow';
 import { UserMessageRow } from './blocks/UserMessageRow';
 import { useScrollFollow } from './useScrollFollow';
 
@@ -138,8 +139,13 @@ interface ItemProps {
 const ItemView = memo(function ItemView({ item, handlers, nested }: ItemProps) {
   const event = item.event;
   switch (event.kind) {
-    case 'user_message':
-      return <UserMessageRow event={event as UserMessageEvent} pending={item.pending} />;
+    case 'user_message': {
+      const message = event as UserMessageEvent;
+      // A34: nobody typed these words, so they are drawn with the agent's own
+      // output rather than in the person's bubble.
+      if (message.source === 'agent') return <AgentMessageRow event={message} />;
+      return <UserMessageRow event={message} pending={item.pending} />;
+    }
     case 'assistant_text': {
       const text = (event as AssistantTextEvent).text ?? '';
       return text ? <MarkdownText text={text} /> : null;

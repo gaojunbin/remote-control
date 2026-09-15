@@ -1,17 +1,15 @@
 /**
- * A30: Claude Code files another agent's words as a user turn — a teammate's
- * report, a background task's notification. The row must never let those pass
- * for something the person typed. `docs/DESIGN.md` § "Messages from other
- * agents".
+ * The person's own messages, and only those. A34 moved another agent's words
+ * out of this row entirely — `tests/AgentMessageRow.test.tsx` covers them.
+ * `docs/DESIGN.md` § "The timeline".
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { UserMessageRow } from '../src/features/chat/blocks/UserMessageRow';
 import { useSettings } from '../src/stores/settings';
-import { en, strings } from '../src/strings';
+import { en } from '../src/strings';
 import { zhHans } from '../src/strings.zh-Hans';
 import type { Trigger, UserMessageEvent } from '../src/protocol/types';
-import { fixturesAvailable, readFixture } from './fixtures';
 
 const message = (source: Trigger, text = 'what broke the layout?'): UserMessageEvent => ({
   seq: 9,
@@ -35,42 +33,26 @@ afterEach(() => {
 });
 
 describe('UserMessageRow', () => {
-  it('captions a message another agent put into the conversation and mutes it', () => {
-    render(<UserMessageRow event={message('agent', 'recon-ios: Recon complete.')} />);
-    expect(screen.getByText(en.chat.fromAgent)).toBeInTheDocument();
-    expect(bubble().className).toContain('from-agent');
-    // The text is the reduced report, drawn as it arrived.
-    expect(screen.getByText('recon-ios: Recon complete.')).toBeInTheDocument();
-  });
-
-  it('says where a terminal-typed message was typed, in the same place', () => {
+  it('says where a terminal-typed message was typed', () => {
     render(<UserMessageRow event={message('terminal')} />);
     expect(screen.getByText(en.chat.fromTerminal)).toBeInTheDocument();
-    expect(bubble().className).not.toContain('from-agent');
   });
 
   it('captions nothing for a message an app sent', () => {
     render(<UserMessageRow event={message('remote')} />);
     expect(document.querySelector('.user-origin')).toBeNull();
-    expect(bubble().className).not.toContain('from-agent');
+    expect(bubble().textContent).toContain('what broke the layout?');
   });
 
-  it('says both captions in the interface language', () => {
+  it('says the caption in the interface language', () => {
     useSettings.setState({ language: 'zh-Hans' });
-    expect(strings.chat.fromAgent).toBe(zhHans.chat.fromAgent);
-    render(<UserMessageRow event={message('agent')} />);
-    expect(screen.getByText(zhHans.chat.fromAgent)).toBeInTheDocument();
-    cleanup();
     render(<UserMessageRow event={message('terminal')} />);
     expect(screen.getByText(zhHans.chat.fromTerminal)).toBeInTheDocument();
   });
 
-  it.runIf(fixturesAvailable())('draws the frozen A30 fixture', () => {
-    const event = readFixture<UserMessageEvent>('events/user_message.agent.json');
-    expect(event.source).toBe('agent');
-    render(<UserMessageRow event={event} />);
-    expect(screen.getByText(en.chat.fromAgent)).toBeInTheDocument();
-    expect(screen.getByText(event.text)).toBeInTheDocument();
-    expect(bubble().className).toContain('from-agent');
+  it('has no variant left for another agent to borrow (A34)', () => {
+    render(<UserMessageRow event={message('agent')} />);
+    expect(bubble().className).not.toContain('from-agent');
+    expect(screen.queryByText(en.chat.fromAgent)).toBeNull();
   });
 });

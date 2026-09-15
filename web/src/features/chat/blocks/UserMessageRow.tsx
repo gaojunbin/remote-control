@@ -19,14 +19,7 @@ export function UserMessageRow({
   const origin = originLabel(event.source);
   return (
     <div className="user-row">
-      <div
-        className={cx(
-          'user-bubble',
-          // A30: words another agent put into the conversation, said quietly.
-          event.source === 'agent' && 'from-agent',
-          pending !== undefined && 'pending',
-        )}
-      >
+      <div className={cx('user-bubble', pending !== undefined && 'pending')}>
         {origin ? <span className="user-origin">{origin}</span> : null}
         <p>{event.text}</p>
         {event.attachments && event.attachments.length > 0 ? (
@@ -44,13 +37,12 @@ export function UserMessageRow({
 
 /**
  * The caption above the bubble. A message this app or another one sent needs
- * none; a terminal-typed one says where it was typed, and a message another
- * agent put into the conversation says that nobody typed it (A30).
+ * none; a terminal-typed one says where it was typed. A34: a message another
+ * agent filed never reaches this row — `AgentMessageRow` draws it on the
+ * agent's side instead.
  */
 function originLabel(source: UserMessageEvent['source']): string | null {
-  if (source === 'terminal') return strings.chat.fromTerminal;
-  if (source === 'agent') return strings.chat.fromAgent;
-  return null;
+  return source === 'terminal' ? strings.chat.fromTerminal : null;
 }
 
 /** The chip on a send the device has not confirmed, re-read on a slow clock. */

@@ -354,8 +354,20 @@ const ALWAYS_DRAWN = new Set(['approval', 'question']);
 const isCommandOutput = (event: SessionEvent): boolean =>
   event.kind === 'tool_call' && event.tool.startsWith('/');
 
+/**
+ * A34: a `user_message` another agent filed — a teammate's report, a background
+ * task's notification. Nobody typed it, so it belongs with the agent's workings
+ * rather than with the person's messages, and Simple hides it with them. The
+ * rule therefore reads `source` as well as `kind`.
+ */
+const isAgentMessage = (event: SessionEvent): boolean =>
+  event.kind === 'user_message' && event.source === 'agent';
+
+const isWorkings = (event: SessionEvent): boolean =>
+  !isCommandOutput(event) && (WORKINGS.has(event.kind) || isAgentMessage(event));
+
 const drawnAt = (item: TimelineItem, detail: TimelineDetail): boolean =>
-  detail === 'detailed' || !WORKINGS.has(item.event.kind) || isCommandOutput(item.event);
+  detail === 'detailed' || !isWorkings(item.event);
 
 /**
  * Split items into top-level rows and sub-agent children keyed by parent block,

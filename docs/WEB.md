@@ -196,17 +196,26 @@ helpers, the composer flow (success, failure, send while polishing, undo, both d
 settings group in both gateway states, the per-account keys and the three protocol fixtures. The
 flow was driven in Chrome against the mock at 1280 px and 400 px: the Voice group with the three
 controls, "Polishing…" in the status line, and "Polished · Undo" under the field.
-## Messages from other agents (A30)
+## Messages from other agents (A30, A34)
 
 A `user_message` whose `source` is `agent` — a teammate's report or a task notification the Claude
-CLI filed as a user turn, reduced by the device to who said what — keeps the user bubble's shape but
-takes the muted surface and ink tokens and the caption "from another agent" (`chat.fromAgent`; the
-terminal caption is `chat.fromTerminal`, "terminal", and both are translated now). `Trigger` is one
-exported union for `source` and `turn_started.trigger` — `remote | terminal | queue | agent` — and
-nothing in the stores switches on it beyond the type, so an `agent`-triggered turn behaves as a
-terminal one. The mock's terminal Claude session carries one such message so the two captions can
-be compared on one screen; the optimistic-send reconciliation only ever matches `source: "remote"`,
-so an agent row is never mistaken for the browser's own echo.
+CLI filed as a user turn, reduced by the device to who said what — is not the person's side of the
+conversation, so it is not drawn in their bubble at all. `Timeline`'s dispatch sends it to
+`blocks/AgentMessageRow.tsx` instead of `UserMessageRow`: a muted block on the quiet surface, at the
+full width of the content and on the left where the agent's own prose is, captioned "from another
+agent" above the text (`chat.fromAgent`; the terminal caption is `chat.fromTerminal`, "terminal",
+and both are translated). `UserMessageRow` keeps only the person's own messages and has no variant
+left for an agent to borrow. `Trigger` is one exported union for `source` and
+`turn_started.trigger` — `remote | terminal | queue | agent` — and nothing in the stores switches on
+it beyond the type, so an `agent`-triggered turn behaves as a terminal one. The mock's terminal
+Claude session carries one such message, so the block and the bubble can be compared on one screen;
+the optimistic-send reconciliation only ever matches `source: "remote"`, so an agent row is never
+mistaken for the browser's own echo.
+
+These are the agent's workings rather than something written to the person, so **Simple does not
+draw them**, and the jump-to-latest count does not count them there. `drawnAt` in
+`src/stores/timeline.ts` was keyed by `kind` alone; it now reads `source` as well, through
+`isAgentMessage`, and both the rows and the count follow from that one function.
 
 ## Push and the service worker
 
