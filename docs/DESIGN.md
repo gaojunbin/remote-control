@@ -564,13 +564,14 @@ Claude Code puts words into a conversation that nobody typed: a teammate's repor
 session messages another, a background task's notification when a subagent finishes. The CLI files
 them as user turns, so a mirror that trusts the role shows them as something the person said at the
 keyboard — and a phone reads a wall of a teammate's JSON as its owner's own words. They are neither
-the person nor the assistant, and both apps say so (A30): such a message is a `user_message` with
-`source: "agent"`, drawn in the user's bubble shape but muted, with the caption "from another
-agent" where a terminal-typed one says "sent from the terminal", and the text reduced to what a
-person would want to read — who reported and what they said, or the task's summary — never the
-envelope, never a `<system-reminder>`. A turn such a message starts is triggered by `agent`, and the
-status line treats it as it treats a terminal-started turn. A subagent's result that comes back as
-a tool result is a tool row already, and nothing changes for it.
+the person nor the assistant, and both apps say so (A30, A34): such a message is a `user_message`
+with `source: "agent"`, drawn on the agent's side as a muted block captioned "from another agent" —
+never in the person's bubble, which holds their own words alone — hidden at the Simple detail
+level as the agent's other workings are, and with the text reduced to what a person would want to
+read — who reported and what they said, or the task's summary — never the envelope, never a
+`<system-reminder>`. A turn such a message starts is triggered by `agent`, and the status line
+treats it as it treats a terminal-started turn. A subagent's result that comes back as a tool
+result is a tool row already, and nothing changes for it.
 
 ### The status dot
 
