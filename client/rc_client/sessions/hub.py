@@ -22,7 +22,16 @@ from ..agents.registry import RunnerSpec, offline_commands, runner_for
 from ..errors import RcError
 from ..git import create_worktree, session_git, slugify
 from ..logging_setup import logger
-from ..models import UNSET, AgentInfo, Choice, Session, SpeedSetting, now_ms, title_from_text
+from ..models import (
+    UNSET,
+    AgentInfo,
+    Choice,
+    Session,
+    SpeedSetting,
+    now_ms,
+    title_from_message,
+    title_from_text,
+)
 from ..registry import Registry
 from . import titles
 from .attach import Attachment, HookQuestion, SessionStart
@@ -222,7 +231,7 @@ class SessionHub:
 
         first_message = str(params.get("first_message") or "")
         chosen = title_from_text(str(params.get("title") or ""))
-        title = chosen or title_from_text(first_message)
+        title = chosen or title_from_message(first_message)
         worktree = bool(params.get("worktree"))
         if worktree:
             cwd = await create_worktree(cwd, slugify(title or agent))

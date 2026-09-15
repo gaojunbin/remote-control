@@ -11,7 +11,7 @@ import re
 from typing import Any
 
 from ...models import now_ms
-from ..base import Emit
+from ..base import COMPACTION_NOTICE, Emit
 
 _SNAKE = re.compile(r"_([a-z0-9])")
 MAX_OUTPUT_CHARS = 200_000
@@ -32,7 +32,7 @@ _TOOL_KIND_BY_ITEM = {
 # Items that are a state change rather than work: a terminal draws a banner for
 # each, so the apps get the one-line `notice` that says the same thing (A27).
 _NOTICES = {
-    "contextCompaction": "Context was compacted; earlier turns are summarised.",
+    "contextCompaction": COMPACTION_NOTICE,
     "enteredReviewMode": "Review started",
     "exitedReviewMode": "Review finished",
 }

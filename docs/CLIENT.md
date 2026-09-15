@@ -391,10 +391,40 @@ they said — `<from>: <result>` for a teammate, the summary and result for a ta
 they start carries `trigger: "agent"`; every system-reminder is stripped wherever it appears, so a
 person's prompt that carried one keeps `source: "terminal"` without it, and a row that held nothing
 else produces no block. Rows the CLI marks `isMeta` — the echo of a message this device injected
-through its channel among them — and the `/command` rows stay out of the timeline as before, and a
-subagent's result that returns through the `Agent` tool is a `tool_call` row already. The same
-classifier runs on the SDK stream of a session this device drives, where the CLI hands the same rows
-over as user messages with string content.
+through its channel among them — stay out of the timeline as before, and a subagent's result that
+returns through the `Agent` tool is a `tool_call` row already. The same classifier runs on the SDK
+stream of a session this device drives, where the CLI hands the same rows over as user messages with
+string content.
+
+Four more shapes reach a transcript with the `user` role and are not a prompt either (amendment
+A32). `agents/claude/markers.py` recognises each of them, and `injected.py` is never asked about
+them: whose words a row holds is a different question from whether it holds any.
+
+- **The compaction summary.** The CLI writes it as a user row marked `isCompactSummary` and hides it
+  from its own view; a phone showed a page of it as something its owner had typed. It is no block at
+  all. The `system` row before it, `subtype: "compact_boundary"`, becomes the `notice` of 5.13, in
+  the words Codex already uses for the same event (`agents/base.py` `COMPACTION_NOTICE`). Both paths
+  publish it: the transcript row for a mirrored session, the SDK's `compact_boundary` system message
+  for one the device drives.
+- **The interruption marker.** `[Request interrupted by user]`, and `[Request interrupted by user for
+  tool use]` in the row that also carries the result of the tool it stopped, is what the CLI writes
+  in place of the rest of a turn the person killed. It is no block, and it starts no turn — publishing
+  it as one is what produced a "Turn failed" for a turn nobody ran. It ends the turn that was
+  running: the tailer records `stop_reason = "interrupted"`, `sessions/mirror.py` hands it to
+  `SharedControl.tick` in `sessions/shared.py`, and the next turn to start puts it back to
+  `completed`. A tool result in the same row is published as usual.
+- **A slash command typed at the terminal.** The CLI records it as `<command-name>` with the argument
+  in `<command-args>`, and those are the person's keystrokes: `user_message {source: "terminal"}`
+  whose text is the command as typed (`/model haiku`). It starts no turn, and it names no session:
+  `models.py` `title_from_message` refuses a text that starts with a slash, because a command says
+  what the person did to the CLI rather than what the conversation is about, and the CLI never
+  titles from one either. A title the person types themselves keeps its slash. `/compact` is
+  recorded twice — once as a plain `/compact` row, once as the tag — so a tag that repeats the last
+  message the tailer published is dropped.
+- **The CLI's reply to a command.** `<local-command-stdout>` carries terminal escapes and is no
+  block, but it is the end of what the command did, so it ends a turn that was running as `completed`
+  and clears the memory above, which is what lets the same command typed twice be published twice.
+  `<local-command-caveat>`, `<command-message>` and `<command-args>` on their own stay hidden.
 
 ### What the terminal chose
 

@@ -204,3 +204,16 @@ def title_from_text(text: str) -> str:
     if len(line) > MAX_TITLE:
         return line[: MAX_TITLE - 1].rstrip() + "…"
     return line
+
+
+def title_from_message(text: str) -> str:
+    """A title taken from something somebody said, or "" for a slash command.
+
+    A command names what the person did to the CLI, not what the conversation
+    is about, and Claude Code itself never titles a session from one. Typed
+    commands became messages with amendment A32, so without this rule a session
+    whose first message was `/compact` would be called that for good. A title
+    the person typed themselves is taken as given, slash and all, and goes
+    through `title_from_text`.
+    """
+    return "" if text.strip().startswith("/") else title_from_text(text)

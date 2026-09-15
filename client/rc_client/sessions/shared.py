@@ -222,13 +222,21 @@ class SharedControl:
 
     # ------------------------------------------------------------ transcript
 
-    async def tick(self, entry: SessionEntry, running: bool, trigger: str = "terminal") -> None:
+    async def tick(
+        self,
+        entry: SessionEntry,
+        running: bool,
+        trigger: str = "terminal",
+        stop_reason: str = "completed",
+    ) -> None:
         """Called after every transcript read: the only source of turn state.
 
         `trigger` is what the rows just read say started the turn: the person at
         the keyboard, or another agent whose message the CLI filed as a user
         turn (amendment A30). An injection of our own names itself when it goes
         out and is still in flight here, which is what `waiting` protects.
+        `stop_reason` is how those rows say the turn ended, which is `completed`
+        unless the person interrupted it (amendment A32).
         """
         state = entry.shared
         if state is None:
@@ -236,17 +244,19 @@ class SharedControl:
         if running and not state.running and not state.waiting:
             state.trigger = trigger
         state.running = running
-        await self._settle(entry)
+        await self._settle(entry, stop_reason)
         if not running:
             await self.drain(entry)
 
-    async def _settle(self, entry: SessionEntry) -> None:
+    async def _settle(self, entry: SessionEntry, stop_reason: str = "completed") -> None:
         """Reconcile turn, state and prompts with what the transcript says.
 
         An injection counts as busy before its row appears, so the apps see the
         turn start at once instead of at the next transcript read. Something
         waiting on the person outranks a running turn, and an approval outranks
-        a question: it blocks the work the question was asked about.
+        a question: it blocks the work the question was asked about. A turn
+        that is over ends as `stop_reason` says, which only a transcript read
+        has anything to say about.
         """
         state = entry.shared
         if state is None:
@@ -261,7 +271,7 @@ class SharedControl:
         elif busy:
             await entry.channel.set_state("running")
         else:
-            await self._end_turn(entry, "completed")
+            await self._end_turn(entry, stop_reason)
 
     async def _end_turn(self, entry: SessionEntry, stop_reason: str) -> None:
         turn = entry.session.turn

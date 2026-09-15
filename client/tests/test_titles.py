@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from rc_client.agents.claude import transcripts
-from rc_client.models import AgentInfo, Session
+from rc_client.models import AgentInfo, Session, title_from_message, title_from_text
 from rc_client.registry import Registry
 from rc_client.sessions import titles
 from rc_client.sessions.channel import SessionChannel
@@ -63,6 +63,24 @@ async def test_the_first_prompt_names_a_session_that_has_no_title(tmp_path: Path
     assert [frame["event"]["title"] for frame in frames if frame["type"] == "session.event"] == [
         "fix the flaky auth test"
     ]
+    registry.close()
+
+
+def test_a_slash_command_is_never_a_title_but_a_typed_one_is_kept() -> None:
+    """Amendment A32: a typed command is a message, and still names nothing."""
+    assert title_from_message("/compact") == ""
+    assert title_from_message("  /model haiku\nand then rerun") == ""
+    assert title_from_message("fix the flaky auth test") == "fix the flaky auth test"
+    # A title the person typed goes the other way and is taken as given.
+    assert title_from_text("/tmp cleanup") == "/tmp cleanup"
+
+
+async def test_a_typed_command_leaves_a_session_unnamed(tmp_path: Path) -> None:
+    channel, registry, _ = build_channel(tmp_path)
+    assert await titles.from_prompt(channel, "/compact") is False
+    assert channel.session.title == ""
+    assert await titles.from_prompt(channel, "now fix the flaky test") is True
+    assert channel.session.title == "now fix the flaky test"
     registry.close()
 
 

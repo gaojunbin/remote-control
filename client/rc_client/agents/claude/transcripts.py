@@ -16,15 +16,19 @@ from typing import Any
 from ...diffs import from_tool_input
 from ...models import now_ms
 from ...tailing import FileTail
-from ..base import Emit
-from .injected import classify
+from ..base import COMPACTION_NOTICE, Emit
+from . import markers
+from .injected import classify, strip_reminders
 from .questions import QUESTION_TOOL
 from .runtime import PROJECTS_DIR
 from .tools import todos_from_input, tool_kind, tool_title
 
 MAX_TRANSCRIPTS = 50
 MAX_AGE_DAYS = 14
-_SKIP_PREFIXES = ("<command-name>", "<local-command-", "<command-message>", "<command-args>")
+# Tags a typed command leaves behind that say nothing to a reader: the caveat
+# is an instruction to the model, and the other two only repeat the command's
+# own name and argument, which `markers.typed_command` already read.
+_SKIP_PREFIXES = ("<local-command-caveat>", "<command-message>", "<command-args>")
 _SKIP_TEXTS = {"No response requested.", "(no content)"}
 
 # Amendment A10: a message this device injected through the channel comes back
@@ -303,6 +307,13 @@ class TranscriptTailer:
     # the person at the keyboard, this device's own injection, or another agent
     # whose words the CLI filed as a user turn.
     turn_trigger: str = "terminal"
+    # How that turn ended (amendment A32). Only the marker the CLI leaves where
+    # the person stopped a turn makes it anything but `completed`, and the next
+    # turn to start clears it.
+    stop_reason: str = "completed"
+    # The text of the last user message published, which is how the second
+    # record the CLI keeps of one typed command is recognised (amendment A32).
+    last_message: str = ""
     tail: FileTail = field(init=False)
 
     def __post_init__(self) -> None:
@@ -345,7 +356,19 @@ class TranscriptTailer:
             return self._assistant(row)
         if row_type == "attachment":
             return self._attachment(row)
+        if row_type == "system":
+            return self._system(row)
         return []
+
+    def _system(self, row: dict[str, Any]) -> list[Emit]:
+        """The one system row worth publishing: where the context was compacted.
+
+        Amendment A32: the summary that follows is not a block, so this line is
+        all an app hears about a compaction, exactly as it does for Codex.
+        """
+        if not markers.is_compact_boundary(row):
+            return []
+        return [Emit("notice", {"level": "info", "text": COMPACTION_NOTICE})]
 
     def _channel_echo(self, row: dict[str, Any]) -> list[Emit]:
         """An injected message reappearing as a user row: a turn just started."""
@@ -357,6 +380,7 @@ class TranscriptTailer:
             return []
         self.awaiting_reply = True
         self.turn_trigger = "remote"
+        self.stop_reason = "completed"
         return [Emit(CHANNEL_DELIVERED, {"message_id": message_id})]
 
     def _attachment(self, row: dict[str, Any]) -> list[Emit]:
@@ -388,27 +412,70 @@ class TranscriptTailer:
         return emits + self._message(row, "\n".join(part for part in text_parts if part))
 
     def _message(self, row: dict[str, Any], text: str) -> list[Emit]:
-        """Publish a user row as whosever words it holds (amendment A30).
+        """Publish a user row as whosever words it holds, if it holds any.
 
         A teammate's message and a task's notification are user turns nobody
-        typed, so they are published as `agent` and start their turn as one; a
-        row left empty once the CLI's own reminders come off is not a message
-        at all.
+        typed, so they are published as `agent` and start their turn as one
+        (amendment A30). The rows of amendment A32 are not words at all: the
+        summary of a compaction, the marker of an interruption, the CLI's reply
+        to a command. A row left empty once the CLI's own reminders come off is
+        not a message either.
         """
-        if not text.strip() or _is_meta(row, text):
+        if _is_meta(row, text):
             return []
-        said = classify(row, text)
-        if said is None:
+        said = strip_reminders(text)
+        if not said:
             return []
-        source = "agent" if said.by_agent else "terminal"
+        if markers.is_compaction_summary(row):
+            return []
+        if markers.is_interruption(said):
+            # The person stopped the turn: it ends here, as interrupted, and
+            # the tool result this row may also carry is published as usual.
+            self.awaiting_reply = False
+            self.stop_reason = "interrupted"
+            return []
+        if markers.is_command_output(said):
+            # The CLI answered the command, which is the end of what it did —
+            # and the end of the keystroke the next tag could be a repeat of,
+            # so the same command typed again is a message of its own.
+            self.awaiting_reply = False
+            self.last_message = ""
+            return []
+        command = markers.typed_command(said)
+        if command is not None:
+            return self._command(row, command)
+        return self._words(row, said)
+
+    def _command(self, row: dict[str, Any], command: str) -> list[Emit]:
+        """A slash command typed at the terminal: the person's, but not a turn.
+
+        The CLI records `/compact` twice — once as the keystroke, once as this
+        tag — so the record that repeats the message just published is dropped
+        rather than drawn as a second bubble.
+        """
+        if command == self.last_message:
+            return []
+        return self._publish(row, command, "terminal")
+
+    def _words(self, row: dict[str, Any], said: str) -> list[Emit]:
+        """A prompt or an agent's message: it starts a turn and opens a bubble."""
+        message = classify(row, said)
+        if message is None:
+            return []
+        source = "agent" if message.by_agent else "terminal"
         self.awaiting_reply = True
         self.turn_trigger = source
+        self.stop_reason = "completed"
+        return self._publish(row, message.text, source)
+
+    def _publish(self, row: dict[str, Any], text: str, source: str) -> list[Emit]:
+        self.last_message = text
         return [
             Emit(
                 "user_message",
                 {
                     "block_id": str(row.get("uuid") or f"user:{now_ms()}"),
-                    "text": said.text,
+                    "text": text,
                     "source": source,
                 },
             )

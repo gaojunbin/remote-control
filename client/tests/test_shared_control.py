@@ -484,6 +484,34 @@ async def test_a_turn_another_agent_started_is_labelled_agent(harness: Harness) 
     assert harness.events("turn_completed")[-1]["stop_reason"] == "completed"
 
 
+async def test_a_turn_the_person_interrupted_is_closed_as_interrupted(harness: Harness) -> None:
+    """Amendment A32: the marker ends the turn it found and starts none of its own."""
+    entry = await harness.attach()
+    reader = transcripts.TranscriptTailer(path="/nonexistent", cwd="/repo")
+    reader.translate(
+        {"type": "user", "uuid": "row-typed", "message": {"role": "user", "content": "go"}}
+    )
+    await harness.hub.shared.tick(entry, reader.busy, reader.turn_trigger, reader.stop_reason)
+    assert harness.events("turn_started")[-1]["trigger"] == "terminal"
+    starts = len(harness.events("turn_started"))
+
+    reader.translate(
+        {
+            "type": "user",
+            "uuid": "row-stop",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "[Request interrupted by user]"}],
+            },
+        }
+    )
+    assert reader.busy is False
+    await harness.hub.shared.tick(entry, reader.busy, reader.turn_trigger, reader.stop_reason)
+    assert harness.events("turn_completed")[-1]["stop_reason"] == "interrupted"
+    assert len(harness.events("turn_started")) == starts
+    assert entry.session.turn is None
+
+
 async def test_a_turn_still_open_when_the_bridge_leaves_is_closed_as_stopped(
     harness: Harness,
 ) -> None:

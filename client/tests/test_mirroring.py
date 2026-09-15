@@ -118,12 +118,20 @@ def test_transcript_user_rows_become_terminal_user_messages() -> None:
 
 
 def test_transcript_meta_and_placeholder_rows_are_skipped() -> None:
+    """A row the CLI marks as its own bookkeeping stays hidden whatever it holds.
+
+    A command row it does not mark is the person's keystroke and does become a
+    bubble (amendment A32, `test_claude_markers.py`), so the flag is what
+    decides here, not the tag.
+    """
     tailer = TranscriptTailer(path="/dev/null", cwd="/repo")
     meta = dict(user_row("<command-name>/clear</command-name>"), isMeta=True)
     assert tailer.translate(meta) == []
     assert tailer.translate(user_row("<local-command-stdout>done")) == []
     assert tailer.translate(user_row("No response requested.")) == []
     assert tailer.awaiting_reply is False
+    typed = user_row("<command-name>/clear</command-name>", uuid="u-clear")
+    assert [emit.fields["text"] for emit in tailer.translate(typed)] == ["/clear"]
 
 
 def test_transcript_assistant_text_clears_the_running_flag() -> None:

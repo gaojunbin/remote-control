@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..models import title_from_text
+from ..models import title_from_message, title_from_text
 from ..registry import Registry
 
 if TYPE_CHECKING:  # pragma: no cover - imported for types only
@@ -60,10 +60,14 @@ async def from_agent(channel: SessionChannel, title: str) -> bool:
 
 
 async def from_prompt(channel: SessionChannel, text: str) -> bool:
-    """Name a still-unnamed session after its first message."""
+    """Name a still-unnamed session after its first message.
+
+    A slash command is published as a message since amendment A32 but names
+    nothing, which is what `title_from_message` refuses.
+    """
     if channel.session.title:
         return False
-    return await _apply(channel, text)
+    return await _apply(channel, title_from_message(text))
 
 
 async def _apply(channel: SessionChannel, text: str) -> bool:

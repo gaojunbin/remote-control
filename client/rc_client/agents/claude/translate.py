@@ -23,7 +23,8 @@ from claude_agent_sdk import (
 
 from ...diffs import from_tool_input
 from ...models import now_ms
-from ..base import Emit
+from ..base import COMPACTION_NOTICE, Emit
+from . import markers
 from .injected import classify
 from .tools import todos_from_input, tool_kind, tool_title
 
@@ -240,6 +241,11 @@ class ClaudeTranslator:
 
     def _feed_system(self, message: SystemMessage) -> list[Emit]:
         data = message.data or {}
+        if message.subtype == markers.COMPACT_BOUNDARY:
+            # Amendment A32: the same line a mirrored session publishes for the
+            # same row. The summary that follows is dropped by `_injected`,
+            # which asks whose words a message holds and finds nobody's.
+            return [Emit("notice", {"level": "info", "text": COMPACTION_NOTICE})]
         if message.subtype != "init":
             return []
         session_id = data.get("session_id")

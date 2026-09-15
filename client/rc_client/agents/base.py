@@ -12,6 +12,11 @@ from typing import Any, Protocol, runtime_checkable
 
 from ..models import UNSET, Command, SpeedSetting
 
+# Every agent that drops the earlier part of a conversation to make room says
+# the same thing to the apps, so the line lives here rather than once per
+# translator: a reader should not have to learn two wordings for one event.
+COMPACTION_NOTICE = "Context was compacted; earlier turns are summarised."
+
 TOOL_KINDS = (
     "shell",
     "read",
