@@ -195,6 +195,12 @@ private struct Transcript: View {
     /// Content arrived while the reader was scrolling at the foot; the catch-up
     /// waits until their finger is off the transcript.
     @State private var catchUpWhenStill = false
+    /// The jump to the tail that is on its way, so the next one replaces it and
+    /// a finger on the transcript ends it.
+    @State private var jump: Task<Void, Never>?
+    /// The numbers the scroll view reported last, so the jump can read where it
+    /// landed without waiting for another callback.
+    @State private var tail = TailGeometry()
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -239,6 +245,7 @@ private struct Transcript: View {
             .onScrollGeometryChange(for: TailGeometry.self) { geometry in
                 TailGeometry(geometry)
             } action: { previous, current in
+                tail = current
                 // The reader always wins: while a finger or a fling moves the
                 // transcript the numbers are theirs, whatever the content did
                 // at the same moment — rows settling after a turn, history being
@@ -256,6 +263,9 @@ private struct Transcript: View {
             }
             .onScrollPhaseChange { _, newPhase in
                 phase = newPhase
+                // A hand on the transcript ends a jump: where the reader takes
+                // it is where they want to be.
+                if newPhase == .tracking || newPhase == .interacting { endJump() }
                 // The finger has left the transcript: whatever arrived while it
                 // was there is caught up on now, if the reader stayed at the foot.
                 guard newPhase == .idle, catchUpWhenStill else { return }
@@ -271,7 +281,7 @@ private struct Transcript: View {
             .onChange(of: chat.timeline.optimistic.count) { _, _ in
                 followNewContent(proxy)
             }
-            .overlay(alignment: .bottomTrailing) {
+            .overlay(alignment: .bottom) {
                 Group {
                     if !chat.isFollowingTail {
                         JumpToLatestButton(chat: chat) { scrollToTail(proxy) }
@@ -279,9 +289,9 @@ private struct Transcript: View {
                     }
                 }
                 .animation(.easeInOut(duration: 0.18), value: chat.isFollowingTail)
-                .padding(.trailing, Theme.Space.page)
                 .padding(.bottom, Theme.Space.small)
             }
+            .onDisappear { endJump() }
         }
     }
 
@@ -304,21 +314,54 @@ private struct Transcript: View {
         if motion == .reading { catchUpWhenStill = true } else { scrollToTail(proxy) }
     }
 
+    /// To the very end of the transcript, however far away it is. One scroll
+    /// does not get there from pages away: a `LazyVStack` puts the end of its
+    /// content where it guessed the rows it had not laid out would be, and
+    /// measuring them on the way there moves the end again. So the scroll is
+    /// re-issued from where it landed until the geometry says the tail is on
+    /// screen, and following — which is also what takes the button away —
+    /// resumes only then, never on the strength of having asked.
     private func scrollToTail(_ proxy: ScrollViewProxy) {
-        settlesAt = Date.now.addingTimeInterval(0.45)
-        chat.isFollowingTail = true
-        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(Self.tailID, anchor: .bottom) }
+        jump?.cancel()
+        jump = Task {
+            for attempt in 1...ScrollTail.jumpLimit {
+                settlesAt = Date.now.addingTimeInterval(Self.settleWindow)
+                withAnimation(.easeOut(duration: Self.scrollDuration)) {
+                    proxy.scrollTo(Self.tailID, anchor: .bottom)
+                }
+                try? await Task.sleep(for: .seconds(Self.scrollDuration + 0.05))
+                guard !Task.isCancelled else { return }
+                guard ScrollTail.jump(attempt: attempt, atBottom: tail.isAtBottom) == .again else {
+                    break
+                }
+            }
+            if tail.isAtBottom { chat.isFollowingTail = true }
+        }
+    }
+
+    private func endJump() {
+        jump?.cancel()
+        jump = nil
     }
 
     private static let tailID = "chat.tail"
+    private static let scrollDuration = 0.2
+    /// How long the geometry a scroll produces goes on being this view's rather
+    /// than the reader's, because the proxy's scroll is reported as animating
+    /// only once it is under way.
+    private static let settleWindow = 0.45
 }
 
 /// The three numbers the tail rule needs, pulled out of `ScrollGeometry` so the
 /// geometry callback compares values it can equate.
 private struct TailGeometry: Equatable {
-    var contentHeight: Double
-    var containerHeight: Double
-    var offset: Double
+    var contentHeight: Double = 0
+    var containerHeight: Double = 0
+    var offset: Double = 0
+
+    /// Before the scroll view has said anything. Nothing to scroll, so it reads
+    /// as the bottom.
+    init() {}
 
     init(_ geometry: ScrollGeometry) {
         contentHeight = geometry.contentSize.height
@@ -337,9 +380,9 @@ private struct TailGeometry: Equatable {
     }
 }
 
-/// The way back down, in the corner of the timeline above the message field.
-/// It is on screen whenever the reader is not at the bottom, and carries what
-/// arrived while they were away.
+/// The way back down, centred at the foot of the timeline above the message
+/// field. It is on screen whenever the reader is not at the bottom, and carries
+/// what arrived while they were away.
 private struct JumpToLatestButton: View {
     let chat: ChatStore
     let action: () -> Void

@@ -545,15 +545,32 @@ points short from counting as leaving.
 | A block arrives while away | Stays put and counts it in `updatesWhileAway` |
 | The scrollable range changes — rows arrive, the keyboard opens or closes — while nobody is scrolling | Never counts as the reader moving: someone at the bottom is pinned there, someone away is left where they are, and a range that shrank until nothing scrolls puts them back at the bottom |
 | The range changes while the reader's finger is on the transcript, or a fling is still running | The reader wins: the numbers are theirs, following is read from where they are, and nothing scrolls under them; content that arrived meanwhile is caught up on when the finger lifts, if they stayed at the foot |
+| The way back down is tapped | Scrolls to the tail, again from where it landed if it landed short, and follows once the numbers say it is there |
 | A message is sent | `ChatStore.deliver` returns to the tail before the message lands |
 | Earlier messages are paged in | Prepended above the anchor the reader was looking at |
 
-Whenever the reader is not at the bottom, a round white button with a down arrow floats in the
-bottom-trailing corner of the timeline, above the message field: identifier `chat.jumpToLatest`,
-label "Jump to latest". It fades in and out over 0.18 s, carries the count from
-`ScrollTail.badge(updates:)` when something arrived while they were away ("3", and "99+" past a
-hundred), and tapping it scrolls to the tail and resumes following. It is the one control on this
-screen with a shadow rather than an edge, because it floats over the transcript.
+Whenever the reader is not at the bottom, a round white button with a down arrow floats at the foot
+of the timeline, centred above the message field: identifier `chat.jumpToLatest`, label "Jump to
+latest". It fades in and out over 0.18 s, carries the count from `ScrollTail.badge(updates:)` when
+something arrived while they were away ("3", and "99+" past a hundred), and tapping it returns to
+the tail and resumes following. It is the one control on this screen with a shadow rather than an
+edge, because it floats over the transcript.
+
+Tapping it is a journey rather than a scroll. `proxy.scrollTo` puts the end of a `LazyVStack` where
+the list guessed the rows it had not laid out would be, and measuring them on the way there moves
+the end again, so one scroll from pages away can arrive short of the tail. `scrollToTail` is
+therefore a small task: it scrolls, waits out the 0.2 s animation, reads the geometry back, and
+while `ScrollTail.jump(attempt:atBottom:limit:)` says `.again` it scrolls again from where it
+landed, up to `ScrollTail.jumpLimit` times — a bound, so a transcript growing faster than it is
+scrolled cannot hold the view for ever. Following resumes only when the numbers say the tail is on
+screen, never on the strength of having asked for it, and since following is also what takes the
+button away, the button leaves only once the tail is really there, which is the DESIGN ruling. A
+finger back on the transcript (`tracking`, `interacting`) ends the jump, because where the reader
+takes it is where they want to be; leaving the screen ends it too. The landing short was not
+reproducible in the demo: with the transcript grown to eight screens of very uneven rows and the
+reader at the top of it, the old one-shot scroll still reached the tail (three runs of
+`testJumpToLatestLandsAtTheTailFromFarUp`, round 26), so what is fixed here is the rule — arrival is
+now read from the scroll view rather than assumed — rather than a recorded trace.
 
 Who is moving is read from the scroll view itself: `onScrollPhaseChange` says whether a finger is
 tracking or interacting, a fling is decelerating, a scroll the view started is animating, or nothing

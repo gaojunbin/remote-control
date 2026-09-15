@@ -71,6 +71,32 @@ public enum ScrollTail {
         }
     }
 
+    /// How a jump to the tail is going. One scroll is not the whole journey: a
+    /// lazy list places the end of its content where it guessed the rows it had
+    /// not laid out would be, and laying them out on the way there moves the end
+    /// again, so a jump from pages away lands short of it.
+    public enum JumpStep: Sendable, Hashable {
+        /// The tail is on screen. Follow new content again.
+        case arrived
+        /// Scroll again, from closer than last time.
+        case again
+        /// Far enough. A transcript growing faster than it is scrolled must not
+        /// hold the view for ever; the reader is left where the last scroll put
+        /// them, with the way back down still on screen.
+        case giveUp
+    }
+
+    /// How many scrolls one jump may spend. Each starts from closer to the end
+    /// than the last, so what is left falls fast and two are usually enough.
+    public static let jumpLimit = 6
+
+    /// What a jump does now that its `attempt`-th scroll has settled, counted
+    /// from one.
+    public static func jump(attempt: Int, atBottom: Bool, limit: Int = jumpLimit) -> JumpStep {
+        if atBottom { return .arrived }
+        return attempt < limit ? .again : .giveUp
+    }
+
     /// What the jump-to-latest button counts, or nil when nothing arrived while
     /// the reader was away. Blocks, never streaming deltas, so a long answer is
     /// one update rather than two hundred.

@@ -176,4 +176,21 @@ struct ScrollTailTests {
         #expect(ScrollTail.decide(rangeChanged: false, atBottom: true, following: false,
                                   motion: .animating) == .follow(true))
     }
+
+    // MARK: - Getting all the way back down
+
+    @Test("A jump that landed short of the tail scrolls again, and one that arrived stops")
+    func jumpKeepsGoingUntilItArrives() {
+        #expect(ScrollTail.jump(attempt: 1, atBottom: false) == .again)
+        #expect(ScrollTail.jump(attempt: 1, atBottom: true) == .arrived)
+        // However far away it started, arriving is what ends it.
+        #expect(ScrollTail.jump(attempt: ScrollTail.jumpLimit, atBottom: true) == .arrived)
+    }
+
+    @Test("A transcript growing faster than it is scrolled cannot hold the view for ever")
+    func jumpGivesUp() {
+        #expect(ScrollTail.jump(attempt: ScrollTail.jumpLimit - 1, atBottom: false) == .again)
+        #expect(ScrollTail.jump(attempt: ScrollTail.jumpLimit, atBottom: false) == .giveUp)
+        #expect(ScrollTail.jump(attempt: 2, atBottom: false, limit: 2) == .giveUp)
+    }
 }

@@ -284,6 +284,62 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "28-jump-tapped")
     }
 
+    /// The way back down lands at the very end however far up the reader went.
+    /// A `LazyVStack` guesses the height of the rows it has not laid out, so one
+    /// scroll aimed at the tail arrives short of it; the jump keeps going until
+    /// the geometry says the tail is on screen, and only then does the button go.
+    func testJumpToLatestLandsAtTheTailFromFarUp() {
+        app.launch()
+        chooseDetailedTranscript()
+        openLiveSession()
+        XCTAssertTrue(promptField().waitForExistence(timeout: 15))
+        XCTAssertTrue(waitForLiveTurn(), "the scripted turn finishes and the transcript settles")
+
+        let last = growTranscript(messages: 15)
+        // The transcript measures itself, and a keyboard takes half of it.
+        transcript().coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        XCTAssertTrue(waitForNoKeyboard(), "the keyboard is away before the transcript is measured")
+
+        let view = transcript()
+        let jump = app.buttons["chat.jumpToLatest"]
+        for _ in 0..<12 { view.swipeDown(velocity: .fast) }
+        XCTAssertTrue(jump.waitForExistence(timeout: 10), "paging up offers the way back down")
+        attach(name: "30-far-above-the-tail")
+
+        jump.tap()
+        XCTAssertTrue(jump.waitForNonExistence(timeout: 15),
+                      "the button leaves only once the tail is really on screen")
+        let newest = text(containing: last).firstMatch
+        XCTAssertTrue(newest.waitForExistence(timeout: 10), "the newest message is drawn")
+        XCTAssertTrue(newest.isHittable, "and one tap landed at the very end of the transcript")
+        attach(name: "31-jump-from-far-up")
+    }
+
+    /// Sends `messages` messages and returns the text of the last one. The demo
+    /// opens on about two screens, which is not far enough for a lazy list to
+    /// guess wrong about the rows it has not laid out; a dozen more exchanges
+    /// put the tail pages away, and every third one is long enough to wrap over
+    /// several lines, so the rows below the reader are of very uneven height —
+    /// which is what a guessed height gets wrong.
+    @discardableResult
+    private func growTranscript(messages: Int) -> String {
+        let field = promptField()
+        let send = app.buttons["composer.send"]
+        let long = "and this one runs on, because a row that wraps over half a screen is what "
+            + "a list guessing the height of what it has not laid out gets wrong"
+        var text = ""
+        for index in 1...messages {
+            text = index.isMultiple(of: 3) ? "again \(index) \(long)" : "again \(index)"
+            field.tap()
+            field.typeText(text)
+            XCTAssertTrue(waitFor { send.isEnabled }, "the draft reached the composer")
+            send.tap()
+        }
+        XCTAssertTrue(self.text(containing: "again \(messages)").waitForExistence(timeout: 20),
+                      "the last of the messages is in the transcript")
+        return "again \(messages)"
+    }
+
     private func sessionList() -> XCUIElement {
         let list = app.collectionViews.firstMatch
         return list.exists ? list : app.scrollViews.firstMatch
