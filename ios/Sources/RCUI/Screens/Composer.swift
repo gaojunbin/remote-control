@@ -18,6 +18,7 @@ struct Composer: View {
     @Binding var showsQueue: Bool
 
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var voice: InlineVoiceDraftSession?
     @State private var usesGateway = false
     @State private var attachments: [OutboundAttachment] = []
@@ -194,10 +195,13 @@ struct Composer: View {
     /// Everything under the field, on one row — and while dictation runs, the
     /// level meter, the elapsed time and the one button, Done, in place of all
     /// of it.
+    ///
+    /// Amendment A29: once the transcript is final the ordinary row comes back
+    /// around the spinner, which keeps the slot until the model has answered.
     @ViewBuilder
     private var controlsRow: some View {
         if let voice, voice.voice.phase.isBusy {
-            VoiceListeningControls(session: voice, done: { finishDictation() })
+            VoiceListeningControls(session: voice, slot: primarySlot, done: { finishDictation() })
         } else {
             HStack(spacing: Theme.Space.tight) {
                 // The two quiet icons read as one group, so they sit against
@@ -210,10 +214,23 @@ struct Composer: View {
                     }
                 }
                 chips
-                sendButton
+                if primarySlot == .working {
+                    WorkingCircle(label: L10n.string("Polishing…"))
+                } else {
+                    sendButton
+                }
             }
             .frame(minHeight: Theme.Touch.primary)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: primarySlot)
         }
+    }
+
+    /// What the one primary slot holds: Done, the spinner, or Send. The whole
+    /// rule is `ComposerPrimarySlot`'s (`docs/DESIGN.md` § "The composer" →
+    /// **Done becomes a spinner, and the spinner becomes Send**); both rows read
+    /// it from here, so the slot never disagrees with itself across the swap.
+    private var primarySlot: ComposerPrimarySlot {
+        ComposerPrimarySlot.of(voice: voice?.voice.phase ?? .idle, polish: chat.polishPhase)
     }
 
     /// Amendment A20: while a question is pending the one primary in the row

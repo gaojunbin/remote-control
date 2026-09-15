@@ -63,9 +63,15 @@ struct VoiceButton: View {
 /// no Cancel either: a dictation nobody wants is Done and then edited or
 /// cleared like any other draft, and Done stands where Send stands, at Send's
 /// size, because while listening it is the one primary action in the row.
+///
+/// The tap on Done is answered at once: the capsule gives way to the spinner in
+/// Send's circle, and the meter and the clock stop with it. `ComposerPrimarySlot`
+/// is what decides which of the two the slot holds.
 struct VoiceListeningControls: View {
     let session: InlineVoiceDraftSession
+    let slot: ComposerPrimarySlot
     let done: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var started = Date()
     @State private var elapsed = "0:00"
 
@@ -83,17 +89,36 @@ struct VoiceListeningControls: View {
                 .accessibilityLabel(L10n.string("Listening for %@", elapsed))
                 .accessibilityIdentifier("voice.elapsed")
             Spacer(minLength: Theme.Space.small)
+            primary
+        }
+        .frame(minHeight: Theme.Touch.primary)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: slot)
+        // The clock counts how long the microphone was open, so it stops at the
+        // moment Done was tapped: nothing is being heard after that.
+        .onReceive(tick) { now in
+            guard session.voice.phase == .listening else { return }
+            let seconds = Int(now.timeIntervalSince(started))
+            elapsed = String(format: "%d:%02d", seconds / 60, seconds % 60)
+        }
+        .onAppear { started = Date() }
+    }
+
+    /// Done while the microphone is live, and the spinner it becomes the moment
+    /// it is tapped. The slot is `.done` while the microphone is still being
+    /// asked for too, where Done stands as it does today and is not live yet;
+    /// `.send` never reaches this row, which is drawn only while dictation is
+    /// busy.
+    @ViewBuilder
+    private var primary: some View {
+        switch slot {
+        case .working:
+            WorkingCircle(label: L10n.string("Finishing the transcript"))
+        case .done, .send:
             Button("Done", action: done)
                 .buttonStyle(PrimaryButtonStyle(fullWidth: false))
                 .disabled(session.voice.phase != .listening)
                 .accessibilityIdentifier("voice.done")
         }
-        .frame(minHeight: Theme.Touch.primary)
-        .onReceive(tick) { now in
-            let seconds = Int(now.timeIntervalSince(started))
-            elapsed = String(format: "%d:%02d", seconds / 60, seconds % 60)
-        }
-        .onAppear { started = Date() }
     }
 }
 

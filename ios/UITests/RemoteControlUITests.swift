@@ -195,6 +195,11 @@ final class RemoteControlUITests: XCTestCase {
                       "the transcript lands in the message field, not in a panel")
         XCTAssertTrue(app.buttons["composer.send"].isEnabled,
                       "and sending it is the ordinary, separate tap")
+        // Polish is off, so the field holds what will be sent the moment the
+        // transcript is final: the slot is Send and nothing is spinning in it.
+        XCTAssertFalse(app.descendants(matching: .any)["composer.working"].exists,
+                       "with no spinner left in the slot Done stood in")
+        XCTAssertFalse(app.buttons["voice.done"].exists, "and no Done either")
         attach(name: "23-voice-done")
 
         // A second dictation adds to the draft rather than replacing it, and
@@ -1888,12 +1893,19 @@ final class RemoteControlUITests: XCTestCase {
     /// `docs/DESIGN.md` § "Polishing what you dictated": the words land at once,
     /// the status line says the model is working, and the dictated span alone is
     /// replaced with "Polished · Undo" under the field until the next edit.
+    ///
+    /// § "The composer" → **Done becomes a spinner, and the spinner becomes
+    /// Send**: the slot Done stood in holds a spinner for as long as the words
+    /// are on their way, and Send is not offered until they are back.
     func testDictationIsPolishedAndOneUndoAway() {
         app.launch()
         turnPolishOn()
         openLiveSession()
         XCTAssertTrue(promptField().waitForExistence(timeout: 15))
 
+        // Where Send stands before a word is spoken, so the spinner can be held
+        // against it.
+        let sendFrame = app.buttons["composer.send"].frame
         app.buttons["composer.voice"].tap()
         let done = app.buttons["voice.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 15), "dictation is listening")
@@ -1907,17 +1919,38 @@ final class RemoteControlUITests: XCTestCase {
         let dictated = field.value as? String ?? ""
         XCTAssertTrue(dictated.contains("the the"), "the dictated words land unpolished")
 
+        // The tap on Done was answered at once, and the slot is still not
+        // something anyone can tap. The demo answers in three seconds, so what
+        // has to be looked at while the spinner is up is read first and asserted
+        // afterwards: every query costs a fraction of that window.
+        let working = app.descendants(matching: .any)["composer.working"].firstMatch
+        XCTAssertTrue(working.waitForExistence(timeout: 15),
+                      "the tap on Done is answered with a spinner in Send's slot")
+        let workingFrame = working.frame
+        XCTAssertFalse(app.buttons["composer.send"].exists,
+                       "Send is not offered while the model is still writing")
+
         let status = app.descendants(matching: .any)["chat.status"]
         XCTAssertTrue(waitFor(timeout: 15) { status.exists && status.label.contains("Polishing") },
                       "the status line says the model is working")
-        attach(name: "ios-polish-polishing")
+        attach(name: "ios-round28-voice-working")
+
+        XCTAssertLessThan(abs(workingFrame.maxX - sendFrame.maxX), 2,
+                          "the spinner stands where Send stands, against the trailing edge")
+        XCTAssertEqual(workingFrame.height, sendFrame.height, accuracy: 2, "at Send's size")
+        XCTAssertFalse(app.buttons["voice.done"].exists, "and Done went with the microphone")
 
         let note = app.descendants(matching: .any)["composer.polished"]
         XCTAssertTrue(note.waitForExistence(timeout: 20), "the note says the draft was polished")
         let polished = promptField().value as? String ?? ""
         XCTAssertFalse(polished.contains("the the"), "the doubled word is gone")
         XCTAssertFalse(polished.contains("um "), "and so is the filler")
-        attach(name: "ios-polish-polished")
+
+        // The field holds what will be sent, so the slot is Send again.
+        XCTAssertTrue(app.buttons["composer.send"].waitForExistence(timeout: 10),
+                      "the spinner becomes Send the moment the words are back")
+        XCTAssertTrue(waitForAbsence(working, timeout: 10), "and nothing is left spinning")
+        attach(name: "ios-round28-voice-send")
 
         app.buttons["composer.polishUndo"].tap()
         XCTAssertEqual(promptField().value as? String, dictated,

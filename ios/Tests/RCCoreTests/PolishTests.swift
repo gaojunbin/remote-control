@@ -109,7 +109,7 @@ struct DictationPolishFlowTests {
         #expect(chat.polishPhase == .idle)
     }
 
-    @Test("A send while the request is out sends the words as dictated")
+    @Test("A send drops a request still out, and what goes is what was in the field")
     func sendWins() async {
         let chat = store()
         chat.polishService = { _ in
@@ -122,6 +122,27 @@ struct DictationPolishFlowTests {
         #expect(chat.draft.isEmpty)
         try? await Task.sleep(for: .milliseconds(350))
         #expect(chat.draft.isEmpty)
+    }
+
+    /// `docs/DESIGN.md` § "The composer": typing into the field while the
+    /// spinner is up ends the wait. The person's words win, so the request is
+    /// dropped and the answer that arrives afterwards is never applied.
+    @Test("An edit while the request is out drops it, and the late answer never lands")
+    func editWhilePolishing() async {
+        let chat = store()
+        chat.polishService = { _ in
+            try? await Task.sleep(for: .milliseconds(200))
+            return "Fix the dot."
+        }
+        chat.polish(span: span, model: "m", strength: .moderate, language: "en")
+        #expect(chat.polishPhase == .polishing)
+
+        chat.draft += " and the spinner"
+        let typed = chat.draft
+        #expect(chat.polishPhase == .idle, "the request is dropped the moment they type")
+        try? await Task.sleep(for: .milliseconds(400))
+        #expect(chat.draft == typed, "and the answer that was already out is never applied")
+        #expect(chat.polishPhase == .idle)
     }
 
     @Test("The note goes on the next edit")

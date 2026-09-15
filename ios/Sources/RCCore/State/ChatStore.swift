@@ -523,11 +523,20 @@ public final class ChatStore {
 
     /// "Polished · Undo" stands until the next edit or send. An edit is any
     /// draft that is no longer what the model wrote; the words arriving from
-    /// the model are not one, and neither is anything while the request is out.
+    /// the model are not one.
+    ///
+    /// While the request is out the only thing that can write the draft is the
+    /// person: `applyPolished` sets `.polished` before it writes, `send` cancels
+    /// first, and the dictation that started the request stops touching the
+    /// field the moment it sees a draft it did not put there. So an edit here
+    /// is the person typing over the wait, and their words win: the request is
+    /// dropped and Send comes back at once.
     private func forgetPolishOnEdit() {
         switch polishPhase {
-        case .idle, .polishing:
+        case .idle:
             return
+        case .polishing:
+            cancelPolish()
         case .polished(let span, let text):
             if draft != span.polishedDraft(text) { polishPhase = .idle }
         case .failed:

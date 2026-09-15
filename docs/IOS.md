@@ -942,6 +942,29 @@ the row. There is no Cancel — a dictation nobody wants is Done and then edited
 other draft, and a second button of a different size beside the primary only made the row look
 unfinished.
 
+**Done becomes a spinner, and the spinner becomes Send** (`docs/DESIGN.md` § "The composer"). The
+tap on Done is answered in the same pass: the capsule gives way to Send's circle holding a
+`ProgressView` tinted `Theme.onAccent` at `Theme.Touch.primary` (`WorkingCircle`,
+`Sources/RCUI/Design/WorkingCircle.swift`, identifier `composer.working`), in the same slot against
+the trailing edge and at the same height. It is not a `Button`, and not a disabled one either:
+nothing in it can be tapped, because a control that looks live and does nothing is what the earlier
+form got wrong — `PrimaryButtonStyle` has no disabled look, so the Done that stood there through
+`.finishing` read as tappable.
+
+What the slot holds is one derivation and not a view's opinion: `ComposerPrimarySlot`
+(`Sources/RCCore/State/ComposerPrimarySlot.swift`, pure, tested over all twenty-four pairs of
+phases) answers `done` while the microphone is live or being asked for, `working` in
+`VoiceInputPhase.finishing` and in `PolishPhase.polishing`, and `send` everywhere else. Both rows
+read it from `Composer`, so the slot cannot disagree with itself when the voice row gives way to
+the ordinary one. The spinner says in words what it is waiting for — "Finishing the transcript" in
+the voice row, "Polishing…" in the ordinary one, the same strings the status line uses — because a
+spinner alone says only that something is happening.
+
+While the transcript is finishing the meter rests and the elapsed clock stops at the moment Done
+was tapped: what it counted is how long the microphone was open. Once the transcript is final the
+ordinary row (`+`, mic, chips) returns around the spinner, which keeps the slot until the words are
+back. The capsule-to-circle change eases over 0.2 s, and not at all under Reduce Motion.
+
 There is no "stop and send" either. Sending a dictated message is the ordinary Send button,
 afterwards. One quiet line above the field says what dictation is doing — "Transcribing live · edit
 before sending", or the gateway wording when the gateway is transcribing — and it is where a failure
@@ -1082,9 +1105,18 @@ polish phase — the status line reads "Polishing…" — and `polish(_:)` is se
 and the open session's last twenty user and assistant text blocks, oldest first, each trimmed to
 4000 characters (`State/DictationPolish.swift`, pure). The answer replaces only that span and
 "Polished · Undo" appears under the field until the next edit or send; a failure leaves the words
-and says "Polishing failed, your words are unchanged"; sending while the request is out sends the
-words as dictated and cancels it. The demo gateway serves two models and a fake polish with a short
-delay, which is what the screenshots and the checks drive; no real provider was called from the app.
+and says "Polishing failed, your words are unchanged".
+
+Send is not offered while the request is out. The slot holds the spinner Done turned into (§ "What
+listening looks like") and becomes Send the moment the field holds what will be sent: the polished
+words when the model answers, the dictated words when it fails or the answer is dropped. Typing
+into the field ends the wait — the person's words win — so `forgetPolishOnEdit` cancels the request
+on any draft that changes under it while `.polishing`, and Send is back at once. Nothing but the
+person can write the draft then: `applyPolished` sets the phase before it writes, `send` cancels
+the request itself before it clears the field, and the dictation that started the request stops
+touching a field it did not leave (`InlineVoiceDraftSession.updateDraft` resets on a draft it does
+not recognise). The demo gateway serves two models and a fake polish with a short delay, which is
+what the screenshots and the checks drive; no real provider was called from the app.
 
 ## Messages from other agents (A30, A34)
 
