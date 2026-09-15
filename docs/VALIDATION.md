@@ -1545,7 +1545,7 @@ at 30 s waiting for a scripted turn while three agents loaded this Mac, and pass
 Not verified: the pull-to-refresh gesture itself, the glow on a phone's own microphone, and the
 real transcript of several hundred rows.
 
-## 27. Done becomes a spinner, and the spinner becomes Send (2026-09-16, iOS)
+## 27. Done becomes a spinner, and the spinner becomes Send (2026-09-16, iOS and web)
 
 The owner reported that after Done the app waits for the final transcript and then for the polish
 answer while Done still looks tappable. The cause was read from the code: `PrimaryButtonStyle` has
@@ -1562,9 +1562,21 @@ screen, "Polishing…" above the field; when the note "Polished · Undo" appears
 nothing spins. With polish off, Send is back at once and no spinner is left. 1288 + 305 checks,
 325 unit tests, 57 UI tests (4 skipped, 0 failures, 966 s for the whole suite; the tool-card test that timed out under load in round 27 passed). Not verified: the spinner during `.finishing` on a real
 microphone or the gateway backend (the scripted platform answers Done in the same pass, so that
-phase lasts one frame in the tests), and Reduce Motion by eye. The web composer keeps the older
-behaviour — Done disabled while finishing and Send offered while polishing — and was left alone,
-because the request named iOS.
+phase lasts one frame in the tests), and Reduce Motion by eye.
+
+Web, asked for by the owner as a follow-up. The same derivation, `primarySlot`, over the five voice
+states and four polish phases (twenty pairs, each tested): Done while starting or listening, the
+spinner while finishing or polishing, Send otherwise. The working element is a `role="status"`
+span in Send's pill, not a button; Enter goes through the same gate as the button and does nothing
+while the slot is not Send, and the "⋯" send menu is not drawn then either. Typing already dropped
+the request on the web. The status line now reads "Finishing the transcript" while the backend
+finishes. In Chrome against the mock, with the polish reply held back from the page for the
+screenshot: at 1280 px and 400 px the spinner stands in Send's pill with "Polishing…" above the
+field and no Send on the page; when the answer lands the arrow is back with "Polished · Undo". 550
+web tests (543 before). Judged along the way and left for the owner: Enter while listening no
+longer sends the partial transcript — it used to — because a keystroke that sends mid-dictation is
+"stop and send" in another guise, which the design rules out; and on both apps the moment before
+the microphone is granted still shows the disabled Done, which the ruling did not cover.
 
 ## Smoke procedure
 
