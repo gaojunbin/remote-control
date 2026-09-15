@@ -54,6 +54,32 @@ private struct UserMessageRow: View {
     private var isFromAgent: Bool { payload.source == .agent }
 
     var body: some View {
+        // The person's words sit on the right and hug their text, leaving room
+        // on the left, so what was said is told from what was answered at a
+        // glance (`docs/DESIGN.md` § "The timeline"). A short message stays
+        // short; a long one wraps against the margin the spacer keeps.
+        HStack(spacing: 0) {
+            Spacer(minLength: Theme.Space.large * 2)
+            bubble
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(spokenLabel)
+        .accessibilityIdentifier(identifier)
+        // One sleep per pending row, waking exactly when the wording changes,
+        // rather than a clock the whole transcript redraws from. Amendment A14:
+        // a steered row has no such moment, because the device confirmed it and
+        // only the agent's next step can move it on.
+        .task(id: pending?.id) {
+            guard let pending, !pending.isSteering else { isUnconfirmed = false; return }
+            isUnconfirmed = pending.isUnconfirmed()
+            guard !isUnconfirmed else { return }
+            try? await Task.sleep(for: .seconds(pending.remainingBeforeUnconfirmed()))
+            guard !Task.isCancelled else { return }
+            isUnconfirmed = true
+        }
+    }
+
+    private var bubble: some View {
         VStack(alignment: .leading, spacing: Theme.Space.tight) {
             Text(payload.text)
                 .font(.body)
@@ -90,28 +116,12 @@ private struct UserMessageRow: View {
                 Text("sent from the queue").font(.caption).foregroundStyle(Theme.inkSecondary)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Theme.Space.small + 2)
         .background(Theme.surfaceSunken,
                     in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
         // The bubble is slightly back until the device has it, so the reader
         // can tell what has landed from what is still on its way.
         .opacity(pending == nil || isUnconfirmed ? 1 : 0.55)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(spokenLabel)
-        .accessibilityIdentifier(identifier)
-        // One sleep per pending row, waking exactly when the wording changes,
-        // rather than a clock the whole transcript redraws from. Amendment A14:
-        // a steered row has no such moment, because the device confirmed it and
-        // only the agent's next step can move it on.
-        .task(id: pending?.id) {
-            guard let pending, !pending.isSteering else { isUnconfirmed = false; return }
-            isUnconfirmed = pending.isUnconfirmed()
-            guard !isUnconfirmed else { return }
-            try? await Task.sleep(for: .seconds(pending.remainingBeforeUnconfirmed()))
-            guard !Task.isCancelled else { return }
-            isUnconfirmed = true
-        }
     }
 
     /// What the app's own copy of a message says about itself while it waits.
