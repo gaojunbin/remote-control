@@ -264,7 +264,8 @@ The rendering rules follow the block model in `docs/ARCHITECTURE.md`. What matte
   leaving room on the left — at least a fifth of the width on the web (`max-width: 78%`), a fixed
   margin on iOS — so what the person said is told from what the agent answered at a glance. The
   text inside stays left-aligned; the caption ("sent from the terminal", "from another agent") sits
-  inside the bubble.
+  inside the bubble. The bubble is inert: nothing changes under the pointer on the web — no hover
+  tint, no shadow — because a message is a record, not a control.
 - **Assistant text** is Markdown rendered directly onto the canvas, with no bubble. Code blocks get
   syntax highlighting and a copy button.
 - **Thinking** collapses to one quiet row, "Thought for 12s", that expands.
@@ -489,11 +490,13 @@ permanent bar, no line count.
 Nothing moves under your eyes. The timeline auto-follows the newest content only while you are at
 the bottom, and "at the bottom" is read from the real scroll position, never guessed from a
 gesture. As soon as you scroll away a jump-to-latest control appears — the same round down-arrow
-button in the corner above the composer on the phone and on the web, there whether or not anything
-new has arrived, because paging up through history needs a way back down too — and new content is
-counted on it, in blocks, not streaming deltas, so a long answer is one update rather than two
-hundred. Tapping it returns to the tail and resumes following. Loading an earlier page prepends above the
-current anchor. Content appended below never drags the viewport. On the phone, a tap anywhere
+button, centred at the foot of the transcript above the composer on the phone and on the web, there
+whether or not anything new has arrived, because paging up through history needs a way back down
+too — and new content is counted on it, in blocks, not streaming deltas, so a long answer is one
+update rather than two hundred. Tapping it returns to the tail in one motion — to the very end of
+the transcript, however far away and however the list guessed the heights of rows it had not laid
+out yet — and resumes following; the button leaves only once the tail is really on screen. Loading
+an earlier page prepends above the current anchor. Content appended below never drags the viewport. On the phone, a tap anywhere
 outside a text field puts the keyboard away without stealing the tap from a control.
 
 ## Status vocabulary
