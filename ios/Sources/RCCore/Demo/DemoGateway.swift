@@ -23,6 +23,10 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     private let minimumAppVersion: String
     /// Amendment A29: how long this gateway's stand-in model takes to answer.
     private let polishDelay: Duration
+    /// Amendment A33: how long this device takes to read the vendors' rate
+    /// limits. A real one is a network call per account away, so the demo keeps
+    /// the moment the page spends saying "Checking…".
+    private let agentsDelay: Duration
     private var devices = DemoFixtures.devices
     private var sessionList = DemoFixtures.sessions
     /// Amendment A24: the gateway's accounts, and which of them this app is.
@@ -85,17 +89,23 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// Amendment A29: how long the demo's polish provider takes to answer.
     /// Long enough that "Polishing…" is a state you can read.
     public static let defaultPolishDelay = Duration.milliseconds(600)
+    /// Amendment A33: how long the demo takes to answer `device.agents` with
+    /// fresh windows. Long enough to see the meters arrive, short enough that
+    /// opening a device is not a wait.
+    public static let defaultAgentsDelay = Duration.milliseconds(700)
 
     public init(echoDelay: Duration = DemoGateway.defaultEchoDelay,
                 resumeDelay: Duration? = DemoGateway.defaultResumeDelay,
                 registrationOpen: Bool = false,
                 minimumAppVersion: String = AppBuild.version,
-                polishDelay: Duration = DemoGateway.defaultPolishDelay) {
+                polishDelay: Duration = DemoGateway.defaultPolishDelay,
+                agentsDelay: Duration = DemoGateway.defaultAgentsDelay) {
         self.echoDelay = echoDelay
         self.resumeDelay = resumeDelay
         self.registrationOpen = registrationOpen
         self.minimumAppVersion = minimumAppVersion
         self.polishDelay = polishDelay
+        self.agentsDelay = agentsDelay
         endpoint = (try? GatewayEndpoint("https://demo.remote-control.invalid"))
             ?? GatewayEndpoint.placeholder
         let stream = AsyncStream<GatewayEvent>.makeStream(bufferingPolicy: .bufferingOldest(512))
@@ -173,7 +183,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         case "device.git":
             return try JSONValue.encode(GitStatus(isRepo: true, branch: "main", dirty: false, ahead: 0, behind: 0))
         case "device.agents":
-            return try JSONValue.encode(AgentsResult(agents: [DemoFixtures.claude, DemoFixtures.codex]))
+            return try await agents(request)
         case "device.update":
             return try updateDevice(request)
         default:
@@ -382,6 +392,21 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// Amendment A22: the device takes the update on, restarts, and comes back
     /// on the build it was sent to. The gateway is what publishes each step, so
     /// the demo does too and the row follows without a reload.
+    /// Amendment A33: what the agents on one machine are signed in with, and
+    /// what is left of each account's quota. The windows are read on request —
+    /// one call per account — so the answer takes a moment and the device list
+    /// this gateway publishes never carries them.
+    private func agents(_ request: GatewayRequest) async throws -> JSONValue {
+        let id = request.body["device_id"]?.stringValue ?? ""
+        let target = try device(id)
+        guard target.online else {
+            throw GatewayErrorBody(code: .deviceOffline, message: "That device is offline.")
+        }
+        try? await Task.sleep(for: agentsDelay)
+        let agents = DemoFixtures.agentsWithQuota(deviceID: id) ?? target.agents
+        return try JSONValue.encode(AgentsResult(agents: agents))
+    }
+
     private func updateDevice(_ request: GatewayRequest) throws -> JSONValue {
         let id = request.body["device_id"]?.stringValue ?? ""
         let target = try device(id)

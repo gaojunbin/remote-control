@@ -110,7 +110,11 @@ public final class AppModel {
                                   // Amendment A29: "Polishing…" is a state a UI
                                   // test looks at rather than races.
                                   polishDelay: isUITesting ? .seconds(3)
-                                                           : DemoGateway.defaultPolishDelay)
+                                                           : DemoGateway.defaultPolishDelay,
+                                  // Amendment A33: and so is "Checking…" on a
+                                  // device's page.
+                                  agentsDelay: isUITesting ? .seconds(3)
+                                                           : DemoGateway.defaultAgentsDelay)
         await connection.enterDemo(api: gateway, channel: gateway)
         attachPush()
     }

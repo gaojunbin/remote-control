@@ -68,18 +68,26 @@ import RCCore
 @MainActor public final class ScriptedSpeechInput: SpeechInputPlatform {
     private var onEvent: (@Sendable (SpeechInputEvent) -> Void)?
     private let transcript: String
+    private let level: Double
+
+    /// The level a scripted dictation holds. Ordinary speech sits near the
+    /// default; `--voice-level=` pins it so the listening glow can be looked at
+    /// at rest and at full voice without speaking into a simulator.
+    public static let defaultLevel = 0.65
 
     /// Real speech, fillers and all: the default reads as something said rather
     /// than typed, which is what dictation polish (A29) is there to clean up.
-    public init(transcript: String = "um re-run the the auth suite on the CI runner too.") {
+    public init(transcript: String = "um re-run the the auth suite on the CI runner too.",
+                level: Double = ScriptedSpeechInput.defaultLevel) {
         self.transcript = transcript
+        self.level = level
     }
 
     public func requestPermission() async throws {}
     public func start(onEvent: @escaping @Sendable (SpeechInputEvent) -> Void) throws {
         self.onEvent = onEvent
         onEvent(.transcript(transcript, isFinal: false))
-        onEvent(.level(0.65))
+        onEvent(.level(level))
     }
     public func finish() { onEvent?(.transcript(transcript, isFinal: true)) }
     public func cancel() { onEvent = nil }

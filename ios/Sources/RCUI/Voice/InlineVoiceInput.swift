@@ -12,13 +12,28 @@ public enum SpeechBackend {
                             arguments: [String] = ProcessInfo.processInfo.arguments)
         -> (platform: any SpeechInputPlatform, isScripted: Bool) {
         #if DEBUG
-        if arguments.contains("--voice-preview") { return (ScriptedSpeechInput(), true) }
+        if arguments.contains("--voice-preview") {
+            return (ScriptedSpeechInput(level: scriptedLevel(arguments)), true)
+        }
         #endif
         if settings.voiceBackend == .gateway, connection.stt.enabled,
            let client = connection.api as? GatewayHTTPClient {
             return (GatewaySpeechRecognizer(client: client, language: settings.voiceLanguage), false)
         }
         return (SystemSpeechRecognizer(localeIdentifier: settings.speechLocaleIdentifier), false)
+    }
+
+    /// `--voice-level=0.5` holds the scripted platform at one input level, so
+    /// the glow can be screenshotted at rest, at conversational speech and at
+    /// the top of its range. It is read only where the scripted platform is,
+    /// which is a debug build behind `--voice-preview`.
+    static func scriptedLevel(_ arguments: [String]) -> Double {
+        let prefix = "--voice-level="
+        guard let argument = arguments.first(where: { $0.hasPrefix(prefix) }),
+              let value = Double(argument.dropFirst(prefix.count)), value.isFinite else {
+            return ScriptedSpeechInput.defaultLevel
+        }
+        return min(1, max(0, value))
     }
 }
 

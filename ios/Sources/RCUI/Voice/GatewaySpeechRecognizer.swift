@@ -249,7 +249,7 @@ import RCCore
                 sum += value * value
             }
             let rms = (sum / Double(converted.frameLength)).squareRoot()
-            let normalized = max(0, min(1, (20 * log10(max(rms, 0.0001)) + 55) / 55))
+            let normalized = InputLevel.from(rms: rms)
             route.send(pcm, level: normalized)
             onEvent(.level(normalized))
         }

@@ -79,7 +79,9 @@ later (A22). It also claims one printed pairing token, which is what the scan fl
 Other launch arguments: `--ui-testing`, `--reset-state`, `--demo-account`, `--demo-update-required`, `--registration-open`,
 and in debug builds `--voice-preview`, which swaps in a scripted speech platform so a UI test never
 opens the microphone. The listening state, the full-screen glow included, is screenshotted through
-it.
+it. `--voice-level=<0…1>` pins that platform's input level, so the glow can be looked at at rest, at
+conversational speech and at the top of its range without speaking into a simulator; the default is
+0.65, ordinary speech.
 
 `--demo-account` puts the same in-memory gateway *behind* the sign-in form instead of around it:
 `ConnectionStore.offlineDemo(registrationOpen:)` builds the store with the demo as both its HTTP
@@ -376,6 +378,58 @@ prefers VisionKit's `DataScannerViewController` and falls back to an `AVCaptureM
 session where it is unavailable, and `StaticCodeScanner` hands over a printed payload on a tap. A
 simulator has no camera, so the demo takes the stand-in and the UI test drives the whole flow
 through it.
+
+**A device has a page (A33).** The row itself opens the machine; its swipe and its context menu
+still act on it without going anywhere. `DevicesView` wraps each row in a `NavigationLink(value:)`
+carrying the device id and answers it with `.navigationDestination(for: String.self)` on the Devices
+`NavigationStack` — an id rather than a `Device`, because a device value changes on every latency
+report and a destination keyed by the value would rebuild the page several times a minute. The three
+row actions are not repeated on the page.
+
+`DeviceDetailView` (`Sources/RCUI/Screens/DeviceDetailView.swift`) is the page: the name in the
+navigation bar, then the machine as its row words it — `DeviceStatusLine` and `DeviceClientLine`
+(`Screens/DeviceLines.swift`) are the row's own two lines, lifted out so the page and the row cannot
+drift apart — and then one `AgentAccountCard` per available agent, in the device's order.
+
+A card names the agent by logo and name with its version, and under it one line per credential:
+*Anthropic account · Max · Max 5x · me@example.com*, *OpenAI API key · api.relay.example*,
+*Not signed in* for an agent that reported `accounts: []`, and nothing at all for an agent whose
+`accounts` is absent, which is what an older client says. The wording is `AccountLine` in
+`Sources/RCCore/State/AccountLine.swift`: a three-entry vendor table (`anthropic` → Anthropic,
+`openai` → OpenAI, `xai` → xAI) with an unknown id printed as itself, the plan raised at its first
+letter, and the tier, the email and the host printed exactly as the device sent them. Nothing on
+the page reads an agent id beyond the logo lookup the row already does.
+
+**The meters.** `QuotaWindow` (`Sources/RCCore/State/QuotaWindow.swift`) names a window from its
+length — 300 → *5-hour*, 1440 → *24-hour*, 10080 → *7-day*, anything that is not whole hours in
+minutes — appends the scope where the vendor confined it to one, and decides the fill's colour:
+`Theme.ink` to 80 %, `Theme.attention` past it, `Theme.danger` at 100. No other colour appears on
+the page. "resets 15:40" today and "resets Tue 22:00" otherwise, formatted in the interface
+language's own locale, which the page reads from `\.locale`.
+
+**Where the fresh figures live.** The credentials are already in the device list, so they are on
+screen the moment the page opens; the windows are read on request. The page sends `device.agents`
+from its `.task` and again from `.refreshable`, and keeps the reply in its own `@State` — never in
+the device store, so the list behind it never redraws because a percentage moved, and
+`agents.updated` keeps its quarter-hour silence. Until the reply lands each account line carries
+*Checking…*; an offline machine is not asked at all and reads *Offline · quota unavailable*; a
+`device_offline` refusal reads the same; an account carrying `limits_error` shows that line and no
+meter; an account with neither windows nor error — Grok Build — shows its line alone. A key never
+has a meter, not even a waiting one.
+
+Identifiers: `device.page`, `device.agent.<id>`, `device.agent.<id>.signIn`, `device.quota.checking`,
+`device.quota.offline`, `device.quota.error`, `device.quota.meters`, `device.quota.failure`. The
+agent's is on its **name**, not on the card: an `accessibilityIdentifier` on a stack that is not
+itself an accessibility element is copied onto every text inside it, and the card's identifier
+swallowed the sign-in line's and the meters' the first time. The UI test caught it.
+
+The demo spreads the shapes across its three machines: `mac-studio-office` has Claude on an
+Anthropic account with a tier and three windows, Codex on `pro` with two, Grok Build on an account
+whose vendor exposes no window at all, and pi with one credential per provider — an account and a
+relayed key; `macbook-air` has a Claude account whose token expired (a `limits_error`) and a Grok
+Build signed in nowhere; `ci-runner-01` is offline. `DemoFixtures.agentsWithQuota(deviceID:)` is the
+reply, `DemoFixtures.devices` the list, and the two are deliberately different: nothing carrying a
+window is ever stored.
 
 ## Surfaces and type
 
@@ -900,6 +954,33 @@ corner radius is private to UIKit, so `DisplayCorner` reads the window's bottom 
 instead: a home indicator means a round display. Reduce Motion gets the same ring at a fixed width
 with a slow opacity pulse and nothing driven by the voice.
 
+**How bright, and why (round 27).** `docs/DESIGN.md` § "The composer": the glow is meant to be
+seen, not found. The first pass was faint at rest and swelled by about a third, which read as a
+meter nobody noticed. `VoiceGlowField` draws three strokes on the same rounded rectangle, each a
+width, a blur and an opacity that rise with the level `e` (0…1):
+
+| Stroke | Width | Blur | Opacity | Was |
+| --- | --- | --- | --- | --- |
+| Halo | 34 + 30e | 22 + 10e | 0.22 + 0.20e | 30 + 16e, 20 + 6e, 0.13 + 0.09e |
+| Skirt | 12 + 12e | 8 + 3e | 0.36 + 0.24e | 11 + 6e, 7 + 2e, 0.26 + 0.12e |
+| Rim | 4 + 4e | 3 | 0.60 + 0.30e | 3.5 + 2e, 2.5, 0.44 + 0.16e |
+
+The resting light is roughly doubled and the swing with it, so silence is plainly a band of light
+along all four edges and a conversational voice is unmistakable; the halo is still the widest and
+the faintest, so the page stays readable to the margin and the colour never lands on the words. The
+breathing is unchanged — a 0.14 s rise and a 0.32 s fall — and so is the Reduce Motion path, which
+holds `expansion` at 0.3 and drives nothing from the voice.
+
+The other half was the scale itself. `InputLevel` (`Sources/RCUI/Voice/InputLevel.swift`) maps a
+buffer's RMS through decibels, and both backends now go through it rather than each carrying the
+same line. It ran from −55 dBFS to 0, which is the dynamic range of the format rather than the
+range of a voice: ordinary speech sat between 0.4 and 0.6 and the glow only ever used the middle of
+its swing. It now runs from −50 dBFS, a quiet room, to −12, conversational speech at arm's length,
+so a voice spans the scale.
+
+The figures were chosen by eye from before-and-after screenshots of the `--voice-preview` listening
+state at `--voice-level=0`, `0.5` and `1`, which is what that argument exists for.
+
 ### No maximum duration
 
 Listening ends when the user taps Done, when the app is backgrounded, or when the recognizer fails.
@@ -1145,7 +1226,11 @@ gateway address surviving a background, terminate and relaunch. Details in
 Everything beyond those four tests ran only against the offline demo: new session, add device, the
 directory picker, voice, push, the in-app turn banners (seen by eye in the simulator; a banner is
 SpringBoard's, not in the app's element tree, so no UI test asserts it) and slash commands — no command has been listed or run against a real
-device, so what the three agents really offer is the client's word rather than this app's. The pairing camera is the one piece with no coverage at all: a
+device, so what the three agents really offer is the client's word rather than this app's. The
+device page is in the same position (A33): every account line, every meter and every one of its
+four states was driven by the scripted device, and no real machine has yet reported a credential or
+a rate-limit window to this app. Its pull-to-refresh is wired to the same request the page opens
+with and no test asserts the gesture. The pairing camera is the one piece with no coverage at all: a
 simulator has none, so the scan flow was driven through the injected stand-in and neither
 VisionKit's data scanner nor the `AVCaptureMetadataOutput` fallback has read a real QR code. Segment rollover is covered as a rule and against a fake backend,
 never against a real microphone: no dictation has run past one recognition request on a device, and

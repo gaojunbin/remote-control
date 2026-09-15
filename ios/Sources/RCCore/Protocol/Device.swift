@@ -45,6 +45,12 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
     /// `shared` session. The Codex daemon takes image inputs; a Claude channel
     /// has no way to hand bytes to a live CLI.
     public let sharedAttachments: Bool
+    /// Amendment A33: how this agent is signed in on the device, one entry per
+    /// vendor credential it holds. Nil when the device did not look, which is
+    /// what an older client reports; empty when the agent is installed and
+    /// signed in nowhere. A `device.agents` reply carries the rate-limit
+    /// windows with them; `hello` and `agents.updated` never do.
+    public let accounts: [AgentAccount]?
 
     public var id: String { agent }
 
@@ -81,7 +87,7 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
                 speeds: [AgentOption] = [], capabilities: [AgentCapability] = [],
                 attach: AgentAttach? = nil, attachReady: Bool = false,
                 sharedInterrupt: Bool = false, sharedSettings: Bool = false,
-                sharedAttachments: Bool = false) {
+                sharedAttachments: Bool = false, accounts: [AgentAccount]? = nil) {
         self.agent = agent
         self.available = available
         self.version = version
@@ -99,10 +105,24 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
         self.sharedInterrupt = sharedInterrupt
         self.sharedSettings = sharedSettings
         self.sharedAttachments = sharedAttachments
+        self.accounts = accounts
+    }
+
+    /// The same agent carrying these credentials: the fresh ones a
+    /// `device.agents` reply brought, or the stored ones with their windows
+    /// dropped (A33).
+    public func with(accounts: [AgentAccount]?) -> AgentInfo {
+        AgentInfo(agent: agent, available: available, version: version, path: path,
+                  models: models, defaultModel: defaultModel,
+                  permissionModes: permissionModes, defaultPermissionMode: defaultPermissionMode,
+                  efforts: efforts, defaultEffort: defaultEffort, speeds: speeds,
+                  capabilities: capabilities, attach: attach, attachReady: attachReady,
+                  sharedInterrupt: sharedInterrupt, sharedSettings: sharedSettings,
+                  sharedAttachments: sharedAttachments, accounts: accounts)
     }
 
     enum CodingKeys: String, CodingKey {
-        case agent, available, version, path, models, efforts, speeds, capabilities, attach
+        case agent, available, version, path, models, efforts, speeds, capabilities, attach, accounts
         case defaultModel = "default_model"
         case permissionModes = "permission_modes"
         case defaultPermissionMode = "default_permission_mode"
@@ -132,6 +152,7 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
         sharedInterrupt = try values.decodeIfPresent(Bool.self, forKey: .sharedInterrupt) ?? false
         sharedSettings = try values.decodeIfPresent(Bool.self, forKey: .sharedSettings) ?? false
         sharedAttachments = try values.decodeIfPresent(Bool.self, forKey: .sharedAttachments) ?? false
+        accounts = try values.decodeIfPresent([AgentAccount].self, forKey: .accounts)
     }
 }
 

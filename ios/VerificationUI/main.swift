@@ -675,6 +675,21 @@ func run() async -> (passed: Int, failures: [String]) {
     expect(!ComposerLayout.scrolls("one\ntwo"), "a short draft does not scroll")
     expect(ComposerLayout.scrolls(paragraph), "past the cap the text scrolls inside the field")
 
+    // MARK: - What the microphone's loudness maps to
+    //
+    // `docs/DESIGN.md` § "Voice": the glow is meant to be seen, not found, and
+    // it can only swell with the voice if a voice spans the scale. A quiet room
+    // is the floor and conversational speech the ceiling.
+
+    equal(InputLevel.from(rms: 0), 0.0, "silence is the bottom of the scale")
+    equal(InputLevel.from(rms: pow(10, InputLevel.floorDB / 20)), 0.0, "and so is a quiet room")
+    equal(InputLevel.from(rms: pow(10, InputLevel.ceilingDB / 20)), 1.0,
+          "conversational speech reaches the top")
+    expect(InputLevel.from(rms: pow(10, -31.0 / 20)) > 0.45
+           && InputLevel.from(rms: pow(10, -31.0 / 20)) < 0.55,
+           "and the middle of a voice's range sits in the middle of the glow's")
+    expect(InputLevel.from(rms: 1) <= 1, "nothing louder than the ceiling overshoots it")
+
     // MARK: - The listening glow follows the display
 
     equal(DisplayCorner.radius(bottomSafeArea: 34), DisplayCorner.fallbackRadius,
@@ -765,6 +780,78 @@ func run() async -> (passed: Int, failures: [String]) {
         equal(DeviceUpdate.block(for: studio, servedBuild: model.connection.config.servedBuild),
               .current, "and the action says why it could not act")
     }
+
+    // MARK: - Amendment A33: how an agent is signed in, and what is left of it
+    //
+    // `docs/DESIGN.md` § "A device has a page" and § "Quota is a meter, drawn
+    // for accounts only". The credentials are on the device list already; the
+    // windows are asked for once, per page, and never published.
+
+    if let studio = model.connection.device(DemoFixtures.macDeviceID) {
+        let stored = studio.agents.flatMap { $0.accounts ?? [] }
+        expect(!stored.isEmpty, "the device list carries what each agent is signed in with")
+        expect(stored.allSatisfy { $0.limits == nil && $0.limitsCheckedAt == nil },
+               "and carries no window with them, so a percentage never redraws the list")
+        equal(studio.agent("claude")?.accounts?.first?.tier, "Max 5x",
+              "a tier the device put into words is stored as it wrote it")
+    } else {
+        expect(false, "the demo lists the machine the page is opened on")
+    }
+
+    if let channel = model.connection.channel {
+        let fresh = try? await channel.request(.agents(deviceID: DemoFixtures.macDeviceID),
+                                               as: AgentsResult.self)
+        let claude = fresh?.agents.first { $0.agent == "claude" }?.accounts?.first
+        equal(claude?.limits?.count, 3, "the reply carries the windows the device read")
+        equal(claude?.limits?.last?.scope, "Fable", "including the one confined to a model")
+        let grok = fresh?.agents.first { $0.agent == "grok" }?.accounts?.first
+        expect(grok != nil && grok?.limits == nil && grok?.limitsError == nil,
+               "a vendor that exposes no windows reports neither a window nor a failure")
+        let key = fresh?.agents.first { $0.agent == "pi" }?.accounts?.last
+        equal(key?.method, .apiKey, "pi's second credential is a key")
+        equal(key?.endpoint, "api.relay.example", "sent to a host that is not the vendor's")
+
+        // Asking does not change what the list holds.
+        let after = model.connection.device(DemoFixtures.macDeviceID)?.agents.flatMap { $0.accounts ?? [] }
+        expect(after?.allSatisfy { $0.limits == nil } ?? false,
+               "and the stored device is untouched by the answer")
+
+        let laptop = try? await channel.request(.agents(deviceID: DemoFixtures.laptopDeviceID),
+                                                as: AgentsResult.self)
+        let expired = laptop?.agents.first { $0.agent == "claude" }?.accounts?.first
+        expect(expired?.limitsError?.isEmpty == false,
+               "a check the device could not make says why, in one line")
+        equal(laptop?.agents.first { $0.agent == "grok" }?.accounts, [],
+              "an agent signed in nowhere reports no credential at all")
+
+        // An offline machine is refused rather than answered, which is the page's
+        // "Offline · quota unavailable".
+        do {
+            _ = try await channel.request(.agents(deviceID: DemoFixtures.ciDeviceID),
+                                          as: AgentsResult.self)
+            expect(false, "an offline device cannot be asked for its quota")
+        } catch let error as GatewayErrorBody {
+            equal(error.code, .deviceOffline, "and says so with the code the page reads")
+        } catch {
+            expect(false, "an offline device is refused by the gateway, not by the transport")
+        }
+    }
+
+    // The words the page writes around the device's own.
+    equal(AccountLine.vendorName("anthropic"), "Anthropic", "a vendor the app knows is named")
+    equal(AccountLine.vendorName("mistral"), "mistral", "and one it does not is printed as itself")
+    equal(AccountLine.text(for: AgentAccount(provider: "openai", method: .apiKey,
+                                             endpoint: "api.relay.example")),
+          "OpenAI API key · api.relay.example", "a key names its vendor and the host it is sent to")
+    equal(AccountLine.text(for: AgentAccount(provider: "anthropic", method: .account, plan: "max",
+                                             tier: "Max 5x", email: "me@example.com")),
+          "Anthropic account · Max · Max 5x · me@example.com",
+          "and an account raises the plan's first letter and prints the tier as it arrived")
+    equal(QuotaWindow.name(AgentLimit(windowMinutes: 10080, scope: "Fable", usedPercent: 64)),
+          "7-day · Fable", "a window carries its scope after its length")
+    equal(QuotaWindow.band(usedPercent: 80), .normal, "eighty per cent is still the ink colour")
+    equal(QuotaWindow.band(usedPercent: 80.5), .warning, "past it the meter warns")
+    equal(QuotaWindow.band(usedPercent: 100), .danger, "and a spent window is the danger colour")
 
     // MARK: - The interface language
 

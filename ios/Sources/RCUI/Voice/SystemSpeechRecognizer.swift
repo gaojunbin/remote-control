@@ -219,7 +219,7 @@ import RCCore
             var sum: Float = 0
             for index in 0..<count { sum += samples[index] * samples[index] }
             let rms = sqrt(Double(sum) / Double(count))
-            let normalized = max(0, min(1, (20 * log10(max(rms, 0.0001)) + 55) / 55))
+            let normalized = InputLevel.from(rms: rms)
             onEvent(.level(normalized))
         }
     }

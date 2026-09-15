@@ -1439,6 +1439,111 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "64-device-updated")
     }
 
+    /// Amendment A33: tapping a device opens its page — the agents on it, how
+    /// each is signed in, and what is left of each account's quota. The row's
+    /// own three actions stay on the row and are not repeated here.
+    func testDevicePageShowsHowEachAgentIsSignedInAndWhatIsLeft() {
+        openDevices()
+        let row = deviceRow(DemoDevices.studio)
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
+        row.tap()
+
+        // The windows are read on request, so the meters say they are coming.
+        // This is the first thing the page does, so it is the first thing
+        // looked at: the scripted device answers three seconds later.
+        let checking = app.descendants(matching: .any)["device.quota.checking"].firstMatch
+        XCTAssertTrue(checking.waitForExistence(timeout: 15),
+                      "the page asks the device the moment it opens")
+        attach(name: "80-device-page-checking")
+
+        let page = app.descendants(matching: .any)["device.page"]
+        XCTAssertTrue(page.exists, "the row itself opens the machine")
+        for agent in ["claude", "codex", "grok", "pi"] {
+            XCTAssertTrue(app.descendants(matching: .any)["device.agent.\(agent)"].exists,
+                          "every agent the machine found has a card")
+        }
+        XCTAssertFalse(app.buttons["device.revoke"].exists,
+                       "the three row actions are not repeated on the page")
+
+        let meters = app.descendants(matching: .any)["device.quota.meters"].firstMatch
+        XCTAssertTrue(meters.waitForExistence(timeout: 20), "and draws the windows it answers with")
+        XCTAssertTrue(meters.label.contains("5-hour"), "a window is named by its length")
+        XCTAssertTrue(meters.label.contains("%"), "with the share it has spent")
+        XCTAssertTrue(anyElement(containing: "7-day · Fable"),
+                      "and a weekly window confined to one model says which")
+        XCTAssertTrue(anyText(containing: "Anthropic account · Max · Max 5x · me@example.com"),
+                      "an account names its vendor, its plan, its tier and its email")
+        XCTAssertTrue(anyText(containing: "xAI account"),
+                      "a vendor with no window to report still says how it is signed in")
+        XCTAssertTrue(anyText(containing: "OpenAI API key · api.relay.example"),
+                      "and a key names its vendor and the host it is sent to")
+        attach(name: "81-device-page-quota")
+    }
+
+    /// A machine that is not there to ask keeps the credentials it last
+    /// reported and says so where the meters go.
+    func testOfflineDevicePageKeepsItsAccountsAndSaysWhyThereAreNoMeters() {
+        openDevices()
+        let row = deviceRow(DemoDevices.ci)
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "the offline machine is listed")
+        row.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["device.page"].waitForExistence(timeout: 15))
+        XCTAssertTrue(anyText(containing: "OpenAI account"),
+                      "the account line is the device's last word, not a live one")
+        let offline = app.staticTexts["device.quota.offline"].firstMatch
+        XCTAssertTrue(offline.waitForExistence(timeout: 10),
+                      "and the meters say the machine cannot be asked")
+        XCTAssertFalse(app.descendants(matching: .any)["device.quota.meters"].exists,
+                       "with no meter drawn from a stale figure")
+        attach(name: "82-device-page-offline")
+    }
+
+    /// The two shapes that are not a meter: a window the device could not read,
+    /// which says why in the device's own words, and an agent installed and
+    /// signed in nowhere.
+    func testDevicePageSaysWhyAQuotaIsMissingAndWhenNothingIsSignedIn() {
+        openDevices()
+        let row = deviceRow(DemoDevices.laptop)
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "the second machine is listed")
+        row.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["device.page"].waitForExistence(timeout: 15))
+        let reason = app.descendants(matching: .any)["device.quota.error"].firstMatch
+        XCTAssertTrue(reason.waitForExistence(timeout: 20),
+                      "a check the device could not make says why, in one line")
+        XCTAssertTrue(reason.label.contains("expired"), "in the device's own words")
+        XCTAssertFalse(app.descendants(matching: .any)["device.quota.meters"].exists,
+                       "and draws no meter beside it")
+        XCTAssertEqual(app.staticTexts["device.agent.grok.signIn"].firstMatch.label,
+                       "Not signed in", "an agent signed in nowhere says so")
+        attach(name: "84-device-page-no-quota")
+    }
+
+    /// The glow around the display while dictating. It is level-driven, so the
+    /// scripted platform is pinned at rest, at conversational speech and at the
+    /// top of its range, and each is screenshotted.
+    func testListeningGlowIsSeenAtEveryLevel() {
+        for level in ["0", "0.5", "1"] {
+            app = XCUIApplication()
+            app.launchArguments = ["--ui-testing", "--demo", "--reset-state", "--voice-preview",
+                                   "--voice-level=\(level)"]
+            app.launch()
+            openLiveSession()
+            XCTAssertTrue(promptField().waitForExistence(timeout: 15))
+            app.buttons["composer.voice"].tap()
+            let done = app.buttons["voice.done"]
+            XCTAssertTrue(done.waitForExistence(timeout: 15), "dictation is listening")
+            XCTAssertTrue(waitFor { done.isEnabled })
+            // The glow rises fast and falls slow; half a second is past both,
+            // so the frame is this level's steady state rather than a rise.
+            usleep(500_000)
+            attach(name: "83-voice-glow-level-\(level)")
+            done.tap()
+            app.terminate()
+        }
+    }
+
     /// Amendment A23: the whole scan flow, with the camera replaced by the
     /// stand-in the demo injects — a simulator has none.
     func testScanningAPrintedCodePairsTheHost() {
@@ -1740,6 +1845,22 @@ final class RemoteControlUITests: XCTestCase {
     private enum DemoDevices {
         static let studio = "demo-mac-studio"
         static let laptop = "demo-macbook-air"
+        static let ci = "demo-ci-runner"
+    }
+
+    /// Any label on screen holding this text. A card's lines are separate
+    /// elements, so a sentence is looked for rather than matched whole.
+    private func anyText(containing text: String) -> Bool {
+        app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", text))
+            .firstMatch.waitForExistence(timeout: 10)
+    }
+
+    /// The same, for a row that combines its children into one element and so
+    /// is no longer a static text.
+    private func anyElement(containing text: String) -> Bool {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", text))
+            .firstMatch.waitForExistence(timeout: 10)
     }
 
     private func openDevices() {

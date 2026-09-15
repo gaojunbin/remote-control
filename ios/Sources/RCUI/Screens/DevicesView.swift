@@ -18,9 +18,14 @@ struct DevicesView: View {
     var body: some View {
         List {
             ForEach(model.connection.devices) { device in
-                DeviceRow(device: device,
-                          servedBuild: model.connection.config.servedBuild,
-                          localError: model.deviceUpdateError(device.deviceID))
+                // `docs/DESIGN.md` § "A device has a page": the row itself
+                // opens the machine; its menu and its swipe still act on it
+                // without going anywhere.
+                NavigationLink(value: device.deviceID) {
+                    DeviceRow(device: device,
+                              servedBuild: model.connection.config.servedBuild,
+                              localError: model.deviceUpdateError(device.deviceID))
+                }
                     .sessionRowLayout()
                     .accessibilityIdentifier("device.\(device.deviceID)")
                     .contextMenu { actions(for: device) }
@@ -53,6 +58,9 @@ struct DevicesView: View {
         .scrollContentBackground(.hidden)
         .pageBackground()
         .navigationTitle("Devices")
+        .navigationDestination(for: String.self) { deviceID in
+            DeviceDetailView(deviceID: deviceID).environment(model)
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Button {
                 isAdding = true
@@ -188,16 +196,7 @@ struct DeviceRow: View {
                     .font(Theme.Text.caption)
                     .foregroundStyle(Theme.inkSecondary)
             }
-            HStack(spacing: 5) {
-                StatusDot(tone: tone)
-                Text(device.online ? "online" : "offline")
-                    .font(Theme.Text.meta)
-                    .foregroundStyle(Theme.inkSecondary)
-                Text("·").font(Theme.Text.caption).foregroundStyle(Theme.inkSecondary)
-                CodeText("\(device.hostname) · \(device.platform.rawValue) \(device.arch)",
-                         font: Theme.Text.metaMono)
-                Spacer(minLength: 0)
-            }
+            DeviceStatusLine(device: device)
             if !device.availableAgents.isEmpty {
                 // `docs/DESIGN.md` § "Agents": the logo, then the name, for each
                 // agent this machine detected.
@@ -215,64 +214,15 @@ struct DeviceRow: View {
                 }
                 .lineLimit(1)
             }
-            clientLine
+            DeviceClientLine(device: device, servedBuild: servedBuild, localError: localError)
         }
         .accessibilityElement(children: .combine)
-    }
-
-    /// Amendment A22: the build this machine runs, and the one line that
-    /// replaces it whenever there is something to say about an update.
-    @ViewBuilder
-    private var clientLine: some View {
-        HStack(spacing: 5) {
-            CodeText(clientText, font: Theme.Text.metaMono)
-            if let notice {
-                Text("·").font(Theme.Text.caption).foregroundStyle(Theme.inkSecondary)
-                Text(Self.text(of: notice))
-                    .font(Theme.Text.caption)
-                    .foregroundStyle(notice.isFailure ? Theme.danger : Theme.inkSecondary)
-                    .accessibilityIdentifier("device.updateNotice")
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var notice: DeviceUpdate.Notice? {
-        DeviceUpdate.notice(for: device, servedBuild: servedBuild, localError: localError)
-    }
-
-    /// The build is worth showing only while nothing louder replaces it.
-    private var clientText: String {
-        guard notice == nil, let build = device.clientBuild else {
-            return L10n.string("client %@", device.clientVersion)
-        }
-        return L10n.string("client %@ · %@", device.clientVersion, DeviceUpdate.shortBuild(build))
-    }
-
-    private var tone: DotTone {
-        if device.updateState == .updating { return .working }
-        return device.online ? .live : .off
-    }
-
-    private static func text(of notice: DeviceUpdate.Notice) -> String {
-        switch notice {
-        case .available: L10n.string("Update available")
-        case .updating: L10n.string("Updating…")
-        case .failed(let message): L10n.string("Update failed · %@", message)
-        }
     }
 
     /// Latency while it answers, and how long ago it last did when it does not.
     private var trailing: String {
         if device.online { return device.latencyMS.map { "\($0) ms" } ?? "" }
         return RelativeTime.short(since: device.lastSeen)
-    }
-}
-
-extension DeviceUpdate.Notice {
-    var isFailure: Bool {
-        if case .failed = self { return true }
-        return false
     }
 }
 

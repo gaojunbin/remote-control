@@ -57,7 +57,9 @@ public enum DemoFixtures {
             efforts: [AgentOption(id: "medium", label: "Medium"), AgentOption(id: "high", label: "High")],
             defaultEffort: "high",
             capabilities: [.worktree, .takeover, .interrupt, .queue, .attachments, .effort, .history],
-            attach: .channel, attachReady: true, sharedInterrupt: false)
+            attach: .channel, attachReady: true, sharedInterrupt: false,
+            accounts: [AgentAccount(provider: "anthropic", method: .account, plan: "max",
+                                    tier: "Max 5x", email: "me@example.com")])
     }
 
     /// The same agent on a machine where the `claude` shim was never installed,
@@ -69,7 +71,9 @@ public enum DemoFixtures {
             permissionModes: claude.permissionModes, defaultPermissionMode: "default",
             efforts: claude.efforts, defaultEffort: claude.defaultEffort,
             capabilities: claude.capabilities,
-            attach: .channel, attachReady: false, sharedInterrupt: false)
+            attach: .channel, attachReady: false, sharedInterrupt: false,
+            accounts: [AgentAccount(provider: "anthropic", method: .account, plan: "pro",
+                                    email: "me@example.com")])
     }
 
     /// Amendment A11: Codex behind a running app-server daemon. Everything the
@@ -94,7 +98,9 @@ public enum DemoFixtures {
             capabilities: [.worktree, .interrupt, .queue, .steer, .attachments, .effort, .history,
                            .commands],
             attach: .daemon, attachReady: true, sharedInterrupt: true,
-            sharedSettings: true, sharedAttachments: true)
+            sharedSettings: true, sharedAttachments: true,
+            accounts: [AgentAccount(provider: "openai", method: .account, plan: "pro",
+                                    email: "me@example.com")])
     }
 
     /// The same agent on a machine where the app-server daemon is not running,
@@ -106,7 +112,9 @@ public enum DemoFixtures {
             permissionModes: codex.permissionModes, defaultPermissionMode: codex.defaultPermissionMode,
             efforts: codex.efforts, defaultEffort: codex.defaultEffort, speeds: codex.speeds,
             capabilities: codex.capabilities,
-            attach: .daemon, attachReady: false)
+            attach: .daemon, attachReady: false,
+            accounts: [AgentAccount(provider: "openai", method: .account, plan: "plus",
+                                    email: "me@example.com")])
     }
 
     /// Amendment A25: Grok Build, driven over its ACP JSON-RPC. Amendment A28:
@@ -133,7 +141,9 @@ public enum DemoFixtures {
                       AgentOption(id: "xhigh", label: "Extra high")],
             defaultEffort: "high",
             capabilities: [.worktree, .interrupt, .queue, .effort, .history, .commands],
-            attach: .leader, attachReady: true, sharedInterrupt: true, sharedSettings: true)
+            attach: .leader, attachReady: true, sharedInterrupt: true, sharedSettings: true,
+            accounts: [AgentAccount(provider: "xai", method: .account, plan: nil,
+                                    email: "me@example.com")])
     }
 
     /// Amendment A28: the same agent on a machine whose `~/.grok/config.toml`
@@ -147,7 +157,9 @@ public enum DemoFixtures {
             permissionModes: grok.permissionModes, defaultPermissionMode: grok.defaultPermissionMode,
             efforts: grok.efforts, defaultEffort: grok.defaultEffort,
             capabilities: grok.capabilities,
-            attach: .leader, attachReady: false, sharedInterrupt: true, sharedSettings: true)
+            attach: .leader, attachReady: false, sharedInterrupt: true, sharedSettings: true,
+            // Amendment A33: installed, signed in nowhere.
+            accounts: [])
     }
 
     /// Amendment A26: the pi coding agent behind the device's own extension,
@@ -173,8 +185,86 @@ public enum DemoFixtures {
             capabilities: [.worktree, .interrupt, .queue, .steer, .attachments, .effort, .history,
                            .commands],
             attach: .extension, attachReady: true, sharedInterrupt: true,
-            sharedSettings: true, sharedAttachments: true)
+            sharedSettings: true, sharedAttachments: true,
+            // Amendment A33: pi signs in per provider, so it holds one
+            // credential per vendor — here a subscription and a relayed key.
+            accounts: [AgentAccount(provider: "anthropic", method: .account, plan: "max",
+                                    email: "me@example.com"),
+                       AgentAccount(provider: "openai", method: .apiKey,
+                                    endpoint: "api.relay.example")])
     }
+
+    // MARK: - Accounts and quota (A33)
+
+    /// What `device.agents` answers for one machine: the same credentials the
+    /// device list already carries, with the rate-limit windows the device read
+    /// for them. Nothing here reaches the stored device, which is the whole
+    /// point of asking for them on demand.
+    ///
+    /// The four shapes a page has to draw are spread across the demo machines:
+    /// an account with windows, an account whose vendor exposes none (Grok
+    /// Build), an account the device could not read (an expired token), and a
+    /// key, which never has a window to measure.
+    public static func agentsWithQuota(deviceID: String) -> [AgentInfo]? {
+        switch deviceID {
+        case macDeviceID:
+            return [claude.with(accounts: [anthropicMax.with(limits: claudeWindows)]),
+                    codex.with(accounts: [openAIPro.with(limits: codexWindows)]),
+                    grok,
+                    pi.with(accounts: [piAnthropic.with(limits: piWindows),
+                                       relayedKey])]
+        case laptopDeviceID:
+            return [claudeWithoutShim.with(accounts: [
+                        anthropicPro.with(limitsError: "signed-in token expired; open Claude Code once to refresh it")
+                    ]),
+                    grokWithoutLeader]
+        default:
+            return nil
+        }
+    }
+
+    private static var anthropicMax: AgentAccount {
+        AgentAccount(provider: "anthropic", method: .account, plan: "max",
+                     tier: "Max 5x", email: "me@example.com")
+    }
+
+    private static var anthropicPro: AgentAccount {
+        AgentAccount(provider: "anthropic", method: .account, plan: "pro", email: "me@example.com")
+    }
+
+    private static var openAIPro: AgentAccount {
+        AgentAccount(provider: "openai", method: .account, plan: "pro", email: "me@example.com")
+    }
+
+    private static var piAnthropic: AgentAccount {
+        AgentAccount(provider: "anthropic", method: .account, plan: "max", email: "me@example.com")
+    }
+
+    private static var relayedKey: AgentAccount {
+        AgentAccount(provider: "openai", method: .apiKey, endpoint: "api.relay.example")
+    }
+
+    /// A five-hour window, a week, and the week one model is confined to.
+    private static var claudeWindows: [AgentLimit] {
+        [AgentLimit(windowMinutes: 300, usedPercent: 16, resetsAt: now + 7_200_000),
+         AgentLimit(windowMinutes: 10080, usedPercent: 54, resetsAt: now + 205_200_000),
+         AgentLimit(windowMinutes: 10080, scope: "Fable", usedPercent: 64,
+                    resetsAt: now + 205_200_000)]
+    }
+
+    /// The shared daemon's two, the second of them nearly spent.
+    private static var codexWindows: [AgentLimit] {
+        [AgentLimit(windowMinutes: 300, usedPercent: 37, resetsAt: now + 5_400_000),
+         AgentLimit(windowMinutes: 10080, usedPercent: 93, resetsAt: now + 291_600_000)]
+    }
+
+    private static var piWindows: [AgentLimit] {
+        [AgentLimit(windowMinutes: 300, usedPercent: 8, resetsAt: now + 7_200_000),
+         AgentLimit(windowMinutes: 10080, usedPercent: 100, resetsAt: now + 205_200_000)]
+    }
+
+    /// When this demo device says it read the windows: the moment it answers.
+    static var checkedNow: Int64 { now }
 
     // MARK: - Slash commands (A27)
 
@@ -845,5 +935,23 @@ public enum DemoFixtures {
             UserRecord(username: disabledUsername, role: .member, state: .disabled,
                        createdAt: now - 2_160_000, lastLoginAt: nil, devices: 0)
         ]
+    }
+}
+
+/// Amendment A33: the two shapes a `device.agents` reply adds to a credential
+/// the device list already carries — the windows it read, or why it could not.
+/// They live here because only this scripted device builds them; a real device
+/// sends the whole account at once.
+extension AgentAccount {
+    fileprivate func with(limits: [AgentLimit]) -> AgentAccount {
+        AgentAccount(provider: provider, method: method, plan: plan, tier: tier,
+                     email: email, endpoint: endpoint, limits: limits,
+                     limitsCheckedAt: DemoFixtures.checkedNow)
+    }
+
+    fileprivate func with(limitsError: String) -> AgentAccount {
+        AgentAccount(provider: provider, method: method, plan: plan, tier: tier,
+                     email: email, endpoint: endpoint, limitsError: limitsError,
+                     limitsCheckedAt: DemoFixtures.checkedNow)
     }
 }

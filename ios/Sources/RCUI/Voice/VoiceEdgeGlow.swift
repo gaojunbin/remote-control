@@ -58,14 +58,16 @@ struct VoiceGlowField: View {
         GeometryReader { geometry in
             // Three strokes on the same path: a thin bright rim, a soft skirt
             // and a wide low halo. The page has to stay readable underneath, so
-            // the halo is the only wide one and it is the faintest by far.
+            // the halo is the only wide one and it is the faintest by far. The
+            // resting light is plainly there and full voice roughly doubles the
+            // swing: the glow is meant to be seen, not found.
             ZStack {
-                lightSource(gradient, width: 30 + expansion * 16, blur: 20 + expansion * 6)
-                    .opacity(0.13 + emphasis * 0.09)
-                lightSource(gradient, width: 11 + expansion * 6, blur: 7 + expansion * 2)
-                    .opacity(0.26 + emphasis * 0.12)
-                lightSource(gradient, width: 3.5 + expansion * 2, blur: 2.5)
-                    .opacity(0.44 + emphasis * 0.16)
+                lightSource(gradient, width: 34 + expansion * 30, blur: 22 + expansion * 10)
+                    .opacity(0.22 + emphasis * 0.20)
+                lightSource(gradient, width: 12 + expansion * 12, blur: 8 + expansion * 3)
+                    .opacity(0.36 + emphasis * 0.24)
+                lightSource(gradient, width: 4 + expansion * 4, blur: 3)
+                    .opacity(0.60 + emphasis * 0.30)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .scaleEffect(x: 1 - expansion * 0.010, y: 1 - expansion * 0.004)
