@@ -1545,6 +1545,27 @@ at 30 s waiting for a scripted turn while three agents loaded this Mac, and pass
 Not verified: the pull-to-refresh gesture itself, the glow on a phone's own microphone, and the
 real transcript of several hundred rows.
 
+## 27. Done becomes a spinner, and the spinner becomes Send (2026-09-16, iOS)
+
+The owner reported that after Done the app waits for the final transcript and then for the polish
+answer while Done still looks tappable. The cause was read from the code: `PrimaryButtonStyle` has
+no disabled look, so the Done that `VoiceListeningControls` kept drawing through `.finishing` read
+as live, and once the transcript was final the ordinary row came back with Send enabled while the
+model was still writing. The slot is now one derivation, `ComposerPrimarySlot`, checked over all
+twenty-four pairs of dictation and polish phases: Done while the microphone is live, a spinner in
+Send's circle while the transcript or the answer is on its way, Send otherwise. An edit typed while
+the request is out cancels it (tested: the late answer never lands), and the code was read to
+confirm nothing but the person writes the draft in that phase. In the simulator against the demo,
+with polish on and the demo's three-second polish delay: after the tap on Done the spinner stands
+where Send stood, against the trailing edge at Send's height, with no Send and no Done on the
+screen, "Polishing…" above the field; when the note "Polished · Undo" appears the arrow is back and
+nothing spins. With polish off, Send is back at once and no spinner is left. 1288 + 305 checks,
+325 unit tests, 57 UI tests (4 skipped, 0 failures, 966 s for the whole suite; the tool-card test that timed out under load in round 27 passed). Not verified: the spinner during `.finishing` on a real
+microphone or the gateway backend (the scripted platform answers Done in the same pass, so that
+phase lasts one frame in the tests), and Reduce Motion by eye. The web composer keeps the older
+behaviour — Done disabled while finishing and Send offered while polishing — and was left alone,
+because the request named iOS.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
