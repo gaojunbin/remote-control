@@ -1095,6 +1095,19 @@ message starts carries `trigger: "agent"` (5.9), which the status line treats as
 `terminal`. Rows the CLI marks `isMeta`, including the echo of a message this device injected through
 its channel, stay out of the timeline as before.
 
+Three more rows Claude Code files as user turns are not prompts either (amendment A32). The summary
+the CLI writes after compacting the context (`isCompactSummary: true`, which its own view hides) is
+not a block at all: the `compact_boundary` row that precedes it becomes the `notice` of 5.13, as a
+Codex compaction already does. The marker the CLI leaves when the person interrupts a turn
+(`[Request interrupted by user]`, `[Request interrupted by user for tool use]`) is not a block and
+starts no turn: it ends the running one with `stop_reason: "interrupted"`, and a tool result carried
+by the same row is published as usual. A slash command typed at the terminal, which the CLI records
+as `<command-name>` with `<command-args>`, is the person's words: `user_message {source:
+"terminal"}` whose text is the command and its argument as typed (`/model haiku`), published once
+even where the CLI records the same keystroke twice, as it does for `/compact`. A typed command
+starts no turn; what the CLI printed in reply (`<local-command-stdout>`) is not a block, and ends a
+turn that was running as `completed`, since the CLI's reply is the end of what the command did.
+
 `fixtures/events/user_message.agent.json`
 
 ```json
@@ -1684,7 +1697,10 @@ A snapshot of queued remote messages. Remove one with `session.queue_remove`.
 | `level` | `info` \| `warn` \| `error` | yes | |
 | `text` | string | yes | |
 
-System lines: context compaction, takeover, reconnect.
+System lines: context compaction, takeover, reconnect. A Claude compaction reaches the apps this
+way too: the device emits this line for the `compact_boundary` row a transcript records, or for
+the `compact_boundary` system message the SDK streams, and the summary itself is never a block
+(A32).
 
 `fixtures/events/notice.json`
 
@@ -3166,6 +3182,10 @@ by `block_id` like any other.
 - [ ] Publishes a teammate's message or a task notification the Claude CLI filed as a user turn as
       `user_message {source: "agent"}` with the envelope and every `<system-reminder>` removed,
       never as `terminal`, and starts its turn with `trigger: "agent"` (A30).
+- [ ] Publishes no block for Claude's compaction summary or interruption marker, ends the turn an
+      interruption marker closes with `stop_reason: "interrupted"`, emits the compaction `notice`
+      from the `compact_boundary` row, and publishes a slash command typed at the terminal once, as
+      `user_message {source: "terminal"}` that starts no turn (A32).
 - [ ] Moves a Claude attachment to the session id the CLI's `SessionStart` hook names, and removes
       a terminal-origin session with no events and no transcript with `session.removed` the moment
       its terminal leaves it (A16).
@@ -3558,3 +3578,18 @@ as `major.minor.patch` and an optional `apps.ios.update_url` — and 8.16 fixes 
 does: a blocking "Update required" screen with the two versions, a button to the URL and Sign out,
 and nothing else. A gateway raises the minimum in the same release that breaks compatibility and
 leaves it alone for an additive change. See 3, 6, 8, 9.1 and 9.3.
+
+**2026-09-15 A32 — Claude's compaction summary, interruption markers and typed slash commands.**
+Claude Code files three more things as user turns that are not a prompt: the summary it writes after
+compacting the context (`isCompactSummary`, hidden in its own view), the marker it leaves when the
+person interrupts a turn (`[Request interrupted by user]`, `…for tool use`), and the record of a
+slash command typed at the terminal (`<command-name>` with `<command-args>`). A mirror that trusted
+the role published the first two as the person's words and started a turn on the interruption, so
+a phone showed a page of summary as something its owner typed, and a "Turn failed" for a turn nobody
+ran when the CLI was then restarted. Nothing changes on the wire: the summary produces no block and
+the `compact_boundary` row the `notice` of 5.13, as a Codex compaction already does; the
+interruption produces no block and ends the turn with `stop_reason: "interrupted"`; and the slash
+command is the person's, `user_message {source: "terminal"}` with the command and its argument as
+typed, once, though the CLI records `/compact` twice, and it starts no turn. The CLI's own reply to
+a command (`<local-command-stdout>`) stays out of the timeline and ends a running turn. See 5.2,
+5.13 and 9.2.
