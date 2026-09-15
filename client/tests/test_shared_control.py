@@ -75,6 +75,15 @@ class FakeAttachment(Attachment):
         self.reachable = False
 
 
+def assistant_row(content: list[dict[str, Any]], stop_reason: str) -> dict[str, Any]:
+    """One content block of an assistant message, as the CLI files it."""
+    return {
+        "type": "assistant",
+        "uuid": "a1",
+        "message": {"id": "msg_1", "content": content, "stop_reason": stop_reason},
+    }
+
+
 def agents() -> list[AgentInfo]:
     return [
         AgentInfo(
@@ -258,11 +267,16 @@ async def test_an_absorbed_injection_is_marked_and_re_sent_once(harness: Harness
     assert [text for _, text in harness.attachment.injected] == ["do it", "do it"]
     assert harness.events("user_message")[-1]["delivery"] == "delivered"
 
-    # Absorbed a second time: the device stops re-sending and says so.
+    # Absorbed a second time: the device stops re-sending and says so. The CLI
+    # read the message both times, so the bubble ends as delivered rather than
+    # on a promise of a re-send that will not come (A34).
     second_id, _ = harness.attachment.injected[1]
     await harness.hub.shared.echo_absorbed(entry, second_id)
     assert entry.queue == []
     assert harness.events("notice")[-1]["level"] == "warn"
+    last = harness.events("user_message")[-1]
+    assert last["delivery"] == "delivered"
+    assert last["block_id"] == bubbles[0]["block_id"]
 
 
 async def test_the_absorbed_attachment_row_is_recognised_by_its_message_id() -> None:
@@ -590,6 +604,27 @@ async def test_a_held_message_is_issued_after_the_turn_it_waited_for(
     said = harness.events("assistant_text")[-1]
     assert bubble["first_seq"] == bubble["seq"], "the block exists from the injection, not before"
     assert bubble["first_seq"] > said["seq"]
+
+
+async def test_a_held_message_waits_for_the_row_that_really_ends_the_turn(
+    harness: Harness,
+) -> None:
+    """A34: the mirror asks the tailer whether a turn runs, so a row the model
+    wrote before its tool calls must not drain what the phone is holding."""
+    entry = await harness.attach()
+    tailer = transcripts.TranscriptTailer(path="/nonexistent", cwd="/repo")
+    tailer.awaiting_reply = True
+    await harness.hub.shared.tick(entry, running=tailer.busy)
+    await harness.hub.send({"id": "req-34", "session_id": "sess-1", "text": "ping"})
+    assert harness.attachment.injected == []
+
+    tailer.translate(assistant_row([{"type": "text", "text": "Reading it now."}], "tool_use"))
+    await harness.hub.shared.tick(entry, running=tailer.busy)
+    assert harness.attachment.injected == [], "the turn had only paused to call a tool"
+
+    tailer.translate(assistant_row([{"type": "text", "text": "Done."}], "end_turn"))
+    await harness.hub.shared.tick(entry, running=tailer.busy)
+    assert [text for _, text in harness.attachment.injected] == ["ping"]
 
 
 async def test_a_message_held_across_a_detachment_is_never_shown_twice(

@@ -482,6 +482,17 @@ class TranscriptTailer:
         ]
 
     def _assistant(self, row: dict[str, Any]) -> list[Emit]:
+        """One content block of one assistant message, and whether it ended the turn.
+
+        Claude Code files each block of a message as a row of its own, and every
+        one of them carries the message's final `stop_reason`, so a row holding
+        only the sentence the model says before its tool calls looks exactly
+        like the last row of a turn. The CLI's own word settles it (amendment
+        A34): `tool_use` means the turn goes on whatever the row holds, and
+        anything else — `end_turn`, `stop_sequence`, `max_tokens`, or none at
+        all — ends it. Reading the blocks instead once drained a phone's held
+        messages into a turn that was still running.
+        """
         message = row.get("message") or {}
         message_id = str(message.get("id") or row.get("uuid") or "msg")
         emits: list[Emit] = []
@@ -511,7 +522,7 @@ class TranscriptTailer:
             elif block_type == "tool_use":
                 has_tool = True
                 emits.extend(self._tool_use(block))
-        if not has_tool and emits:
+        if not has_tool and message.get("stop_reason") != "tool_use":
             self.awaiting_reply = False
         return emits
 

@@ -518,8 +518,19 @@ mid-turn is held on the device as a `queue` entry and injected at the next idle 
 is not a message in the conversation at all: the bubble appears when the CLI takes it, with
 `delivery: "delivered"`, so it lands after the output of the turn it waited for — where the terminal
 shows it too. If the CLI absorbs an injection anyway the bubble becomes `delivery: "absorbed"` and
-the device re-sends it once. Turn state comes from the transcript, which the daemon already tails, so
-it lags reality by up to two seconds.
+the device re-sends it once; absorbed a second time, the bubble is published once more as
+`delivery: "delivered"` beside the warning notice, because the CLI has plainly read the message
+both times and `absorbed` would promise a re-send that is not coming (amendment A34).
+
+Turn state comes from the transcript, which the daemon already tails, so it lags reality by up to
+two seconds — and **a turn ends when the CLI says it has**. Claude Code writes each content block of
+one assistant message as a row of its own, and every one of those rows carries the message's final
+`stop_reason`, so the sentence a model says before its tool calls arrives as a text-only row that
+looks exactly like the last row of a turn. The device reads the row's `stop_reason` instead:
+`tool_use` means the turn goes on whatever the row holds, and anything else — `end_turn`,
+`stop_sequence`, `max_tokens`, or none at all — ends it. Reading the blocks instead once drained a
+phone's held messages into a turn that was still running, which is how they came to be absorbed
+(A34).
 
 ### The shim
 

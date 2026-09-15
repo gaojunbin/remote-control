@@ -47,8 +47,13 @@ def user_row(text: str, uuid: str = "u1") -> dict[str, Any]:
     return {"type": "user", "uuid": uuid, "message": {"role": "user", "content": text}}
 
 
-def assistant_row(content: list[dict[str, Any]], message_id: str = "msg_1") -> dict[str, Any]:
-    return {"type": "assistant", "uuid": "a1", "message": {"id": message_id, "content": content}}
+def assistant_row(
+    content: list[dict[str, Any]], message_id: str = "msg_1", stop_reason: str | None = None
+) -> dict[str, Any]:
+    message: dict[str, Any] = {"id": message_id, "content": content}
+    if stop_reason is not None:
+        message["stop_reason"] = stop_reason
+    return {"type": "assistant", "uuid": "a1", "message": message}
 
 
 def model_row(model_id: str) -> dict[str, Any]:
@@ -62,6 +67,46 @@ def permission_row(mode: str) -> dict[str, Any]:
 
 def effort_row(effort: str, text: str = "ok") -> dict[str, Any]:
     return dict(assistant_row([{"type": "text", "text": text}]), effort=effort)
+
+
+def test_a_sentence_before_the_tool_calls_does_not_end_the_turn() -> None:
+    """A34: the CLI files each block of a message as its own row, all carrying
+    the message's final `stop_reason`, so a text-only row of a turn that goes on
+    to call tools looks exactly like the last row of a turn. Only the CLI's own
+    word ends it."""
+    tailer = TranscriptTailer(path="/nonexistent", cwd="/repo")
+    tailer.awaiting_reply = True
+
+    emits = tailer.translate(
+        assistant_row([{"type": "text", "text": "Let me read the file."}], stop_reason="tool_use")
+    )
+
+    assert [emit.kind for emit in emits] == ["assistant_text"]
+    assert tailer.busy is True
+
+
+def test_the_tool_call_row_of_the_same_message_leaves_the_turn_running() -> None:
+    tailer = TranscriptTailer(path="/nonexistent", cwd="/repo")
+    tailer.awaiting_reply = True
+
+    tailer.translate(
+        assistant_row(
+            [{"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": "/repo/a"}}],
+            stop_reason="tool_use",
+        )
+    )
+
+    assert tailer.busy is True
+
+
+@pytest.mark.parametrize("stop_reason", ["end_turn", "stop_sequence", "max_tokens", None])
+def test_every_stop_reason_but_tool_use_ends_the_turn(stop_reason: str | None) -> None:
+    tailer = TranscriptTailer(path="/nonexistent", cwd="/repo")
+    tailer.awaiting_reply = True
+
+    tailer.translate(assistant_row([{"type": "text", "text": "done"}], stop_reason=stop_reason))
+
+    assert tailer.busy is False
 
 
 def test_tailer_reads_only_appended_bytes(tmp_path: Path) -> None:

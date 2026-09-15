@@ -302,6 +302,10 @@ class SharedControl:
             await entry.channel.notice(
                 "warn", "the terminal treated this message as data; send it again if it was missed"
             )
+            # The CLI read the message both times, and nothing more is queued,
+            # so the bubble ends as delivered rather than on a promise of a
+            # re-send that will not come (amendment A34).
+            await self._emit_message(entry, item, "delivered")
             return
         item["retried"] = True
         entry.queue.insert(0, item)
