@@ -1471,6 +1471,34 @@ Gateway tests only: the constant is a release version, seven malformed overrides
 and validates against the schema with and without the URL. 342 gateway tests. The iOS side — the
 comparison and the blocking screen — is the next iOS round and is not verified here.
 
+## 25. Rows nobody typed, an inert bubble, and a centred way back down (2026-09-15, A32)
+
+The client rules were written against this Mac's own transcript of the session that produced the
+owner's screenshot — the plain `/compact` row, the `compact_boundary` system row, the summary
+marked `isCompactSummary`, the `<command-name>` and `<local-command-stdout>` rows and the
+`[Request interrupted by user]` marker, copied into tests and emptied of anything private — and
+those rows were then replayed through the tailer: one `/compact` bubble, one compaction notice, no
+block for the summary or the marker, the turn closed by the CLI's reply and `stop_reason:
+"interrupted"` after the marker, with a `turn_completed` and no `turn_started` for it through the
+shared session. The "N background agents were stopped" row in the screenshot was already `agent`
+under A30; it had been published before the device on this Mac was updated. 953 client tests. Not
+verified: a live interruption or compaction while the device tails the session, and the SDK
+stream of a device-driven session delivering a `compact_boundary`.
+
+Web, in Chrome against the mock gateway: hovering a user bubble changes nothing — the rested and
+hovered screenshots are byte-identical — once the accounts screen stopped sharing the chat's
+`.user-row` class; the back-to-latest button's centre matched the timeline's at 1280 px (772) and
+390 px (195), with and without a count, and a click left no scroll remainder. 495 web tests, one
+of them the guard that no two feature stylesheets declare the same root class.
+
+iOS, in the simulator against the demo: the jump button is centred at the foot of the transcript;
+the new UI test grows the transcript to about eight screens of uneven rows, pages to the top and
+taps the button, and the newest message is hittable afterwards with the button gone. The landing
+short the owner saw on the phone did not reproduce in the demo — the old one-shot scroll reached
+the tail in three runs — so what shipped is the rule that arrival is read from the scroll view and
+retried, not a fix of a recorded trace. 1288 + 274 checks, 303 unit tests, 53 UI tests (4 skipped).
+Not verified: the jump on a real transcript of several hundred rows, which is where it was seen.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
