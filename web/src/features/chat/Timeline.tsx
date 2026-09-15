@@ -104,10 +104,10 @@ export function Timeline({
 }
 
 /**
- * The way back down, in the corner of the timeline above the composer. It is on
- * screen whenever the reader is away from the tail — paging up through history
- * needs a way back too — and widens into a capsule carrying what arrived while
- * they were away. The words live in the accessible name, as on the phone.
+ * The way back down, centred at the foot of the timeline above the composer. It
+ * is on screen whenever the reader is away from the tail — paging up through
+ * history needs a way back too — and widens into a capsule carrying what arrived
+ * while they were away. The words live in the accessible name, as on the phone.
  */
 function BackToLatest({ missed, onClick }: { missed: number; onClick: () => void }) {
   const count = missed > 0 ? strings.chat.newUpdates(missed) : null;

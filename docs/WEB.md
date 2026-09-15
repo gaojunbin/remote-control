@@ -417,7 +417,9 @@ Nothing of this reaches the gateway.
 - **Long output folds** beyond 20 lines, and `output_truncated` adds "Open full output", which
   fetches the untruncated block.
 - **Reading position** holds: the timeline auto-follows until you scroll away, then counts new
-  blocks behind a "Back to latest" button.
+  blocks behind a "Back to latest" button, centred at the foot of the transcript above the composer
+  and widening into a capsule around that centre when it carries a count. One click lands at the
+  very end of the transcript and the button leaves.
 - **Failed actions** surface in a dismissible banner above the composer rather than failing silently.
 
 ## Shared terminal sessions
@@ -582,6 +584,15 @@ in those two files before it belongs in a component. The rules they encode are i
 one canvas, soft surfaces instead of bordered boxes, list rows instead of tables, one hairline
 between rows, one filled primary button per surface, tinted rather than outlined chips, and sentence
 case everywhere — no `text-transform` in any stylesheet.
+
+**A class name belongs to one feature.** Nothing here is scoped or hashed, so two features that
+pick the same name style each other's markup: the accounts screen called its list rows `.user-row`,
+which is the chat's own message row, and its hover tint was what appeared under the pointer on a
+message bubble. The accounts screen's rows are `.account-row`, `.account-name` and the rest now, and
+`tests/css-ownership.test.ts` fails the build when two feature stylesheets take the same root class
+again — the first class of a selector, which is what a rule applies to when nothing scopes it. The
+message bubble is inert, as `docs/DESIGN.md` rules: neither `.user-row` nor `.user-bubble` has a
+hover rule of any kind, because a message is a record and not a control.
 
 At 1024 px and above the chat is two panes with the session sidebar. Below that the sidebar
 collapses into the Sessions page, the chat runs full width with a back button, and the composer

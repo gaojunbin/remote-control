@@ -1,4 +1,8 @@
-/* A24: the admin's accounts screen — one switch, then one row per account. */
+/*
+ * A24: the admin's accounts screen — one switch, then one row per account.
+ * Class names are global, so the rows are `account-*`: `.user-row` belongs to
+ * the chat's own message row, and a screen that borrowed it styled the other.
+ */
 
 .users {
   max-width: 620px;
@@ -28,13 +32,13 @@
   margin-top: var(--sp-4);
 }
 
-.user-list {
+.account-list {
   list-style: none;
   margin: var(--sp-4) 0 0;
   padding: 0;
 }
 
-.user-row {
+.account-row {
   display: flex;
   align-items: center;
   gap: var(--sp-4);
@@ -43,28 +47,28 @@
   transition: background var(--dur-fast) var(--ease);
 }
 
-.user-row:hover {
+.account-row:hover {
   background: var(--hover);
 }
 
 /* A disabled account stays legible and stops looking current. */
-.user-row.disabled .user-name {
+.account-row.disabled .account-name {
   color: var(--ink-secondary);
 }
 
-.user-main {
+.account-main {
   flex: 1;
   min-width: 0;
 }
 
-.user-name {
+.account-name {
   font-size: var(--fs-15);
   font-weight: 600;
   line-height: 1.4;
   letter-spacing: -0.01em;
 }
 
-.user-meta {
+.account-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 2px var(--sp-2);
@@ -74,23 +78,23 @@
   color: var(--ink-secondary);
 }
 
-.user-meta > span {
+.account-meta > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.user-meta > span + span {
+.account-meta > span + span {
   color: var(--ink-tertiary);
 }
 
-.user-meta > span + span::before {
+.account-meta > span + span::before {
   content: '·';
   margin-right: var(--sp-2);
   color: var(--line-strong);
 }
 
-.user-menu-trigger {
+.account-menu-trigger {
   width: 28px;
   height: 28px;
   padding: 0;
@@ -100,9 +104,9 @@
   flex: none;
 }
 
-.user-row:hover .user-menu-trigger,
-.user-menu-trigger:hover,
-.user-menu-trigger[aria-expanded='true'] {
+.account-row:hover .account-menu-trigger,
+.account-menu-trigger:hover,
+.account-menu-trigger[aria-expanded='true'] {
   color: var(--ink);
 }
 
@@ -111,7 +115,7 @@
     padding-inline: var(--sp-4);
   }
 
-  .user-row {
+  .account-row {
     padding-inline: var(--sp-4);
   }
 }

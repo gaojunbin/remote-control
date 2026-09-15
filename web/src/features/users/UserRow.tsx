@@ -21,10 +21,10 @@ export function UserRow({ user, actionable, onResetPassword, onToggleState, onDe
   );
 
   return (
-    <li className={cx('user-row', disabled && 'disabled')}>
-      <div className="user-main">
-        <div className="user-name">{user.username}</div>
-        <div className="user-meta">
+    <li className={cx('account-row', disabled && 'disabled')}>
+      <div className="account-main">
+        <div className="account-name">{user.username}</div>
+        <div className="account-meta">
           <span>{strings.users.meta(roleLabel(user.role), userStateLabel(user.state))}</span>
           <span>
             {strings.users.deviceCount(user.devices)} · {lastSignIn}
@@ -37,7 +37,7 @@ export function UserRow({ user, actionable, onResetPassword, onToggleState, onDe
           chevron={false}
           ariaLabel={strings.a11y.openMenu}
           align="end"
-          triggerClassName="user-menu-trigger"
+          triggerClassName="account-menu-trigger"
           label={<MoreHorizontal size={16} aria-hidden />}
         >
           {(close) => (

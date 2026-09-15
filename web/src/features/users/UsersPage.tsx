@@ -71,7 +71,7 @@ function Users() {
         ) : null}
 
         {loaded ? (
-          <ul className="user-list surface">
+          <ul className="account-list surface">
             {users.map((user) => (
               <UserRow
                 key={user.username}

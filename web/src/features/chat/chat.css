@@ -256,15 +256,17 @@
 }
 
 /*
- * A round button in the bottom-right corner of the timeline, there whenever the
- * reader is away from the tail. A floating control lifts off the transcript on
- * the shadow alone, never on an edge, and widens into a capsule only when it has
- * a count to carry.
+ * A round button centred at the foot of the timeline, there whenever the reader
+ * is away from the tail. A floating control lifts off the transcript on the
+ * shadow alone, never on an edge, and widens into a capsule around that centre
+ * only when it has a count to carry. The entrance keyframe owns `transform`, so
+ * the centring is left to `translate`.
  */
 .back-to-latest {
   position: absolute;
-  right: var(--sp-5);
+  left: 50%;
   bottom: var(--sp-4);
+  translate: -50% 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
