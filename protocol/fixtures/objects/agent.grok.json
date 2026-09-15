@@ -72,5 +72,13 @@
   "attach_ready": true,
   "shared_interrupt": true,
   "shared_settings": true,
-  "shared_attachments": false
+  "shared_attachments": false,
+  "accounts": [
+    {
+      "provider": "xai",
+      "method": "account",
+      "plan": null,
+      "email": "me@example.com"
+    }
+  ]
 }

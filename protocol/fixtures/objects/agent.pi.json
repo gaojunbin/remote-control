@@ -62,5 +62,30 @@
   "attach_ready": true,
   "shared_interrupt": true,
   "shared_settings": true,
-  "shared_attachments": true
+  "shared_attachments": true,
+  "accounts": [
+    {
+      "provider": "anthropic",
+      "method": "account",
+      "plan": "max",
+      "limits": [
+        {
+          "window_minutes": 300,
+          "used_percent": 16,
+          "resets_at": 1789487040000
+        },
+        {
+          "window_minutes": 10080,
+          "used_percent": 54,
+          "resets_at": 1789596000000
+        }
+      ],
+      "limits_checked_at": 1789470000000
+    },
+    {
+      "provider": "openai",
+      "method": "api_key",
+      "endpoint": "api.relay.example"
+    }
+  ]
 }

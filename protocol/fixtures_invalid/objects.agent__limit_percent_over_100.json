@@ -68,7 +68,7 @@
       "limits": [
         {
           "window_minutes": 300,
-          "used_percent": 37,
+          "used_percent": 140,
           "resets_at": 1789484400000
         },
         {

@@ -697,6 +697,46 @@ The agent and option arrays are shortened here; the fixture holds the full objec
 | `shared_interrupt` | boolean | no | Whether the attachment can interrupt a running turn. `session.stop` on a `shared` session needs this **and** capability `interrupt`. False when absent. |
 | `shared_settings` | boolean | no | Whether `session.set` for `model`, `permission_mode`, `effort` and `speed` works on a `shared` session. False when absent. |
 | `shared_attachments` | boolean | no | Whether `session.send` attachments are delivered on a `shared` session. False when absent. |
+| `accounts` | `AgentAccount[]` | no | How the agent is signed in on this device: one entry per vendor credential it holds, with the vendor's plan and, in a `device.agents` reply, the rate-limit windows the device could read (A33). Absent when the device did not look; empty when the agent is installed but signed in nowhere. |
+
+**Accounts and quota (A33).** An agent runs on somebody's credentials: the vendor's own account —
+Anthropic's Pro, Max, Team or Enterprise, OpenAI's Plus, Pro or Business, an xAI account — or an
+API key, possibly pointed at a third-party endpoint. `accounts` says which, one `AgentAccount` per
+credential the agent holds on the device, read from the agent's own files and never from a running
+session. pi holds one per provider it is signed in to; the other three hold at most one.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `provider` | string | yes | The vendor the credential belongs to, as the agent names it: `anthropic`, `openai`, `xai`, or another id. Apps show a known name and otherwise the id |
+| `method` | `account` \| `api_key` | yes | `account` is the vendor's own subscription account, signed in with OAuth; `api_key` is a key |
+| `plan` | string \| null | no | The plan word the vendor records, lowercase as reported: `pro`, `max`, `team`, `enterprise`, `plus`, `business`, `free`… Null or absent when the agent records none |
+| `tier` | string | no | A finer tier when the vendor exposes one, for example Claude's rate-limit tier `default_claude_max_5x` |
+| `email` | string | no | The account's email when the agent records it locally |
+| `endpoint` | string | no | For `api_key`: the host the key is sent to when it is not the vendor's own (`ANTHROPIC_BASE_URL`, a Codex `model_providers` entry). Host only, never a path or a secret |
+| `limits` | `AgentLimit[]` | no | The rate-limit windows the device read for an `account`. Present only in a `device.agents` reply; empty when the vendor reported none. Absent, with no `limits_error`, when the vendor exposes no windows the device can read (Grok Build) |
+| `limits_error` | string | no | Why `limits` is missing after the device tried — the token expired, the shared daemon is down, the network failed — in the device's words, one line |
+| `limits_checked_at` | timestamp | no | When the device read `limits` |
+
+An `AgentLimit` is one window:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `window_minutes` | integer ≥ 1 | yes | The window's length: 300 for a five-hour window, 10080 for a week |
+| `scope` | string | no | What the window is confined to when it is not everything: the model a weekly limit applies to, in the vendor's words |
+| `used_percent` | number 0–100 | yes | How much of the window is used |
+| `resets_at` | timestamp \| null | no | When the window resets |
+
+`hello` and `agents.updated` carry `accounts` without `limits`, `limits_error` or
+`limits_checked_at`: they come from local files and change rarely, so a device that re-detects its
+agents every quarter hour republishes nothing new. Limits are read on request: the reply to
+`device.agents` (6) carries them fresh — one network or daemon call per account, under a short
+timeout — and the device keeps that reply out of what it republishes. An app that opens a device
+shows the stored accounts at once and asks `device.agents` for the meters; a device that is offline
+has accounts and no meters. `fixtures/objects/agent.claude-attach.json` (an Anthropic account with a
+tier and two windows, one confined to a model), `agent.codex-daemon.json` (an OpenAI account on plan
+`pro` with the shared daemon's two windows), `agent.grok.json` (an xAI account with no plan and no
+windows) and `agent.pi.json` (an Anthropic account beside an OpenAI key) are the worked examples,
+each as a `device.agents` reply would carry it.
 
 Capabilities gate the UI. `steer` decides whether a message sent during a running turn is steered or
 queued; `takeover` decides whether a terminal-controlled session offers "Take over"; `history`
@@ -2242,7 +2282,7 @@ The gateway forwards these to the owning device and returns the device's reply.
 | `session.delete` | `session_id` | `{}` |
 | `device.dirs` | `device_id`, `path?` | `{path, parent, entries, recent}` |
 | `device.git` | `device_id`, `path` | `{is_repo, branch?, dirty?, ahead?, behind?}` |
-| `device.agents` | `device_id` | `{agents}` |
+| `device.agents` | `device_id` | `{agents}` — the agents as `hello` reports them, with `accounts[].limits` read fresh for this reply (A33) |
 | `device.update` | `device_id`, `build` | `{accepted: true, from}` — the device fetches the gateway's wheel, refuses it unless its SHA-256 is `build`, installs it, restarts its service and reconnects with the new `client_build` (A22). `conflict` while a session it drives is running or when it already runs `build`; `unsupported` when the client cannot update itself (installed from source). |
 
 Every request carries `id`. `session.stop` is idempotent. `session.delete` removes the session from
@@ -3186,6 +3226,9 @@ by `block_id` like any other.
       interruption marker closes with `stop_reason: "interrupted"`, emits the compaction `notice`
       from the `compact_boundary` row, and publishes a slash command typed at the terminal once, as
       `user_message {source: "terminal"}` that starts no turn (A32).
+- [ ] Reports each agent's `accounts` from the agent's own files in `hello` and `agents.updated`
+      without `limits`, answers `device.agents` with `limits` read fresh for every `account` — or
+      `limits_error` when the read failed — and never writes a credential or refreshes a token (A33).
 - [ ] Moves a Claude attachment to the session id the CLI's `SessionStart` hook names, and removes
       a terminal-origin session with no events and no transcript with `session.removed` the moment
       its terminal leaves it (A16).
@@ -3252,6 +3295,9 @@ by `block_id` like any other.
       (disabled with a note otherwise), polishes only the dictated span, keeps the dictated words one
       undo away, sends the words as dictated when the user sends first, and never sends a polished
       text by itself (A29).
+- [ ] Opens a device from its row, lists the agents found on it with how each is signed in, draws a
+      meter per `AgentLimit` for accounts only, asks `device.agents` for fresh limits when the page
+      opens, and draws nothing where `plan`, `email`, `endpoint` or `limits` are absent (A33).
 - [ ] Decodes every fixture under `fixtures/` in its test suite.
 
 ---
@@ -3593,3 +3639,16 @@ command is the person's, `user_message {source: "terminal"}` with the command an
 typed, once, though the CLI records `/compact` twice, and it starts no turn. The CLI's own reply to
 a command (`<local-command-stdout>`) stays out of the timeline and ends a running turn. See 5.2,
 5.13 and 9.2.
+
+**2026-09-15 A33 — how an agent is signed in, and what is left of its quota.** A person with
+several machines could not tell from a phone which of them ran Claude Code on the Max account and
+which on a key through a relay, nor how much of a five-hour or weekly window was left before starting
+work there. `AgentInfo` gains `accounts`: one `AgentAccount` per credential the agent holds on the
+device — the vendor (`provider`), `account` or `api_key` (`method`), the plan and tier the vendor
+records, the email, and for a key the third-party host it goes to — read from the agent's own files,
+never from a session. The reply to `device.agents` adds `limits` to every account the device could
+read them for: `AgentLimit` rows of `window_minutes`, `used_percent`, `resets_at` and an optional
+model `scope`, from Anthropic's OAuth usage endpoint for Claude Code and for pi's Anthropic sign-in,
+and from `account/rateLimits/read` on the shared daemon for Codex; Grok Build exposes none. `hello`
+and `agents.updated` carry accounts without limits. Apps open a device from its row and draw the
+accounts and the meters. See 4.2, 6, 9.2 and 9.3.

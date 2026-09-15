@@ -69,5 +69,33 @@
   "attach_ready": true,
   "shared_interrupt": false,
   "shared_settings": false,
-  "shared_attachments": false
+  "shared_attachments": false,
+  "accounts": [
+    {
+      "provider": "anthropic",
+      "method": "account",
+      "plan": "max",
+      "tier": "default_claude_max_5x",
+      "email": "me@example.com",
+      "limits": [
+        {
+          "window_minutes": 300,
+          "used_percent": 16,
+          "resets_at": 1789487040000
+        },
+        {
+          "window_minutes": 10080,
+          "used_percent": 54,
+          "resets_at": 1789596000000
+        },
+        {
+          "window_minutes": 10080,
+          "scope": "Fable",
+          "used_percent": 64,
+          "resets_at": 1789596000000
+        }
+      ],
+      "limits_checked_at": 1789470000000
+    }
+  ]
 }

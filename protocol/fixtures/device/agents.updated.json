@@ -67,6 +67,15 @@
         "attachments",
         "effort",
         "history"
+      ],
+      "accounts": [
+        {
+          "provider": "anthropic",
+          "method": "account",
+          "plan": "max",
+          "tier": "default_claude_max_5x",
+          "email": "me@example.com"
+        }
       ]
     },
     {
@@ -124,6 +133,14 @@
         "effort",
         "history",
         "commands"
+      ],
+      "accounts": [
+        {
+          "provider": "openai",
+          "method": "account",
+          "plan": "pro",
+          "email": "me@example.com"
+        }
       ]
     }
   ]

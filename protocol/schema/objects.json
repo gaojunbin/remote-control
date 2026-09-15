@@ -101,6 +101,97 @@
         "leader"
       ]
     },
+    "AccountMethod": {
+      "description": "How an agent is signed in with a vendor: \"account\" is the vendor's own subscription account signed in with OAuth, \"api_key\" a key (A33).",
+      "enum": [
+        "account",
+        "api_key"
+      ]
+    },
+    "AgentLimit": {
+      "description": "One rate-limit window of a vendor account, as the device read it for a device.agents reply (A33).",
+      "type": "object",
+      "properties": {
+        "window_minutes": {
+          "description": "The window's length: 300 for five hours, 10080 for a week.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "scope": {
+          "description": "What the window is confined to when it is not everything, in the vendor's words: the model a weekly limit applies to.",
+          "type": "string"
+        },
+        "used_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "resets_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "window_minutes",
+        "used_percent"
+      ]
+    },
+    "AgentAccount": {
+      "description": "One credential an agent holds on a device: whose it is, how it signs in, and in a device.agents reply the rate-limit windows the device could read (A33).",
+      "type": "object",
+      "properties": {
+        "provider": {
+          "description": "The vendor the credential belongs to, as the agent names it: anthropic, openai, xai, or another id.",
+          "type": "string",
+          "minLength": 1
+        },
+        "method": {
+          "$ref": "#/$defs/AccountMethod"
+        },
+        "plan": {
+          "description": "The plan word the vendor records, lowercase as reported (pro, max, team, enterprise, plus, business, free). Null or absent when the agent records none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tier": {
+          "description": "A finer tier when the vendor exposes one, for example Claude's rate-limit tier default_claude_max_5x.",
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "endpoint": {
+          "description": "For api_key: the host the key is sent to when it is not the vendor's own. Host only, never a path or a secret.",
+          "type": "string"
+        },
+        "limits": {
+          "description": "Present only in a device.agents reply, for method account; empty when the vendor reported no windows; absent with no limits_error when the vendor exposes none the device can read.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AgentLimit"
+          }
+        },
+        "limits_error": {
+          "description": "Why limits is missing after the device tried, in one line.",
+          "type": "string"
+        },
+        "limits_checked_at": {
+          "$ref": "#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "provider",
+        "method"
+      ]
+    },
     "ErrorCode": {
       "enum": [
         "bad_request",
@@ -391,6 +482,13 @@
             "$ref": "#/$defs/LabeledId"
           },
           "description": "Speed tiers the agent can run a session at, beyond its standard speed; empty or absent when it has none (A21)."
+        },
+        "accounts": {
+          "description": "How the agent is signed in on this device, one entry per vendor credential (A33). Absent when the device did not look; empty when the agent is installed but signed in nowhere.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AgentAccount"
+          }
         }
       },
       "required": [

@@ -62,7 +62,7 @@
   "accounts": [
     {
       "provider": "openai",
-      "method": "account",
+      "method": "subscription",
       "plan": "pro",
       "email": "me@example.com",
       "limits": [
