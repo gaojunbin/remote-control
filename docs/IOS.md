@@ -543,7 +543,8 @@ points short from counting as leaving.
 | --- | --- |
 | A block arrives while at the bottom | Scrolls to the tail, animated |
 | A block arrives while away | Stays put and counts it in `updatesWhileAway` |
-| The scrollable range changes — rows arrive, the keyboard opens or closes | Never counts as the reader moving: someone at the bottom is pinned there, someone away is left where they are, and a range that shrank until nothing scrolls puts them back at the bottom |
+| The scrollable range changes — rows arrive, the keyboard opens or closes — while nobody is scrolling | Never counts as the reader moving: someone at the bottom is pinned there, someone away is left where they are, and a range that shrank until nothing scrolls puts them back at the bottom |
+| The range changes while the reader's finger is on the transcript, or a fling is still running | The reader wins: the numbers are theirs, following is read from where they are, and nothing scrolls under them; content that arrived meanwhile is caught up on when the finger lifts, if they stayed at the foot |
 | A message is sent | `ChatStore.deliver` returns to the tail before the message lands |
 | Earlier messages are paged in | Prepended above the anchor the reader was looking at |
 
@@ -554,9 +555,19 @@ label "Jump to latest". It fades in and out over 0.18 s, carries the count from
 hundred), and tapping it scrolls to the tail and resumes following. It is the one control on this
 screen with a shadow rather than an edge, because it floats over the transcript.
 
-Geometry a scroll this view started is not the reader either: `scrollToTail` arms a 0.45 s window
-in which the animation's own numbers can only confirm that it arrived, so a tall row landing at the
-tail never flashes the button on its way down.
+Who is moving is read from the scroll view itself: `onScrollPhaseChange` says whether a finger is
+tracking or interacting, a fling is decelerating, a scroll the view started is animating, or nothing
+is moving, and `ScrollTail.decide(rangeChanged:atBottom:following:motion:)` in RCCore is the whole
+rule as one pure function over that and the three numbers. It exists because of a bug: after a turn
+ended, rows kept settling — the thinking row folding, tool rows finalising, the status line going —
+and a long transcript's `LazyVStack` re-measures rows as they scroll into view, so the scrollable
+range moved on nearly every frame of an upward drag; the old rule read every range change as
+"content grew" and, with following still on, scrolled back to the tail each time, which a finger on
+the screen cannot win against. Now a range change during a drag or a fling is the reader's, a scroll
+the view started can only confirm that it arrived (`scrollToTail` also arms a 0.45 s window, because
+the proxy's scroll is reported as animating only once it is under way), and only a change while
+nothing is moving pins a reader at the foot. The reproduction was by reasoning from the geometry
+callbacks, not a recording; the rule is unit-tested over its table.
 
 ## Dismissing the keyboard
 
