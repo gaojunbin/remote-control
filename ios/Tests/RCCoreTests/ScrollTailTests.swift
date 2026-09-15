@@ -87,6 +87,24 @@ struct ScrollTailTests {
         #expect(chat.updatesWhileAway == 5, "at Detailed the same burst is one per block")
     }
 
+    /// Amendment A34: the jump-to-latest badge counts what the reader would
+    /// have seen, and at Simple another agent's message is not one of them.
+    @MainActor
+    @Test("A message from another agent is counted at Detailed and not at Simple")
+    func agentMessagesAreCountedWithTheAgentsWork() {
+        let settings = SettingsStore(defaults: UserDefaults(suiteName: "rc-away-\(UUID().uuidString)")!)
+        let chat = ChatStore(session: session(), channel: DemoGateway())
+        chat.detailSource = { settings.timelineDetail }
+        chat.isFollowingTail = false
+
+        chat.receive(frame(fromAgent(seq: 1, blockID: "u-agent")))
+        #expect(chat.updatesWhileAway == 0, "at Simple it is the agent's working, and not drawn")
+
+        settings.timelineDetail = .detailed
+        chat.receive(frame(fromAgent(seq: 2, blockID: "u-agent-2")))
+        #expect(chat.updatesWhileAway == 1, "at Detailed it is a row like any other")
+    }
+
     @MainActor
     @Test("Sending returns the transcript to the tail")
     func sendingFollowsTheTail() async {
@@ -127,6 +145,14 @@ struct ScrollTailTests {
                      kind: SessionEvent.toolCallKind, blockID: blockID,
                      body: .toolCall(ToolCallPayload(tool: "Read", kind: .read,
                                                      title: "one file", status: .succeeded)))
+    }
+
+    /// Amendment A30: a message the CLI filed as a user turn that nobody typed.
+    private func fromAgent(seq: Int, blockID: String) -> SessionEvent {
+        SessionEvent(seq: seq, ts: Int64(1_788_944_400_000 + seq),
+                     kind: SessionEvent.userMessageKind, blockID: blockID,
+                     body: .userMessage(UserMessagePayload(
+                        text: "recon-ios: three findings need a decision", source: .agent)))
     }
 
     private func thinking(seq: Int, blockID: String) -> SessionEvent {

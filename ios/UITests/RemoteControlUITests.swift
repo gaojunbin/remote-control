@@ -1949,21 +1949,45 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "ios-polish-settings")
     }
 
-    // MARK: - A30, messages from other agents
+    // MARK: - A30 and A34, messages from other agents
 
-    /// `docs/DESIGN.md` § "Messages from other agents": a teammate's report the
-    /// CLI filed as a user turn is drawn muted, captioned as nobody's words.
-    func testAgentMessageIsCaptionedAsSomebodyElses() {
+    /// `docs/DESIGN.md` § "The timeline" → "Messages from other agents": what a
+    /// teammate session reported is the agent's side of the conversation, drawn
+    /// on the left as a muted block and hidden at Simple with the rest of the
+    /// agent's working.
+    func testAgentMessageSitsOnTheAgentsSideAndSimpleHidesIt() {
         app.launch()
         openSharedSession()
-        let bubble = app.descendants(matching: .any)["chat.message.agent"].firstMatch
-        XCTAssertTrue(bubble.waitForExistence(timeout: 20),
-                      "the transcript holds the message another agent filed")
-        XCTAssertTrue(bubble.label.contains("From another agent"),
+
+        // Simple is the default. Amendment A34: a teammate's report is the
+        // agent's working, so this level does not draw it at all.
+        XCTAssertTrue(text(containing: "Read the fact sheet").waitForExistence(timeout: 20),
+                      "the transcript around it is there")
+        XCTAssertFalse(app.descendants(matching: .any)["chat.message.agent"].exists,
+                       "and what another agent filed is not drawn at Simple")
+        attach(name: "ios-agent-message-simple")
+
+        app.navigationBars.buttons.firstMatch.tap()
+        chooseDetailedTranscript()
+        openSharedSession()
+
+        let row = app.descendants(matching: .any)["chat.message.agent"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20),
+                      "Detailed draws it with the agent's other workings")
+        XCTAssertTrue(row.label.contains("From another agent"),
                       "and never says the person said it")
         XCTAssertTrue(app.staticTexts["from another agent"].exists,
-                      "the caption stands where a terminal one says where it was typed")
-        attach(name: "ios-agent-message")
+                      "the caption stands above the words nobody typed")
+
+        // It sits on the left with the agent's own output, not on the right
+        // where the person's bubble hugs its text.
+        let mine = app.descendants(matching: .any)["chat.message"].firstMatch
+        XCTAssertTrue(mine.exists, "the person's own message is on the same screen")
+        XCTAssertLessThan(row.frame.minX, mine.frame.minX,
+                          "the agent's block starts at the leading margin")
+        XCTAssertGreaterThan(row.frame.width, mine.frame.width,
+                             "at the width assistant text uses rather than hugging its words")
+        attach(name: "ios-agent-message-detailed")
     }
 
     // MARK: - A31, an app older than its gateway

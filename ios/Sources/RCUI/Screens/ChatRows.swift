@@ -11,7 +11,13 @@ struct TimelineRow: View {
     var body: some View {
         switch entry.body {
         case .userMessage(let payload):
-            UserMessageRow(payload: payload, pending: entry.pending)
+            // Amendment A34: what nobody typed is not drawn as though somebody
+            // had. The person's bubble holds the person's words alone.
+            if payload.source == .agent {
+                AgentMessageRow(payload: payload)
+            } else {
+                UserMessageRow(payload: payload, pending: entry.pending)
+            }
         case .assistantText:
             MarkdownText(entry.text)
                 .padding(.vertical, 2)
@@ -49,10 +55,6 @@ private struct UserMessageRow: View {
     /// confirmed, and the row stops saying it is on its way.
     @State private var isUnconfirmed = false
 
-    /// Amendment A30: a teammate's message or a task's notification, which the
-    /// Claude CLI filed as a user turn and nobody typed.
-    private var isFromAgent: Bool { payload.source == .agent }
-
     var body: some View {
         // The person's words sit on the right and hug their text, leaving room
         // on the left, so what was said is told from what was answered at a
@@ -83,10 +85,7 @@ private struct UserMessageRow: View {
         VStack(alignment: .leading, spacing: Theme.Space.tight) {
             Text(payload.text)
                 .font(.body)
-                // Amendment A30: words another agent put into the conversation
-                // are said quietly. They are neither the person's nor the
-                // assistant's, and the bubble reads as a report, not a request.
-                .foregroundStyle(isFromAgent ? Theme.inkSecondary : Theme.ink)
+                .foregroundStyle(Theme.ink)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
             if !payload.attachments.isEmpty {
@@ -108,10 +107,6 @@ private struct UserMessageRow: View {
                     .foregroundStyle(isUnconfirmed ? Theme.attention : Theme.inkSecondary)
             } else if payload.source == .terminal {
                 Text("sent from the terminal").font(.caption).foregroundStyle(Theme.inkSecondary)
-            } else if isFromAgent {
-                // Amendment A30: nobody typed this. Where a terminal message
-                // says where it was typed, this says that no one did.
-                Text("from another agent").font(.caption).foregroundStyle(Theme.inkSecondary)
             } else if payload.source == .queue {
                 Text("sent from the queue").font(.caption).foregroundStyle(Theme.inkSecondary)
             }
@@ -135,11 +130,7 @@ private struct UserMessageRow: View {
     /// The chip is inside a combined element, so its words have to reach
     /// VoiceOver through the bubble's own label.
     private var spokenLabel: Text {
-        // Amendment A30: nobody said this, so VoiceOver is not told the person
-        // did. The caption the row draws is what it reads instead.
-        let said = isFromAgent
-            ? Text(L10n.string("From another agent: %@", payload.text))
-            : Text(L10n.string("You said: %@", payload.text))
+        let said = Text(L10n.string("You said: %@", payload.text))
         switch payload.delivery {
         case .some(.absorbed): return said + Text(L10n.string(", will be re-sent"))
         default:
@@ -155,7 +146,7 @@ private struct UserMessageRow: View {
     /// reach the chip even though the bubble is one combined element.
     private var identifier: String {
         if let delivery = payload.delivery { return "chat.message.\(delivery.rawValue)" }
-        guard let pending else { return isFromAgent ? "chat.message.agent" : "chat.message" }
+        guard let pending else { return "chat.message" }
         if pending.isSteering { return "chat.message.steering" }
         return isUnconfirmed ? "chat.message.unconfirmed" : "chat.message.sending"
     }

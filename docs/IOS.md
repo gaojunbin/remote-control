@@ -846,7 +846,9 @@ failure keeps the last list rather than raising a banner, because nobody asked f
 
 **What a command prints survives the Simple detail level.** A tool call whose `tool` begins with `/`
 is the whole answer to something the reader asked for by name, so `TimelineEntry.isDrawn(at:)` keeps
-it at every level. Simple hides the agent's own working, not the reply.
+it at every level. Simple hides the agent's own working, not the reply — and since A34 the working
+it hides includes a `user_message` whose `source` is `agent`, which is another agent's report rather
+than anything written to the reader (see "Messages from other agents").
 
 In the demo, `mac-studio-office`'s pi session carries nine commands across Prompts, Skills,
 Extensions and Built-in, so the card sections and scrolls; the Codex thread carries the eight-entry
@@ -1084,13 +1086,23 @@ and says "Polishing failed, your words are unchanged"; sending while the request
 words as dictated and cancels it. The demo gateway serves two models and a fake polish with a short
 delay, which is what the screenshots and the checks drive; no real provider was called from the app.
 
-## Messages from other agents (A30)
+## Messages from other agents (A30, A34)
 
-`EventSource` decodes `agent` for `user_message.source` and `turn_started.trigger`. `ChatRows`
-draws such a message in the user bubble's shape but muted, captioned "from another agent" where a
-terminal one says "sent from the terminal" (zh-Hans "来自其他代理"). The status line never switched on
-`trigger`, so an `agent`-triggered turn already reads as a terminal one; the demo's shared Claude
-session carries one such message and turn.
+`EventSource` decodes `agent` for `user_message.source` and `turn_started.trigger`. Such a message
+is **not** the person's side of the conversation, so it is not drawn in their bubble: `TimelineRow`
+routes it by its source to `AgentMessageRow` (`Sources/RCUI/Screens/AgentMessageRow.swift`), which
+draws it on the leading side with the agent's own output — a muted block on the quiet surface with a
+hairline edge, the caption "from another agent" above the text (zh-Hans "来自其他代理"), left-aligned,
+at the width assistant text uses and in no bubble shape at all. VoiceOver reads "From another agent:
+…", never "You said". The muted-bubble variant A30 shipped is gone, and `UserMessageRow` now knows
+nothing about `agent` at all.
+
+The Simple detail level does not draw it (A34): it is the agent's working, like thinking and tool
+calls, so `TimelineEntry.isDrawn(at:)` reads a user message's `source` as well as its kind. The
+jump-to-latest badge follows from the same rule, because `ChatStore` counts only rows the current
+level draws. The status line never switched on `trigger`, so an `agent`-triggered turn already reads
+as a terminal one; the demo's shared Claude session carries one such message and turn, which is what
+the checks and both screenshots are driven from.
 
 ## Update required (A31)
 

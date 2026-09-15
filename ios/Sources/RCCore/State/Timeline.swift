@@ -169,12 +169,19 @@ public struct TimelineEntry: Identifiable, Sendable, Equatable {
     /// finished ends with the answer itself, so its footer says nothing the
     /// transcript does not already show. A send this app has not had echoed
     /// back is always drawn, whatever it is going to become.
+    ///
+    /// Amendment A34: a message another agent put into the conversation is the
+    /// agent's working rather than the reader's own words, so Simple hides it
+    /// as it hides the rest — which is why the rule reads a message's `source`
+    /// and not only its kind.
     public func isDrawn(at detail: TimelineDetail) -> Bool {
         guard isRenderable else { return false }
         guard detail == .simple else { return true }
         guard pending == nil else { return true }
         switch body {
-        case .userMessage, .assistantText, .approval, .question, .notice, .error:
+        case .userMessage(let payload):
+            return payload.source != .agent
+        case .assistantText, .approval, .question, .notice, .error:
             return true
         case .turnCompleted(let payload):
             return payload.stopReason == .interrupted || payload.stopReason == .error

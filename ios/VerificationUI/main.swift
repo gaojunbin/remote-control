@@ -781,6 +781,39 @@ func run() async -> (passed: Int, failures: [String]) {
               .current, "and the action says why it could not act")
     }
 
+    // MARK: - Amendment A34: another agent's words sit on the agent's side
+    //
+    // `docs/DESIGN.md` § "The timeline" → "Messages from other agents". The
+    // demo's shared session carries one, so both levels can be looked at.
+
+    if let shared = helloSessions.first(where: { $0.sessionID == DemoFixtures.sharedSessionID }) {
+        let detail = SettingsStore(defaults: UserDefaults(suiteName: "rc-a34-\(UUID().uuidString)")!)
+        let chat = ChatStore(session: shared, channel: DemoGateway())
+        chat.detailSource = { detail.timelineDetail }
+        for event in DemoFixtures.history(for: DemoFixtures.sharedSessionID) {
+            chat.receive(.sessionEvent(sessionID: shared.sessionID, deviceID: shared.deviceID,
+                                       event: event))
+        }
+        let fromAgent = chat.timeline.entries.first { entry in
+            if case .userMessage(let payload) = entry.body { return payload.source == .agent }
+            return false
+        }
+        expect(fromAgent != nil, "the scripted session carries a message another agent filed")
+        equal(detail.timelineDetail, .simple, "and the reader starts at Simple")
+        expect(!chat.rows.contains { $0.id == fromAgent?.id },
+               "where it is the agent's working and is not drawn")
+        detail.timelineDetail = .detailed
+        expect(chat.rows.contains { $0.id == fromAgent?.id },
+               "and Detailed draws it with the rest of the working")
+        // It is never the person's bubble: the row is chosen by the source.
+        if case .userMessage(let payload)? = fromAgent?.body {
+            equal(payload.source, .agent, "the row is chosen by what the device said, not by the kind")
+            expect(!payload.text.contains("<"), "and the device already stripped the envelope")
+        }
+    } else {
+        expect(false, "the demo lists the attached session the agent message lives in")
+    }
+
     // MARK: - Amendment A33: how an agent is signed in, and what is left of it
     //
     // `docs/DESIGN.md` § "A device has a page" and § "Quota is a meter, drawn

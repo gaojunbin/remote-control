@@ -160,6 +160,24 @@ struct TimelineTests {
         #expect(timeline.roots(at: .detailed).last?.pending?.id == "req-1")
     }
 
+    /// Amendment A34: a teammate's report is the agent's working, not the
+    /// reader's own words, so the level that hides the working hides it too.
+    @Test("Simple hides a message another agent filed, and Detailed draws it")
+    func agentMessageFollowsTheDetailLevel() throws {
+        var timeline = Timeline()
+        timeline.apply(try event(1, "user_message", ["block_id": "mine", "text": "fix the flake"]))
+        timeline.apply(try event(2, "user_message", ["block_id": "theirs", "source": "agent",
+                                                     "text": "recon-ios: three findings need a decision"]))
+        timeline.apply(try event(3, "assistant_text", ["block_id": "a", "text": "Reading it.", "done": true]))
+
+        #expect(timeline.roots(at: .detailed).map(\.id) == ["mine", "theirs", "a"])
+        #expect(timeline.roots(at: .simple).map(\.id) == ["mine", "a"])
+        #expect(timeline.entry(id: "theirs")?.isDrawn(at: .detailed) == true)
+        #expect(timeline.entry(id: "theirs")?.isDrawn(at: .simple) == false)
+        // The person's own words are drawn at both, whichever way they arrived.
+        #expect(timeline.entry(id: "mine")?.isDrawn(at: .simple) == true)
+    }
+
     @MainActor
     @Test("The level is a preference of this device, and Simple is the default")
     func detailPreference() {
