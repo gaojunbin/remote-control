@@ -142,6 +142,28 @@ export const en = {
     noAgents: 'No agents detected',
   },
 
+  /**
+   * A33: the page one device has. Vendor names, plan words, tiers, emails and
+   * hosts are what the device reported and are never translated.
+   */
+  devicePage: {
+    back: 'Devices',
+    gone: 'This device is no longer here.',
+    goneHint: 'It was revoked, or it never reached this gateway.',
+    refresh: 'Refresh',
+    accountOf: (vendor: string) => `${vendor} account`,
+    apiKeyOf: (vendor: string) => `${vendor} API key`,
+    notSignedIn: 'Not signed in',
+    checking: 'Checking…',
+    offlineQuota: 'Offline · quota unavailable',
+    windowHours: (n: number) => `${n}-hour`,
+    windowDays: (n: number) => `${n}-day`,
+    windowMinutes: (n: number) => `${n}-minute`,
+    percent: (n: number) => `${n}%`,
+    resets: (when: string) => `resets ${when}`,
+    usage: (window: string) => `${window} usage`,
+  },
+
   pairing: {
     title: 'Add device',
     intro:
@@ -543,6 +565,21 @@ export const agentLabels: Record<string, string> = {
 
 export function agentLabel(agent: string): string {
   return agentLabels[agent] ?? agent;
+}
+
+/**
+ * A33: the vendors an `AgentAccount.provider` can name, as they write
+ * themselves. Never translated, and never extended with agent ids — a provider
+ * this table does not know is printed as the device reported it.
+ */
+export const vendorLabels: Record<string, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  xai: 'xAI',
+};
+
+export function vendorLabel(provider: string): string {
+  return vendorLabels[provider] ?? provider;
 }
 
 /** The two interface languages, each written in its own script. */

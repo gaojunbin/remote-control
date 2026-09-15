@@ -10,7 +10,8 @@ hand-written CSS with no framework. It talks only to the gateway and follows
 | --- | --- |
 | `/` | Decides where an open lands and goes there; the `*` fallback does the same |
 | `/login` | Username and password sign-in against the gateway, and **Create an account** when the gateway takes registrations (A24) |
-| `/devices` | Device list with online state, agents, session counts and the client build; Rename, Update and Revoke on every row; **Add device** with the copyable one-liner, the pairing code, its expiry, live handshake steps, and the scan flow beside them |
+| `/devices` | Device list with online state, agents, session counts and the client build; Rename, Update and Revoke on every row; **Add device** with the copyable one-liner, the pairing code, its expiry, live handshake steps, and the scan flow beside them. The row itself opens the device |
+| `/devices/:deviceId` | One device: the machine as the row words it, then a card per agent it found, how each is signed in, and a meter per rate-limit window (A33) |
 | `/pair` | Claims the token a host printed as a QR code and shows the same handshake (A23) |
 | `/sessions` | Every session across every device: one collapsible group per device, its active rows and then its own collapsed **Archive**, a search, an agent filter and a device filter, and **New session** in a right-hand drawer |
 | `/sessions/:deviceId/:sessionId` | The chat: sidebar, timeline, composer, status line |
@@ -81,7 +82,16 @@ the new build six seconds later, which is what its `hello` would report (A22). B
 pairing by scanning are there (A23): `POST /api/pairing/requests` mints a claim token for a host,
 `POST /api/pairing/requests/{token}/claim` mints its pairing code and starts the same progress, and
 the host's status poll answers at once instead of holding a connection for 25 s the way the gateway
-does — nothing in the app polls it. The mock and the tests share
+does — nothing in the app polls it. Every agent carries the accounts of A33, and the two devices
+between them hold each shape a device page can meet: a Claude Code Max account with a tier and three
+windows, a Codex `pro` account whose five-hour window is 84 % spent, so one meter is drawn in the
+attention colour, an xAI account the leader exposes no windows for, pi's two providers — an
+Anthropic subscription and an *OpenAI API key · api.relay.example* — and on the other device a
+Claude Code signed in nowhere, a Codex account whose windows failed to read, and a Grok Build the
+machine's older client never looked at. `withoutLimits` in `mock/fixtures.ts` is what divides them:
+the device list and `hello` carry the accounts alone, and only the reply to `device.agents` carries
+`limits`, `limits_error` and `limits_checked_at`, 900 ms later, so the page's *Checking…* state is
+really seen. The mock and the tests share
 `mock/fixtures.ts`, so a fixture change shows up in both.
 
 ## Structure
@@ -573,6 +583,48 @@ waits for output.
 `mock/script.ts` plays the echo and a plausible outcome: a `notice` for `/compact`, a `tool_call`
 block for Codex's read-only commands, a short turn for the rest, and nothing but the echo for
 Grok's `/context`, which renders in its own pager.
+
+## A device's page (A33)
+
+`/devices/:deviceId` is `features/devices/DevicePage.tsx` with its own `device-page.css`. The row
+opens it: `DeviceRow` wraps the device's name in a `Link` whose `::after` is stretched over the
+whole row, and the row's menu is lifted above that box, so Rename, Update and Revoke keep working
+and none of them navigates. The page repeats none of those three actions.
+
+The header words the machine exactly as the row does — the online dot, the name, `hostname ·
+platform · arch`, and the client version with the first eight characters of its build. Then one card
+per agent with `available` true, in the device's own order: the agent's logo, its name and version,
+and under it one sign-in line per account. A device with no agents says so in one line.
+
+**The words on an account** are `features/devices/accounts.ts`, pure functions the tests drive
+directly. The vendor comes from `vendorLabels` in `src/strings.ts` — `anthropic` → Anthropic,
+`openai` → OpenAI, `xai` → xAI — and a provider that table does not know is printed as the device
+reported it. Both methods lead with that name: an account reads *Anthropic account · Max · Max 5x ·
+me@example.com*, with every part after the first drawn only when the device reported it, and a key
+reads *Anthropic API key*, or *OpenAI API key · api.relay.example* when it goes to a third-party
+host. pi signs in per provider, so it is the one agent with two of these lines. The plan word is the
+vendor's own with its first letter raised, and everything else the device sent — the tier, the
+email, the host, the window's scope — is printed exactly as it arrived, in both interface languages,
+because it is data and not the app's own words; the device puts its tier into words itself, so
+nothing here reformats one. An agent whose
+`accounts` is absent came from a device too old to look, and the card says nothing at all; an empty
+list is an agent signed in nowhere, and reads *Not signed in*.
+
+**The meters** are drawn for accounts only, because a key has no plan window to measure. A window is
+named from `window_minutes` — 300 is *5-hour*, 1440 *24-hour*, 10080 *7-day*, with its scope after
+it as *7-day · Fable* — and carries the used share as a fill, the percentage, and *resets 15:40*
+today or *resets Tue 22:00* on another day. The fill is the ink colour, the attention colour past
+80 % and the danger colour at 100 %; no other colour appears on the page.
+
+**Where the fresh figures live.** `hello` and `agents.updated` carry an account without its windows,
+so the devices store never holds one. The page asks `device.agents` when it opens, and
+`useDeviceQuota` keeps that reply in the page's own state, under the key of the request that fetched
+it — device, reachability, attempt — so a Refresh or another device reads as *Checking…* without the
+effect writing that state itself. The stored device is never overwritten, which is what keeps the
+list and the new-session drawer from diffing against limits every quarter hour. An offline device is
+not asked at all and reads *Offline · quota unavailable* where its meters would be; a
+`device_offline` reply says the same; any other refusal, and a per-account `limits_error`, is
+repeated in the device's own words with no meter under it.
 
 ## Layout and styling
 

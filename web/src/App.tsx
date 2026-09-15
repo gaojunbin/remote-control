@@ -3,6 +3,7 @@ import { Route, Routes, useLocation, useNavigate } from 'react-router';
 import { AppLayout } from './layout/AppLayout';
 import { Landing } from './layout/Landing';
 import { LoginPage } from './features/login/LoginPage';
+import { DevicePage } from './features/devices/DevicePage';
 import { DevicesPage } from './features/devices/DevicesPage';
 import { PairPage } from './features/devices/PairPage';
 import { SessionsPage } from './features/sessions/SessionsPage';
@@ -82,6 +83,8 @@ export function App() {
       <Route path="/sessions/:deviceId/:sessionId" element={<ChatPage />} />
       <Route element={<AppLayout />}>
         <Route path="/devices" element={<DevicesPage />} />
+        {/* A33: one device, its agents, how each is signed in and its quota. */}
+        <Route path="/devices/:deviceId" element={<DevicePage />} />
         <Route path="/pair" element={<PairPage />} />
         <Route path="/sessions" element={<SessionsPage />} />
         <Route path="/settings" element={<SettingsPage />} />

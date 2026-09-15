@@ -1,4 +1,5 @@
 import { MoreHorizontal } from 'lucide-react';
+import { Link } from 'react-router';
 import { AgentLogo } from '../../components/AgentLogo';
 import { Popover } from '../../components/Popover';
 import { OnlineDot } from '../../components/StatusDot';
@@ -60,7 +61,12 @@ export function DeviceRow({
       <div className="device-main">
         <div className="device-name">
           <OnlineDot online={device.online} pulse={updating} />
-          <span>{device.name}</span>
+          {/* A33: the row itself opens the device. The link is stretched over
+              the whole row in CSS, and the menu is lifted above it, so the
+              three actions keep working and none of them navigates. */}
+          <Link className="device-open" to={`/devices/${device.device_id}`}>
+            {device.name}
+          </Link>
         </div>
         <div className="device-meta">
           <span className="mono">

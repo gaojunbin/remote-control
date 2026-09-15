@@ -136,6 +136,24 @@ export const zhHans: StringTable = {
     noAgents: '未检测到 agent',
   },
 
+  devicePage: {
+    back: '设备',
+    gone: '该设备已不在这里。',
+    goneHint: '它已被吊销，或从未连接到本网关。',
+    refresh: '刷新',
+    accountOf: (vendor: string) => `${vendor} 账户`,
+    apiKeyOf: (vendor: string) => `${vendor} API key`,
+    notSignedIn: '未登录',
+    checking: '检查中…',
+    offlineQuota: '离线 · 无法获取配额',
+    windowHours: (n: number) => `${n} 小时`,
+    windowDays: (n: number) => `${n} 天`,
+    windowMinutes: (n: number) => `${n} 分钟`,
+    percent: (n: number) => `${n}%`,
+    resets: (when: string) => `${when} 重置`,
+    usage: (window: string) => `${window}用量`,
+  },
+
   pairing: {
     title: '添加设备',
     intro: '在运行 agent 的机器上执行一条命令。它主动外连网关，主机不对外暴露任何端口。',

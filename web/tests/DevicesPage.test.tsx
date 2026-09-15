@@ -72,3 +72,29 @@ describe('device row menu', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 });
+
+/**
+ * A33 — `docs/DESIGN.md` § "A device has a page": the row itself opens the
+ * device, and its menu keeps offering Rename, Update and Revoke.
+ */
+describe('a row opens the device', () => {
+  it('links the row to the device page', () => {
+    renderPage();
+    const first = devices[0];
+    if (!first) throw new Error('no mock device');
+
+    const link = screen.getByRole('link', { name: first.name });
+    expect(link).toHaveAttribute('href', `/devices/${first.device_id}`);
+    // Stretched over the row, so the whole row is the link's target.
+    expect(link.closest('.device-row')).not.toBeNull();
+  });
+
+  it('does not navigate when the menu is taken', async () => {
+    renderPage();
+
+    await openFirstMenu();
+
+    expect(window.location.pathname).toBe('/');
+    expect(screen.getByRole('menuitem', { name: strings.common.rename })).toBeInTheDocument();
+  });
+});

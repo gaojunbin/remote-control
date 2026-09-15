@@ -9,6 +9,7 @@
    both wrap on a narrow screen, and a clipped row would be worse than a tall
    one. Nothing moves at the widths where they do not wrap. */
 .device-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--sp-4);
@@ -19,6 +20,25 @@
 
 .device-row:hover {
   background: var(--hover);
+}
+
+/* A33: the whole row opens the device, and the menu still opens the menu. The
+   link's own box is the name, so that is its accessible name; the covering box
+   is drawn over the row and the menu is lifted above it. */
+.device-open {
+  color: inherit;
+  text-decoration: none;
+}
+
+.device-open::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.device-row > .popover-root {
+  position: relative;
+  z-index: 1;
 }
 
 .device-main {

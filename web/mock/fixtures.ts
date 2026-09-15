@@ -3,6 +3,7 @@
  * PROTOCOL-FROZEN.md §3 / §4 exactly.
  */
 import type {
+  AgentAccount,
   AgentId,
   AgentInfo,
   Command,
@@ -13,6 +14,7 @@ import type {
 
 const now = Date.now();
 const minutes = (n: number) => now - n * 60_000;
+const inHours = (n: number) => now + n * 3_600_000;
 
 export const claudeAgent: AgentInfo = {
   agent: 'claude',
@@ -55,12 +57,32 @@ export const claudeAgent: AgentInfo = {
   // A11: the channel relays prompts and approvals only.
   shared_settings: false,
   shared_attachments: false,
+  // A33: the Max account this machine's Claude Code runs on, with the three
+  // windows the OAuth usage endpoint reports — a session window, the week, and
+  // the week confined to one model.
+  accounts: [
+    {
+      provider: 'anthropic',
+      method: 'account',
+      plan: 'max',
+      tier: 'Max 5x',
+      email: 'me@example.com',
+      limits: [
+        { window_minutes: 300, used_percent: 16, resets_at: inHours(2.5) },
+        { window_minutes: 10080, used_percent: 54, resets_at: inHours(72) },
+        { window_minutes: 10080, scope: 'Fable', used_percent: 64, resets_at: inHours(72) },
+      ],
+      limits_checked_at: now,
+    },
+  ],
 };
 
 /** The same agent on a device where the shim is not installed yet (A10). */
 export const claudeNoShim: AgentInfo = {
   ...claudeAgent,
   attach_ready: false,
+  // A33: installed on this machine and signed in nowhere.
+  accounts: [],
 };
 
 export const codexAgent: AgentInfo = {
@@ -107,6 +129,22 @@ export const codexAgent: AgentInfo = {
   shared_interrupt: true,
   shared_settings: true,
   shared_attachments: true,
+  // A33: the ChatGPT account, with the two windows the shared daemon answers
+  // `account/rateLimits/read` with. The five-hour one is nearly spent, so the
+  // meter is drawn in the warning colour.
+  accounts: [
+    {
+      provider: 'openai',
+      method: 'account',
+      plan: 'pro',
+      email: 'me@example.com',
+      limits: [
+        { window_minutes: 300, used_percent: 84, resets_at: inHours(1.2) },
+        { window_minutes: 10080, used_percent: 12, resets_at: inHours(120) },
+      ],
+      limits_checked_at: now,
+    },
+  ],
 };
 
 /** A11: the same agent on a device where the daemon is not running yet. */
@@ -116,6 +154,17 @@ export const codexNoDaemon: AgentInfo = {
   shared_interrupt: false,
   shared_settings: false,
   shared_attachments: false,
+  // A33: the account is read from a file, so it is known; the windows are read
+  // through the daemon, which is not running here.
+  accounts: [
+    {
+      provider: 'openai',
+      method: 'account',
+      plan: 'pro',
+      email: 'me@example.com',
+      limits_error: 'Codex shared daemon is not running',
+    },
+  ],
 };
 
 /**
@@ -162,6 +211,9 @@ export const grokAgent: AgentInfo = {
   shared_interrupt: true,
   shared_settings: true,
   shared_attachments: false,
+  // A33: an xAI account with no plan word and no windows the leader exposes, so
+  // the card is the sign-in line alone.
+  accounts: [{ provider: 'xai', method: 'account', plan: null, email: 'me@example.com' }],
 };
 
 /** A28: the same agent on a device whose config has not turned the leader on. */
@@ -170,6 +222,9 @@ export const grokNoLeader: AgentInfo = {
   attach_ready: false,
   shared_interrupt: false,
   shared_settings: false,
+  // A33: this machine's client is older than the amendment, so it never looked
+  // at how its agents are signed in and the page draws nothing for it.
+  accounts: undefined,
 };
 
 /**
@@ -215,6 +270,22 @@ export const piAgent: AgentInfo = {
   shared_interrupt: true,
   shared_settings: true,
   shared_attachments: true,
+  // A33: pi signs in per provider, so it is the one agent with two accounts —
+  // an Anthropic subscription with windows, and an OpenAI key through a relay,
+  // which has no plan window to measure.
+  accounts: [
+    {
+      provider: 'anthropic',
+      method: 'account',
+      plan: 'max',
+      limits: [
+        { window_minutes: 300, used_percent: 16, resets_at: 1789487040000 },
+        { window_minutes: 10080, used_percent: 54, resets_at: 1789596000000 },
+      ],
+      limits_checked_at: 1789470000000,
+    },
+    { provider: 'openai', method: 'api_key', endpoint: 'api.relay.example' },
+  ],
 };
 
 /**
@@ -313,6 +384,37 @@ export const CLIENT_BUILD = '3f2b4a9c1d8e7f60a5b4c3d2e1f0918273645a5b6c7d8e9f0a1
 export const OLD_CLIENT_BUILD =
   '9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d';
 
+/**
+ * A33 — `hello` and `agents.updated` carry an account without its windows: they
+ * come from local files, so a device that re-detects its agents every quarter
+ * hour republishes nothing new. Only the reply to `device.agents` carries
+ * `limits`, `limits_error` and `limits_checked_at`, which is what the lists
+ * below and the handler in `server.ts` divide between them.
+ */
+export function withoutLimits(agent: AgentInfo): AgentInfo {
+  if (!agent.accounts) return agent;
+  return {
+    ...agent,
+    accounts: agent.accounts.map((account) => {
+      const stored: AgentAccount = { provider: account.provider, method: account.method };
+      if ('plan' in account) stored.plan = account.plan;
+      if (account.tier !== undefined) stored.tier = account.tier;
+      if (account.email !== undefined) stored.email = account.email;
+      if (account.endpoint !== undefined) stored.endpoint = account.endpoint;
+      return stored;
+    }),
+  };
+}
+
+const macAgents: AgentInfo[] = [claudeAgent, codexAgent, grokAgent, piAgent];
+const ciAgents: AgentInfo[] = [claudeNoShim, codexNoDaemon, grokNoLeader];
+
+/** A33: what a `device.agents` reply answers with, per device. */
+export const deviceAgents: Record<string, AgentInfo[]> = {
+  'dev-mac': macAgents,
+  'dev-ci': ciAgents,
+};
+
 export const devices: Device[] = [
   {
     device_id: 'dev-mac',
@@ -328,7 +430,7 @@ export const devices: Device[] = [
     latency_ms: 18,
     // A25: the one device that knows all four, so the picker, the card and a
     // session of each can be seen in development.
-    agents: [claudeAgent, codexAgent, grokAgent, piAgent],
+    agents: macAgents.map(withoutLimits),
   },
   {
     device_id: 'dev-ci',
@@ -344,7 +446,7 @@ export const devices: Device[] = [
     latency_ms: 42,
     // A28: Grok is installed here too, but this machine's config never turned
     // the leader on, so its terminal sessions are watched rather than attached.
-    agents: [claudeNoShim, codexNoDaemon, grokNoLeader],
+    agents: ciAgents.map(withoutLimits),
   },
 ];
 

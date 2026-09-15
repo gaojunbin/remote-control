@@ -21,6 +21,7 @@ import {
   CLIENT_VERSION,
   HOME,
   commandsFor,
+  deviceAgents,
   devices,
   historyFor,
   recentDirs,
@@ -1257,10 +1258,15 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       return;
     }
 
+    // A33: the one frame that carries the quota windows. The device reads them
+    // one network or daemon call at a time, so the reply lands a moment after
+    // the page opens and its "Checking…" state is really seen.
     case 'device.agents': {
       const device = state.devices.find((d) => d.device_id === String(frame.device_id ?? ''));
       if (!device) return replyError(conn, id, 'not_found', 'no such device');
-      reply(conn, id, { agents: device.agents });
+      if (!device.online) return replyError(conn, id, 'device_offline', 'the device is offline');
+      const fresh = deviceAgents[device.device_id] ?? device.agents;
+      setTimeout(() => reply(conn, id, { agents: fresh }), 900);
       return;
     }
 

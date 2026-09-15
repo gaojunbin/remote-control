@@ -76,6 +76,48 @@ export interface Command {
  */
 export type AttachMode = 'channel' | 'daemon' | 'extension' | 'leader';
 
+/**
+ * A33: how an agent is signed in with a vendor. `account` is the vendor's own
+ * subscription signed in with OAuth, `api_key` a key.
+ */
+export type AccountMethod = 'account' | 'api_key';
+
+/** A33: one rate-limit window of an account, as a `device.agents` reply reads it. */
+export interface AgentLimit {
+  /** The window's length: 300 for five hours, 10080 for a week. */
+  window_minutes: number;
+  /** What the window is confined to when it is not everything, in the vendor's words. */
+  scope?: string;
+  used_percent: number;
+  resets_at?: number | null;
+}
+
+/**
+ * A33: one credential an agent holds on a device. `limits`, `limits_error` and
+ * `limits_checked_at` reach an app in a `device.agents` reply only; `hello` and
+ * `agents.updated` carry the rest, which comes from the agent's own files.
+ */
+export interface AgentAccount {
+  /** The vendor as the agent names it: `anthropic`, `openai`, `xai`, another id. */
+  provider: string;
+  method: AccountMethod;
+  /** The plan word the vendor records, lowercase as reported. */
+  plan?: string | null;
+  /** A finer tier when the vendor exposes one. */
+  tier?: string;
+  email?: string;
+  /** For `api_key`: the third-party host the key is sent to. Host only. */
+  endpoint?: string;
+  /**
+   * The windows the device read. Empty when the vendor reported none; absent
+   * with no `limits_error` when the vendor exposes none the device can read.
+   */
+  limits?: AgentLimit[];
+  /** Why `limits` is missing after the device tried, in the device's words. */
+  limits_error?: string;
+  limits_checked_at?: number;
+}
+
 export interface AgentInfo {
   agent: AgentId;
   available: boolean;
@@ -110,6 +152,12 @@ export interface AgentInfo {
    * sessions. Defaults to false.
    */
   shared_attachments?: boolean;
+  /**
+   * A33: one entry per vendor credential the agent holds on this device.
+   * Absent when the device did not look, empty when the agent is installed but
+   * signed in nowhere.
+   */
+  accounts?: AgentAccount[];
 }
 
 /** A24: what the account routes of 3.9 are gated on. */
