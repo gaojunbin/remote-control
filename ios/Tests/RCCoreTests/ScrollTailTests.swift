@@ -140,4 +140,40 @@ struct ScrollTailTests {
                      kind: SessionEvent.assistantTextKind, blockID: blockID,
                      body: .assistantText(StreamTextPayload(delta: body, done: false)))
     }
+
+    // MARK: - Who is moving
+
+    @Test("A reader scrolling up is never pulled back, even while the content is still settling")
+    func readerWinsWhileTheRangeMoves() {
+        // The bug: rows settling after a turn, or history laid out lazily,
+        // move the scrollable range on every frame of an upward drag.
+        #expect(ScrollTail.decide(rangeChanged: true, atBottom: false, following: true,
+                                  motion: .reading) == .follow(false))
+        #expect(ScrollTail.decide(rangeChanged: true, atBottom: true, following: true,
+                                  motion: .reading) == .follow(true))
+        #expect(ScrollTail.decide(rangeChanged: false, atBottom: false, following: true,
+                                  motion: .reading) == .follow(false))
+    }
+
+    @Test("Content that grows while nobody is scrolling pins a reader at the foot and leaves one away alone")
+    func contentGrowsWhileStill() {
+        #expect(ScrollTail.decide(rangeChanged: true, atBottom: false, following: true,
+                                  motion: .still) == .scrollToTail)
+        #expect(ScrollTail.decide(rangeChanged: true, atBottom: false, following: false,
+                                  motion: .still) == .none)
+        // The range shrank until nothing scrolls: back at the bottom.
+        #expect(ScrollTail.decide(rangeChanged: true, atBottom: true, following: false,
+                                  motion: .still) == .follow(true))
+        // No range change and nobody moving: the position speaks for itself.
+        #expect(ScrollTail.decide(rangeChanged: false, atBottom: false, following: true,
+                                  motion: .still) == .follow(false))
+    }
+
+    @Test("A scroll the view started can only confirm that it arrived")
+    func animatingOnlyConfirmsArrival() {
+        #expect(ScrollTail.decide(rangeChanged: true, atBottom: false, following: true,
+                                  motion: .animating) == .none)
+        #expect(ScrollTail.decide(rangeChanged: false, atBottom: true, following: false,
+                                  motion: .animating) == .follow(true))
+    }
 }

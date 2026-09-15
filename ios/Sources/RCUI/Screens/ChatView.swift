@@ -187,6 +187,14 @@ private struct Transcript: View {
     /// a deadline rather than a flag so a scroll that lands a point short can
     /// never pin the button away for good.
     @State private var settlesAt = Date.distantPast
+    /// What the scroll view says is moving it. `ScrollTail.decide` reads the
+    /// reader's finger and a fling as the reader, and a scroll this view
+    /// started as the view; only when neither is moving does content that grew
+    /// pull someone at the foot along with it.
+    @State private var phase: ScrollPhase = .idle
+    /// Content arrived while the reader was scrolling at the foot; the catch-up
+    /// waits until their finger is off the transcript.
+    @State private var catchUpWhenStill = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -231,35 +239,37 @@ private struct Transcript: View {
             .onScrollGeometryChange(for: TailGeometry.self) { geometry in
                 TailGeometry(geometry)
             } action: { previous, current in
-                // Content that grew, or a container the keyboard shrank, is not
-                // the reader moving. Someone at the foot of the transcript
-                // stays there; someone reading history is left where they are.
-                guard current.maximumOffset == previous.maximumOffset else {
-                    // Someone at the foot of the transcript stays there, and a
-                    // range that shrank until there is nothing left to scroll
-                    // puts a reader who was away back at the bottom.
-                    if chat.isFollowingTail { scrollToTail(proxy) }
-                    else if current.isAtBottom { chat.isFollowingTail = true }
-                    return
+                // The reader always wins: while a finger or a fling moves the
+                // transcript the numbers are theirs, whatever the content did
+                // at the same moment — rows settling after a turn, history being
+                // laid out lazily — and nothing scrolls under them.
+                let action = ScrollTail.decide(
+                    rangeChanged: current.maximumOffset != previous.maximumOffset,
+                    atBottom: current.isAtBottom,
+                    following: chat.isFollowingTail,
+                    motion: motion)
+                switch action {
+                case .none: break
+                case .follow(let following): chat.isFollowingTail = following
+                case .scrollToTail: scrollToTail(proxy)
                 }
-                // While a scroll this view started is still running, the only
-                // thing its geometry can say is that it arrived.
-                guard settlesAt < Date.now else {
-                    if current.isAtBottom { chat.isFollowingTail = true }
-                    return
-                }
-                chat.isFollowingTail = current.isAtBottom
+            }
+            .onScrollPhaseChange { _, newPhase in
+                phase = newPhase
+                // The finger has left the transcript: whatever arrived while it
+                // was there is caught up on now, if the reader stayed at the foot.
+                guard newPhase == .idle, catchUpWhenStill else { return }
+                catchUpWhenStill = false
+                if chat.isFollowingTail { scrollToTail(proxy) }
             }
             .onChange(of: chat.timeline.lastSeq) { _, _ in
-                guard chat.isFollowingTail else { return }
-                scrollToTail(proxy)
+                followNewContent(proxy)
             }
             // A12: a message this app has just sent carries no `seq`, so the
             // cursor above cannot see it arrive. Without this the bubble would
             // be added below the fold on a full screen.
             .onChange(of: chat.timeline.optimistic.count) { _, _ in
-                guard chat.isFollowingTail else { return }
-                scrollToTail(proxy)
+                followNewContent(proxy)
             }
             .overlay(alignment: .bottomTrailing) {
                 Group {
@@ -273,6 +283,25 @@ private struct Transcript: View {
                 .padding(.bottom, Theme.Space.small)
             }
         }
+    }
+
+    /// Who is moving the transcript right now, for `ScrollTail.decide`. The
+    /// settle window stays as a second word for "this view", because a scroll
+    /// the proxy starts is reported as `.animating` only once it is under way.
+    private var motion: ScrollTail.ReaderMotion {
+        switch phase {
+        case .tracking, .interacting, .decelerating: return .reading
+        case .animating: return .animating
+        case .idle: return settlesAt < Date.now ? .still : .animating
+        @unknown default: return .still
+        }
+    }
+
+    /// New content while following: scroll to it, unless the reader's finger is
+    /// on the transcript, in which case it waits for the finger to lift.
+    private func followNewContent(_ proxy: ScrollViewProxy) {
+        guard chat.isFollowingTail else { return }
+        if motion == .reading { catchUpWhenStill = true } else { scrollToTail(proxy) }
     }
 
     private func scrollToTail(_ proxy: ScrollViewProxy) {

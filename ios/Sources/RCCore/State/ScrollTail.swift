@@ -22,6 +22,55 @@ public enum ScrollTail {
         offset >= max(0, contentHeight - containerHeight) - threshold
     }
 
+    /// Who is moving the transcript when its geometry changes. A scroll view
+    /// reports the same numbers whether a finger dragged it, a row grew under
+    /// it, or the view itself scrolled to the tail, and the three mean
+    /// different things.
+    public enum ReaderMotion: Sendable, Hashable {
+        /// Nobody: rows arrived, the keyboard opened, a row settled.
+        case still
+        /// The reader: a drag, a fling still decelerating.
+        case reading
+        /// This view: a scroll it started is on its way.
+        case animating
+    }
+
+    /// What the timeline does about one geometry change.
+    public enum TailAction: Sendable, Hashable {
+        case none
+        /// Set whether the timeline follows new content.
+        case follow(Bool)
+        /// Scroll to the tail and keep following.
+        case scrollToTail
+    }
+
+    /// The rule for one geometry change. `rangeChanged` is whether the
+    /// scrollable range moved — rows arrived or the container was resized —
+    /// and `atBottom` and `following` are as they stand when it arrives.
+    ///
+    /// The reader always wins: while a finger is on the transcript, or a fling
+    /// is still running, the numbers are theirs, whatever the content did at
+    /// the same moment, and nothing scrolls under them. That is what keeps a
+    /// transcript whose rows are still settling after a turn — or being laid
+    /// out lazily as history scrolls into view — from snapping back to the
+    /// foot each time its height moves while someone is scrolling up.
+    public static func decide(rangeChanged: Bool, atBottom: Bool, following: Bool,
+                              motion: ReaderMotion) -> TailAction {
+        switch motion {
+        case .reading:
+            return .follow(atBottom)
+        case .animating:
+            // A scroll this view started can only confirm that it arrived.
+            return atBottom ? .follow(true) : .none
+        case .still:
+            guard rangeChanged else { return .follow(atBottom) }
+            // Someone at the foot stays there; someone away is left where they
+            // are, unless the range shrank until nothing scrolls any more.
+            if following { return .scrollToTail }
+            return atBottom ? .follow(true) : .none
+        }
+    }
+
     /// What the jump-to-latest button counts, or nil when nothing arrived while
     /// the reader was away. Blocks, never streaming deltas, so a long answer is
     /// one update rather than two hundred.
