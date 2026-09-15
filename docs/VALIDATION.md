@@ -1499,6 +1499,52 @@ the tail in three runs — so what shipped is the rule that arrival is read from
 retried, not a fix of a recorded trace. 1288 + 274 checks, 303 unit tests, 53 UI tests (4 skipped).
 Not verified: the jump on a real transcript of several hundred rows, which is where it was seen.
 
+## 26. How each agent is signed in, what is left of its quota, and a turn that ends when the CLI says so (2026-09-15, A33, A34)
+
+The account rules were written against this Mac's own credential files, read once and copied into
+tests emptied of every secret: the Claude Code Keychain item (`claudeAiOauth` with
+`subscriptionType`, `rateLimitTier`, `expiresAt`), `~/.claude.json`'s `oauthAccount`, Codex's
+`auth.json` with the plan inside its `id_token`, Grok Build's `auth.json` keyed by OIDC issuer, and
+pi's per-provider `auth.json`. Anthropic's OAuth usage endpoint was called once by hand with the
+owner's token and answered HTTP 200 with `limits[]` rows of kind `session`, `weekly_all` and
+`weekly_scoped` beside the older `five_hour` / `seven_day` pair; Codex's `account/rateLimits/read`
+was already read by the `/usage` command. A read-only probe of the finished detector on this Mac
+reported Claude Code as an Anthropic account on plan `team`, tier "Max 5x", with three windows;
+Codex as an OpenAI account on `pro` with one window, because this account's `secondary` window is
+null today; Grok Build as an xAI account with no windows and no error; pi as one `xai` account. The
+gateway needed no change and its 342 tests pass with the new fixtures. 990 client tests. Not
+verified: the Keychain read from the daemon as launchd starts it rather than from a shell in the
+login session, a Codex account reporting both windows, and a third-party endpoint on a real
+machine.
+
+The turn-end rule (A34) came from this session's own transcript: of about 3,300 assistant rows,
+96 hold only the sentence the model says before its tool calls and carry `stop_reason:
+"tool_use"`, and no message's rows disagree on their `stop_reason`. The two messages the owner sent
+from the phone during the turn show the consequence — `queue-operation enqueue` at 11:53:03, a
+`queued_command` attachment, `remove` with `reason: "absorbed_mid_turn"` at 11:53:41, the device's
+re-send at 11:53:42 and a second `absorbed_mid_turn` at 11:54:03 — and the new tests replay a
+text-only `tool_use` row, an `end_turn` row and a held message through the tailer and the shared
+control. Not verified: a message held during a live attached turn after the fix.
+
+Web, in Chrome against the mock gateway: the device page at 1280 px and 390 px with the four
+account shapes; the meter's fill measured as the ink colour and, at 84 %, the warning colour; both
+reset wordings ("resets 22:49", "resets Fri 20:19"); the row's menu still opens without navigating.
+A message from another agent draws as a block whose left edge (412 px) is the assistant prose's,
+where the person's bubble sits at 805 px, and Simple draws none of them while the person's bubbles
+and the prose stay. 543 web tests.
+
+iOS, in the simulator against the demo: the device page over six demo shapes — an account with
+windows, an account with none, a key with a third-party host, not signed in, a failed read, an
+offline device — with "Checking…" until the delayed `device.agents` reply; the glow screenshotted
+at input levels 0, 0.5 and 1 before and after, the after images plainly brighter at the edges with
+the text still readable. A message from another agent draws as a block on the leading side whose
+left edge is the assistant text's and whose width exceeds the person's bubble, and Simple draws
+none of them, screenshotted at both levels. 1288 + 305 checks, 322 unit tests, 57 UI tests
+(4 skipped; in both full runs one unrelated test, the tool card under a raised keyboard, timed out
+at 30 s waiting for a scripted turn while three agents loaded this Mac, and passed alone in 41 s).
+Not verified: the pull-to-refresh gesture itself, the glow on a phone's own microphone, and the
+real transcript of several hundred rows.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
