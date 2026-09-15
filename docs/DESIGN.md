@@ -260,7 +260,11 @@ The app is one canvas, not a stack of boxes. These rules hold on every screen in
 
 The rendering rules follow the block model in `docs/ARCHITECTURE.md`. What matters visually:
 
-- **User messages** sit in a light gray bubble aligned right on the web, full width on iOS.
+- **User messages** sit in a light gray bubble aligned right on both apps, hugging their text and
+  leaving room on the left — at least a fifth of the width on the web (`max-width: 78%`), a fixed
+  margin on iOS — so what the person said is told from what the agent answered at a glance. The
+  text inside stays left-aligned; the caption ("sent from the terminal", "from another agent") sits
+  inside the bubble.
 - **Assistant text** is Markdown rendered directly onto the canvas, with no bubble. Code blocks get
   syntax highlighting and a copy button.
 - **Thinking** collapses to one quiet row, "Thought for 12s", that expands.
