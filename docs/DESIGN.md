@@ -50,6 +50,32 @@ apps, with the same words in the same order — **Rename**, **Update** and **Rev
 row's menu on the web, and on the phone from one trailing swipe holding all three and from the
 context menu; nothing is reachable on one app and not the other.
 
+**A device has a page.** Tapping a device row — the row itself, not its menu — opens the device
+(A33): its name, hostname, platform and client build as the row shows them, then one card per coding
+agent the device found, in the device's own order, and nothing for an agent it did not find; a
+device with no agents says so in one line. A card names the agent by logo and name with its
+version, and under it says how the agent is signed in, in one line: *Anthropic account · Max ·
+Max 5x · me@example.com* when it runs on the vendor's own account — the vendor's name, then the
+plan, the tier and the email, each only when reported; *API key* when it runs on a key, *API key ·
+api.relay.example* when the key goes to a third-party host; *Not signed in* when the device found
+neither. pi, which signs in per provider, gets one such line per provider. The vendor's name comes
+from a small table the app keeps for the ids it knows (`anthropic`, `openai`, `xai`); an id it does
+not know is printed as itself. Nothing is drawn for what the agent does not report, and the same
+three actions the row offers — Rename, Update, Revoke — are not repeated on the page.
+
+**Quota is a meter, drawn for accounts only.** Under an account line the page draws the vendor's
+rate-limit windows the device could read, one row each: the window's name — *5-hour*, *7-day*,
+with the scope after it when there is one, *7-day · Fable* — a horizontal meter filled to the used
+share in the ink colour, the percentage used, and when it resets in the reader's own words:
+*resets 15:40* today, *resets Tue 22:00* otherwise. The fill turns to the warning colour past 80 %
+and to the danger colour at 100 %; no other colour appears on the page. The page asks the device
+for fresh figures the moment it opens and shows *Checking…* where the meters go until they arrive;
+a device that is offline keeps the account line from its last report and reads *Offline · quota
+unavailable* in their place; a check that failed says why in the device's own words, one line, no
+meter. A pull down on the phone and a refresh control on the web ask again. An account whose
+vendor reports no windows shows the account line alone: no empty meter, no explanation. An API key
+never has a meter, because a key has no plan window to measure.
+
 **Three tabs, one order, one landing rule.** Both apps have the same three tabs in the same order:
 Devices, Sessions, Settings. On open the app lands on Sessions when the account has at least one
 device and on Devices when it has none: a new account's first job is enrolling a machine, everyone
@@ -442,7 +468,12 @@ the one primary action while listening. There is no Cancel: a dictation you do n
 and then edited or cleared like any draft, and a second button of a different size beside the
 primary only made the row look unfinished. There is no time limit; listening runs until Done is
 tapped. On iOS a soft multi-colour glow runs around the edge of the whole display while
-listening, the way Siri does, never around the field alone. The label says "Transcribing live ·
+listening, the way Siri does, never around the field alone. The glow is meant to be seen, not
+found: in silence it rests as a band of light plainly present along all four edges, and ordinary
+speech at a conversational level swells it unmistakably — the rim brightens and the halo spills
+well into the page margin, rising fast and falling slow so it reads as breathing rather than as a
+meter. It is still light spilling in from outside the glass, not a border: the page under it stays
+readable to the margin, and the colour never reaches the text. The label says "Transcribing live ·
 edit before sending", and it means it — the transcript is a draft you edit and send with the
 ordinary Send button; no utterance is ever sent by the act of stopping the recording. The mic
 disappears entirely when the gateway has no speech backend rather than failing when pressed.
