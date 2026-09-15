@@ -22,14 +22,19 @@ vi.mock('../src/features/voice/useVoice', async () => {
   return {
     useVoice: (options: { onTranscript: (text: string, isFinal: boolean) => void }) => {
       const [state, setState] = useState('idle');
-      voice.publish = options.onTranscript;
+      // Like the controller: Done starts the wait for the backend's last word,
+      // and that word, in the same tick, is what starts the polish.
+      voice.publish = (text, isFinal) => {
+        options.onTranscript(text, isFinal);
+        if (isFinal) setState('idle');
+      };
       return {
         state,
         level: 0.4,
         elapsedMs: 12_000,
         error: null,
         start: () => setState('listening'),
-        done: () => setState('idle'),
+        done: () => setState('finishing'),
         cancel: () => setState('idle'),
         dismissError: () => setState('idle'),
       };
@@ -115,11 +120,11 @@ afterEach(() => {
   useSettings.setState({ polishEnabled: false, polishModel: '', polishStrength: 'moderate' });
 });
 
-function setup(polishEnabled = true) {
+function setup(polishEnabled = true, state: Session['state'] = 'idle') {
   const onSend = vi.fn().mockResolvedValue(undefined);
   render(
     <Composer
-      session={session}
+      session={{ ...session, state }}
       agent={claudeAgent}
       deviceOnline
       queue={[]}
@@ -156,6 +161,10 @@ const settle = async (text: string) => {
 };
 
 const polishCalls = () => calls.filter((call) => call.path === '/api/polish');
+
+/** The spinner standing in Send's slot, or null when Send itself is there. */
+const working = () => document.querySelector('.working-pill');
+const sendButton = () => document.querySelector('.send-btn');
 
 describe('polishing a dictation', () => {
   it('sends the dictated words, the choices and the conversation, and says it is working', async () => {
@@ -225,23 +234,67 @@ describe('polishing a dictation', () => {
     expect(field()).toHaveValue('um run the the auth suite');
     expect(screen.getByText(strings.voice.polishFailed)).toBeInTheDocument();
     expect(screen.queryByText(strings.voice.polishing)).toBeNull();
+    // The dictated words are sendable as they are, so Send comes back with them.
+    expect(working()).toBeNull();
+    expect(screen.getByRole('button', { name: strings.composer.send })).toBeInTheDocument();
   });
 
-  it('sends the words as dictated when Send comes first, and drops the answer', async () => {
+  it('offers no Send while the model is writing, and Enter waits with it', async () => {
     const user = userEvent.setup();
     const { field, onSend } = setup();
     await dictate(user, 'um run the the auth suite');
-    expect(screen.getByText(strings.voice.polishing)).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: strings.composer.send }));
-    expect(onSend).toHaveBeenCalledWith('um run the the auth suite', [], 'auto');
+    // The slot Done gave way to is still a spinner: the words are on their way.
+    const pill = screen.getByRole('status', { name: strings.voice.polishing });
+    expect(pill.className).toContain('working-pill');
+    expect(pill.querySelector('.spinner')).not.toBeNull();
+    expect(sendButton()).toBeNull();
+
+    // Enter is Send, so a keystroke sends no more than the button would.
+    await user.click(field());
+    await user.keyboard('{Enter}');
+    expect(onSend).not.toHaveBeenCalled();
 
     await settle('Run the auth suite.');
 
-    // The late answer changes nothing: the message is gone and the field empty.
-    expect(field()).toHaveValue('');
-    expect(screen.queryByText(strings.voice.polished)).toBeNull();
-    expect(onSend).toHaveBeenCalledTimes(1);
+    // The field holds what will be sent, so the slot is Send again.
+    expect(working()).toBeNull();
+    expect(screen.getByRole('button', { name: strings.composer.send })).toBeInTheDocument();
+  });
+
+  it('draws no menu beside the spinner, and brings it back with Send', async () => {
+    const user = userEvent.setup();
+    setup(true, 'running');
+    await dictate(user, 'um run the the auth suite');
+
+    expect(working()).not.toBeNull();
+    expect(screen.queryByRole('button', { name: strings.composer.sendOptions })).toBeNull();
+
+    await settle('Run the auth suite.');
+
+    expect(screen.getByRole('button', { name: strings.composer.sendOptions })).toBeInTheDocument();
+    expect(sendButton()).not.toBeNull();
+  });
+
+  it('gives Send back to the person who types over the wait', async () => {
+    const user = userEvent.setup();
+    const { field, onSend } = setup();
+    await dictate(user, 'um run the the auth suite');
+    expect(sendButton()).toBeNull();
+
+    await user.click(field());
+    await user.keyboard(' twice');
+
+    // The person's words won: the request is dropped and the slot is Send.
+    expect(working()).toBeNull();
+    expect(screen.queryByText(strings.voice.polishing)).toBeNull();
+    expect(screen.getByRole('button', { name: strings.composer.send })).toBeInTheDocument();
+
+    await settle('Run the auth suite.');
+    expect(field()).toHaveValue('um run the the auth suite twice');
+
+    await user.click(screen.getByRole('button', { name: strings.composer.send }));
+    expect(onSend).toHaveBeenCalledWith('um run the the auth suite twice', [], 'auto');
   });
 
   it('polishes nothing when this gateway has no polish model', async () => {
@@ -252,6 +305,9 @@ describe('polishing a dictation', () => {
     expect(field()).toHaveValue('um run the the auth suite');
     expect(polishCalls()).toHaveLength(0);
     expect(screen.queryByText(strings.voice.polishing)).toBeNull();
+    // Nothing is on its way, so Send is offered the moment dictation ends.
+    expect(working()).toBeNull();
+    expect(screen.getByRole('button', { name: strings.composer.send })).toBeInTheDocument();
   });
 
   it('polishes nothing when the reader has chosen no model', async () => {

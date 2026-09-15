@@ -27,7 +27,9 @@ import type {
 } from '../../protocol/types';
 import { draftOf, useAnswers } from '../../stores/answers';
 import { VoiceControls } from '../voice/VoiceControls';
+import { WorkingPill } from '../voice/WorkingPill';
 import { mergeDraft } from '../voice/draft';
+import { primarySlot } from '../voice/primarySlot';
 import {
   applyPolished,
   canPolish,
@@ -235,8 +237,9 @@ export function Composer({
    */
   const submitAnswer = useCallback(() => {
     if (!question || answer === null) return;
-    // A29: what is sent is what is in the field, polished or not, and a request
-    // still running is dropped rather than allowed to rewrite an empty field.
+    // A29: the "Polished · Undo" note is about a draft that has just left, so
+    // it leaves with it. No request can still be out: the slot holds a spinner
+    // while one is, and this runs from the slot.
     dropPolish();
     const requestId = question.request_id;
     const value = text;
@@ -259,8 +262,9 @@ export function Composer({
     (mode: SendMode, source?: string) => {
       const value = (source ?? text).trim();
       if (disabled || (value.length === 0 && attachments.length === 0)) return;
-      // A29: a send while polishing sends the words as they were dictated, and
-      // the answer, whenever it arrives, is nobody's business any more.
+      // A29: the "Polished · Undo" note belongs to the draft and leaves with
+      // it. A request still out is not a case here: neither Send nor the ⋯
+      // menu, the two ways into this, is drawn while one is.
       dropPolish();
       if (textTooLong(value)) {
         setErrors([strings.composer.textTooLong]);
@@ -383,6 +387,12 @@ export function Composer({
 
   const voiceBusy =
     voice.state === 'starting' || voice.state === 'listening' || voice.state === 'finishing';
+  /**
+   * What the one primary slot of the control row holds. Everything that draws
+   * or gates that slot — the row itself, the Enter key, the menu beside Send —
+   * reads this and nothing else.
+   */
+  const slot = primarySlot(voice.state, polish.phase);
 
   const startVoice = () => {
     dropPolish();
@@ -414,7 +424,16 @@ export function Composer({
         ? strings.composer.send
         : strings.composer.queue
       : strings.composer.send;
-  const primarySubmit = () => (answering ? submitAnswer() : submit(primaryMode));
+  /**
+   * Enter is Send, so it waits with Send: while the slot is a spinner there is
+   * nothing to press, and a keystroke that sent anyway would be the button in
+   * another guise (`docs/DESIGN.md` § "The composer").
+   */
+  const primarySubmit = () => {
+    if (slot !== 'send') return;
+    if (answering) submitAnswer();
+    else submit(primaryMode);
+  };
   const primaryDisabled = answering
     ? answer === null
     : disabled || (text.trim().length === 0 && attachments.length === 0);
@@ -551,7 +570,9 @@ export function Composer({
           {voiceBusy
             ? voice.state === 'starting'
               ? strings.voice.connecting
-              : strings.voice.transcribing
+              : voice.state === 'finishing'
+                ? strings.voice.finishing
+                : strings.voice.transcribing
             : strings.voice.polishing}
         </p>
       ) : null}
@@ -615,7 +636,7 @@ export function Composer({
             }}
           />
           {voiceBusy ? (
-            <VoiceControls voice={voice} onDone={voice.done} />
+            <VoiceControls voice={voice} slot={slot} onDone={voice.done} />
           ) : (
             <div className="composer-buttons">
             {showAttach ? (
@@ -653,7 +674,8 @@ export function Composer({
                 <Mic size={16} />
               </button>
             ) : null}
-            {running && canInterrupt && !answering ? (
+            {/* The menu's only item is a send, so it goes with Send itself. */}
+            {running && canInterrupt && !answering && slot === 'send' ? (
               <Popover
                 align="end"
                 side="top"
@@ -680,15 +702,21 @@ export function Composer({
                 )}
               </Popover>
             ) : null}
-            <button
-              type="button"
-              className="btn primary small send-btn"
-              disabled={primaryDisabled}
-              onClick={primarySubmit}
-            >
+            {slot === 'send' ? (
+              <button
+                type="button"
+                className="btn primary small send-btn"
+                disabled={primaryDisabled}
+                onClick={primarySubmit}
+              >
                 {running ? primaryLabel : <ArrowUp size={15} aria-hidden />}
                 {running ? null : <span className="sr-only">{strings.composer.send}</span>}
               </button>
+            ) : (
+              // Dictation is over and the model has the words: the slot waits
+              // where Send was, and takes no click while it does.
+              <WorkingPill label={strings.voice.polishing} />
+            )}
             </div>
           )}
         </div>

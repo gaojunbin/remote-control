@@ -358,6 +358,7 @@ export const zhHans: StringTable = {
     transcribing: '实时转写 · 发送前可编辑',
     connecting: '连接中…',
     done: '完成',
+    finishing: '正在整理转写结果',
     listeningFor: (elapsed: string) => `已录制 ${elapsed}`,
     denied: '麦克风权限被拒绝。',
     unsupported: '此浏览器无法采集音频。',

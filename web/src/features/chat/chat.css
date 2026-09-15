@@ -1092,6 +1092,31 @@
   border-radius: var(--r-pill);
 }
 
+/*
+ * The primary slot while the app, and not the person, has the next move: Send's
+ * pill holding a spinner (`docs/DESIGN.md` § "The composer"). It is not a button
+ * and not a disabled one either, so nothing in it answers the pointer, and it
+ * takes `.send-btn`'s geometry so the row neither moves nor changes height when
+ * Send takes the slot back.
+ */
+.working-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-pill);
+  background: var(--ink);
+  flex: none;
+}
+
+/* The ring is read against the accent fill, not against the page behind it. */
+.working-pill .spinner {
+  border-color: rgba(255, 255, 255, 0.4);
+  border-top-color: var(--ink-inverse);
+}
+
 .send-alt {
   height: 28px;
   width: 28px;

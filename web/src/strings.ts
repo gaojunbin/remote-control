@@ -384,6 +384,8 @@ export const en = {
     transcribing: 'Transcribing live · edit before sending',
     connecting: 'Connecting…',
     done: 'Done',
+    /** What Done gave way to is waiting for: the backend's last word. */
+    finishing: 'Finishing the transcript',
     listeningFor: (elapsed: string) => `Listening for ${elapsed}`,
     denied: 'Microphone permission was denied.',
     unsupported: 'This browser cannot capture audio.',

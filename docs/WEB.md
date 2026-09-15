@@ -156,13 +156,17 @@ SVG and re-render all three together.
 Tapping the mic opens `WS /ws/stt`, captures the microphone through an AudioWorklet with a
 ScriptProcessor fallback, downsamples to 16 kHz mono PCM16LE, and sends roughly 120 ms binary
 frames. Partial transcripts stream into the composer's own field. The control row then holds a
-waveform, an elapsed timer and exactly one button, **Done**, which stands where Send stands, at
-Send's size, and stays disabled until the socket is listening. Done sends `stt.stop`, waits for
-`stt.final` and leaves the transcript in the field: nothing is ever sent by the act of stopping the
-recording. There is no Cancel — a dictation you do not want is Done and then edited or cleared like
-any draft — and no time limit; a long dictation is cut into segments whose transcripts are joined in
-order. Typing takes the field back and stops listening, keeping the words recognised so far. The mic
-is hidden entirely when the gateway reports `stt.enabled: false`.
+waveform, an elapsed timer and exactly one thing in Send's slot, at Send's size: the button
+**Done**, disabled until the socket is listening. Done sends `stt.stop` and leaves the transcript
+in the field — nothing is ever sent by the act of stopping the recording — and the click is
+answered in that same slot at once. The capsule gives way to Send's pill holding a spinner
+(`WorkingPill`, the class `.working-pill`), which is not a button and not a disabled one either, so
+nothing in the row takes a click while `stt.final` is on its way; the status line reads "Finishing
+the transcript" until it lands, and the elapsed clock stops at the click, its interval running only
+while the state is `listening`. There is no Cancel — a dictation you do not want is Done and then
+edited or cleared like any draft — and no time limit; a long dictation is cut into segments whose
+transcripts are joined in order. Typing takes the field back and stops listening, keeping the words
+recognised so far. The mic is hidden entirely when the gateway reports `stt.enabled: false`.
 
 ## Dictation polish (A29)
 
@@ -185,17 +189,25 @@ the dictation language and the open session's last twenty `user_message` / `assi
 oldest first, each trimmed to 4000 characters (`src/features/voice/polish.ts`, pure). The answer
 replaces only that span, never a character the person typed, and "Polished · Undo" sits under the
 field until the next edit or send; Undo puts the dictated words back. A failure leaves the words
-and shows "Polishing failed, your words are unchanged" for a few seconds. Send while polishing sends
-the words as dictated and drops the request, and a late answer is ignored. Nothing is ever sent by
-itself: polished text is a draft like any other.
+and shows "Polishing failed, your words are unchanged" for a few seconds. While the request is out
+the spinner Done became stays in Send's slot: Send is not drawn, Enter does nothing — it is Send,
+so it waits with it — and the `⋯` menu beside Send, whose only item is a send, is not drawn either.
+The slot becomes Send the moment the field holds what will be sent: the polished words when the
+answer lands, the dictated ones when the request fails, and the person's own the instant they type
+over the wait, which drops the request. Which of the three the slot holds is one pure function of
+the dictation state and the polish phase (`src/features/voice/primarySlot.ts`), read by the
+listening row and the ordinary row alike. Nothing is ever sent by itself: polished text is a draft
+like any other.
 
 **The mock** reports `polish.enabled: true`, serves two models, and polishes with a 600 ms delay by
 dropping "um"/"uh", merging doubled words, capitalising and closing the sentence, so the whole flow
 can be watched; its speech-to-text final transcript carries fillers on purpose. Tests cover the pure
-helpers, the composer flow (success, failure, send while polishing, undo, both disabled cases), the
+helpers, the slot over every pair of phases, the composer flow (success, failure, the slot and the
+Enter key while the request is out, a typed edit that drops it, undo, both disabled cases), the
 settings group in both gateway states, the per-account keys and the three protocol fixtures. The
 flow was driven in Chrome against the mock at 1280 px and 400 px: the Voice group with the three
-controls, "Polishing…" in the status line, and "Polished · Undo" under the field.
+controls, the spinner in Send's slot with "Polishing…" in the status line, and "Polished · Undo"
+under the field once Send is back.
 ## Messages from other agents (A30, A34)
 
 A `user_message` whose `source` is `agent` — a teammate's report or a task notification the Claude

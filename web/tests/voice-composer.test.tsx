@@ -21,14 +21,19 @@ vi.mock('../src/features/voice/useVoice', async () => {
   return {
     useVoice: (options: { onTranscript: (text: string, isFinal: boolean) => void }) => {
       const [state, setState] = useState('idle');
-      voice.publish = options.onTranscript;
+      // Like the controller: Done starts the wait for the backend's last word,
+      // and that word, when it comes, is what ends the run.
+      voice.publish = (text, isFinal) => {
+        options.onTranscript(text, isFinal);
+        if (isFinal) setState('idle');
+      };
       return {
         state,
         level: 0.4,
         elapsedMs: 12_000,
         error: null,
         start: () => setState('listening'),
-        done: () => setState('idle'),
+        done: () => setState('finishing'),
         cancel: () => setState('idle'),
         dismissError: () => setState('idle'),
       };
@@ -148,6 +153,31 @@ describe('dictation in the composer', () => {
     // It is an ordinary draft now: the ordinary Send button is what sends it.
     await user.click(screen.getByRole('button', { name: strings.composer.send }));
     expect(onSend).toHaveBeenCalledWith('run the auth suite on CI', [], 'auto');
+  });
+
+  it('answers the click on Done with a spinner, and offers Send once the words are in', async () => {
+    const user = userEvent.setup();
+    setup();
+    await user.click(screen.getByRole('button', { name: strings.composer.micStart }));
+    say('run the auth suite');
+
+    await user.click(screen.getByRole('button', { name: strings.voice.done }));
+
+    // Nothing in the row can be clicked while the transcript is on its way.
+    expect(controlRowButtons()).toEqual([]);
+    expect(screen.queryByRole('button', { name: strings.composer.send })).toBeNull();
+    const working = screen.getByRole('status', { name: strings.voice.finishing });
+    expect(working.className).toContain('working-pill');
+    expect(working.querySelector('.spinner')).not.toBeNull();
+    // The status line says what is being waited for, in the same words.
+    expect(screen.getByText(strings.voice.finishing)).toBeInTheDocument();
+
+    say('run the auth suite on CI', true);
+
+    // With no polish the final transcript is what will be sent, so Send is back.
+    expect(screen.queryByRole('status', { name: strings.voice.finishing })).toBeNull();
+    expect(document.querySelector('.working-pill')).toBeNull();
+    expect(screen.getByRole('button', { name: strings.composer.send })).toBeInTheDocument();
   });
 
   it('lets a keystroke take the field back from dictation', async () => {
