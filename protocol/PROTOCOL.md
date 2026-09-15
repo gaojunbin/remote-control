@@ -1130,9 +1130,10 @@ typed: the message one Claude session sends another ("Another Claude session sen
 result — never the envelope, and never the `<system-reminder>` blocks the CLI attaches to a turn,
 which are dropped wherever they appear; a row that held nothing else produces no block. A subagent's
 result that arrives as a tool result is a `tool_call` already and is unchanged. Apps draw an `agent`
-message in the user's bubble shape but muted, captioned "from another agent", and a turn such a
-message starts carries `trigger: "agent"` (5.9), which the status line treats as it treats
-`terminal`. Rows the CLI marks `isMeta`, including the echo of a message this device injected through
+message on the agent's side of the conversation — never in the person's bubble — as a muted block
+captioned "from another agent", and their Simple detail level hides it as it hides the agent's
+other workings (amendment A34); a turn such a message starts carries `trigger: "agent"` (5.9),
+which the status line treats as it treats `terminal`. Rows the CLI marks `isMeta`, including the echo of a message this device injected through
 its channel, stay out of the timeline as before.
 
 Three more rows Claude Code files as user turns are not prompts either (amendment A32). The summary
@@ -3229,6 +3230,11 @@ by `block_id` like any other.
 - [ ] Reports each agent's `accounts` from the agent's own files in `hello` and `agents.updated`
       without `limits`, answers `device.agents` with `limits` read fresh for every `account` — or
       `limits_error` when the read failed — and never writes a credential or refreshes a token (A33).
+- [ ] Reads the end of a mirrored Claude turn from the assistant row's `stop_reason`, never from a
+      row that happens to hold no `tool_use` — the CLI writes each content block as a row of its
+      own — so a message held for a running turn goes out only once the turn has really ended; and
+      when an injection is absorbed a second time, publishes the bubble as `delivered` with the
+      warning `notice`, since nothing more will be re-sent (A34).
 - [ ] Moves a Claude attachment to the session id the CLI's `SessionStart` hook names, and removes
       a terminal-origin session with no events and no transcript with `session.removed` the moment
       its terminal leaves it (A16).
@@ -3286,9 +3292,9 @@ by `block_id` like any other.
       description and argument hint, sends a matched first word as `session.command` and
       anything else as `session.send`, and draws nothing for an agent without the capability
       (A27).
-- [ ] Draws a `user_message` with `source: "agent"` muted and captioned "from another agent", never
-      as the person's own words, and treats `trigger: "agent"` like `terminal` in the status line
-      (A30).
+- [ ] Draws a `user_message` with `source: "agent"` on the agent's side, muted and captioned "from
+      another agent", never in the person's bubble, hides it at the Simple detail level, and treats
+      `trigger: "agent"` like `terminal` in the status line (A30, A34).
 - [ ] (iOS) Compares its version with `apps.ios.minimum_version` from health, config and `hello`, and
       below it shows the blocking "Update required" screen of 8.16 and nothing else (A31).
 - [ ] Offers the dictation polish switch, model and strength only when `polish.enabled` is true
@@ -3652,3 +3658,16 @@ model `scope`, from Anthropic's OAuth usage endpoint for Claude Code and for pi'
 and from `account/rateLimits/read` on the shared daemon for Codex; Grok Build exposes none. `hello`
 and `agents.updated` carry accounts without limits. Apps open a device from its row and draw the
 accounts and the meters. See 4.2, 6, 9.2 and 9.3.
+
+**2026-09-15 A34 — a turn ends when the CLI says so, and another agent's words sit on the agent's
+side.** Two things seen on a phone during a long Claude Code turn. First, three messages sent from
+the phone while the turn ran were each shown with "will be re-sent" and the warning that the
+terminal took them as data, although the CLI had read every one: Claude Code writes each content
+block of one assistant message as a row of its own, and a mirror that read a text-only row as the
+end of the turn injected the held messages into a turn that was still running. The device now reads
+a turn's end from the row's `stop_reason` — `tool_use` means the turn goes on whatever the row
+holds — and, when an injection is absorbed a second time, publishes the bubble as `delivered`
+beside the warning, because `absorbed` promises a re-send that will not come. Second, a teammate's
+report was drawn in the person's own bubble, muted: apps now draw a `source: "agent"` message on
+the agent's side, as a muted block captioned "from another agent", and their Simple detail level
+hides it with the agent's other workings. Nothing changes on the wire. See 5.2, 9.2 and 9.3.

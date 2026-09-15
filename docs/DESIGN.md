@@ -291,9 +291,14 @@ The rendering rules follow the block model in `docs/ARCHITECTURE.md`. What matte
 - **User messages** sit in a light gray bubble aligned right on both apps, hugging their text and
   leaving room on the left — at least a fifth of the width on the web (`max-width: 78%`), a fixed
   margin on iOS — so what the person said is told from what the agent answered at a glance. The
-  text inside stays left-aligned; the caption ("sent from the terminal", "from another agent") sits
-  inside the bubble. The bubble is inert: nothing changes under the pointer on the web — no hover
-  tint, no shadow — because a message is a record, not a control.
+  text inside stays left-aligned; the caption ("sent from the terminal") sits inside the bubble.
+  The bubble is inert: nothing changes under the pointer on the web — no hover tint, no shadow —
+  because a message is a record, not a control. Only the person's own words go in it.
+- **Messages from other agents** — a teammate session's report, a background task's notification
+  (`source: "agent"`, A30/A34) — are the agent's side of the conversation, not the person's: they
+  sit on the left with the agent's own output, as a muted block on the quiet surface with the
+  caption "from another agent" above the text, never in the gray bubble on the right. They are the
+  agent's workings, so Simple does not draw them; Detailed does.
 - **Assistant text** is Markdown rendered directly onto the canvas, with no bubble. Code blocks get
   syntax highlighting and a copy button.
 - **Thinking** collapses to one quiet row, "Thought for 12s", that expands.
@@ -315,8 +320,8 @@ The timeline therefore has a detail level, set in Settings and kept per app, nev
 
 - **Simple** shows only what is written to the person: their own messages, the agent's prose, the
   approval and question cards (they need an answer), notices and errors, and the end-of-turn line
-  when a turn stopped or failed. Thinking, every tool call, and the todos chip are not drawn at all —
-  not collapsed, not summarised, not counted. The status line and the status dot are what say the
+  when a turn stopped or failed. Thinking, every tool call, the todos chip and messages from other
+  agents are not drawn at all — not collapsed, not summarised, not counted. The status line and the status dot are what say the
   agent is busy.
 - **Detailed** is the timeline described above, everything included.
 
