@@ -92,6 +92,15 @@ the device comes back with the new build, "Update failed · <reason>" if it does
 action is disabled while the device is offline or a session it drives is running. A device on the
 gateway's build offers no Update.
 
+**An update names its version, and leaves the device as a fresh install would.** The row says what
+it would install — "Update available · 1.3.1" under the version the device runs — and the
+confirmation says the same ("Update <name> to 1.3.1?"), because "Update available" alone told
+nobody whether the click was worth it while every build was called 0.1.0. After the wheel, the
+updater refreshes what the wheel ships into the person's tools, exactly as the installer would: the
+claude shim, and the pi extension when one is installed. It touches nothing it did not put there —
+it never installs Codex, and never turns Grok's leader mode on or off, both of which are the
+installer's questions and the person's answers.
+
 **Pairing by scanning.** Adding a device from the phone should not mean typing a pairing code into
 a terminal. The phone's Add device sheet offers **Scan a code**: the camera opens with the two steps
 over it — run `curl -fsSL <gateway>/install.sh | sh` on the host (with a copy button), then point the
