@@ -1627,6 +1627,28 @@ across all four components, so every enrolled device will offer this update once
 redeployed and the wheel it serves is rebuilt. `IOS_MINIMUM_APP_VERSION` stays 0.1.0 because
 nothing here breaks an older app. Repo tag v1.3.
 
+## 29. Pull request #1 finished and merged: the real claude behind the shim, and a proxy on request (2026-09-16, client 1.3.1)
+
+The contributor's two fixes were reviewed in a clean worktree (`scratchpad/review/pr-1.md`), and
+the owner chose to finish them in the repository rather than send them back. Fix 1 was confirmed
+real by reverting only `agents/claude/runtime.py` to `master`: the new test fails with
+`resolve_binary() is None` — the shim first on the daemon's PATH hid a `claude` installed under
+nvm — and passes with the PATH walk. Fix 2 was reshaped to the owner's rulings: the stored proxy is
+`""` or one http/https URL; socks is refused at enrollment (the branch had accepted it with no
+package able to dial it, and `rc-client enroll --proxy socks5://…` exited on an `ImportError`
+traceback); `--proxy env` is resolved once on the enrolling machine with `getproxies()` and
+`proxy_bypass()` for the gateway's own URL and the result is what `config.toml` keeps, so the
+launchd plist and the systemd unit — which carry no proxy variables — no longer matter; every
+printed proxy is stripped of its credentials (the branch echoed a mistyped URL, password included,
+into stderr and the service log); `rc-client status` shows the proxy; `install.sh --proxy URL`
+exports the variables for its own downloads. One PATH walk serves the shim and the daemon. Client
+tests 1003 → 1018; ruff, format and mypy clean. Verified by hand on this Mac: with no proxy variable
+set, `getproxies()` returns the system network setting (a local proxy here), which is why
+`environment_proxy` documents that macOS reads System Settings when the variables are empty.
+Not verified: `install.sh --proxy` and `service install` on a real host, and the contributor's
+cluster node itself. The PR description's "1 failed" (`test_grok_leader`) did not reproduce here.
+The four components moved to 1.3.1 together (iOS build 3), tag v1.3.1.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
