@@ -1675,6 +1675,34 @@ Full iOS UI suite: 62 tests, 4 skipped, 1 failure in 1 366 s — `testOnlyAnAdmi
 (the tests fake the steps), and the new wording against a real gateway. All four components 1.3.2
 (iOS build 4), tag v1.3.2.
 
+## 31. While dictation runs, the field follows the words (2026-09-16, 1.3.3)
+
+The owner reported that a long dictation on the phone left the composer's field on its first screen
+until Done. The cause was read from the code: dictation writes the draft programmatically with the
+keyboard down, so nothing kept the end of a text past eight lines in view — on iOS the
+`UITextView` inside `GrowingTextField` scrolls only when a caret moves, and on the web the
+textarea's `scrollTop` was never touched after the height was capped. Both apps now scroll the
+field to its last line, without animation, on every transcript write that lands past the visible
+lines while listening and through the finishing spinner, and never while typing. The web also
+gained the takeover the phone already had: a pointer down on the field while dictating ends the
+dictation and keeps the words, so reading back is possible and the field stops following; the
+field's own programmatic focus does not count. Web tests 580 → 584 (jsdom with a real
+`scrollHeight` defined on the textarea; each new test failed on the old source). iOS: RCUIVerify 351 → 355 (the field probe and the long scripted dictation), RCVerify 1293 and unit tests 341 unchanged, one new UI test that failed with the follow switched off and passes with it on; the demo now derives the client version it serves from the app's own, so the two version literals left in `ios/` check each other.
+Not verified: either app against a real microphone with a long utterance; the web in a browser
+(vitest only). Full iOS UI suite: the first run showed 9 failures out of 63, the second 2, and every one of them
+passed alone; what the two runs taught is recorded here because it cost an evening. The simulator
+had been left with system language `zh-Hans-SG`, which gives it the Pinyin keyboard, and one early
+failure under that keyboard left `/usage` in the per-session draft file — which `--reset-state`
+did not clear — so every later launch opened the Codex demo session with those words already in
+the field (`//usageusage` after typing), and the command panel could not open. `--reset-state`
+now empties the draft store first thing in the launch task (RCUIVerify check and a unit test,
+each failing on the old source), the simulator is English again, and `docs/IOS.md` says how to
+keep it so. The two failures of the second run (`testSentMessageAppearsBeforeTheDeviceConfirmsIt`,
+`testSharedGrokSessionStopsAndRetunesButTakesNoAttachments`) are the typed-text mismatch seen
+since round 29, on a Mac whose load average was 29 while the suite ran for 1 650 s; both passed
+alone. A guard that would make the text field ignore SwiftUI's own echoes while an agent streams
+was tried and withdrawn, because no test could be written that failed without it. All four components 1.3.3 (iOS build 5), tag v1.3.3.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
