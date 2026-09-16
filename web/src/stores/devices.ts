@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import { rpc } from '../lib/gateway';
 import { RequestError } from '../lib/ws';
 import { strings } from '../strings';
+import type { ClientBuildInfo } from '../lib/api';
 import type { Device } from '../protocol/types';
 
 interface DevicesState {
@@ -89,17 +90,26 @@ export const useDevices = create<DevicesState>((set, get) => ({
   reset: () => set({ devices: [], loaded: false, error: null, updateErrors: {} }),
 }));
 
-/** A22: the sentence under the hostname, or null when there is nothing to say. */
+/**
+ * A22: the sentence under the hostname, or null when there is nothing to say.
+ *
+ * An update names what it would install, so the available notice carries the
+ * served version ("Update available · 1.3.1"); a gateway too old to say which
+ * version its wheel is keeps today's bare wording.
+ */
 export const updateNotice = (
   device: Device,
   localError: string | undefined,
-  gatewayBuild: string | undefined,
+  served: ClientBuildInfo | undefined,
 ): { tone: 'available' | 'updating' | 'failed'; text: string } | null => {
   if (device.update_state === 'updating') return { tone: 'updating', text: strings.devices.updating };
   const failure = localError ?? (device.update_state === 'failed' ? device.update_message : null);
   if (failure) return { tone: 'failed', text: strings.devices.updateFailed(failure) };
-  if (gatewayBuild && device.client_build !== gatewayBuild) {
-    return { tone: 'available', text: strings.devices.updateAvailable };
+  if (served && device.client_build !== served.build) {
+    const text = served.version
+      ? strings.devices.updateAvailableTo(served.version)
+      : strings.devices.updateAvailable;
+    return { tone: 'available', text };
   }
   return null;
 };

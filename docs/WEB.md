@@ -445,14 +445,24 @@ Nothing of this reaches the gateway.
   and Revoke, in that order, and shows the client version with the first eight characters of
   `client_build` under the hostname. `updateNotice` in `src/stores/devices.ts` is the one rule for
   what replaces that build: "Updating…" while `update_state` is `updating`, "Update failed ·
-  <message>" for `failed`, and "Update available" when the device's build differs from
+  <message>" for `failed`, and "Update available · <version>" when the device's build differs from
   `config.client.build` — the wheel the gateway serves, read once on boot with the rest of
-  `/api/config`. Update confirms first, then sends `device.update {device_id, build}` with the
-  gateway's build, never the row's. It is disabled with a title saying why while the device is
-  offline, while an update is in flight, when the builds already match and when the gateway serves
-  no wheel at all. A refusal the device sends back — a running session, a client installed from
-  source — is not an `update_state`, so it is kept per device in the store's `updateErrors` and
-  drawn in the same place until the gateway sends that device again.
+  `/api/config`. **An update names what it would install**: the page reads the whole `config.client`
+  object and hands it to the row as `served`, so the notice carries `client.version` and the
+  confirmation says "Update <name> to <version>? Its service restarts; sessions it drives are
+  stopped." A gateway too old to name the version of its wheel leaves `client.version` out, and both
+  fall back to the bare "Update available" and "…to the gateway's client?". Update confirms first,
+  then sends `device.update {device_id, build}` with the gateway's build, never the row's. It is
+  disabled with a title saying why while the device is offline, while an update is in flight, when
+  the builds already match and when the gateway serves no wheel at all. A refusal the device sends
+  back — a running session, a client installed from source — is not an `update_state`, so it is kept
+  per device in the store's `updateErrors` and drawn in the same place until the gateway sends that
+  device again.
+- **Add device asks nothing it does not need.** The modal has no macOS / Linux picker: the installer
+  tells the two apart itself with `uname`, so the command is the same on both. The gateway still
+  hands out `install.macos` and `install.linux` — the same string today — so a platform whose command
+  really differs can be added without a wire change, and `installCommand` in
+  `src/features/devices/AddDeviceModal.tsx` is the one place that picks a key.
 - **Pairing has two ways in** (A23). The Add device modal mints a code as before and now carries a
   second block, "From your phone", with the one-liner the scan flow uses: the host asks the gateway
   for a claim token and prints it as a QR code encoding `<origin>/pair#<token>`. `/pair` claims that

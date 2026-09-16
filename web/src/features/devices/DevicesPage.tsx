@@ -20,8 +20,9 @@ export function DevicesPage() {
   const requestUpdate = useDevices((s) => s.requestUpdate);
   const updateErrors = useDevices((s) => s.updateErrors);
   const sessions = useSessions((s) => s.sessions);
-  // A22: the wheel this gateway serves. Absent in a developer checkout.
-  const gatewayBuild = useAuth((s) => s.config?.client?.build);
+  // A22: the wheel this gateway serves, and the version it installs. Absent in
+  // a developer checkout; the version alone is absent from an older gateway.
+  const served = useAuth((s) => s.config?.client);
 
   const [adding, setAdding] = useState(false);
   const [renaming, setRenaming] = useState<Device | null>(null);
@@ -70,7 +71,7 @@ export function DevicesPage() {
               key={device.device_id}
               device={device}
               sessionCount={sessionCounts[device.device_id] ?? 0}
-              gatewayBuild={gatewayBuild}
+              served={served}
               updateError={updateErrors[device.device_id]}
               onRename={() => {
                 setRenaming(device);
@@ -127,15 +128,15 @@ export function DevicesPage() {
       <ConfirmDialog
         open={updating !== null}
         title={strings.devices.updateTitle}
-        body={updating ? strings.devices.updateBody(updating.name) : ''}
+        body={updating ? strings.devices.updateBody(updating.name, served?.version) : ''}
         confirmLabel={strings.devices.updateConfirm}
         busy={busy}
         onClose={() => setUpdating(null)}
         onConfirm={async () => {
-          if (!updating || gatewayBuild === undefined) return;
+          if (!updating || served === undefined) return;
           setBusy(true);
           try {
-            await requestUpdate(updating.device_id, gatewayBuild);
+            await requestUpdate(updating.device_id, served.build);
             setUpdating(null);
           } finally {
             setBusy(false);

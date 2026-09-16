@@ -71,7 +71,8 @@ export interface HealthResponse {
 
 /** A22: the client wheel the gateway serves. Absent in a developer checkout. */
 export interface ClientBuildInfo {
-  version: string;
+  /** The version an update installs. A gateway too old to say leaves it out. */
+  version?: string;
   build: string;
   url: string;
 }

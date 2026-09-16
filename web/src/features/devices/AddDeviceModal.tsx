@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '../../components/Button';
 import { Modal } from '../../components/Modal';
-import { Segmented } from '../../components/Segmented';
 import { api, type PairingResponse } from '../../lib/api';
 import { clock } from '../../lib/format';
 import { strings } from '../../strings';
@@ -10,7 +9,14 @@ import { useNow } from '../../lib/useNow';
 import { PairingSteps } from './PairingProgress';
 import { usePairingProgress } from './usePairingProgress';
 
-type Platform = 'macos' | 'linux';
+/**
+ * The one command to run on the host. The gateway hands out `install.macos` and
+ * `install.linux` so a platform whose command really differs can be added
+ * without a wire change, but the two are the same string today: the installer
+ * tells macOS from Linux itself with `uname`. So the modal reads one of them and
+ * asks nobody which platform they are on.
+ */
+const installCommand = (pairing: PairingResponse | null): string => pairing?.install.macos ?? '';
 
 /** Mounted only while open so each visit requests exactly one pairing code. */
 export function AddDeviceModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -19,7 +25,6 @@ export function AddDeviceModal({ open, onClose }: { open: boolean; onClose: () =
 }
 
 function AddDevice({ onClose }: { onClose: () => void }) {
-  const [platform, setPlatform] = useState<Platform>(detectPlatform);
   const [pairing, setPairing] = useState<PairingResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [manual, setManual] = useState(false);
@@ -55,7 +60,7 @@ function AddDevice({ onClose }: { onClose: () => void }) {
     onClose();
   }, [pairing, connected, clearPairing, onClose]);
 
-  const command = pairing ? pairing.install[platform] : '';
+  const command = installCommand(pairing);
   // `expires_at` is a gateway timestamp, so compare it against the gateway clock.
   const serverNow = now + clockSkewMs;
   const remaining = pairing ? Math.max(0, pairing.expires_at - serverNow) : 0;
@@ -78,16 +83,6 @@ function AddDevice({ onClose }: { onClose: () => void }) {
       }
     >
       <p className="hint pairing-intro">{strings.pairing.intro}</p>
-
-      <Segmented<Platform>
-        ariaLabel="Platform"
-        value={platform}
-        onChange={setPlatform}
-        options={[
-          { value: 'macos', label: strings.pairing.macos },
-          { value: 'linux', label: strings.pairing.linux },
-        ]}
-      />
 
       {error ? <p className="login-error">{error}</p> : null}
 
@@ -165,10 +160,6 @@ function AddDevice({ onClose }: { onClose: () => void }) {
       ) : null}
     </Modal>
   );
-}
-
-function detectPlatform(): Platform {
-  return /Mac|iPhone|iPad/.test(navigator.userAgent) ? 'macos' : 'linux';
 }
 
 async function copyText(text: string): Promise<void> {

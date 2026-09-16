@@ -15,7 +15,10 @@ const pairingResponse = {
   expires_at: Date.now() + 10 * 60_000,
   install: {
     macos: `curl -fsSL https://rc.example.com/install.sh | sh -s -- --pair ${CODE}`,
-    linux: `curl -fsSL https://rc.example.com/install.sh | sh -s -- --pair ${CODE}`,
+    // The gateway sends both keys and they hold the same string today. This one
+    // differs so the test can see which key the modal reads now that nobody is
+    // asked which platform they are on.
+    linux: `curl -fsSL https://rc.example.com/install.sh | sh -s -- --pair-on-linux ${CODE}`,
   },
 };
 
@@ -73,15 +76,13 @@ describe('AddDeviceModal', () => {
     expect(screen.getByText(/single use/)).toHaveTextContent(/expires in \d+:\d\d/);
   });
 
-  it('switches the command between the macOS and Linux tabs', async () => {
-    const user = userEvent.setup();
+  it('asks nobody which platform they are on and shows the one command', async () => {
     render(<AddDeviceModal open onClose={vi.fn()} />);
     await screen.findByText(PAIR_COMMAND);
 
-    const linux = screen.getByRole('button', { name: 'Linux' });
-    await user.click(linux);
-    expect(linux).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'macOS' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByRole('button', { name: 'macOS' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Linux' })).toBeNull();
+    expect(screen.getByText(PAIR_COMMAND)).toHaveTextContent(pairingResponse.install.macos);
   });
 
   it('walks the live steps from pairing.progress and only then enables Continue', async () => {

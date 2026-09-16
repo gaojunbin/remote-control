@@ -70,18 +70,27 @@ describe('the client build on a device row', () => {
     expect(screen.getByText(`client 0.1.0 · ${CLIENT_BUILD.slice(0, 8)}`)).toBeInTheDocument();
   });
 
-  it('says an update is available when the build differs from the gateway’s', () => {
+  it('names the version it would install when the build differs from the gateway’s', () => {
     renderPage();
-    expect(screen.getByText(strings.devices.updateAvailable)).toBeInTheDocument();
+    expect(screen.getByText(strings.devices.updateAvailableTo('0.1.0'))).toBeInTheDocument();
     // The build itself gives way to the notice on that row.
     expect(screen.queryByText(new RegExp(OLD_CLIENT_BUILD.slice(0, 8)))).not.toBeInTheDocument();
     expect(screen.getByText('client 0.0.9')).toBeInTheDocument();
+  });
+
+  it('says only "Update available" when the gateway does not name the version', () => {
+    useAuth.setState({
+      config: { ...config, client: { build: CLIENT_BUILD, url: '/dist/rc_client-latest.whl' } },
+    });
+    renderPage();
+    expect(screen.getByText(strings.devices.updateAvailable)).toBeInTheDocument();
   });
 
   it('says nothing when the gateway serves no build', () => {
     useAuth.setState({ config: { ...config, client: undefined } });
     renderPage();
     expect(screen.queryByText(strings.devices.updateAvailable)).not.toBeInTheDocument();
+    expect(screen.queryByText(strings.devices.updateAvailableTo('0.1.0'))).not.toBeInTheDocument();
   });
 
   it('draws "Updating…" and a pulsing dot while an update runs', () => {
@@ -102,12 +111,15 @@ describe('the client build on a device row', () => {
 });
 
 describe('the Update item', () => {
-  it('confirms, then asks the device for the build the gateway serves', async () => {
+  it('confirms with the version it installs, then asks the device for that build', async () => {
     renderPage();
     await openMenuFor('ci-runner-01');
     await userEvent.click(updateItem());
 
-    expect(screen.getByText(strings.devices.updateBody('ci-runner-01'))).toBeInTheDocument();
+    expect(
+      screen.getByText(strings.devices.updateBody('ci-runner-01', '0.1.0')),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Update ci-runner-01 to 0\.1\.0\?/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: strings.devices.updateConfirm }));
 
     await waitFor(() =>
@@ -117,6 +129,20 @@ describe('the Update item', () => {
         undefined,
       ),
     );
+  });
+
+  it('confirms with the gateway’s client when the version is unknown', async () => {
+    useAuth.setState({
+      config: { ...config, client: { build: CLIENT_BUILD, url: '/dist/rc_client-latest.whl' } },
+    });
+    renderPage();
+    await openMenuFor('ci-runner-01');
+    await userEvent.click(updateItem());
+
+    expect(
+      screen.getByText(strings.devices.updateBody('ci-runner-01', undefined)),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/to 0\.1\.0\?/)).not.toBeInTheDocument();
   });
 
   it('sits between Rename and Remove', async () => {

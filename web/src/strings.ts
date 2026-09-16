@@ -125,11 +125,14 @@ export const en = {
     clientVersion: (version: string) => `client ${version}`,
     update: 'Update',
     updateAvailable: 'Update available',
+    updateAvailableTo: (version: string) => `Update available · ${version}`,
     updating: 'Updating…',
     updateFailed: (message: string) => `Update failed · ${message}`,
     updateTitle: 'Update device',
-    updateBody: (name: string) =>
-      `Update ${name} to the gateway's client? Its service restarts; sessions it drives are stopped.`,
+    updateBody: (name: string, version: string | undefined) =>
+      version === undefined
+        ? `Update ${name} to the gateway's client? Its service restarts; sessions it drives are stopped.`
+        : `Update ${name} to ${version}? Its service restarts; sessions it drives are stopped.`,
     updateConfirm: 'Update device',
     updateOffline: 'This device is offline.',
     updateInFlight: 'This device is already updating.',
@@ -168,8 +171,6 @@ export const en = {
     title: 'Add device',
     intro:
       'Run one command on the machine where your agents live. It dials out to the gateway — nothing is exposed on the host.',
-    macos: 'macOS',
-    linux: 'Linux',
     singleUse: 'single use',
     expiresIn: (clock: string) => `expires in ${clock}`,
     expired: 'expired',

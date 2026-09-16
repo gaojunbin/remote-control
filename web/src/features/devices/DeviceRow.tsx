@@ -7,13 +7,14 @@ import { cx } from '../../lib/cx';
 import { latency, relativeTime } from '../../lib/format';
 import { agentLabel, strings } from '../../strings';
 import { updateNotice } from '../../stores/devices';
+import type { ClientBuildInfo } from '../../lib/api';
 import type { Device } from '../../protocol/types';
 
 interface Props {
   device: Device;
   sessionCount: number;
-  /** A22: the build the gateway serves, when it serves one. */
-  gatewayBuild: string | undefined;
+  /** A22: the client the gateway serves — its version and build — when it serves one. */
+  served: ClientBuildInfo | undefined;
   /** A22: why this device's last `device.update` was refused outright. */
   updateError: string | undefined;
   onRename: () => void;
@@ -27,7 +28,7 @@ const shortBuild = (build: string): string => build.slice(0, 8);
 export function DeviceRow({
   device,
   sessionCount,
-  gatewayBuild,
+  served,
   updateError,
   onRename,
   onUpdate,
@@ -38,7 +39,7 @@ export function DeviceRow({
     ? latency(device.latency_ms)
     : strings.devices.lastSeen(relativeTime(device.last_seen));
 
-  const notice = updateNotice(device, updateError, gatewayBuild);
+  const notice = updateNotice(device, updateError, served);
   const updating = device.update_state === 'updating';
   // The build is worth showing only while nothing louder replaces it.
   const clientText =
@@ -50,9 +51,9 @@ export function DeviceRow({
     ? strings.devices.updateOffline
     : updating
       ? strings.devices.updateInFlight
-      : gatewayBuild === undefined
+      : served === undefined
         ? strings.devices.updateNoBuild
-        : device.client_build === gatewayBuild
+        : device.client_build === served.build
           ? strings.devices.updateCurrent
           : null;
 

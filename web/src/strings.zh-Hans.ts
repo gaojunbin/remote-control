@@ -119,11 +119,14 @@ export const zhHans: StringTable = {
     clientVersion: (version: string) => `客户端 ${version}`,
     update: '更新',
     updateAvailable: '有可用更新',
+    updateAvailableTo: (version: string) => `有可用更新 · ${version}`,
     updating: '更新中…',
     updateFailed: (message: string) => `更新失败 · ${message}`,
     updateTitle: '更新设备',
-    updateBody: (name: string) =>
-      `将 ${name} 更新到网关提供的客户端？它的服务会重启，由它驱动的会话会被停止。`,
+    updateBody: (name: string, version: string | undefined) =>
+      version === undefined
+        ? `将 ${name} 更新到网关提供的客户端？它的服务会重启，由它驱动的会话会被停止。`
+        : `将 ${name} 更新到 ${version}？它的服务会重启，由它驱动的会话会被停止。`,
     updateConfirm: '更新设备',
     updateOffline: '此设备当前离线。',
     updateInFlight: '此设备正在更新。',
@@ -157,8 +160,6 @@ export const zhHans: StringTable = {
   pairing: {
     title: '添加设备',
     intro: '在运行 agent 的机器上执行一条命令。它主动外连网关，主机不对外暴露任何端口。',
-    macos: 'macOS',
-    linux: 'Linux',
     singleUse: '一次性',
     expiresIn: (clock: string) => `${clock} 后过期`,
     expired: '已过期',
