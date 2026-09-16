@@ -13,6 +13,7 @@ from rc_client.agents.claude.plugin import detect as detect_claude
 from rc_client.agents.codex import runtime as codex_runtime
 from rc_client.agents.codex.plugin import detect as detect_codex
 from rc_client.agents.registry import AGENT_IDS, DetectContext, detect_all
+from rc_client.channel.shim import MARKER
 
 
 def fake_binary(directory: Path, name: str, version: str) -> Path:
@@ -83,6 +84,23 @@ async def test_explicit_override_wins_over_path(
     assert claude_runtime.resolve_binary() == str(override)
     monkeypatch.delenv("RC_CLAUDE_BIN")
     assert claude_runtime.resolve_binary() == str(on_path)
+
+
+async def test_the_real_claude_behind_the_shim_on_path_is_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The service environment puts the shim directory first on PATH; the
+    # daemon must step past the shim to the executable behind it.
+    shim = fake_binary(tmp_path / "shim", "claude", "0.0.0")
+    shim.write_text(f'#!/bin/sh\n# {MARKER}\nexec claude "$@"\n', encoding="utf-8")
+    real = fake_binary(tmp_path / "real", "claude", "2.1.270")
+    monkeypatch.setenv("PATH", os.pathsep.join([str(shim.parent), str(real.parent)]))
+    monkeypatch.delenv("RC_CLAUDE_BIN", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    assert claude_runtime.resolve_binary() == str(real)
+    info = await detect_claude(DetectContext())
+    assert info.available is True
+    assert info.version == "2.1.270"
 
 
 async def test_codex_detection_without_a_reachable_app_server(
