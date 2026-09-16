@@ -90,6 +90,30 @@ function setup() {
 
 const say = (text: string, isFinal = false) => act(() => voice.publish?.(text, isFinal));
 
+/**
+ * jsdom has no layout, so the field is handed the measurements a transcript
+ * longer than eight lines would produce: `scrollHeight` is the height the text
+ * wants, and `scrollTop` a real property rather than jsdom's no-op setter, so
+ * where the field was scrolled to can be read back.
+ */
+function measured(el: HTMLTextAreaElement, scrollHeight: number): HTMLTextAreaElement {
+  let top = 0;
+  Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+  Object.defineProperty(el, 'scrollTop', {
+    configurable: true,
+    get: () => top,
+    set: (value: number) => {
+      top = value;
+    },
+  });
+  return el;
+}
+
+const LONG_TRANSCRIPT = Array.from(
+  { length: 14 },
+  (_, line) => `line ${line + 1} of what was just said`,
+).join(' ');
+
 const controlRowButtons = (): string[] =>
   [...document.querySelectorAll('.voice-controls button')].map((b) => b.textContent ?? '');
 
@@ -186,12 +210,84 @@ describe('dictation in the composer', () => {
     await user.click(screen.getByRole('button', { name: strings.composer.micStart }));
     say('run the auth suite');
 
-    await user.click(field());
+    // Focused from the code, the way taking a command row focuses it: that is
+    // not a person reaching for the field, so the keystroke is what ends this.
+    act(() => field().focus());
     await user.keyboard(' twice');
     say('run the auth suite again');
 
     expect(field()).toHaveValue('run the auth suite twice');
     expect(document.querySelector('.voice-controls')).toBeNull();
+  });
+
+  it('follows the words while dictating, so the newest line stays in view', async () => {
+    const user = userEvent.setup();
+    const { field } = setup();
+    await user.click(screen.getByRole('button', { name: strings.composer.micStart }));
+    const el = measured(field() as HTMLTextAreaElement, 600);
+
+    say(LONG_TRANSCRIPT);
+
+    // The field stops growing at its eight lines and scrolls inside, and what
+    // it shows is the end of the words: `docs/DESIGN.md` § "The composer".
+    expect(el).toHaveValue(LONG_TRANSCRIPT);
+    expect(el.style.height).toBe('220px');
+    expect(el.scrollTop).toBe(600);
+  });
+
+  it('lets a click into the field take it back, so the words can be read back', async () => {
+    const user = userEvent.setup();
+    const { field } = setup();
+    await user.click(screen.getByRole('button', { name: strings.composer.micStart }));
+    const el = measured(field() as HTMLTextAreaElement, 600);
+    say(LONG_TRANSCRIPT);
+    expect(el.scrollTop).toBe(600);
+
+    // Reaching for the field is a takeover, exactly as a keystroke is.
+    await user.click(el);
+
+    expect(document.querySelector('.voice-controls')).toBeNull();
+    expect(el).toHaveValue(LONG_TRANSCRIPT);
+
+    // Scrolled back to read, the field stays where it was put: a late
+    // transcript writes nothing and moves nothing.
+    el.scrollTop = 40;
+    say(`${LONG_TRANSCRIPT} and one more`);
+
+    expect(el).toHaveValue(LONG_TRANSCRIPT);
+    expect(el.scrollTop).toBe(40);
+  });
+
+  it('keeps following through the finishing spinner, and lets go once it is over', async () => {
+    const user = userEvent.setup();
+    const { field } = setup();
+    await user.click(screen.getByRole('button', { name: strings.composer.micStart }));
+    const el = measured(field() as HTMLTextAreaElement, 600);
+
+    await user.click(screen.getByRole('button', { name: strings.voice.done }));
+    say(`${LONG_TRANSCRIPT} and one more`, true);
+
+    expect(el.scrollTop).toBe(600);
+
+    // The words are an ordinary draft now, and where it is read from is the
+    // person's business: a typed edit moves nothing.
+    el.scrollTop = 120;
+    await user.click(el);
+    await user.keyboard(' twice');
+
+    expect(el.scrollTop).toBe(120);
+  });
+
+  it('leaves a typed draft where it is, because a caret keeps itself in view', async () => {
+    const user = userEvent.setup();
+    const { field } = setup();
+    const el = measured(field() as HTMLTextAreaElement, 600);
+
+    await user.click(el);
+    await user.keyboard(LONG_TRANSCRIPT);
+
+    expect(el.style.height).toBe('220px');
+    expect(el.scrollTop).toBe(0);
   });
 
   it('hides the microphone entirely when the gateway has no speech backend', () => {

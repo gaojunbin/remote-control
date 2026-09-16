@@ -174,8 +174,19 @@ nothing in the row takes a click while `stt.final` is on its way; the status lin
 the transcript" until it lands, and the elapsed clock stops at the click, its interval running only
 while the state is `listening`. There is no Cancel — a dictation you do not want is Done and then
 edited or cleared like any draft — and no time limit; a long dictation is cut into segments whose
-transcripts are joined in order. Typing takes the field back and stops listening, keeping the words
-recognised so far. The mic is hidden entirely when the gateway reports `stt.enabled: false`.
+transcripts are joined in order. Reaching for the field takes it back and stops listening, keeping
+the words recognised so far: a keystroke does it, and so does a pointer down on the field itself,
+which is how a person stops the dictation to read what was said. The field's own programmatic
+focus — taking a command row, say — is not a pointer and ends nothing. The mic is hidden entirely
+when the gateway reports `stt.enabled: false`.
+
+**While dictation runs, the field follows the words** (`docs/DESIGN.md` § "The composer"). The
+field grows with its content to 220 px and scrolls inside after that, and a dictated write brings
+no caret with it, so a long transcript used to sit on its first screen until Done. Each transcript
+write — every partial, and the final one that lands as the run ends — now sets `followTail` in
+`Composer.tsx`, and the effect that measures the field reads the flag once and puts the last line
+in view by setting `scrollTop`, never animating it. Typing sets nothing, because a caret keeps
+itself visible, and neither does a polished answer or an Undo: those are the person's draft again.
 
 ## Dictation polish (A29)
 

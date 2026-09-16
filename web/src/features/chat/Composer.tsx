@@ -146,6 +146,14 @@ export function Composer({
    * apart from our own write.
    */
   const dictation = useRef<{ base: string; applied: string } | null>(null);
+  /**
+   * `docs/DESIGN.md` § "The composer" — **While dictation runs, the field
+   * follows the words**. A dictated write has no caret to keep the newest line
+   * on screen, so the write itself asks for the tail and the next measurement
+   * of the field grants it. Typing never sets this: a caret keeps itself
+   * visible.
+   */
+  const followTail = useRef(false);
 
   /** Keeps `textRef` in step within the tick, which `useEffect` cannot. */
   const setDraft = useCallback(
@@ -390,6 +398,10 @@ export function Composer({
       const run = dictation.current;
       if (!run || textRef.current !== run.applied) return;
       const next = mergeDraft(run.base, transcript);
+      // Every transcript that changes the field leaves the end of the words in
+      // view — while listening, and through the finishing spinner. A transcript
+      // that writes nothing new redraws nothing, so it asks for nothing.
+      if (next !== run.applied) followTail.current = true;
       run.applied = next;
       if (isFinal) dictation.current = null;
       setDraft(next);
@@ -414,18 +426,33 @@ export function Composer({
     voice.start();
   };
 
-  /** A keystroke takes the field back: the words so far stay, dictation stops. */
-  const stopDictationForTyping = () => {
+  /**
+   * Reaching for the field takes it back: dictation stops and the words it did
+   * recognise stay. A keystroke is one way to reach for it; a pointer down on
+   * the field is the other, which is how a person reads back what was just
+   * said — the field stops following the words the moment it is touched. The
+   * field's own programmatic focus, taking a command row for instance, is not
+   * a pointer and ends nothing.
+   */
+  const takeFieldBack = () => {
     if (!voiceBusy) return;
     dictation.current = null;
     voice.cancel();
   };
 
+  /**
+   * The field grows with its content up to eight lines and scrolls inside
+   * after that. A write that asked to follow its tail is then shown from its
+   * end, with no animation — the scroll position is set, never animated.
+   */
   useEffect(() => {
     const el = textarea.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+    if (!followTail.current) return;
+    followTail.current = false;
+    el.scrollTop = el.scrollHeight;
   }, [text]);
 
   // PROTOCOL-FROZEN §5: `auto` is "send now if idle; if running, steer or queue".
@@ -622,8 +649,9 @@ export function Composer({
             }
             onCompositionStart={() => (composing.current = true)}
             onCompositionEnd={() => (composing.current = false)}
+            onPointerDown={takeFieldBack}
             onChange={(e) => {
-              stopDictationForTyping();
+              takeFieldBack();
               // A29: an edit is the person taking the words back; the note goes,
               // and an answer still in flight is no longer wanted.
               dropPolish();
