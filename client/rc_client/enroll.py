@@ -13,6 +13,7 @@ from .config import Config, normalise_origin, save_config
 from .errors import RcError
 from .logging_setup import logger
 from .models import AgentInfo
+from .proxy import DIRECT, httpx_options
 
 log = logger("rc_client.enroll")
 
@@ -31,8 +32,18 @@ def device_facts(name: str | None) -> dict[str, Any]:
     }
 
 
-async def enroll(gateway: str, code: str, name: str | None, agents: list[AgentInfo]) -> Config:
-    """POST /api/devices/enroll and persist the returned credentials."""
+async def enroll(
+    gateway: str,
+    code: str,
+    name: str | None,
+    agents: list[AgentInfo],
+    proxy: str = DIRECT,
+) -> Config:
+    """POST /api/devices/enroll and persist the returned credentials.
+
+    `proxy` is how this host reaches the gateway (rc_client/proxy.py); it is
+    saved with the credentials so the daemon and the updater dial the same way.
+    """
     origin = normalise_origin(gateway)
     payload = {
         "code": code.strip().upper(),
@@ -40,11 +51,9 @@ async def enroll(gateway: str, code: str, name: str | None, agents: list[AgentIn
         "agents": [info.to_dict() for info in agents],
     }
     try:
-        # Enrollment talks to the same gateway as the WebSocket link and is
-        # dialled just as directly: trusting the environment would route it
-        # through the system proxy, and a SOCKS entry raises ImportError unless
-        # the optional socksio package is installed.
-        async with httpx.AsyncClient(timeout=ENROLL_TIMEOUT, trust_env=False) as client:
+        # Enrollment talks to the same gateway as the WebSocket link and reaches
+        # it the same way: directly unless `proxy` says otherwise.
+        async with httpx.AsyncClient(timeout=ENROLL_TIMEOUT, **httpx_options(proxy)) as client:
             response = await client.post(f"{origin}/api/devices/enroll", json=payload)
     except httpx.HTTPError as exc:
         raise RcError("internal", f"cannot reach {origin}: {type(exc).__name__}") from exc
@@ -70,6 +79,7 @@ async def enroll(gateway: str, code: str, name: str | None, agents: list[AgentIn
         device_id=device_id,
         device_token=token,
         name=str(payload["name"]),
+        proxy=proxy,
     )
     save_config(config)
     log.info("device enrolled", device=device_id, gateway=origin)

@@ -41,6 +41,23 @@ def test_config_round_trips_and_is_written_0600() -> None:
     assert loaded.device_ws_url == "wss://rc.example.com/ws/device"
 
 
+def test_config_dials_directly_unless_a_proxy_was_chosen() -> None:
+    save_config(sample_config())
+    assert load_config().proxy == ""
+    chosen = sample_config()
+    chosen.proxy = "http://proxy.example:3128"
+    save_config(chosen)
+    assert load_config().proxy == "http://proxy.example:3128"
+
+
+def test_config_rejects_a_proxy_that_is_neither_env_nor_a_url() -> None:
+    path = save_config(sample_config())
+    path.write_text(path.read_text().replace('proxy = ""', 'proxy = "bogus"'))
+    with pytest.raises(RcError) as caught:
+        load_config()
+    assert caught.value.code == "bad_request"
+
+
 def test_config_home_follows_the_environment_override(client_home: Path) -> None:
     save_config(sample_config())
     assert config_path().parent == client_home

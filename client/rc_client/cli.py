@@ -34,6 +34,7 @@ from .daemon import Daemon
 from .enroll import enroll
 from .errors import RcError
 from .logging_setup import setup_logging
+from .proxy import DIRECT, httpx_options, normalise_proxy
 from .service import codex as codex_supervision
 from .service import manager
 from .update import self_update
@@ -60,6 +61,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--scan", action="store_true", help="print a QR code and wait for an app to scan it"
     )
     enroll_parser.add_argument("--name", default=None, help="device name shown in the apps")
+    enroll_parser.add_argument(
+        "--proxy",
+        default=DIRECT,
+        help=(
+            "reach the gateway through a proxy: `env` follows HTTPS_PROXY and friends, "
+            "a URL names one proxy; the default dials directly"
+        ),
+    )
 
     sub.add_parser("run", help="run the daemon in the foreground")
 
@@ -114,9 +123,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def _claim_by_scanning(origin: str) -> str:
+async def _claim_by_scanning(origin: str, proxy: str) -> str:
     """Print a claim URL as a QR code and wait for an app to scan it (A23)."""
-    async with httpx.AsyncClient(timeout=pairing.POLL_TIMEOUT, trust_env=False) as client:
+    async with httpx.AsyncClient(timeout=pairing.POLL_TIMEOUT, **httpx_options(proxy)) as client:
         request = await pairing.create_request(origin, client)
         print(qr.render(request.claim_url))
         print(request.claim_url)
@@ -127,9 +136,10 @@ async def _claim_by_scanning(origin: str) -> str:
 
 async def _cmd_enroll(args: argparse.Namespace) -> int:
     origin = normalise_origin(args.gateway)
-    code = await _claim_by_scanning(origin) if args.scan else str(args.pair)
+    proxy = normalise_proxy(args.proxy)
+    code = await _claim_by_scanning(origin, proxy) if args.scan else str(args.pair)
     agents = await detect_all()
-    config = await enroll(origin, code, args.name, agents)
+    config = await enroll(origin, code, args.name, agents, proxy)
     available = [info.agent for info in agents if info.available]
     print(f"Enrolled as {config.device_id} at {config.gateway_origin}")
     print(f"Configuration written to {config_path()}")

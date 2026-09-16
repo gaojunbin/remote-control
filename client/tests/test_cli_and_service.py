@@ -161,6 +161,39 @@ async def test_enroll_stores_the_returned_credentials(monkeypatch: pytest.Monkey
     assert config_path().exists()
 
 
+async def test_enroll_keeps_the_proxy_choice_with_the_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+    real_init = httpx.AsyncClient.__init__
+
+    def record(self: Any, **kwargs: Any) -> None:
+        seen.update(kwargs)
+        real_init(self, **kwargs)
+
+    async def accept(self: Any, url: str, **kwargs: Any) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"device_id": "dev-9", "device_token": "tok-9"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "__init__", record)
+    monkeypatch.setattr(httpx.AsyncClient, "post", accept)
+    config = await enroll("https://rc.example.com", "RC-AAAA-BBBB", None, [], "env")
+    assert seen["trust_env"] is True
+    assert config.proxy == "env"
+    assert load_config().proxy == "env"
+
+
+def test_enroll_refuses_a_proxy_it_cannot_use(capsys: Any) -> None:
+    code = main(
+        ["enroll", "--gateway", "https://rc.example.com", "--pair", "RC-AAAA-BBBB", "--proxy", "no"]
+    )
+    assert code == EXIT_FAILURE
+    assert "invalid proxy" in capsys.readouterr().err
+
+
 async def test_enroll_refuses_a_remote_plain_http_gateway() -> None:
     with pytest.raises(RcError) as caught:
         await enroll("http://rc.example.com", "RC-AAAA-BBBB", None, [])
