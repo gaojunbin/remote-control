@@ -36,15 +36,36 @@ they read `AgentInfo` capabilities and the five attachment fields, never the age
   an older iOS app, raise that constant in the same change**, and set `IOS_UPDATE_URL` on the
   gateway to where the new build is (TestFlight or the App Store). Raise it only when compatibility
   is really broken; an app one amendment behind must keep working when the amendment is additive.
-- **Every round that changes a component bumps that component's version in the same change**, and
-  the round ends with a repo tag `vX.Y`: `ios/project.yml` `MARKETING_VERSION` (the app compares it
-  as `major.minor.patch` against the gateway's minimum) and `CURRENT_PROJECT_VERSION`;
-  `gateway/pyproject.toml`; `web/package.json`; `client/pyproject.toml` together with
-  `client/rc_client/__init__.py` and the `rc-client` entry in `client/uv.lock`. The owner's rule
-  (2026-09-16): all four components carry the round's version, whether or not each one changed, so
-  a device's Update action (A22) and the Settings screens read one number per release. A component
-  left at an old number while the repo is tagged ahead of it is a defect (round 29 found all four at
-  0.1.0 under a v1.2 tag).
+- **One version per release, on all four components, every round.** The owner's standing rule
+  (2026-09-16): whenever a round of changes is closed, the gateway, the web app, the device client
+  and the iOS app all move to the same new version number — whether or not each of them changed —
+  and the repository is tagged with it. A device's Update action (A22) and the Settings screens
+  then read one number per release, and a build can be told from the last one. A component left at
+  an old number while the repo is tagged ahead of it is a defect (round 29 found all four at 0.1.0
+  under a v1.2 tag). The exact steps are under "Closing a round" below; no reminder from the owner
+  is needed, and an agent that closes a round without them has not finished it.
+
+## Closing a round
+
+Every round — a feature, a fix batch, a merged pull request — ends with these steps, in this order,
+after every changed component's toolchain is green:
+
+1. **Docs commit.** `docs/` tells the truth about what changed (`VALIDATION.md` gets a dated section
+   on what was and was not verified), then commit it.
+2. **Bump all four components to the round's version** (patch for fixes, minor for features), in
+   one commit per component or one commit for the bumps alone:
+   - gateway: `gateway/pyproject.toml` `version`, and the `rc-gateway` entry in `gateway/uv.lock`;
+   - web: `web/package.json` `version`, and the two root entries in `web/package-lock.json`;
+   - client: `client/pyproject.toml` `version`, `client/rc_client/__init__.py` `__version__`, and
+     the `rc-client` entry in `client/uv.lock` (the wheel the gateway serves is named from it);
+   - iOS: `ios/project.yml` `MARKETING_VERSION` (the app compares it as `major.minor.patch` against
+     the gateway's minimum, A31) and `CURRENT_PROJECT_VERSION` (+1), plus the three places that
+     assert it — the fallback in `ios/Sources/RCCore/State/AppVersion.swift`, the two checks in
+     `ios/VerificationUI/main.swift` that read `project.yml`, and the UI test that reads the Settings
+     version row — then `xcodegen generate` so `ios/RemoteControl.xcodeproj` follows.
+3. **Tag and push.** `git tag -a vX.Y.Z -m "<one line on what the release is>"`, then push `master`
+   and the tag. Raise `IOS_MINIMUM_APP_VERSION` in the same round only if an older iOS app really
+   stopped working (see above).
 
 ## How agents are attached (why terminal sessions can be driven from a phone)
 
