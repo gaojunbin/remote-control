@@ -8,7 +8,7 @@ struct DeviceStatusLine: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            StatusDot(tone: tone)
+            OnlineDot(online: device.online, updating: device.updateState == .updating)
             Text(device.online ? "online" : "offline")
                 .font(Theme.Text.meta)
                 .foregroundStyle(Theme.inkSecondary)
@@ -17,11 +17,6 @@ struct DeviceStatusLine: View {
                      font: Theme.Text.metaMono)
             Spacer(minLength: 0)
         }
-    }
-
-    private var tone: DotTone {
-        if device.updateState == .updating { return .working }
-        return device.online ? .live : .off
     }
 }
 

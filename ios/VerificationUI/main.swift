@@ -170,7 +170,7 @@ func run() async -> (passed: Int, failures: [String]) {
         equal(chat.statusLine, nil, "and the composer repeats none of it")
         equal(shared.statusLabel, "terminal · attached", "the session list names the terminal")
         equal(shared.dotTone(online: true), DotTone.live,
-              "with the green of a session that is alive and quiet, not the grey of an exited one")
+              "with the amber of a session that is alive and quiet, not the grey of an exited one")
 
         // MARK: - Amendment A17: what the terminal chose is shown, not offered
         //
@@ -224,14 +224,33 @@ func run() async -> (passed: Int, failures: [String]) {
         model.connection.sessions.first { $0.sessionID == sessionID }
             .map { $0.dotTone(online: online[$0.deviceID] ?? false) }
     }
-    equal(tone(DemoFixtures.liveSessionID), .working, "a running turn pulses green")
-    equal(tone(DemoFixtures.approvalSessionID), .waiting, "a request for approval is amber")
-    equal(tone(DemoFixtures.sharedSessionID), .live, "an attached session that is quiet is solid green")
+    equal(tone(DemoFixtures.liveSessionID), .working, "a running turn is a steady green")
+    equal(tone(DemoFixtures.approvalSessionID), .waiting, "a request for approval is a pulsing amber")
+    equal(tone(DemoFixtures.sharedSessionID), .live, "an attached session that is quiet is a steady amber")
     equal(tone(DemoFixtures.erroredSessionID), .failed, "an agent that stopped on an error is red")
     equal(tone(DemoFixtures.doneSessionID), .off,
           "a session nothing owns, on a machine that is offline, is grey")
     equal(tone(DemoFixtures.attachHintSessionID), .live,
           "a terminal session on a reachable machine is alive, whatever the app may type into it")
+
+    // What each tone looks like, which is what the reader actually decides on:
+    // green means working — leave it; amber means there is something for you,
+    // and only the one that still needs an answer moves (owner's ruling,
+    // 2026-09-17; `docs/DESIGN.md` § "The status dot").
+    equal(Theme.dotColor(.working), Theme.running, "a running turn keeps the green")
+    equal(Theme.dotColor(.waiting), Theme.attention, "a session blocked on the user is amber")
+    equal(Theme.dotColor(.live), Theme.attention,
+          "and so is a finished turn nobody has looked at yet")
+    equal(Theme.dotColor(.failed), Theme.danger, "an error is red")
+    equal(Theme.dotColor(.off), Theme.resting, "and a session nothing owns is grey")
+    expect(StatusDot.pulses(tone: .waiting, reduceMotion: false),
+           "the dot that needs an answer is the one that moves")
+    for quiet in [DotTone.working, .live, .off, .failed] {
+        expect(!StatusDot.pulses(tone: quiet, reduceMotion: false),
+               "\(quiet) asks for nothing and stands still")
+    }
+    expect(!StatusDot.pulses(tone: .waiting, reduceMotion: true),
+           "Reduce Motion holds even that one still, where the amber alone says it")
 
     // MARK: - Amendment A12: the message is on screen before the device says so
     //
@@ -1378,7 +1397,7 @@ func run() async -> (passed: Int, failures: [String]) {
         }
         expect(project.contains("MARKETING_VERSION: '\(AppBuild.shipped)'"),
                "the project ships the version this source tree carries")
-        expect(project.contains("CURRENT_PROJECT_VERSION: 5"),
+        expect(project.contains("CURRENT_PROJECT_VERSION: 6"),
                "and a build number TestFlight can tell apart")
     } else {
         expect(false, "the check can read project.yml")

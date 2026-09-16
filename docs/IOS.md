@@ -306,24 +306,30 @@ whole table without Xcode. `docs/DESIGN.md` states the table both apps implement
 decides anything it does not.
 
 `StatusDot` takes a tone and nothing else, so a caller that has no device to ask cannot quietly get
-a green dot for a machine that is gone. Every call site passes the real flag: a session row from its
+a living dot for a machine that is gone. Every call site passes the real flag: a session row from its
 device group, the chat header from the device it resolved, the line under the transcript from
 `ChatStore.deviceOnline`.
 
 | Tone | Colour | Motion |
 | --- | --- | --- |
-| `working` | `Theme.running` | breathes between full and half opacity over 1.1 s, and nothing else does |
-| `live` | `Theme.running` | none |
-| `waiting` | `Theme.attention` | none |
+| `working` | `Theme.running` | none |
+| `waiting` | `Theme.attention` | breathes between full and half opacity over 1.1 s, and nothing else does |
+| `live` | `Theme.attention` | none |
 | `failed` | `Theme.danger` | none |
 | `off` | `Theme.resting` | none |
 
-Reduce Motion holds the `working` dot still at full opacity. `Theme.attention` is `#B07C00`, the
-shared token: amber rather than orange, 3.67:1 on the white of a row and 3.36:1 on the canvas
-behind the chat status line. `StatusLabel` tints its word with it too, and only for `waiting`.
+The colour decides on its own whether to look: green means working — leave it; amber means there is
+something for you, a finished turn to read or a question to answer. `Theme.dotColor` holds that
+mapping and `StatusDot.pulses(tone:reduceMotion:)` the motion, both read by `RCUIVerify` rather than
+by a screenshot. Reduce Motion holds the `waiting` dot still at full opacity, where the amber alone
+still says it. `Theme.attention` is `#B07C00`, the shared token: amber rather than orange, 3.67:1 on
+the white of a row and 3.36:1 on the canvas behind the chat status line. `StatusLabel` tints its
+word with it too, and only for `waiting`.
 
-A device's own dot is not a session dot and does not follow this table: green when the device is
-online, grey when it is not.
+A device's own dot is not a session dot and does not follow this table, so `OnlineDot` draws it
+instead of `StatusDot`: green when the device is online, grey when it is not, and breathing green
+while it updates itself (A22). Both dots share one private `BreathingCircle`, so there is a single
+animation to keep honest.
 
 `Tests/RCCoreTests/StatusDotTests.swift` covers the table on hand-built values;
 `Verification/StoreChecks.swift` covers it again and checks the demo list carries all five tones at
@@ -1335,7 +1341,7 @@ the checks and both screenshots are driven from.
 
 `AppsInfo` is decoded from `GET /api/health`, `GET /api/config` and `hello` alike — the health call
 answers before sign-in, so a too-old app is stopped at the login screen — and `AppVersion` compares
-`CFBundleShortVersionString` (`AppBuild.version`, falling back to "1.3.3" without a bundle, which
+`CFBundleShortVersionString` (`AppBuild.version`, falling back to "1.3.4" without a bundle, which
 must match `MARKETING_VERSION` in `project.yml`) with `apps.ios.minimum_version` as
 `major.minor.patch`. The first source to say "below" sets `ConnectionStore.updateRequired`, and
 `UpdateRequiredView` then covers everything: "Update required", the app's version and the gateway's

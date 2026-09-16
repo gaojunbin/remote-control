@@ -1,38 +1,84 @@
 import SwiftUI
 import RCCore
 
+/// A circle that breathes between full and half opacity while it is asked to,
+/// and stands still at full opacity when it is not. Both dots draw themselves
+/// with it; which one moves is each dot's own rule.
+private struct BreathingCircle: View {
+    let color: Color
+    let size: CGFloat
+    let pulsing: Bool
+
+    @State private var breathing = false
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            // A trough deep enough to read as motion and shallow enough that a
+            // still frame never shows a washed-out colour.
+            .opacity(breathing ? 0.5 : 1)
+            .animation(pulsing ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true) : nil,
+                       value: breathing)
+            .onAppear { breathing = pulsing }
+            .onChange(of: pulsing) { _, now in breathing = now }
+    }
+}
+
 /// A session status dot. The colour is a shortcut; the label next to it always
 /// says the same thing in words.
 ///
 /// `DotTone` in `RCCore` decides what the dot looks like from the state, who
-/// owns the session and whether the machine is reachable. Only a turn under way
-/// pulses, so a session blocked on the user is told from a running one at a
-/// glance rather than by reading the word.
+/// owns the session and whether the machine is reachable. Green means working —
+/// leave it; amber means there is something for you. Only a session blocked on
+/// the user pulses, so the one state that needs an answer is the one that moves
+/// and a running session asks for nothing.
 public struct StatusDot: View {
     let tone: DotTone
     var size: CGFloat = 8
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var breathing = false
 
     public init(tone: DotTone, size: CGFloat = 8) {
         self.tone = tone
         self.size = size
     }
 
-    private var pulses: Bool { tone == .working && !reduceMotion }
+    /// Which tone moves. Reduce Motion holds it still, where the amber alone
+    /// still says it. Static so the check suites can read the rule without
+    /// building a view.
+    public static func pulses(tone: DotTone, reduceMotion: Bool) -> Bool {
+        tone == .waiting && !reduceMotion
+    }
 
     public var body: some View {
-        Circle()
-            .fill(Theme.dotColor(tone))
-            .frame(width: size, height: size)
-            // A trough deep enough to read as motion and shallow enough that a
-            // still frame never shows a washed-out green.
-            .opacity(breathing ? 0.5 : 1)
-            .animation(pulses ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true) : nil,
-                       value: breathing)
-            .onAppear { breathing = pulses }
-            .onChange(of: pulses) { _, now in breathing = now }
+        BreathingCircle(color: Theme.dotColor(tone), size: size,
+                        pulsing: StatusDot.pulses(tone: tone, reduceMotion: reduceMotion))
+            .accessibilityHidden(true)
+    }
+}
+
+/// A device's own dot, which is not a session dot and does not follow the tone
+/// table (`docs/DESIGN.md` § "The status dot"): green while the machine
+/// answers, grey when it is gone, and breathing while it updates itself (A22).
+/// Kept apart from `StatusDot` so the session amber can mean "there is
+/// something for you" without a row of healthy machines turning amber with it.
+public struct OnlineDot: View {
+    let online: Bool
+    var updating: Bool = false
+    var size: CGFloat = 8
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    public init(online: Bool, updating: Bool = false, size: CGFloat = 8) {
+        self.online = online
+        self.updating = updating
+        self.size = size
+    }
+
+    public var body: some View {
+        BreathingCircle(color: online || updating ? Theme.running : Theme.resting,
+                        size: size, pulsing: updating && !reduceMotion)
             .accessibilityHidden(true)
     }
 }

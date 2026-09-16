@@ -369,6 +369,8 @@ enum StoreChecks {
                      .off, "a state this build has never heard of claims nothing")
 
         // The five tones the demo carries, so every colour is on screen at once.
+        // What each one looks like is `Theme.dotColor`, which `RCUIVerify`
+        // checks; this suite owns the rule that picks the tone.
         let devices = Dictionary(uniqueKeysWithValues: DemoFixtures.devices.map { ($0.deviceID, $0.online) })
         let tones = DemoFixtures.sessions.map { $0.dotTone(online: devices[$0.deviceID] ?? false) }
         checks.equal(Set(tones), Set(DotTone.allCases), "the demo list shows all five tones")

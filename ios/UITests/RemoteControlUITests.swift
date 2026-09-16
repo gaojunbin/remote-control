@@ -762,10 +762,10 @@ final class RemoteControlUITests: XCTestCase {
         // the reader can see and reach all four, and a fling would land
         // anywhere.
         let list = sessionList()
-        let tones = [("demo-session-vite", "amber, waiting on the user"),
-                     ("demo-session-auth", "blue, a turn running"),
+        let tones = [("demo-session-vite", "pulsing amber, waiting on the user"),
+                     ("demo-session-auth", "steady green, a turn running"),
                      ("demo-session-toolchain", "red, stopped on an error"),
-                     ("demo-session-shared", "quiet, attached to a terminal")]
+                     ("demo-session-shared", "steady amber, attached to a terminal and quiet")]
         let rows = tones.map { app.buttons["session.\($0.0)"] }
         drag(list, by: rows[0].frame.minY - list.frame.minY - 52)
         for _ in 0..<6 where !rows.allSatisfy({ $0.isHittable }) { drag(list, by: 24) }

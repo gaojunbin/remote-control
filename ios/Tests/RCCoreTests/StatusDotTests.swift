@@ -9,7 +9,7 @@ import Foundation
 struct StatusDotTests {
     private let owners: [SessionControl] = [.remote, .terminal, .shared, .none]
 
-    @Test("A turn under way pulses green, whoever started it")
+    @Test("A turn under way is green, whoever started it")
     func working() {
         for control in owners {
             #expect(DotTone.of(state: .starting, control: control, online: true) == .working)
@@ -17,7 +17,7 @@ struct StatusDotTests {
         }
     }
 
-    @Test("A session blocked on the user is amber, and solid")
+    @Test("A session blocked on the user is amber, and the only tone that moves")
     func waiting() {
         for control in owners {
             #expect(DotTone.of(state: .needsApproval, control: control, online: true) == .waiting)
@@ -25,7 +25,7 @@ struct StatusDotTests {
         }
     }
 
-    @Test("Quiet and still owned is green; quiet and owned by nothing is grey")
+    @Test("Quiet and still owned is amber; quiet and owned by nothing is grey")
     func liveAndExited() {
         for state in [SessionState.idle, .readonly] {
             #expect(DotTone.of(state: state, control: .remote, online: true) == .live)

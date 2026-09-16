@@ -10,14 +10,20 @@ import Foundation
 /// look the same. The words beside the dot stay the state's own label, so
 /// colour is never the only signal.
 ///
+/// The colour carries the meaning on its own: green means working — leave it;
+/// amber means there is something for you, a finished turn to read or a
+/// question to answer. Only `waiting` moves, so the one state that needs the
+/// person is the one that asks for a glance.
+///
 /// `docs/DESIGN.md` states the same table for both apps.
 public enum DotTone: String, Sendable, Hashable, CaseIterable {
-    /// Green, pulsing: a turn is under way.
+    /// Green, solid: a turn is under way and needs nobody.
     case working
-    /// Amber, solid: the agent is blocked on the user.
+    /// Amber, pulsing: the agent is blocked on the user.
     case waiting
-    /// Green, solid: alive and quiet — a turn finished, a terminal is still
-    /// open, or the device holds the session.
+    /// Amber, solid: alive and quiet — a turn finished and its result is there
+    /// to be looked at, a terminal is still open, or the device holds the
+    /// session.
     case live
     /// Grey: nothing owns it any more, it was stopped, or the machine is gone.
     case off

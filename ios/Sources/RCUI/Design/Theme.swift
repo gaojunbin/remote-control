@@ -97,12 +97,14 @@ public enum Theme {
         public static let metaMono = Font.system(.caption, design: .monospaced)
     }
 
-    /// The colour a session's status dot uses. `working` and `live` share the
-    /// green; the pulse is what tells a running turn from a quiet one.
+    /// The colour a session's status dot uses. `waiting` and `live` share the
+    /// amber, because both mean there is something for the person; the pulse is
+    /// what tells a question still to answer from a turn already finished.
+    /// Green is left for the one state that needs nobody.
     public static func dotColor(_ tone: DotTone) -> Color {
         switch tone {
-        case .working, .live: running
-        case .waiting: attention
+        case .working: running
+        case .waiting, .live: attention
         case .failed: danger
         case .off: resting
         }
