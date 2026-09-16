@@ -10,6 +10,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import __version__
 from .apns import ApnsProvider
 from .auth_store import AuthSessionStore
 from .client_dist import ServedClient, served_client
@@ -28,7 +29,7 @@ from .session_registry import SessionRegistry
 from .stt import Transcriber
 from .users import UserStore
 
-VERSION = "1.3.0"
+VERSION = __version__
 
 
 @dataclass
