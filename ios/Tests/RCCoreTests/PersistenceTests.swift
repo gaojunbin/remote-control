@@ -54,4 +54,35 @@ struct PersistenceTests {
         #expect(await reloaded.draft(account: "b|admin", key: "d/s") == "")
         #expect(await reloaded.draft(account: "a|admin", key: "d/other") == "")
     }
+
+    @Test("A draft goes when the session it belongs to is no longer there")
+    func draftsFollowTheSessionList() async {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = DraftStore(directory: directory)
+        await store.setDraft("still typing", account: "a|admin", key: "d/live")
+        await store.setDraft("abandoned", account: "a|admin", key: "d/deleted")
+
+        // What the `hello` snapshot still lists.
+        await store.retain(["d/live"], account: "a|admin")
+        #expect(await store.draft(account: "a|admin", key: "d/live") == "still typing")
+        #expect(await store.draft(account: "a|admin", key: "d/deleted") == "")
+
+        let reloaded = DraftStore(directory: directory)
+        #expect(await reloaded.draft(account: "a|admin", key: "d/deleted") == "",
+                "and it is gone from disk, not just from memory")
+        #expect(await reloaded.draft(account: "a|admin", key: "d/live") == "still typing")
+    }
+
+    @Test("Signing out takes the account's drafts with it")
+    func draftsGoOnSignOut() async {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = DraftStore(directory: directory)
+        await store.setDraft("half a thought", account: "a|admin", key: "d/s")
+        await store.clear(account: "a|admin")
+
+        let reloaded = DraftStore(directory: directory)
+        #expect(await reloaded.draft(account: "a|admin", key: "d/s") == "")
+    }
 }

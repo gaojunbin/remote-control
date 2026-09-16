@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -72,6 +73,10 @@ public actor GatewaySocket {
     /// the hello under its own deadline.
     private var waiting: [UUID: CheckedContinuation<Void, Never>] = [:]
     private var lastReceived = Date()
+    /// The frame kinds already reported as undecodable on this socket.
+    private var undecodable: Set<String> = []
+
+    private static let log = Logger(subsystem: "com.junbingao.remotecontrol", category: "gateway-socket")
 
     /// A frame at least this often, or the connection is half-open. Mobile NAT
     /// silently drops sockets without ever delivering a close.
@@ -87,7 +92,7 @@ public actor GatewaySocket {
     public init(client: GatewayHTTPClient, factory: any WebSocketFactory = URLSessionWebSocketFactory()) {
         self.client = client
         self.factory = factory
-        let stream = AsyncStream<GatewayEvent>.makeStream(bufferingPolicy: .bufferingOldest(1024))
+        let stream = EventBuffer.makeStream(of: GatewayEvent.self, capacity: EventBuffer.appCapacity)
         events = stream.stream
         continuation = stream.continuation
     }
@@ -142,6 +147,16 @@ public actor GatewaySocket {
         }
         defer { deadline.cancel() }
         return try await withCheckedThrowingContinuation { continuation in
+            // Amendment A12 makes a retry reuse its request id, so two of them
+            // can overlap — a double tap, or two taps while the socket is
+            // coming back and both are held. The first caller is answered as
+            // unconfirmed before the second takes the slot; leaking it would
+            // suspend its task for the life of the process and leave the send
+            // it belongs to on the screen forever.
+            if let stranded = pending.removeValue(forKey: request.id) {
+                stranded.resume(throwing: TransportError.deliveryUncertain)
+                emit(.requestUncertain(id: request.id))
+            }
             pending[request.id] = continuation
             let write = enqueue(text, on: connection)
             Task { [weak self] in
@@ -260,7 +275,7 @@ public actor GatewaySocket {
                     // closes would loop at the shortest backoff forever.
                     attempt = 0
                     lastReceived = Date()
-                    let frame = try AppFrame(data: data)
+                    guard let frame = decode(data) else { continue }
                     try await handle(frame, on: socket, generation: generation)
                 }
             } catch {
@@ -305,6 +320,41 @@ public actor GatewaySocket {
         }
         if epoch == generation { worker = nil; connected = false; ready = false }
         releaseWaiting()
+    }
+
+    /// One frame the app cannot read is one frame, not a broken connection.
+    ///
+    /// Only a transport failure ends a connection. Nothing validates frames
+    /// against the schema at runtime, so a device adapter that omits a required
+    /// field on every event of a kind would otherwise close the socket, fail
+    /// every request in flight as `deliveryUncertain` and reconnect — for as
+    /// long as that session ran. `ProtocolFailure.unsupportedVersion` is not
+    /// raised here but in `handle`, so it keeps its terminal behaviour.
+    private func decode(_ data: Data) -> AppFrame? {
+        do {
+            return try AppFrame(data: data)
+        } catch {
+            report(undecodable: data)
+            return nil
+        }
+    }
+
+    /// Named once per kind, so an adapter emitting the same broken frame on
+    /// every step of a turn is one line rather than a flood.
+    private func report(undecodable data: Data) {
+        let kind = Self.kind(of: data)
+        guard undecodable.insert(kind).inserted else { return }
+        Self.log.error("dropped a frame this app could not read: \(kind, privacy: .public)")
+    }
+
+    /// A frame's `type`, and for a session event its `kind`. They are the only
+    /// two values from a frame that could not be read that say what went wrong
+    /// without recording anything the frame was carrying.
+    private static func kind(of data: Data) -> String {
+        guard let json = try? JSONDecoder().decode(JSONValue.self, from: data) else { return "unparseable" }
+        let type = json["type"]?.stringValue ?? "untyped"
+        guard let kind = json["event"]?["kind"]?.stringValue else { return type }
+        return "\(type)/\(kind)"
     }
 
     private func handle(_ frame: AppFrame, on socket: any WebSocketConnection, generation: Int) async throws {

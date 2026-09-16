@@ -26,7 +26,91 @@ enum SocketChecks {
         await writeOrdering(checks: checks)
         await sendWhileReconnecting(checks: checks)
         await sendWithNoSocketAtAll(checks: checks)
+        await undecodableFrame(checks: checks)
+        await duplicateRequestID(checks: checks)
         return checks.result()
+    }
+
+    /// One frame the app cannot read is one frame, not a broken connection.
+    ///
+    /// Nothing validates frames against the schema at runtime, so a device
+    /// adapter that omits a required field reaches every app unfiltered. If
+    /// that closed the socket, the app would fail every request in flight as
+    /// unconfirmed and reconnect, for as long as that session ran.
+    private static func undecodableFrame(checks: CheckRunner) async {
+        let connection = FlawedWebSocket()
+        let factory = FlawedFactory(connection: connection)
+        let socket = GatewaySocket(client: await makeClient(), factory: factory)
+        await socket.connect()
+        await settle(timeout: 2) { await socket.isConnected }
+
+        var replied = false
+        do {
+            _ = try await socket.request(.stop(sessionID: "s"))
+            replied = true
+        } catch {
+            checks.expect(false, "a request in flight was failed by an undecodable frame: \(error)")
+        }
+        checks.expect(replied, "a request in flight still gets its reply past a frame that was dropped")
+        checks.equal(await factory.attempts, 1, "and the connection is not torn down and rebuilt")
+        checks.expect(await socket.isConnected, "the socket is still the one that was connected")
+        await socket.disconnect()
+    }
+
+    /// Amendment A12 makes a retry reuse its request id, so two of them can be
+    /// outstanding at once. The first caller has to be answered rather than
+    /// left suspended for the life of the process.
+    private static func duplicateRequestID(checks: CheckRunner) async {
+        let connection = HeldReplyWebSocket()
+        let socket = GatewaySocket(client: await makeClient(),
+                                   factory: HeldReplyFactory(connection: connection))
+        await socket.connect()
+        await settle(timeout: 2) { await socket.isConnected }
+
+        guard let request = try? GatewayRequest.send(id: "duplicate", sessionID: "s", text: "one",
+                                                     attachments: [], mode: .auto) else {
+            checks.expect(false, "the duplicate-id check could not build its request")
+            return
+        }
+        let outcomes = OutcomeBox()
+        // Neither task is awaited: before the fix the first one never returns,
+        // and a check that waited for it would hang rather than fail.
+        Task {
+            do {
+                _ = try await socket.request(request)
+                await outcomes.record("first", "replied")
+            } catch {
+                await outcomes.record("first", label(error))
+            }
+        }
+        await settle(timeout: 2) { await connection.writes == 1 }
+        Task {
+            do {
+                _ = try await socket.request(request)
+                await outcomes.record("second", "replied")
+            } catch {
+                await outcomes.record("second", label(error))
+            }
+        }
+        await settle(timeout: 2) { await connection.writes == 2 }
+
+        await connection.answerOutstanding()
+        await settle(timeout: 3) { await outcomes.outcome("second") != nil }
+
+        checks.equal(await outcomes.outcome("first"), "deliveryUncertain",
+                     "the caller whose slot was taken is answered, not stranded")
+        checks.equal(await outcomes.outcome("second"), "replied",
+                     "and the second request gets the gateway's reply")
+        await socket.disconnect()
+    }
+
+    private static func label(_ error: any Error) -> String {
+        guard let transport = error as? TransportError else { return "\(error)" }
+        switch transport {
+        case .deliveryUncertain: return "deliveryUncertain"
+        case .requestTimedOut: return "requestTimedOut"
+        default: return "\(transport)"
+        }
     }
 
     /// A request issued while the socket is still coming up waits for the hello
@@ -270,4 +354,102 @@ private struct UnusedHTTPTransport: HTTPTransport {
     func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         throw TransportError.notConnected
     }
+}
+
+private actor FlawedFactory: WebSocketFactory {
+    private(set) var attempts = 0
+    private let connection: FlawedWebSocket
+
+    init(connection: FlawedWebSocket) { self.connection = connection }
+
+    nonisolated func makeConnection(request: URLRequest) async -> any WebSocketConnection {
+        await record()
+        return connection
+    }
+
+    private func record() { attempts += 1 }
+}
+
+/// Answers every request, but puts one frame the app cannot read in front of
+/// the reply: a `todos` item with no `text`, which violates the schema's
+/// `required` and is exactly what a device adapter with a missing field sends.
+private actor FlawedWebSocket: WebSocketConnection {
+    private var greeted = false
+    private var outbox: [String] = []
+
+    func resume() {}
+
+    func send(text: String) async throws {
+        guard let json = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)),
+              let id = json["id"]?.stringValue else { return }
+        outbox.append(#"{"type":"session.event","session_id":"s","event":"#
+                      + #"{"seq":1,"ts":0,"kind":"todos","items":[{"status":"pending"}]}}"#)
+        outbox.append(#"{"type":"reply","id":"\#(id)","ok":true,"result":{}}"#)
+    }
+
+    func send(binary: Data) async throws {}
+
+    func receive() async throws -> Data {
+        if !greeted {
+            greeted = true
+            return Data(#"{"type":"hello","protocol":1,"gateway_version":"t","user":{"username":"a"},"server_time":0}"#.utf8)
+        }
+        while outbox.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        return Data(outbox.removeFirst().utf8)
+    }
+
+    func closeCode() -> Int? { nil }
+    func cancel() {}
+}
+
+private struct HeldReplyFactory: WebSocketFactory {
+    let connection: HeldReplyWebSocket
+    func makeConnection(request: URLRequest) async -> any WebSocketConnection { connection }
+}
+
+/// Takes writes and holds their replies, so two requests can be outstanding at
+/// once. `answerOutstanding` then replies to the last id it was written, which
+/// is what a gateway deduplicating a retry does (amendment A12).
+private actor HeldReplyWebSocket: WebSocketConnection {
+    private var greeted = false
+    private var outbox: [String] = []
+    private var lastID: String?
+    private(set) var writes = 0
+
+    func resume() {}
+
+    func send(text: String) async throws {
+        guard let json = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)),
+              let id = json["id"]?.stringValue else { return }
+        lastID = id
+        writes += 1
+    }
+
+    func send(binary: Data) async throws {}
+
+    func answerOutstanding() {
+        guard let lastID else { return }
+        outbox.append(#"{"type":"reply","id":"\#(lastID)","ok":true,"result":{"accepted":"sent"}}"#)
+    }
+
+    func receive() async throws -> Data {
+        if !greeted {
+            greeted = true
+            return Data(#"{"type":"hello","protocol":1,"gateway_version":"t","user":{"username":"a"},"server_time":0}"#.utf8)
+        }
+        while outbox.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        return Data(outbox.removeFirst().utf8)
+    }
+
+    func closeCode() -> Int? { nil }
+    func cancel() {}
+}
+
+/// What each of two overlapping requests ended up with, recorded from inside
+/// its own task so no check has to wait on a task that may never return.
+private actor OutcomeBox {
+    private var outcomes: [String: String] = [:]
+
+    func record(_ name: String, _ outcome: String) { outcomes[name] = outcome }
+    func outcome(_ name: String) -> String? { outcomes[name] }
 }

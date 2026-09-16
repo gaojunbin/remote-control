@@ -45,7 +45,7 @@ public actor STTSocket {
         self.client = client
         self.language = language
         self.factory = factory
-        let stream = AsyncStream<STTEvent>.makeStream(bufferingPolicy: .bufferingOldest(256))
+        let stream = EventBuffer.makeStream(of: STTEvent.self, capacity: EventBuffer.sttCapacity)
         events = stream.stream
         continuation = stream.continuation
     }

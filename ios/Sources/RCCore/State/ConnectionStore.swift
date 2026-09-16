@@ -32,9 +32,11 @@ public enum ConnectionPhase: Sendable, Equatable {
 /// Gateway identity, authentication, and the live inventory of devices and
 /// sessions.
 ///
-/// One child task per connection scope reads the socket stream. Cancelling that
-/// task is what ends a scope, so there are no generation counters to keep in
-/// sync after every await.
+/// One child task per connection scope reads the socket stream, and cancelling
+/// it is what ends that scope's stream of frames. The HTTP routes that confirm
+/// a scope behind the screens are not on that stream, so they carry the scope
+/// they were issued in and are checked against it before anything they say is
+/// applied — as is every other assignment here that follows an await.
 @MainActor
 @Observable
 public final class ConnectionStore {
@@ -68,6 +70,16 @@ public final class ConnectionStore {
     @ObservationIgnored private let makeAPI: @Sendable (GatewayEndpoint) -> any GatewayAPI
     @ObservationIgnored private let makeChannel: @Sendable (any GatewayAPI) -> any GatewayChannel
     @ObservationIgnored private var pump: Task<Void, Never>?
+    /// Which signed-in connection this is: one gateway and one account on it.
+    /// Everything that awaits captures the scope it was issued in and drops its
+    /// answer once the store has moved on — to another account, to another
+    /// gateway, or to no connection at all. Without it a slow `/api/session` or
+    /// `/api/config` from a gateway the person has left rewrites the live one.
+    @ObservationIgnored private var scope = 0
+    /// The two calls that confirm a scope after the screens have already been
+    /// drawn for it. Held so leaving the scope cancels them.
+    @ObservationIgnored private var confirmation: Task<Void, Never>?
+    @ObservationIgnored private var configuration: Task<Void, Never>?
     @ObservationIgnored private var frameHandlers: [String: @MainActor (AppFrame) -> Void] = [:]
     /// Called with both versions whenever a session the app already knew is
     /// replaced by a newer one. A session arriving for the first time — the
@@ -94,6 +106,24 @@ public final class ConnectionStore {
         let gateway = DemoGateway(registrationOpen: registrationOpen)
         return ConnectionStore(makeAPI: { _ in gateway }, makeChannel: { _ in gateway })
     }
+
+    // MARK: - Connection scope
+
+    /// Leave the current scope: what is still in flight for it belongs to
+    /// nothing, and the tasks that would have applied it are cancelled.
+    /// Returns the scope the caller is entering.
+    @discardableResult
+    private func beginScope() -> Int {
+        scope += 1
+        confirmation?.cancel()
+        confirmation = nil
+        configuration?.cancel()
+        configuration = nil
+        return scope
+    }
+
+    /// Whether an answer issued in `value` may still be applied.
+    private func isCurrent(_ value: Int) -> Bool { value == scope }
 
     // MARK: - Derived views
 
@@ -128,10 +158,14 @@ public final class ConnectionStore {
     /// account (A24). The sign-in form is the only caller: "Create an account"
     /// is offered where the gateway says it can be, and nowhere else.
     public func registrationOpen(origin: String) async -> Bool {
+        let scope = self.scope
         guard let endpoint = try? GatewayEndpoint(origin) else { return false }
         guard let health = try? await makeAPI(endpoint).health() else { return false }
         // Amendment A31: this route needs no credential, so it is where an app
         // the gateway is too new for finds out — before it has typed a password.
+        // Only while the form is still on the gateway it asked about: a slow
+        // answer must not block an app that has since signed in somewhere else.
+        guard isCurrent(scope) else { return health.registrationOpen }
         note(apps: health.apps)
         return health.registrationOpen
     }
@@ -162,15 +196,19 @@ public final class ConnectionStore {
     private func authenticate(origin: String,
                               describe: @escaping (any Error) -> String,
                               call: (any GatewayAPI) async throws -> LoginResponse) async {
+        let scope = self.scope
         errorMessage = nil
         do {
             let endpoint = try GatewayEndpoint(origin)
             let api = makeAPI(endpoint)
             let response = try await call(api)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, isCurrent(scope) else { return }
             adopt(api: api, endpoint: endpoint, user: response.user)
             await start()
         } catch {
+            // A refusal from a sign-in the person has already left behind must
+            // not take down the connection they are on now.
+            guard isCurrent(scope) else { return }
             phase = .signedOut
             errorMessage = describe(error)
         }
@@ -192,18 +230,25 @@ public final class ConnectionStore {
         // one row short rather than one row nobody is allowed to open.
         adopt(api: api, endpoint: endpoint, user: UserIdentity(username: username))
         await start()
-        Task { [weak self] in await self?.confirmStoredAccount(api: api) }
+        let scope = self.scope
+        confirmation = Task { [weak self] in await self?.confirmStoredAccount(api: api, scope: scope) }
         return true
     }
 
     /// The stored token against `/api/session`, behind the screens it already
     /// unlocked. A 401 is the one answer that sends the user back to the form.
-    private func confirmStoredAccount(api: any GatewayAPI) async {
+    ///
+    /// The answer is applied only while the store is still on the scope that
+    /// asked for it. A person who signs out and in as somebody else while this
+    /// is in flight would otherwise be told they are the previous account, with
+    /// the previous account's role, its cache file and its draft file.
+    private func confirmStoredAccount(api: any GatewayAPI, scope: Int) async {
         do {
             let info = try await api.session()
-            guard !Task.isCancelled, !info.user.username.isEmpty else { return }
+            guard !Task.isCancelled, isCurrent(scope), !info.user.username.isEmpty else { return }
             user = info.user
         } catch TransportError.unauthorized {
+            guard !Task.isCancelled, isCurrent(scope) else { return }
             phase = .expired
             await endSession(message: L10n.string("Your session expired. Sign in again."))
         } catch {
@@ -213,20 +258,24 @@ public final class ConnectionStore {
 
     /// Enter the offline demo. It never constructs a network transport.
     public func enterDemo(api: any GatewayAPI, channel: any GatewayChannel) async {
+        let scope = beginScope()
         isDemo = true
         endpoint = api.endpoint
         // The sample gateway names its own account, and it is the operator's,
         // so every screen an admin has is reachable from the demo.
-        user = (try? await api.session().user) ?? UserIdentity(username: "")
+        let identity = (try? await api.session().user) ?? UserIdentity(username: "")
+        guard isCurrent(scope) else { return }
+        user = identity
         self.api = api
         self.channel = channel
         await start(channel: channel)
         // The demo answers `/api/config` from memory and reaches nothing, and
         // the screens read the served client build from it (A22).
-        await loadConfig()
+        await loadConfig(scope: scope)
     }
 
     public func signOut() async {
+        beginScope()
         pump?.cancel()
         pump = nil
         await channel?.disconnect()
@@ -250,6 +299,7 @@ public final class ConnectionStore {
     }
 
     private func adopt(api: any GatewayAPI, endpoint: GatewayEndpoint, user: UserIdentity) {
+        beginScope()
         self.api = api
         self.endpoint = endpoint
         self.user = user
@@ -278,13 +328,15 @@ public final class ConnectionStore {
         let channel = makeChannel(api)
         self.channel = channel
         await start(channel: channel)
-        Task { [weak self] in await self?.loadConfig() }
+        let scope = self.scope
+        configuration?.cancel()
+        configuration = Task { [weak self] in await self?.loadConfig(scope: scope) }
     }
 
     private func start(channel: any GatewayChannel) async {
         pump?.cancel()
         phase = .connecting
-        await paintFromCache()
+        await paintFromCache(scope: scope)
         pump = Task { [weak self] in
             guard let self else { return }
             await channel.connect()
@@ -296,10 +348,10 @@ public final class ConnectionStore {
     }
 
     /// Render the last known list immediately, then let `hello` correct it.
-    private func paintFromCache() async {
+    private func paintFromCache(scope: Int) async {
         guard let origin = endpoint?.origin, !isDemo,
               let workspace = await cache.load(origin: origin, username: username) else { return }
-        guard !Task.isCancelled, !hasSnapshot else { return }
+        guard !Task.isCancelled, isCurrent(scope), !hasSnapshot else { return }
         devices = workspace.devices
         sessions = workspace.sessions
     }
@@ -311,8 +363,10 @@ public final class ConnectionStore {
     }
 
     public func persist(transcript: [SessionEvent], sessionID: String, deviceID: String) async {
+        let scope = self.scope
         guard let origin = endpoint?.origin, !isDemo else { return }
         var workspace = await cache.load(origin: origin, username: username) ?? CachedWorkspace()
+        guard isCurrent(scope) else { return }
         workspace.devices = devices
         workspace.sessions = sessions
         workspace.transcripts["\(deviceID)/\(sessionID)"] = Array(transcript.suffix(LocalCache.eventLimit))
@@ -321,16 +375,26 @@ public final class ConnectionStore {
     }
 
     public func persistInventory() async {
+        let scope = self.scope
         guard let origin = endpoint?.origin, !isDemo else { return }
         var workspace = await cache.load(origin: origin, username: username) ?? CachedWorkspace()
+        guard isCurrent(scope) else { return }
         workspace.devices = devices
         workspace.sessions = sessions
         workspace.savedAt = Int64(Date().timeIntervalSince1970 * 1000)
         await cache.save(workspace, origin: origin, username: username)
     }
 
-    private func loadConfig() async {
-        guard let api, let value = try? await api.config(), !Task.isCancelled else { return }
+    /// Everything `/api/config` decides, applied only while the store is still
+    /// on the gateway that was asked.
+    ///
+    /// Amendment A31's `updateRequired` is the reason this matters most: a slow
+    /// answer from a gateway the person has left would put the blocking
+    /// "Update required" screen over a gateway that states no minimum at all,
+    /// and the only way out of it is to sign out again.
+    private func loadConfig(scope: Int) async {
+        guard let api, let value = try? await api.config() else { return }
+        guard !Task.isCancelled, isCurrent(scope) else { return }
         config = value
         // `hello` and `/api/config` describe the same gateway. The one that
         // arrives later wins, and this call always follows the hello it races.
@@ -396,6 +460,7 @@ public final class ConnectionStore {
     /// Return to the login screen, forgetting the token but keeping the cached
     /// lists so the next sign-in paints immediately.
     private func endSession(message: String) async {
+        beginScope()
         pump?.cancel()
         pump = nil
         await channel?.disconnect()
@@ -460,11 +525,14 @@ public final class ConnectionStore {
     /// life (A15), never by a control in the app.
     public func setArchived(_ archived: Bool, session: Session) async {
         guard let channel else { return }
+        let scope = self.scope
         do {
             let result = try await channel.request(.archive(sessionID: session.sessionID, archived: archived),
                                                    as: SessionResult.self)
+            guard isCurrent(scope) else { return }
             apply(.sessionUpdated(result.session))
         } catch {
+            guard isCurrent(scope) else { return }
             errorMessage = message(for: error)
         }
     }

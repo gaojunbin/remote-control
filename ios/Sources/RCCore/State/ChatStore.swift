@@ -57,6 +57,13 @@ public final class ChatStore {
     /// repaired, so neither is issued twice.
     public private(set) var isStale = false
     @ObservationIgnored private var isSubscribing = false
+    /// The resubscribe a `hello` or a detected gap asks for. Held so closing
+    /// the conversation cancels it.
+    @ObservationIgnored private var resubscription: Task<Void, Never>?
+    /// Set by `close()`. A conversation that has said `session.unsubscribe`
+    /// must not subscribe again: nothing draws what the gateway would stream,
+    /// and it streams until the next reconnect.
+    @ObservationIgnored private var isClosed = false
     public private(set) var errorMessage: String?
     public private(set) var pendingSends: [PendingSend] = []
     /// Amendment A27: the slash commands this session offers, as the device
@@ -129,7 +136,27 @@ public final class ChatStore {
     public var detail: TimelineDetail { detailSource() }
 
     /// The rows the transcript draws, at the level the reader has chosen.
-    public var rows: [TimelineEntry] { timeline.roots(at: detail) }
+    ///
+    /// SwiftUI reads this on every render pass and the filter runs over the
+    /// whole transcript, so the answer is kept until the transcript or the
+    /// level moves. `roots(at:)` reads only the entries and the unconfirmed
+    /// sends, and every mutation of either bumps the timeline's version.
+    public var rows: [TimelineEntry] {
+        let detail = detail
+        if let cached = cachedRows, cached.version == timeline.version, cached.detail == detail {
+            return cached.rows
+        }
+        let rows = timeline.roots(at: detail)
+        cachedRows = (timeline.version, detail, rows)
+        rowsBuilt += 1
+        return rows
+    }
+
+    @ObservationIgnored
+    private var cachedRows: (version: Int, detail: TimelineDetail, rows: [TimelineEntry])?
+    /// How many times `rows` has had to filter the transcript, which is what
+    /// the tests read to prove a redraw does not.
+    @ObservationIgnored private(set) var rowsBuilt = 0
 
     /// The header's todo chip. A checklist is the agent's working note rather
     /// than something written to the reader, so Simple leaves it out.
@@ -570,6 +597,9 @@ public final class ChatStore {
     }
 
     public func close() async {
+        isClosed = true
+        resubscription?.cancel()
+        resubscription = nil
         cancelPolish()
         _ = try? await channel.request(.unsubscribe(sessionID: sessionID))
     }
@@ -577,7 +607,7 @@ public final class ChatStore {
     /// Section 7's reconnect order: subscribe from the cursor, and page history
     /// only when the gateway says the buffer could not cover it.
     public func subscribe() async {
-        guard !isSubscribing else { return }
+        guard !isClosed, !isSubscribing else { return }
         isSubscribing = true
         defer { isSubscribing = false }
         let since = timeline.lastSeq > 0 ? timeline.lastSeq : nil
@@ -621,7 +651,7 @@ public final class ChatStore {
     public func receive(_ frame: AppFrame) {
         switch frame {
         case .hello:
-            Task { [weak self] in await self?.subscribe() }
+            resubscribe()
         case .sessionEvent(let sessionID, _, let event) where sessionID == self.sessionID:
             ingest(event)
             if timeline.hasGap { repairGap() }
@@ -637,7 +667,16 @@ public final class ChatStore {
     private func repairGap() {
         guard !isStale else { return }
         isStale = true
-        Task { [weak self] in await self?.subscribe() }
+        resubscribe()
+    }
+
+    /// Subscribe again, out of band. The task is held so `close()` can cancel
+    /// it: a `hello` or a gap noticed at the moment a conversation is closed
+    /// would otherwise resubscribe it behind the screen that has gone.
+    private func resubscribe() {
+        guard !isClosed else { return }
+        resubscription?.cancel()
+        resubscription = Task { [weak self] in await self?.subscribe() }
     }
 
     private func ingest(_ event: SessionEvent) {

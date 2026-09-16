@@ -41,6 +41,19 @@ public actor DraftStore {
         try? FileManager.default.removeItem(at: fileURL(account: account))
     }
 
+    /// Forget the drafts of sessions this account no longer has.
+    ///
+    /// The `hello` snapshot is the whole list of what exists, so a key it does
+    /// not name belongs to a session that has been deleted on the device. Left
+    /// alone, its words would sit on disk for the life of the install.
+    public func retain(_ keys: Set<String>, account: String) {
+        let current = drafts(account: account)
+        let kept = current.filter { keys.contains($0.key) }
+        guard kept.count != current.count else { return }
+        cache[account] = kept
+        persist(account: account, drafts: kept)
+    }
+
     private func drafts(account: String) -> [String: String] {
         if let cached = cache[account] { return cached }
         guard let data = try? Data(contentsOf: fileURL(account: account)),

@@ -233,6 +233,16 @@ public struct Timeline: Sendable, Equatable {
     /// `entries` because these rows carry no `seq`: they must not move the
     /// replay cursor, must not be a history boundary, and always sort last.
     public private(set) var optimistic: [OptimisticMessage] = []
+    /// Bumped by every mutation. A reader that built a list from this
+    /// transcript keeps it until this moves, rather than filtering the whole
+    /// array again on every render pass.
+    public private(set) var version = 0
+
+    /// The most rows one open transcript holds. A session left open through a
+    /// day of agent work would otherwise grow without limit. Dropping the
+    /// oldest rows is safe because `hasMoreHistory` goes back to true with
+    /// them: scrolling up pages them from the gateway again.
+    public static let entryLimit = 3000
 
     private var index: [String: Int] = [:]
     /// Children keyed by parent block, so a tool row does not scan the whole
@@ -310,17 +320,24 @@ public struct Timeline: Sendable, Equatable {
         lastSeq = event.seq
         reconcileOptimistic(with: event)
         absorb(event)
+        trimToLimit()
+        touch()
         return true
     }
 
     /// Called once the store has refilled from `session.subscribe` or history.
-    public mutating func clearGap() { hasGap = false }
+    public mutating func clearGap() {
+        guard hasGap else { return }
+        hasGap = false
+        touch()
+    }
 
     /// Adopt a cursor recovered from the offline cache, so a warm open can
     /// subscribe with `since_seq` instead of throwing the transcript away.
     public mutating func adoptCursor(_ seq: Int) {
         guard seq > lastSeq else { return }
         lastSeq = seq
+        touch()
     }
 
     /// Merge one page of older history. History never advances `lastSeq`, and
@@ -341,6 +358,7 @@ public struct Timeline: Sendable, Equatable {
         sortEntries()
         hasMoreHistory = hasMore
         historyLoaded = true
+        touch()
     }
 
     /// Replace the whole transcript, used when the gateway reports `resync`.
@@ -360,6 +378,7 @@ public struct Timeline: Sendable, Equatable {
         queueSeq = 0
         hasMoreHistory = true
         historyLoaded = false
+        touch()
     }
 
     /// The queue snapshot from a `session.subscribe` reply, which has no seq of
@@ -369,6 +388,7 @@ public struct Timeline: Sendable, Equatable {
         queue = pending
         queueSeq = lastSeq
         dropQueuedOptimistic()
+        touch()
     }
 
     // MARK: - Amendment A12: sends the device has not confirmed
@@ -378,11 +398,13 @@ public struct Timeline: Sendable, Equatable {
     public mutating func addOptimistic(_ message: OptimisticMessage) {
         guard index[message.id] == nil, !optimistic.contains(where: { $0.id == message.id }) else { return }
         optimistic.append(message)
+        touch()
     }
 
     /// Take a pending row away: the send was refused, or the queue owns it now.
     public mutating func removeOptimistic(_ id: String) {
         optimistic.removeAll { $0.id == id }
+        touch()
     }
 
     /// Amendment A14: the device steered the message into the running turn. The
@@ -392,6 +414,7 @@ public struct Timeline: Sendable, Equatable {
     public mutating func markSteered(_ id: String) {
         guard let position = optimistic.firstIndex(where: { $0.id == id }) else { return }
         optimistic[position].isSteering = true
+        touch()
     }
 
     /// The pending rows that have waited too long to still claim they are on
@@ -431,19 +454,50 @@ public struct Timeline: Sendable, Equatable {
     }
 
     /// Fold in the untruncated version of one block from `session.block`.
+    ///
+    /// The reply carries the seq of the version it holds, so a block that has
+    /// streamed on since the request left answers below the row's newest seq
+    /// and must not be applied: "Open full output" would write the older body
+    /// over the newer one. An answer at the same seq is the untruncated copy of
+    /// what is on screen, which is the whole point of the request.
     public mutating func replaceBlock(with event: SessionEvent) {
         reconcileOptimistic(with: event)
         let key = Self.key(for: event)
-        if let position = index[key] {
-            entries[position].merge(event)
-        } else {
+        guard let position = index[key] else {
             absorb(event)
+            touch()
+            return
         }
+        guard event.seq >= entries[position].latestSeq else { return }
+        let before = entries[position].seq
+        entries[position].merge(event)
+        // `merge` takes the earliest position it has been told about, and the
+        // reply is the first event to carry `first_seq` for a block whose own
+        // events did not. A row that moves has to be put back in order.
+        if entries[position].seq != before { sortEntries() }
+        touch()
     }
 
     public mutating func markHistoryExhausted() {
         hasMoreHistory = false
         historyLoaded = true
+        touch()
+    }
+
+    /// Record that the rows this transcript draws have changed.
+    private mutating func touch() { version &+= 1 }
+
+    /// Hold the transcript to `entryLimit` rows, oldest first.
+    ///
+    /// Only the live path trims. A page of history is older than everything
+    /// held, so trimming after one would throw away exactly what the reader
+    /// scrolled up to see and page for it again on the next scroll.
+    private mutating func trimToLimit() {
+        guard entries.count > Self.entryLimit else { return }
+        entries.removeFirst(entries.count - Self.entryLimit)
+        // The rows are still on the gateway, so scrolling back reaches them.
+        hasMoreHistory = true
+        reindex()
     }
 
     private mutating func absorb(_ event: SessionEvent) {
