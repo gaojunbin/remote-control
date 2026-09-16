@@ -1649,6 +1649,32 @@ Not verified: `install.sh --proxy` and `service install` on a real host, and the
 cluster node itself. The PR description's "1 failed" (`test_grok_leader`) did not reproduce here.
 The four components moved to 1.3.1 together (iOS build 3), tag v1.3.1.
 
+## 30. An update names its version and leaves the device as a fresh install would; adding a device asks no platform (2026-09-16, 1.3.2)
+
+The owner reported that after Update a device did not show what a fresh install showed. Read from
+the code and this Mac's own `~/.rc-client` (read-only): `self-update` downloads the served wheel,
+verifies its SHA-256, `uv pip install`s it, re-runs `service install` (bootout + bootstrap, so the
+daemon restarts on the new code — the local daemon's start time is ten seconds after the last
+update's log line) and `shim install`; the build it installed on 2026-09-15 already carried the A33
+account code, and a launchd-started process reads the Claude Keychain item (probed with a one-off
+`launchctl submit` job that printed only OK/FAIL, then removed). So the device side of Update was
+sound; what the person saw was the gateway, the web app or the iOS app still being older than the
+device — three things that update separately — made worse by every build being called 0.1.0. Two
+changes follow. The updater now also refreshes the pi extension when one is installed (it is a file
+copied out of the wheel), never installs Codex and never touches Grok's leader flag (client tests
+1018 → 1021, each new test failing on the old source). The apps name the version an update installs
+— "Update available · 1.3.2", "Update <name> to 1.3.2?" — from `GET /api/config` `client.version`,
+with the old wording on a gateway that states none (web 578 → 580; iOS RCUIVerify 345 → 351,
+unit 340 → 341). The demo's devices now report realistic client versions so a screenshot of
+an update does not promise 1.3.2 and show 0.1.0 afterwards.
+
+Adding a device no longer asks macOS or Linux: the gateway hands out the same command under both
+keys (`device_routes.py` builds `{"macos": command, "linux": command}`) and `install.sh` tells the
+platforms apart itself, so the picker on both apps changed nothing. The protocol keeps both keys.
+Full iOS UI suite: 62 tests, 4 skipped, 1 failure in 1 366 s — `testOnlyAnAdminIsOfferedTheUsersScreen`, whose typed gateway address lost its last three characters (`rc.test.exam`), the simulator keyboard flake already seen in round 29; it passed alone in 44 s and the login form did not change this round. Not verified: a real `self-update` with an installed pi extension
+(the tests fake the steps), and the new wording against a real gateway. All four components 1.3.2
+(iOS build 4), tag v1.3.2.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
