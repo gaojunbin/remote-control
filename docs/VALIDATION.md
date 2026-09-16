@@ -1703,6 +1703,21 @@ since round 29, on a Mac whose load average was 29 while the suite ran for 1 650
 alone. A guard that would make the text field ignore SwiftUI's own echoes while an agent streams
 was tried and withdrawn, because no test could be written that failed without it. All four components 1.3.3 (iOS build 5), tag v1.3.3.
 
+## 32. The status dot: green works, amber is for you (2026-09-17, 1.3.4)
+
+The owner changed what the session dot's colour means so that the colour alone says whether to
+look: a running session is a steady green (it pulsed), a finished turn waiting to be read is a
+steady amber (it was a steady green, indistinguishable from a running one at a glance), and a
+session blocked on the person pulses amber (it was steady). The `dotTone` / `DotTone.of` rule —
+which state maps to which tone — did not change on either app; only the looks and the tooltip word
+for the quiet tone ("Done", 已完成). Web: `.dot.working` lost its animation, `.dot.waiting` gained
+it, `.dot.live` took the attention colour, and the reduced-motion rule follows `waiting`; a new
+`StatusDot` test reads the stylesheet's rules and the rendered classes (five of its six cases
+failed on the old source). Web tests 584 → 590. iOS: RCUIVerify 356 → 367 (each tone's colour, which tone pulses, Reduce Motion; three of the new checks failed on the old colours), RCVerify 1293 and unit tests 342 unchanged; the device row's dot became its own `OnlineDot` (online green, offline grey, updating pulsing green) so that turning `live` amber did not turn every online device amber with it — DESIGN already said a device's dot is not a session dot. Not verified: either app by eye
+on a phone or in a browser this round; the demo's session list in the simulator carries the new
+colours in the screenshot the iOS UI test attaches. Full iOS UI suite: 63 tests, 4 skipped, 0 failures, 1 361 s, with the simulator English and the Mac's load back under ten. All four
+components 1.3.4 (iOS build 6), tag v1.3.4.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
