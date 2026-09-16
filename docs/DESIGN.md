@@ -661,6 +661,61 @@ of A is touched — its draft stays with A, and a dictation running in A ends wi
 draft — and B is open the moment it is on screen, streaming and with its composer, never a spinner
 that waits for a tap.
 
+### Paused by the usage limit
+
+Claude Code and Codex stop when the account's five-hour or weekly window is used up, and say when
+it resets. Until now the phone showed that stop as a finished turn with the vendor's sentence in
+the agent's bubble, and the work waited for someone to notice. The owner's ruling (2026-09-17,
+A35): **a session the limit stopped resumes itself when the limit resets, if the person has said
+so once, and the person can see and end every such resume where the session is.**
+
+- **One switch, on the account.** Settings gains a "Sessions" group with one switch, "Resume after
+  the limit resets", and one sentence under it: "When Claude Code or Codex stops at a usage limit,
+  the device continues the session a minute after the limit resets." It is off until the person
+  turns it on, and it is the account's, not the phone's: the gateway keeps it, so the browser, the
+  phone and every device read the same value, and turning it off anywhere cancels every pending
+  resume everywhere. A gateway that predates the switch shows it disabled with "Your gateway does
+  not offer this yet."
+- **The prompt is one plain sentence** — "The usage limit has reset. Continue where you left off,
+  and let any subagents you started continue their work." — the same everywhere and never edited
+  per session. It asks for nothing else on purpose: the agent already knows what it was doing, and
+  a longer instruction would steer it. The subagents it started are its own to bring back; the
+  device sees them only as tool rows and cannot continue them itself.
+- **A terminal you closed is a session you are done with.** A terminal session (`shared`) is
+  resumed through the same injection the composer uses, so the words appear in the terminal as if
+  typed there. If the terminal is gone when the time comes, nothing is resumed: the resume is
+  dropped and the phone is told ("mac-studio-office: not resumed"). A session the device runs
+  itself is resumed even when its process has ended, as sending to it would.
+- **Where the session is, above the transcript.** A session with a resume pending carries a notice
+  above its transcript — iOS's notice banner, the web's persistent bar — reading "Paused by the
+  usage limit · resumes 3:50 PM" (in the viewer's time zone; "resumes about 3:50 PM" when the
+  vendor named no time and the device estimated; "second try" appended when the resumed turn hit the
+  limit again), with two actions and no more: **Change** and **Cancel**. Change opens the smallest
+  time picker the platform has — a compact date-and-time picker on iOS, a `datetime-local` field on
+  the web — prefilled with the current time, refusing anything less than a minute ahead or more
+  than eight days out. Cancel removes the resume at once, with no confirmation: it is undone by
+  Change on the timeline row, and nothing is lost but a timer. The notice goes when the resume
+  does. The status dot is not changed by a pending resume: the session is idle, and the dot says
+  so; the notice carries the pause.
+- **The timeline says what happened.** A turn the limit ended closes with "Ended at the usage
+  limit · resets 3:50 PM". The device's steps are rows in the notice voice: "Resume scheduled for
+  3:50 PM", "Resume moved to 4:20 PM", "Resume cancelled · you sent a message", "Not resumed · the
+  terminal was closed". The moment of resuming is not a row of its own: the prompt appears in the
+  person's bubble, captioned "Sent for you after the limit reset", and the turn it starts reads in
+  the status line as a remote turn does. The Simple detail level keeps the end-of-turn line, the
+  device's rows and the captioned prompt, as it keeps notices and errors.
+- **Sending is cancelling.** A message the person sends into a session with a pending resume
+  cancels it without asking: they got there first, and a second "continue" a minute after theirs
+  would only spend the window again.
+- **Told twice, not three times.** The phone is pushed when a session is paused
+  ("mac-studio-office: paused by the usage limit"), when it resumes ("mac-studio-office: resumed
+  after the limit reset") and when it could not ("mac-studio-office: not resumed"); a cancel the
+  person made themselves is not announced. The time is never in the push — the gateway does not
+  know the phone's time zone — and is read in the app.
+- **Grok Build and pi** report no limit the device can read. Their turns end as they always did,
+  and no resume is offered for them until they do; the device reads every agent's limit signal in
+  one place so one that gains a signal joins without a change to the wire.
+
 ### Polishing what you dictated
 
 Speech is immediate, and immediate speech is full of "um", repeated starts and references that made
