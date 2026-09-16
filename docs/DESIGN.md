@@ -541,6 +541,14 @@ scrolled and fades when scrolling stops, exactly as it does in any scroll view �
 cue that there is more above or below, and nothing is added around it: no expand button, no
 permanent bar, no line count.
 
+**While dictation runs, the field follows the words.** A dictation longer than the field's eight
+lines used to leave the field on its first screen until Done, so the person could not see what
+had just been recognised. Now every transcript update that lands past the visible lines scrolls
+the field so its last line — the newest words — stays in view, without animation, for as long as
+listening runs and through the finishing spinner; a person who wants to read back taps the field,
+which ends the dictation (the takeover rule above) and leaves the field where the words ended. On
+both apps; typing is untouched, because a caret already keeps itself visible.
+
 ## Approvals and questions
 
 - The UI renders **exactly the options the agent supplied**, in the order given, with the agent's
