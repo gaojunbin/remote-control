@@ -101,6 +101,11 @@ gateway minted for it. The progress that follows ("enrolled", "online") is the o
 already shows. The web keeps the code flow first and explains the scan flow beside it; the same QR
 encodes a link the web app also honours when signed in.
 
+**A camera the app may not use says so.** Scan a code with camera access denied or restricted shows
+the same one line any denied permission gets — "Allow camera access in Settings, or type the code" —
+with a button that opens iOS Settings, in place of the viewfinder. The scanner never pretends to
+scan over a black frame, and "Hold steady" is said only while a camera is actually looking.
+
 Below 1024 px the web sidebar collapses into the Sessions page and the chat runs full width, which
 is the layout iOS uses natively.
 
@@ -474,7 +479,11 @@ and keeps the transcript in the field; it stands where Send stands, at Send's si
 the one primary action while listening. There is no Cancel: a dictation you do not want is Done
 and then edited or cleared like any draft, and a second button of a different size beside the
 primary only made the row look unfinished. There is no time limit; listening runs until Done is
-tapped. On iOS a soft multi-colour glow runs around the edge of the whole display while
+tapped, and only leaving the app ends it early: the background suspends dictation with its words
+kept, while Control Centre, the app switcher's peek, an incoming-call banner and a system alert only
+make the app inactive, and dictation listens through them — as the app lock stays down through
+them, engaging when the app returns from the background and not before, exactly as its own footer
+says. On iOS a soft multi-colour glow runs around the edge of the whole display while
 listening, the way Siri does, never around the field alone. The glow is meant to be seen, not
 found: in silence it rests as a band of light plainly present along all four edges, and ordinary
 speech at a conversational level swells it unmistakably — the rim brightens and the halo spills
@@ -499,6 +508,18 @@ the spinner is up ends the wait: the person's words win, the request out is drop
 back. The rule is the composer's, on both apps. On the web, Enter is Send and waits with it — a
 keystroke that sent while the spinner is up would be the button in another guise — and the "⋯"
 menu beside Send, whose only item is a send, is not drawn while the spinner is.
+
+**A draft belongs to its session.** Words typed and files attached for one session stay with it
+when another is opened, and are found again on return, on both apps. Nothing typed for one session
+is ever sent to another, and nothing typed for one is offered as the answer to a question in
+another. A dictation running at the switch ends, its words staying in the session it was spoken
+for. A refused send returns everything to the composer — the words and the attachments — so a
+second tap sends what the first one meant to.
+
+**Attachments are named for what they are.** A photo from the library is `photo-1.jpg`,
+`photo-2.jpg`, … in the order attached, with the extension of what is actually sent, never the
+library's own identifier; a camera shot is `photo.jpg`. The Camera item is offered only where a
+camera exists, and a refused camera gets the same one line as any denied permission.
 
 **Composer layout** on the phone: the text field has a row to itself and grows with its content
 up to eight lines, then scrolls inside; the `+`, mic and Send controls sit on the row below it. Once
@@ -612,6 +633,12 @@ both kinds, and the system permission it asks for covers both. A remote push for
 has already announced is not shown a second time while the app is in the foreground and connected.
 Foreground only, by design: a suspended app cannot watch the stream, and the gateway's push is the
 channel that reaches a locked phone.
+
+**A notification opens its session in place.** Tapping a notification, or following a link, for
+session B while session A is open replaces A with B; Back returns to the list, not to A. Nothing
+of A is touched — its draft stays with A, and a dictation running in A ends with its words in A's
+draft — and B is open the moment it is on screen, streaming and with its composer, never a spinner
+that waits for a tap.
 
 ### Polishing what you dictated
 

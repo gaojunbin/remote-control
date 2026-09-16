@@ -36,8 +36,13 @@ they read `AgentInfo` capabilities and the five attachment fields, never the age
   an older iOS app, raise that constant in the same change**, and set `IOS_UPDATE_URL` on the
   gateway to where the new build is (TestFlight or the App Store). Raise it only when compatibility
   is really broken; an app one amendment behind must keep working when the amendment is additive.
-- Bump `MARKETING_VERSION` in `ios/project.yml` on every iOS release; the app compares it as
-  `major.minor.patch` against the gateway's minimum.
+- **Every round that changes a component bumps that component's version in the same change**, and
+  the round ends with a repo tag `vX.Y`: `ios/project.yml` `MARKETING_VERSION` (the app compares it
+  as `major.minor.patch` against the gateway's minimum) and `CURRENT_PROJECT_VERSION`;
+  `gateway/pyproject.toml`; `web/package.json`; `client/pyproject.toml` together with
+  `client/rc_client/__init__.py` — the client's version is what devices compare for Update (A22),
+  so it moves only when the client itself changes. A component left at an old number while the repo
+  is tagged ahead of it is a defect (round 29 found all four at 0.1.0 under a v1.2 tag).
 
 ## How agents are attached (why terminal sessions can be driven from a phone)
 
