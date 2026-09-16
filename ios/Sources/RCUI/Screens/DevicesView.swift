@@ -24,6 +24,7 @@ struct DevicesView: View {
                 NavigationLink(value: device.deviceID) {
                     DeviceRow(device: device,
                               servedBuild: model.connection.config.servedBuild,
+                              servedVersion: model.connection.config.servedVersion,
                               localError: model.deviceUpdateError(device.deviceID))
                 }
                     .sessionRowLayout()
@@ -88,9 +89,8 @@ struct DevicesView: View {
             Button("Cancel", role: .cancel) { updating = nil }
             Button("Update") { update() }
         } message: {
-            Text(L10n.string(
-                "Update %@ to the gateway's client? Its service restarts; sessions it drives are stopped.",
-                updating?.name ?? L10n.string("This device")))
+            Text(DeviceUpdateText.confirmation(name: updating?.name ?? L10n.string("This device"),
+                                               servedVersion: model.connection.config.servedVersion))
         }
         .alert("Revoke device", isPresented: Binding(get: { revoking != nil },
                                                      set: { if !$0 { revoking = nil } })) {
@@ -189,6 +189,7 @@ struct DevicesView: View {
 struct DeviceRow: View {
     let device: Device
     var servedBuild: String?
+    var servedVersion: String?
     var localError: String?
 
     var body: some View {
@@ -218,7 +219,8 @@ struct DeviceRow: View {
                 }
                 .lineLimit(1)
             }
-            DeviceClientLine(device: device, servedBuild: servedBuild, localError: localError)
+            DeviceClientLine(device: device, servedBuild: servedBuild,
+                             servedVersion: servedVersion, localError: localError)
         }
         .accessibilityElement(children: .combine)
     }

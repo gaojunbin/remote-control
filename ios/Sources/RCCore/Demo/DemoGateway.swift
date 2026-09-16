@@ -437,6 +437,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     private func finishUpdate(deviceID: String, build: String) {
         update(deviceID: deviceID) { device in
             device.clientBuild = build
+            // What it came back on, in the words the row shows: an update that
+            // named a version has to leave that version behind it.
+            device.clientVersion = DemoFixtures.servedClientVersion
             device.updateState = .idle
             device.updateMessage = nil
             device.lastSeen = DemoFixtures.now

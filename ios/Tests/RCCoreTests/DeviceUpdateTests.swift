@@ -39,6 +39,27 @@ struct DeviceUpdateTests {
         #expect(GatewayConfig.empty.servedBuild == nil)
     }
 
+    @Test("The config names the version an update would install, or nothing at all")
+    func servedVersion() throws {
+        let json = """
+        {"public_origin": "https://rc.example.com", "version": "1.3.2",
+         "client": {"version": "1.3.2", "build": "\(served)", "url": "/dist/rc_client-latest.whl"}}
+        """
+        let config = try JSONDecoder().decode(GatewayConfig.self, from: Data(json.utf8))
+        #expect(config.servedVersion == "1.3.2")
+        #expect(GatewayConfig.empty.servedVersion == nil)
+
+        // An older gateway answers with a build and no version; the screens
+        // that name it have wording for that.
+        let older = """
+        {"public_origin": "https://rc.example.com", "version": "1.3.0",
+         "client": {"build": "\(served)", "url": "/dist/rc_client-latest.whl"}}
+        """
+        let decoded = try JSONDecoder().decode(GatewayConfig.self, from: Data(older.utf8))
+        #expect(decoded.servedBuild == served)
+        #expect(decoded.servedVersion == nil)
+    }
+
     @Test("An update in flight outranks everything else the row could say")
     func updating() {
         let device = device(build: old, state: .updating)
@@ -127,6 +148,7 @@ struct DeviceUpdateTests {
             if device?.updateState == .idle { settled = device; break }
         }
         #expect(settled?.clientBuild == DemoFixtures.servedBuild)
+        #expect(settled?.clientVersion == DemoFixtures.servedClientVersion)
         await gateway.disconnect()
     }
 

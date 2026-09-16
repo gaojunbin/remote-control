@@ -5,7 +5,7 @@ import RCCore
 import UIKit
 #endif
 
-/// The pairing sheet: pick a platform, copy one command, watch it arrive.
+/// The pairing sheet: copy one command, watch the machine arrive.
 struct AddDeviceSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -80,7 +80,6 @@ struct AddDeviceSheet: View {
                 .font(.subheadline)
                 .foregroundStyle(Theme.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            platformPicker(flow)
             commandCard(flow)
             #if os(iOS)
             scanButton
@@ -154,17 +153,6 @@ struct AddDeviceSheet: View {
             ? (model.connection.endpoint?.origin ?? "")
             : model.connection.config.publicOrigin
         return "curl -fsSL \(origin)/install.sh | sh"
-    }
-
-    @ViewBuilder
-    private func platformPicker(_ flow: PairingFlow) -> some View {
-        @Bindable var flow = flow
-        Picker("Platform", selection: $flow.platform) {
-            Text("macOS").tag(DevicePlatform.macos)
-            Text("Linux").tag(DevicePlatform.linux)
-        }
-        .pickerStyle(.segmented)
-        .accessibilityIdentifier("pairing.platform")
     }
 
     private func commandCard(_ flow: PairingFlow) -> some View {

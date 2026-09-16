@@ -126,6 +126,15 @@ public struct GatewayConfig: Codable, Sendable, Hashable {
         return build
     }
 
+    /// What an update would install, in the words a person reads — the version
+    /// of the wheel this gateway serves. Nil when the gateway serves none, and
+    /// on an older gateway whose config carries no version, which is why the
+    /// screens that name it have wording for not knowing.
+    public var servedVersion: String? {
+        guard let version = client?.version, !version.isEmpty else { return nil }
+        return version
+    }
+
     public static let empty = GatewayConfig(publicOrigin: "", stt: .disabled, push: .disabled, version: "")
 }
 
@@ -159,9 +168,12 @@ public struct InstallCommands: Codable, Sendable, Hashable {
         linux = try values.decodeIfPresent(String.self, forKey: .linux) ?? ""
     }
 
-    public func command(for platform: DevicePlatform) -> String {
-        platform == .macos ? macos : linux
-    }
+    /// The one command to run on the host. The gateway hands out a key per
+    /// platform so a platform whose command really differs can be added
+    /// without a wire change, but the two are the same string today — the
+    /// installer tells macOS from Linux itself (`uname`) — so the apps read
+    /// one of them and ask nobody to choose (`docs/DESIGN.md` § "Add device").
+    public var command: String { macos }
 }
 
 /// A single-use pairing grant with a ten-minute lifetime.

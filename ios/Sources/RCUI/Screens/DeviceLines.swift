@@ -30,6 +30,7 @@ struct DeviceStatusLine: View {
 struct DeviceClientLine: View {
     let device: Device
     var servedBuild: String?
+    var servedVersion: String?
     var localError: String?
 
     var body: some View {
@@ -37,7 +38,7 @@ struct DeviceClientLine: View {
             CodeText(clientText, font: Theme.Text.metaMono)
             if let notice {
                 Text("·").font(Theme.Text.caption).foregroundStyle(Theme.inkSecondary)
-                Text(Self.text(of: notice))
+                Text(DeviceUpdateText.notice(notice, servedVersion: servedVersion))
                     .font(Theme.Text.caption)
                     .foregroundStyle(notice.isFailure ? Theme.danger : Theme.inkSecondary)
                     .accessibilityIdentifier("device.updateNotice")
@@ -57,13 +58,35 @@ struct DeviceClientLine: View {
         }
         return L10n.string("client %@ · %@", device.clientVersion, DeviceUpdate.shortBuild(build))
     }
+}
 
-    private static func text(of notice: DeviceUpdate.Notice) -> String {
+/// `docs/DESIGN.md` § "An update names its version": what the row and the
+/// confirmation say about an update, written once so the two can never name
+/// different versions of the same wheel.
+public enum DeviceUpdateText {
+    /// The notice that replaces the build on the client line. A gateway that
+    /// serves no version — an older one, or one running from a checkout — can
+    /// only say that there is something newer.
+    public static func notice(_ notice: DeviceUpdate.Notice, servedVersion: String?) -> String {
         switch notice {
-        case .available: L10n.string("Update available")
-        case .updating: L10n.string("Updating…")
-        case .failed(let message): L10n.string("Update failed · %@", message)
+        case .available:
+            guard let servedVersion else { return L10n.string("Update available") }
+            return L10n.string("Update available · %@", servedVersion)
+        case .updating: return L10n.string("Updating…")
+        case .failed(let message): return L10n.string("Update failed · %@", message)
         }
+    }
+
+    /// The confirmation, which names the machine and what it would land on.
+    public static func confirmation(name: String, servedVersion: String?) -> String {
+        guard let servedVersion else {
+            return L10n.string(
+                "Update %@ to the gateway's client? Its service restarts; sessions it drives are stopped.",
+                name)
+        }
+        return L10n.string(
+            "Update %@ to %@? Its service restarts; sessions it drives are stopped.",
+            name, servedVersion)
     }
 }
 

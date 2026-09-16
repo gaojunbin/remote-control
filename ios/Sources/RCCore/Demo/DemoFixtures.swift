@@ -335,26 +335,30 @@ public enum DemoFixtures {
     /// laptop is still on so a row with an update available can be looked at.
     public static let servedBuild = "3f2b4a9c1d8e7f60a5b4c3d2e1f0918273645a5b6c7d8e9f0a1b2c3d4e5f6a7b"
     public static let outdatedBuild = "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d"
+    /// The versions those two builds are, so the demo's rows and its Update
+    /// confirmation name a client the way a real gateway would.
+    public static let servedClientVersion = "1.3.2"
+    public static let outdatedClientVersion = "1.3.0"
 
     public static var devices: [Device] {
         [
             Device(deviceID: macDeviceID, name: "mac-studio-office", platform: .macos,
-                   hostname: "mac-studio.local", arch: "arm64", clientVersion: "0.1.0",
-                   clientBuild: servedBuild,
+                   hostname: "mac-studio.local", arch: "arm64",
+                   clientVersion: servedClientVersion, clientBuild: servedBuild,
                    online: true, lastSeen: now, createdAt: now - 8_640_000, latencyMS: 18,
                    // Amendment A26: one machine with all four agents on it, so
                    // the picker, the card and a session of each can be seen.
                    agents: [claude, codex, grok, pi]),
             Device(deviceID: laptopDeviceID, name: "macbook-air", platform: .macos,
-                   hostname: "macbook-air.local", arch: "arm64", clientVersion: "0.1.0",
-                   clientBuild: outdatedBuild,
+                   hostname: "macbook-air.local", arch: "arm64",
+                   clientVersion: outdatedClientVersion, clientBuild: outdatedBuild,
                    online: true, lastSeen: now, createdAt: now - 4_320_000, latencyMS: 41,
                    // Amendment A28: the machine that is prepared for neither
                    // attachment, so both hints can be read on a real session.
                    agents: [claudeWithoutShim, grokWithoutLeader]),
             Device(deviceID: ciDeviceID, name: "ci-runner-01", platform: .linux,
-                   hostname: "ci-runner-01", arch: "x86_64", clientVersion: "0.1.0",
-                   clientBuild: outdatedBuild,
+                   hostname: "ci-runner-01", arch: "x86_64",
+                   clientVersion: outdatedClientVersion, clientBuild: outdatedBuild,
                    online: false, lastSeen: now - 3_600_000, createdAt: now - 86_400_000,
                    latencyMS: nil, agents: [codexWithoutDaemon])
         ]
@@ -854,7 +858,7 @@ public enum DemoFixtures {
                       version: "0.1.0-demo",
                       polish: PolishInfo(enabled: true),
                       apps: apps(minimumAppVersion: minimumAppVersion),
-                      client: ClientBuild(version: "0.1.0", build: servedBuild,
+                      client: ClientBuild(version: servedClientVersion, build: servedBuild,
                                           url: "/dist/rc_client-latest.whl"))
     }
 

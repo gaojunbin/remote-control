@@ -2398,23 +2398,6 @@
         }
       }
     },
-    "Linux": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Linux"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Linux"
-          }
-        }
-      }
-    },
     "Listening for %@": {
       "extractionState": "manual",
       "localizations": {
@@ -5543,6 +5526,23 @@
         }
       }
     },
+    "Update %@ to %@? Its service restarts; sessions it drives are stopped.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update %@ to %@? Its service restarts; sessions it drives are stopped."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 %@ 更新到 %@？它的服务会重启，由它驱动的会话会被停止。"
+          }
+        }
+      }
+    },
     "Update %@ to the gateway's client? Its service restarts; sessions it drives are stopped.": {
       "extractionState": "manual",
       "localizations": {
@@ -5573,6 +5573,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "有可用更新"
+          }
+        }
+      }
+    },
+    "Update available · %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update available · %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有可用更新 · %@"
           }
         }
       }
@@ -6151,23 +6168,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "https://rc.example.com"
-          }
-        }
-      }
-    },
-    "macOS": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS"
           }
         }
       }

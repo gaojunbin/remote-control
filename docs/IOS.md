@@ -81,10 +81,11 @@ xcrun simctl openurl booted "remotecontrol://session?device=<id>&id=<session_id>
 `--demo`, or "Try the demo" on the login screen, installs an in-memory gateway that serves the
 protocol from typed fixtures and scripts a live turn. It never constructs a transport, so the demo
 cannot reach the network even by accident. Every SwiftUI preview and the XCUITest smoke run on it.
-It answers `/api/config` from memory too, so the served client build the Devices screen measures
-against is there in the demo: one demo machine runs an older build and the demo gateway takes
-`device.update`, reports the device as updating and brings it back on the new build a few seconds
-later (A22). It also claims one printed pairing token, which is what the scan flow is driven with.
+It answers `/api/config` from memory too, so the served client the Devices screen measures against
+is there in the demo — build `3f2b4a9c…`, version 1.3.2: two demo machines run 1.3.0 and the demo
+gateway takes `device.update`, reports the device as updating and brings it back on the served
+build and version a few seconds later (A22). It also claims one printed pairing token, which is
+what the scan flow is driven with.
 
 Other launch arguments: `--ui-testing`, `--reset-state`, `--demo-account`, `--demo-update-required`, `--registration-open`,
 and in debug builds `--voice-preview`, which swaps in a scripted speech platform so a UI test never
@@ -352,15 +353,25 @@ nothing at all.
 
 **Update (A22).** `GET /api/config` names the wheel the gateway serves (`client.version`,
 `client.build`, `client.url`) and every device reports the build it runs. The client line reads
-`client 0.1.0 · 3f2b4a9c` while there is nothing to say, and the eight characters give way to the
+`client 1.3.2 · 3f2b4a9c` while there is nothing to say, and the eight characters give way to the
 one notice there is:
 
 | `Device` says | The line reads | Update is |
 | --- | --- | --- |
 | `update_state: "updating"` | "Updating…", with the row's dot pulsing | disabled |
 | a refusal this app is holding, or `update_state: "failed"` | "Update failed · &lt;message&gt;" | offered again |
-| a `client_build` other than the gateway's, or none | "Update available" | offered |
+| a `client_build` other than the gateway's, or none | "Update available · &lt;served version&gt;" | offered |
 | the gateway's own build | nothing | disabled, "This device runs the build the gateway serves." |
+
+**An update names its version** (`docs/DESIGN.md` § "The three screens"). The notice and the
+confirmation both say what the click would install: "Update available · 1.3.2" on the row, "Update
+macbook-air to 1.3.2? Its service restarts; sessions it drives are stopped." in the alert. The
+version is `GatewayConfig.servedVersion`, `client.version` from the same object `servedBuild` is
+read from, and it is nil on a gateway that serves no wheel and on an older one whose config carries
+no version — where the wording falls back to "Update available" and "…to the gateway's client?".
+Both sentences are written once, in `DeviceUpdateText` in `Sources/RCUI/Screens/DeviceLines.swift`,
+so the row and the alert can never name different versions; `RCUIVerify` reads the four strings off
+it. The demo gateway serves 1.3.2 over two machines on 1.3.0, which is what the screenshots show.
 
 An offline device and a gateway serving no wheel disable the action too, each with its own reason on
 the accessibility hint. The rule itself is `DeviceUpdate` in `Sources/RCCore/State/DeviceUpdate.swift`,
@@ -370,6 +381,15 @@ Confirming sends `device.update {device_id, build}` and says nothing on success 
 carries the state the row draws from then on. A refusal (`conflict`, `unsupported`) never reaches
 the gateway's record, because no update started, so `AppModel.deviceUpdateErrors` holds it against
 the row that asked.
+
+**Add device asks nothing.** The sheet is one sentence, the one-liner with a Copy button, the code
+with its countdown, the checklist and a Manual install link. There is no platform control: the
+installer tells macOS from Linux itself (`uname`), so the command is the same on both, and a
+question whose answer changes nothing is not asked. The gateway still hands out `install.macos` and
+`install.linux` so a platform whose command really differs can be added without a wire change; the
+app reads one of them through `InstallCommands.command`, which says in a comment why either key
+does. `PairingFlow` holds no platform, and `Verification/StoreChecks.swift` checks the two keys
+carry the same command.
 
 **Scan a code (A23).** The Add device sheet keeps the code flow first and adds **Scan a code**
 beside it. The scanner is a full-screen camera with the two steps on a card over it — the one-liner
@@ -1264,7 +1284,7 @@ the checks and both screenshots are driven from.
 
 `AppsInfo` is decoded from `GET /api/health`, `GET /api/config` and `hello` alike — the health call
 answers before sign-in, so a too-old app is stopped at the login screen — and `AppVersion` compares
-`CFBundleShortVersionString` (`AppBuild.version`, falling back to "0.1.0" without a bundle, which
+`CFBundleShortVersionString` (`AppBuild.version`, falling back to "1.3.2" without a bundle, which
 must match `MARKETING_VERSION` in `project.yml`) with `apps.ios.minimum_version` as
 `major.minor.patch`. The first source to say "below" sets `ConnectionStore.updateRequired`, and
 `UpdateRequiredView` then covers everything: "Update required", the app's version and the gateway's

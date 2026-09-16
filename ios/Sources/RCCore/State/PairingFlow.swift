@@ -33,13 +33,12 @@ public final class PairingFlow {
     public private(set) var pairedDevice: Device?
     public private(set) var errorMessage: String?
     public private(set) var isRequesting = false
-    public var platform: DevicePlatform = .macos
 
     @ObservationIgnored private let api: any GatewayAPI
 
     public init(api: any GatewayAPI) { self.api = api }
 
-    public var command: String { pairing?.install?.command(for: platform) ?? "" }
+    public var command: String { pairing?.install?.command ?? "" }
 
     public var code: String { pairing?.code ?? "" }
 

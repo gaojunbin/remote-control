@@ -1181,6 +1181,10 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["pairing.command"].waitForExistence(timeout: 10),
                       "the install one-liner is shown")
         XCTAssertTrue(app.buttons["pairing.copy"].exists, "the command can be copied")
+        // `docs/DESIGN.md` § "Add device": the installer tells macOS from Linux
+        // itself, so the sheet asks nobody to choose one.
+        XCTAssertFalse(app.segmentedControls["pairing.platform"].exists,
+                       "and no platform is asked for")
         attach(name: "05-add-device")
     }
 
@@ -1424,8 +1428,8 @@ final class RemoteControlUITests: XCTestCase {
         openDevices()
         let row = deviceRow(DemoDevices.laptop)
         XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
-        XCTAssertTrue(app.staticTexts["Update available"].waitForExistence(timeout: 15),
-                      "a device on an older build says so under its name")
+        XCTAssertTrue(app.staticTexts["Update available · 1.3.2"].waitForExistence(timeout: 15),
+                      "a device on an older build says what it would install")
         attach(name: "61-device-update-available")
 
         row.swipeLeft()
@@ -1435,6 +1439,9 @@ final class RemoteControlUITests: XCTestCase {
 
         let alert = app.alerts["Update device"]
         XCTAssertTrue(alert.waitForExistence(timeout: 10), "which confirms before it acts")
+        XCTAssertTrue(alert.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS %@", "to 1.3.2?")).firstMatch.exists,
+                      "and names the version it would land on")
         XCTAssertTrue(alert.staticTexts.containing(
             NSPredicate(format: "label CONTAINS %@", "service restarts")).firstMatch.exists,
                       "and says what it costs the device")
@@ -2170,7 +2177,7 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 20), "the Settings tab is there")
         settings.tap()
 
-        let version = app.staticTexts["1.3.1"]
+        let version = app.staticTexts["1.3.2"]
         XCTAssertTrue(scrollDown(to: version), "the About group names this build")
         attach(name: "ios-about-version")
     }

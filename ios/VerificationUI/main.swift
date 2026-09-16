@@ -781,6 +781,24 @@ func run() async -> (passed: Int, failures: [String]) {
 
     equal(model.connection.config.servedBuild, DemoFixtures.servedBuild,
           "the app reads the build the gateway serves from /api/config")
+
+    // `docs/DESIGN.md` § "An update names its version": the row and the
+    // confirmation both say what an update would install, and both have words
+    // for a gateway that does not say.
+    equal(model.connection.config.servedVersion, DemoFixtures.servedClientVersion,
+          "and the version that build is")
+    equal(DeviceUpdateText.notice(.available, servedVersion: model.connection.config.servedVersion),
+          "Update available · 1.3.2", "the notice names the version it would install")
+    equal(DeviceUpdateText.notice(.available, servedVersion: nil), "Update available",
+          "and says only that there is one when the gateway names no version")
+    equal(DeviceUpdateText.confirmation(name: "macbook-air",
+                                        servedVersion: model.connection.config.servedVersion),
+          "Update macbook-air to 1.3.2? Its service restarts; sessions it drives are stopped.",
+          "the confirmation names the machine and the version")
+    equal(DeviceUpdateText.confirmation(name: "macbook-air", servedVersion: nil),
+          "Update macbook-air to the gateway's client? Its service restarts; sessions it drives are stopped.",
+          "and falls back to the gateway's client where there is no version")
+
     if let laptop = model.connection.device(DemoFixtures.laptopDeviceID) {
         equal(DeviceUpdate.notice(for: laptop, servedBuild: model.connection.config.servedBuild),
               .available, "a device on an older build says so on its row")
@@ -795,6 +813,8 @@ func run() async -> (passed: Int, failures: [String]) {
         }
         equal(model.connection.device(DemoFixtures.laptopDeviceID)?.clientBuild,
               DemoFixtures.servedBuild, "and the device comes back on the build it was sent to")
+        equal(model.connection.device(DemoFixtures.laptopDeviceID)?.clientVersion,
+              DemoFixtures.servedClientVersion, "under the version the row promised it")
     } else {
         expect(false, "the demo lists a device on an older build")
     }
@@ -1310,9 +1330,9 @@ func run() async -> (passed: Int, failures: [String]) {
                     "NSSpeechRecognitionUsageDescription", "NSLocalNetworkUsageDescription"] {
             expect(project.contains("INFOPLIST_KEY_\(key):"), "the app declares \(key)")
         }
-        expect(project.contains("MARKETING_VERSION: '1.3.1'"),
+        expect(project.contains("MARKETING_VERSION: '1.3.2'"),
                "the app ships the version this round tagged")
-        expect(project.contains("CURRENT_PROJECT_VERSION: 3"),
+        expect(project.contains("CURRENT_PROJECT_VERSION: 4"),
                "and a build number TestFlight can tell apart")
     } else {
         expect(false, "the check can read project.yml")

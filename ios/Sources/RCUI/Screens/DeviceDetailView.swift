@@ -58,6 +58,7 @@ struct DeviceDetailView: View {
             }
             DeviceClientLine(device: device,
                              servedBuild: model.connection.config.servedBuild,
+                             servedVersion: model.connection.config.servedVersion,
                              localError: model.deviceUpdateError(device.deviceID))
             if let failure {
                 Text(failure)

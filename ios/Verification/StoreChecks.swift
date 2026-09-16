@@ -1088,8 +1088,11 @@ enum StoreChecks {
         await flow.begin()
         checks.equal(flow.code, "RC-7K42-QX9M", "the pairing code is shown verbatim")
         checks.expect(flow.command.contains("--pair RC-7K42-QX9M"), "the install one-liner carries the code")
-        flow.platform = .linux
-        checks.expect(flow.command.contains("install.sh"), "the Linux command is available too")
+        // `docs/DESIGN.md` § "Add device": nobody picks a platform, because the
+        // installer detects it. The gateway still hands out both keys, and the
+        // flow reads one of them because they carry the same command.
+        checks.equal(flow.pairing?.install?.linux, flow.pairing?.install?.macos,
+                     "both install keys carry the one command the host runs")
         checks.equal(flow.steps.count, 4, "the checklist has four steps")
         checks.expect(flow.steps[1].done == false, "later steps start incomplete")
         flow.receive(.pairingProgress(PairingProgress(code: flow.code, step: .online)))
