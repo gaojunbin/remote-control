@@ -23,6 +23,8 @@ interface OutboxState {
   fail: (id: string, error: string) => void;
   clear: (id: string) => void;
   forSession: (key: string) => PendingSend[];
+  /** Sign-out: nothing of the previous account stays in the tab (`signOut`). */
+  reset: () => void;
 }
 
 export const useOutbox = create<OutboxState>((set, get) => ({
@@ -42,4 +44,5 @@ export const useOutbox = create<OutboxState>((set, get) => ({
       return { pending: next };
     }),
   forSession: (key) => Object.values(get().pending).filter((p) => p.sessionKey === key),
+  reset: () => set({ pending: {} }),
 }));

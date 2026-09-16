@@ -22,7 +22,7 @@ export function rpc<T extends RequestType>(
   options?: { id?: string; timeoutMs?: number },
 ): Promise<RequestResult<T>> {
   if (!socket) {
-    return Promise.reject(new RequestError({ code: 'internal', message: 'not connected' }));
+    return Promise.reject(new RequestError({ code: 'internal', message: '' }));
   }
   return socket.request(type, params, options);
 }

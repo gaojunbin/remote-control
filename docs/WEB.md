@@ -94,6 +94,15 @@ the device list and `hello` carry the accounts alone, and only the reply to `dev
 really seen. The mock and the tests share
 `mock/fixtures.ts`, so a fixture change shows up in both.
 
+Two gateway behaviours the mock used to be missing are in `mock/replay.ts`, so that a development
+run can reveal the bugs they guard against. `session.send` is idempotent under its request id
+(§8 rule 7, A12): the mock remembers what it answered per session and answers a repeat with the
+same result without playing the message a second time, which is the whole reason Retry is safe.
+And `session.subscribe` has a replay bound — 200 events here, where the gateway keeps 2 000 or
+4 MiB, deliberately small so any session with history can reach it — answering `resync: true` with
+no events for a cursor the buffer no longer covers, which is what drives the app's resync branch:
+blank the timeline, keep the unconfirmed sends, reload from history.
+
 ## Structure
 
 ```
@@ -255,11 +264,24 @@ gateway takes registrations, swaps the card for username, password and **Create 
 `409` taken, `400` the username and password rules, `403` registration closed, which also removes
 the link.
 
-**The Account group in Settings** shows the username with its role word under it, then the one row
-that account has: **Change password** for a member (a modal asking the current password and the new
-one; `401` reads "That is not your current password.") or **Users** for an admin. `admin`'s password
-is the gateway's `RC_PASSWORD`, so an admin is offered no password row at all. **Sign out** stays
-last.
+**The Account group in Settings** shows the username with its role word under it, then the rows that
+account has. The two are independent, because the gateway's own rules are: **Users** appears for the
+admin role, and **Change password** (a modal asking the current password and the new one; `401`
+reads "That is not your current password.") appears for every account except the built-in `admin`,
+whose password is the gateway's `RC_PASSWORD` and which `POST /api/password` refuses by username. A
+second account created with the admin role therefore gets both rows; it used to get neither the
+password row nor any way to change its own password from the app. **Sign out** stays last.
+
+**Signing out empties the tab.** `signOut` in `src/stores/signOut.ts` is the one place that knows
+the list: it closes the socket, puts the connection store back to what no `hello` has confirmed
+(`stt`, `polish`, the gateway version and the protocol number included, so the composer never
+offers a capability this account has not been told about), and calls `reset()` on every store that
+holds something of an account's — chat, drafts, outbox, answers, commands, sessions, devices,
+users. `App` calls it both for the Sign out button and for a `4401`/`4403` close. Before this, all
+of it stayed in memory until the page was reloaded, including the value typed into a question field
+whose own placeholder says it is not stored; on a shared browser the next person had it. The
+device and session lists go with the rest, so the landing rule waits for the new account's `hello`
+instead of deciding from the previous account's list.
 
 **`/users`** is `src/features/users/`, gated on the role in the auth store: a member who types the
 address is sent to `/sessions` before anything is fetched. The registration switch sits at the top
@@ -281,6 +303,41 @@ timeline detail. The login screen, where nobody is signed in, keeps its own key,
 Nothing of this reaches the gateway.
 
 ## Behaviour worth knowing
+
+- **A draft belongs to its session** (`docs/DESIGN.md` § "The composer"). The words and the files
+  live in `src/stores/drafts.ts`, keyed by `<device>/<session>`, for the tab's life and no longer;
+  the composer reads the entry its session names and writes back to it. The chat route keeps one
+  `ChatPage` across a switch, so `ChatPage` also gives `<Composer>` the session key as its React
+  `key`: that is what remounts it, which is what ends a dictation with the session it was spoken
+  for — `useVoice` tears the microphone and its sockets down on unmount, and the words it had
+  already recognised are in that session's draft. Nothing typed for one session can reach another,
+  and a question waiting in the session being opened never sees the words meant for the one being
+  left. A refused send hands the words and the files back to the session they were meant for.
+- **The transcript is bounded.** `MAX_TIMELINE_ITEMS` in `src/stores/timeline.ts` caps a live
+  timeline at 3 000 rows: past it the oldest go, `oldestSeq` moves forward with them and `dropped`
+  counts them, which is how the chat store knows to set `historyHasMore` again — scrolling back
+  pages them in as ordinary history. A page the reader asked for by scrolling is never capped, or
+  paging back would fetch the same events for ever. `useChat.close` stamps a conversation with the
+  order it was left in and keeps the three most recently closed; the rest are dropped with their
+  slash-command lists, and a conversation that is open — `close` runs on every reconnect too — is
+  never among them.
+- **Every sentence a person reads comes from the string tables.** `lib/ws.ts` and `lib/gateway.ts`
+  mint their failures with a code and an empty message, and `errorText` in `src/lib/errors.ts`
+  turns the code into a sentence, falling through to the caller's own fallback when it knows none.
+  The composer's two catch blocks go through it like every other surface; they used to render
+  `err.message`, which for the app's own failures was English nobody could translate ("not
+  connected", "no reply from the gateway", "connection lost").
+- **A dictation ends when the composer stops accepting one.** `useVoice` watches `enabled` and
+  cancels a run already in flight, so a device going offline or a terminal taking the session back
+  closes the microphone instead of streaming audio to the gateway for the life of the tab. The
+  words already recognised stay in the field. `SttSocket.start()` has a five-second connect
+  timeout, and `cancel()` rejects a connect still waiting, so a gateway that accepts the TCP
+  connection and then says nothing cannot leave the composer in `starting` with Done disabled.
+- **The attachment cap is enforced where the list is written.** Two attach operations can be in
+  flight at once — a pasted batch, then the file dialog before the paste has finished encoding —
+  and each computes its budget from the count it started with, so the store's `addAttachments`
+  applies `MAX_ATTACHMENTS` itself and reports what it had to drop. What the second batch has to
+  say is added to what the first said rather than replacing it.
 
 - **Where an open lands** is `src/layout/Landing.tsx`, the element behind `/` and behind the `*`
   fallback. It waits for the devices store's `loaded` — the socket's `hello` snapshot calls
@@ -733,3 +790,8 @@ hidden by design), and attachments. Two corners of the approval card are untried
 middle option, and an approval for a command rather than an edit — both cards answered here were
 `Write`. `session.delete` and renaming a session exist in the protocol and the device implements
 both, but the web UI has no entry point for either.
+
+The round-29 fixes above — per-session drafts, the sign-out fan-out, the timeline cap and the
+closed-conversation eviction, the composer's error sentences, the attachment cap, the dictation
+that ends with a disabled composer, the STT connect timeout, and the mock's replay bound and send
+idempotency — are covered by the vitest suites and were not driven in a browser.

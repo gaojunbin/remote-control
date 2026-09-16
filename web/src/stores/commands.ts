@@ -36,6 +36,8 @@ interface CommandsState {
   /** Fetch the first time a conversation opens; a fresh answer is kept. */
   open: (sessionId: string) => void;
   clear: (sessionId: string) => void;
+  /** Sign-out: nothing of the previous account stays in the tab (`signOut`). */
+  reset: () => void;
 }
 
 /** Stale, empty or never answered — the three cases that re-ask the device. */
@@ -94,6 +96,8 @@ export const useCommands = create<CommandsState>((set, get) => ({
       delete entries[sessionId];
       return { entries };
     }),
+
+  reset: () => set({ entries: {} }),
 }));
 
 export const commandsOf =

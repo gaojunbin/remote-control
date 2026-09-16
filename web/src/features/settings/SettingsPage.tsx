@@ -116,6 +116,13 @@ export function SettingsPage() {
               <span>{strings.settings.connection}</span>
               <span className="hint">{connection}</span>
             </div>
+            {/*
+              A24: the two rows are independent. Accounts is the admin role's;
+              a password belongs to whoever has one, and the gateway refuses
+              the change for the built-in `admin` account alone, whose password
+              is the gateway's own `RC_PASSWORD` (`PROTOCOL.md` § accounts).
+              A second account with the admin role therefore gets both.
+            */}
             {role === 'admin' ? (
               <button
                 type="button"
@@ -124,7 +131,8 @@ export function SettingsPage() {
               >
                 {strings.users.title}
               </button>
-            ) : role === 'member' ? (
+            ) : null}
+            {username !== null && username !== 'admin' ? (
               <button
                 type="button"
                 className="settings-row settings-action"

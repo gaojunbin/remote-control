@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { useVoice, type RecorderHandlers, type VoiceRecorder } from '../src/features/voice/useVoice';
-import type { SttSocketLike } from '../src/features/voice/sttSocket';
+import { SttSocket, type SttSocketLike } from '../src/features/voice/sttSocket';
 
 class FakeSocket implements SttSocketLike {
   binaryType = '';
@@ -67,14 +67,16 @@ function harness() {
     return recorder;
   };
 
-  const view = renderHook(() =>
-    useVoice({
-      enabled: true,
-      language: 'auto',
-      onTranscript: (text, isFinal) => transcripts.push({ text, isFinal }),
-      factory,
-      recorderFactory,
-    }),
+  const view = renderHook(
+    ({ enabled }: { enabled: boolean }) =>
+      useVoice({
+        enabled,
+        language: 'auto',
+        onTranscript: (text, isFinal) => transcripts.push({ text, isFinal }),
+        factory,
+        recorderFactory,
+      }),
+    { initialProps: { enabled: true } },
   );
 
   const tools: Harness = {
@@ -82,7 +84,7 @@ function harness() {
     transcripts,
     speakAt: (level) => handlers?.onLevel(level),
   };
-  return { ...tools, result: view.result, unmount: view.unmount };
+  return { ...tools, result: view.result, rerender: view.rerender, unmount: view.unmount };
 }
 
 /** Let the timers and the promises they release settle together. */
@@ -213,5 +215,76 @@ describe('useVoice', () => {
     expect(result.current.state).toBe('error');
     expect(result.current.error).toBe('backend unavailable');
     expect(transcripts.at(-1)).toEqual({ text: 'half a sentence', isFinal: true });
+  });
+});
+
+/**
+ * The composer can be taken away mid-dictation — the device goes offline, or
+ * the terminal takes the session back. `enabled` is what says so, and a run
+ * already in flight used to keep the microphone open and keep streaming audio
+ * to the gateway for as long as the tab lived.
+ */
+describe('a composer that stops accepting dictation', () => {
+  it('ends a run already in flight and keeps what it recognised', async () => {
+    const { result, sockets, transcripts, rerender } = harness();
+    act(() => result.current.start());
+    await settle();
+    act(() => sockets[0]!.deliver({ type: 'stt.partial', text: 'half a sentence' }));
+    expect(result.current.state).toBe('listening');
+
+    act(() => rerender({ enabled: false }));
+    await settle();
+
+    expect(result.current.state).toBe('idle');
+    expect(sockets[0]!.toldToDrop).toBe(true);
+    // The words are in the field already; nothing publishes over them.
+    expect(transcripts.at(-1)).toEqual({ text: 'half a sentence', isFinal: false });
+  });
+
+  it('leaves an idle controller alone', async () => {
+    const { result, sockets, rerender } = harness();
+
+    act(() => rerender({ enabled: false }));
+    await settle();
+
+    expect(result.current.state).toBe('idle');
+    expect(sockets).toHaveLength(0);
+  });
+});
+
+/**
+ * One socket's own failures. A connect that never settles left the composer in
+ * `starting` for ever — no waveform, Done disabled, nothing to press — and a
+ * dictation cancelled while the first socket was still connecting retained the
+ * promise nobody would ever resolve.
+ */
+describe('SttSocket connect', () => {
+  const silent = (): { socket: SttSocketLike } => {
+    const socket = new FakeSocket();
+    return { socket };
+  };
+
+  it('gives up on a gateway that never accepts the socket', async () => {
+    const { socket } = silent();
+    const stt = new SttSocket({ language: 'auto', onEvent: () => undefined, factory: () => socket });
+
+    const connect = stt.start();
+    const settled = vi.fn();
+    void connect.then(settled, settled);
+    await settle(4_000);
+    expect(settled).not.toHaveBeenCalled();
+
+    await settle(2_000);
+    await expect(connect).rejects.toThrow(/timed out/);
+  });
+
+  it('rejects a connect the dictation cancelled under it', async () => {
+    const { socket } = silent();
+    const stt = new SttSocket({ language: 'auto', onEvent: () => undefined, factory: () => socket });
+
+    const connect = stt.start();
+    stt.cancel();
+
+    await expect(connect).rejects.toThrow(/cancelled/);
   });
 });

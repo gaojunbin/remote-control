@@ -10,6 +10,7 @@ import {
 import { ArrowUp, ChevronRight, Mic, Paperclip, X, Zap } from 'lucide-react';
 import { Menu, Popover } from '../../components/Popover';
 import { api } from '../../lib/api';
+import { errorText } from '../../lib/errors';
 import { bytes } from '../../lib/format';
 import { cx } from '../../lib/cx';
 import { agentLabel, languageLabel, strings } from '../../strings';
@@ -25,7 +26,9 @@ import type {
   QueuedMessage,
   Session,
 } from '../../protocol/types';
-import { draftOf, useAnswers } from '../../stores/answers';
+import { draftOf as answerDraftOf, useAnswers } from '../../stores/answers';
+import { draftOf, useDrafts } from '../../stores/drafts';
+import { sessionKey } from '../../stores/sessions';
 import { VoiceControls } from '../voice/VoiceControls';
 import { WorkingPill } from '../voice/WorkingPill';
 import { mergeDraft } from '../voice/draft';
@@ -40,7 +43,7 @@ import {
 import { useVoice } from '../voice/useVoice';
 import { composeAnswer } from './answering';
 import { attachHint, canAttachShared, canInterruptShared, canSetShared } from './attach';
-import { readAttachments, textTooLong, type AttachmentDraft } from './attachments';
+import { MAX_ATTACHMENTS, readAttachments, textTooLong, type AttachmentDraft } from './attachments';
 import { CommandHint, CommandMenu } from './CommandMenu';
 import { commandQuery, completionFor, filterCommands, matchCommand } from './commands';
 import { SizedBox } from './SizedBox';
@@ -117,8 +120,15 @@ export function Composer({
   onCommandsNeeded,
   onRunCommand,
 }: Props) {
-  const [text, setText] = useState('');
-  const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
+  /**
+   * `docs/DESIGN.md` § "The composer" — **A draft belongs to its session**. The
+   * words and the files are the session's, not this component's, so opening
+   * another conversation shows its own draft and can never send this one's.
+   */
+  const key = sessionKey(session.device_id, session.session_id);
+  const draft = useDrafts(draftOf(key));
+  const text = draft.text;
+  const attachments = draft.attachments;
   const [errors, setErrors] = useState<string[]>([]);
   // A27: the row the keyboard is on, and whether Esc has put the panel away
   // until the draft changes again.
@@ -128,7 +138,7 @@ export function Composer({
   const composing = useRef(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const textRef = useRef('');
+  const textRef = useRef(text);
   /**
    * The draft dictation started from, and the value it last wrote. A transcript
    * arrives between renders, so the field is read from this ref rather than
@@ -138,14 +148,17 @@ export function Composer({
   const dictation = useRef<{ base: string; applied: string } | null>(null);
 
   /** Keeps `textRef` in step within the tick, which `useEffect` cannot. */
-  const setDraft = useCallback((value: string) => {
-    textRef.current = value;
-    setText(value);
-    // A27: a changed draft is a changed list, so the highlight goes back to the
-    // first match and a panel that was dismissed is open again.
-    setHighlight(0);
-    setMenuClosed(false);
-  }, []);
+  const setDraft = useCallback(
+    (value: string) => {
+      textRef.current = value;
+      useDrafts.getState().setText(key, value);
+      // A27: a changed draft is a changed list, so the highlight goes back to
+      // the first match and a panel that was dismissed is open again.
+      setHighlight(0);
+      setMenuClosed(false);
+    },
+    [key],
+  );
 
   useEffect(() => {
     textRef.current = text;
@@ -159,7 +172,7 @@ export function Composer({
   const polishStrength = useSettings((s) => s.polishStrength);
   // A20: what the card on screen already holds, so the draft completes it
   // rather than competing with it.
-  const answerDraft = useAnswers(draftOf(question?.request_id ?? ''));
+  const answerDraft = useAnswers(answerDraftOf(question?.request_id ?? ''));
   const clearAnswer = useAnswers((s) => s.clear);
 
   /**
@@ -282,20 +295,20 @@ export function Composer({
         setDraft('');
         setErrors([]);
         onRunCommand(command.command.name, command.argument).catch((err: unknown) => {
-          setErrors([err instanceof Error ? err.message : strings.commands.failed]);
+          setErrors([errorText(err, strings.commands.failed)]);
           if (textRef.current.length === 0) setDraft(value);
         });
         return;
       }
       const files = attachments;
       setDraft('');
-      setAttachments([]);
+      useDrafts.getState().clear(key);
       setErrors([]);
       onSend(value, files, mode).catch((err: unknown) => {
-        setErrors([err instanceof Error ? err.message : strings.composer.sendFailed]);
+        setErrors([errorText(err, strings.composer.sendFailed)]);
         // A newer draft wins: a refusal only ever refills a field left empty.
         if (textRef.current.length === 0) setDraft(value);
-        setAttachments((current) => (current.length === 0 ? files : current));
+        useDrafts.getState().restoreAttachments(key, files);
       });
     },
     [
@@ -304,6 +317,7 @@ export function Composer({
       disabled,
       onSend,
       setDraft,
+      key,
       commandable,
       commands,
       onRunCommand,
@@ -525,7 +539,7 @@ export function Composer({
                 type="button"
                 className="icon-btn"
                 aria-label={strings.common.remove}
-                onClick={() => setAttachments((list) => list.filter((_, i) => i !== index))}
+                onClick={() => useDrafts.getState().removeAttachment(key, index)}
               >
                 <X size={13} />
               </button>
@@ -749,10 +763,23 @@ export function Composer({
     </div>
   );
 
+  /**
+   * Two attach operations can run at once — a paste, then the file dialog
+   * before the paste has finished encoding — and each reads the count it
+   * started with. The cap is therefore enforced where the list is written, and
+   * what the second call has to say is added to what the first said rather
+   * than replacing it.
+   */
   async function attach(files: File[]): Promise<void> {
-    const result = await readAttachments(files, attachments.length);
-    setAttachments((list) => [...list, ...result.attachments]);
-    setErrors(result.errors);
+    const drafts = useDrafts.getState();
+    const result = await readAttachments(files, drafts.drafts[key]?.attachments.length ?? 0);
+    const dropped = drafts.addAttachments(key, result.attachments);
+    const messages =
+      dropped > 0 && !result.errors.includes(strings.composer.attachTooMany(MAX_ATTACHMENTS))
+        ? [...result.errors, strings.composer.attachTooMany(MAX_ATTACHMENTS)]
+        : result.errors;
+    if (messages.length === 0) return;
+    setErrors((current) => [...new Set([...current, ...messages])]);
   }
 }
 

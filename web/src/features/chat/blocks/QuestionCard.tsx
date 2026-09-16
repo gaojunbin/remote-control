@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { cx } from '../../../lib/cx';
 import { strings } from '../../../strings';
 import { draftOf, useAnswers } from '../../../stores/answers';
@@ -23,6 +23,16 @@ export function QuestionCard({ event, onAnswer }: Props) {
   const clear = useAnswers((s) => s.clear);
   const [busy, setBusy] = useState(false);
   const pending = event.status === 'pending';
+
+  /**
+   * A question that stops being pending takes its working state with it,
+   * however it ended: answered here, answered in the terminal, or expired. A
+   * successful submit is only one of those, and a `secret` field said the value
+   * is not stored — so nothing may be left holding one.
+   */
+  useEffect(() => {
+    if (!pending) clear(event.request_id);
+  }, [pending, event.request_id, clear]);
 
   // A failed answer keeps everything that was filled in: the page's banner says
   // what went wrong and the card is ready to be submitted again.

@@ -31,6 +31,13 @@ export type SttSocketFactory = (url: string) => SttSocketLike;
 /** Gateway budget for one utterance: 4 MiB of audio. */
 const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
 
+/**
+ * How long the gateway gets to accept the socket. A connection that hangs
+ * after TCP would otherwise leave the composer in `starting` for ever: no
+ * waveform, Done disabled, and nothing to press.
+ */
+const CONNECT_TIMEOUT_MS = 5_000;
+
 const OPEN = 1;
 
 interface Options {
@@ -44,6 +51,9 @@ export class SttSocket {
   private sentBytes = 0;
   private finished = false;
   private opened = false;
+  /** Rejects a connect that is still waiting, from `cancel()` or the timeout. */
+  private failConnect: ((error: Error) => void) | null = null;
+  private connectTimer: number | null = null;
 
   constructor(private readonly options: Options) {}
 
@@ -58,18 +68,32 @@ export class SttSocket {
     // Before the socket is open a failure rejects the connect; after it, the
     // same failure is an event for the dictation to weigh.
     return new Promise<void>((resolve, reject) => {
+      const settle = (): void => {
+        this.failConnect = null;
+        if (this.connectTimer !== null) globalThis.clearTimeout(this.connectTimer);
+        this.connectTimer = null;
+      };
+      this.failConnect = (error) => {
+        settle();
+        reject(error);
+      };
+      this.connectTimer = globalThis.setTimeout(() => {
+        this.failConnect?.(new Error('stt socket timed out'));
+        socket.close();
+      }, CONNECT_TIMEOUT_MS) as unknown as number;
       socket.onopen = () => {
         this.opened = true;
+        settle();
         resolve();
       };
       socket.onerror = () => {
         if (this.opened) this.emit({ type: 'failed', message: null });
-        else reject(new Error('stt socket failed'));
+        else this.failConnect?.(new Error('stt socket failed'));
       };
       socket.onclose = () => {
         this.socket = null;
         if (this.opened) this.emit({ type: 'closed' });
-        else reject(new Error('stt socket closed'));
+        else this.failConnect?.(new Error('stt socket closed'));
       };
     });
   }
@@ -103,6 +127,10 @@ export class SttSocket {
     const socket = this.socket;
     this.socket = null;
     this.finished = true;
+    // A socket cancelled while it was still connecting fires nothing once its
+    // handlers are detached, so the pending connect is settled here or the
+    // chain awaiting it is retained for the life of the page.
+    this.failConnect?.(new Error('stt socket cancelled'));
     if (!socket) return;
     socket.onmessage = null;
     socket.onclose = null;

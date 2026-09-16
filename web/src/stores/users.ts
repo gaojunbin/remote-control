@@ -18,6 +18,8 @@ interface UsersState {
   load: () => Promise<void>;
   openRegistration: (open: boolean) => Promise<void>;
   toggleState: (user: UserRecord) => Promise<void>;
+  /** Sign-out: nothing of the previous account stays in the tab (`signOut`). */
+  reset: () => void;
 }
 
 export const useUsers = create<UsersState>((set, get) => ({
@@ -62,4 +64,6 @@ export const useUsers = create<UsersState>((set, get) => ({
       set({ error: userErrorText(err, strings.account.notAllowed) });
     }
   },
+
+  reset: () => set({ users: [], registrationOpen: false, loaded: false, error: null }),
 }));

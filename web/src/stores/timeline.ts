@@ -53,10 +53,24 @@ export interface TimelineState {
   oldestSeq: number | null;
   /** Sent, not yet confirmed. Rendered after `order`, oldest first. */
   optimistic: OptimisticBlock[];
+  /**
+   * How many rows the cap below has dropped from the front. The chat store
+   * reads it to know there is older history again, whatever the last
+   * `session.history` page said.
+   */
+  dropped: number;
 }
 
+/**
+ * The most rows a live timeline keeps. A tab left open on a busy agent gained
+ * a row per block for as long as it ran and never lost one, so both the store
+ * and the DOM grew without bound. Past this the oldest rows go; scrolling back
+ * pages them in again, because the cap moves `oldestSeq` forward with them.
+ */
+export const MAX_TIMELINE_ITEMS = 3_000;
+
 export function emptyTimeline(): TimelineState {
-  return { order: [], items: {}, lastSeq: 0, oldestSeq: null, optimistic: [] };
+  return { order: [], items: {}, lastSeq: 0, oldestSeq: null, optimistic: [], dropped: 0 };
 }
 
 /**
@@ -214,6 +228,27 @@ function reconcile(optimistic: OptimisticBlock[], event: SessionEvent): Optimist
   return optimistic.filter((_, i) => i !== index);
 }
 
+/**
+ * Drop the oldest rows once the timeline is past its cap, and carry
+ * `oldestSeq` forward with them so the next page of history asks for what was
+ * dropped rather than for what is already on screen.
+ */
+function capOldest(state: TimelineState): TimelineState {
+  const excess = state.order.length - MAX_TIMELINE_ITEMS;
+  if (excess <= 0) return state;
+  const items = { ...state.items };
+  for (const key of state.order.slice(0, excess)) delete items[key];
+  const order = state.order.slice(excess);
+  const front = items[order[0] as string];
+  return {
+    ...state,
+    order,
+    items,
+    oldestSeq: front ? front.seq : state.oldestSeq,
+    dropped: state.dropped + excess,
+  };
+}
+
 /** Apply a live event. Out-of-order or duplicate frames are dropped. */
 export function applyEvent(state: TimelineState, event: SessionEvent): TimelineState {
   if (event.seq <= state.lastSeq) return state;
@@ -223,7 +258,10 @@ export function applyEvent(state: TimelineState, event: SessionEvent): TimelineS
   const lastSeq = event.seq;
   const oldestSeq = state.oldestSeq === null ? event.seq : Math.min(state.oldestSeq, event.seq);
   const optimistic = reconcile(state.optimistic, event);
-  if (!item) return { ...state, lastSeq, optimistic };
+  // A state-only event still moves the window: it is the oldest event this
+  // session delivered, so history must be asked for what came before it and
+  // not for it again.
+  if (!item) return { ...state, lastSeq, oldestSeq, optimistic };
 
   const items = { ...state.items, [key]: item };
   let order = state.order;
@@ -238,7 +276,7 @@ export function applyEvent(state: TimelineState, event: SessionEvent): TimelineS
       item.seq,
     );
   }
-  return { order, items, lastSeq, oldestSeq, optimistic };
+  return capOldest({ ...state, order, items, lastSeq, oldestSeq, optimistic });
 }
 
 export function applyEvents(state: TimelineState, events: readonly SessionEvent[]): TimelineState {
@@ -269,7 +307,10 @@ export function mergeHistory(state: TimelineState, events: readonly SessionEvent
   // Both sides are already sorted by ordering seq, so merge instead of sorting.
   added.sort((a, b) => a.seq - b.seq);
   const order = mergeSorted(added, state.order, items);
+  // Not capped: these are the rows the reader asked for by scrolling back, and
+  // dropping them here would page the same events in for ever.
   return {
+    ...state,
     order,
     items,
     lastSeq: Math.max(state.lastSeq, events[events.length - 1]?.seq ?? 0),

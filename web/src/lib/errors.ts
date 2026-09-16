@@ -18,8 +18,14 @@ function byCode(code: string): string | undefined {
   return sentences[code];
 }
 
+/**
+ * The code decides the sentence. A locally minted failure — the app socket is
+ * not open, the gateway never answered — carries no message at all, so an empty
+ * one falls through to the caller's own fallback rather than reaching the
+ * screen as an empty line.
+ */
 export function errorText(error: unknown, fallback: string = strings.errors.generic): string {
-  if (error instanceof RequestError) return byCode(error.code) ?? error.message ?? fallback;
+  if (error instanceof RequestError) return byCode(error.code) || error.message || fallback;
   if (error instanceof Error && error.message) return error.message;
   return fallback;
 }

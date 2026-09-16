@@ -35,16 +35,33 @@ interface ConnectionState {
   clearPairing: () => void;
 }
 
+/**
+ * What the store knows before a `hello`. Sign-out puts it back here, so the
+ * composer never offers a capability the next `hello` has not confirmed and
+ * nothing of the previous account is left to read.
+ */
+type Disconnected = Omit<
+  ConnectionState,
+  'connect' | 'disconnect' | 'clearPairing' | 'onUnauthorized'
+>;
+
+function disconnected(): Disconnected {
+  return {
+    status: 'closed',
+    helloAt: null,
+    gatewayVersion: null,
+    protocol: null,
+    username: null,
+    stt: { enabled: false, languages: ['auto'] },
+    polish: { enabled: false },
+    clockSkewMs: 0,
+    pairing: null,
+  };
+}
+
 export const useConnection = create<ConnectionState>((set, get) => ({
+  ...disconnected(),
   status: 'idle',
-  helloAt: null,
-  gatewayVersion: null,
-  protocol: null,
-  username: null,
-  stt: { enabled: false, languages: ['auto'] },
-  polish: { enabled: false },
-  clockSkewMs: 0,
-  pairing: null,
   onUnauthorized: null,
 
   connect: (onUnauthorized) => {
@@ -63,7 +80,7 @@ export const useConnection = create<ConnectionState>((set, get) => ({
   disconnect: () => {
     getSocket()?.stop();
     setSocket(null);
-    set({ status: 'closed', helloAt: null, username: null, pairing: null });
+    set({ ...disconnected(), onUnauthorized: null });
   },
 
   clearPairing: () => set({ pairing: null }),

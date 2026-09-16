@@ -57,6 +57,7 @@ import {
   turnScript,
   type Step,
 } from './script';
+import { ServedSends, needsResync, replayFor } from './replay';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const PASSWORD = process.env.RC_PASSWORD ?? 'dev';
@@ -82,6 +83,8 @@ const state = {
   pairingOwner: new Map<string, string>(),
   /** A10: messages the device accepted but could not inject yet, per session. */
   held: new Map<string, { block_id: string; text: string; queued_id: string }[]>(),
+  /** A12: what each `session.send` request id was already answered with. */
+  served: new ServedSends(),
 };
 
 seedAccounts(PASSWORD);
@@ -870,6 +873,12 @@ const reply = (conn: AppConn, id: unknown, result: unknown): void =>
 const replyError = (conn: AppConn, id: unknown, code: string, message: string): void =>
   send(conn.socket, { type: 'reply', id, ok: false, error: { code, message } });
 
+/** Answer a `session.send` and remember the answer, so a Retry repeats it. */
+const replySend = (conn: AppConn, id: unknown, sessionId: string, result: unknown): void => {
+  state.served.record(sessionId, id, result);
+  reply(conn, id, result);
+};
+
 function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
   const id = frame.id;
   const type = String(frame.type ?? '');
@@ -896,12 +905,15 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       conn.subscriptions.add(sessionId);
       const sinceSeq = typeof frame.since_seq === 'number' ? frame.since_seq : undefined;
       const all = state.events.get(sessionId) ?? [];
-      const events = sinceSeq === undefined ? [] : all.filter((e) => e.seq > sinceSeq);
+      // §6.2: the buffer is bounded, and a cursor it no longer covers is told
+      // to reload from history instead of being answered with a gap.
+      const resync = needsResync(all, sinceSeq);
+      const events = replayFor(all, sinceSeq);
       const pending = state.queues.get(sessionId);
       reply(conn, id, {
         session,
         events,
-        resync: false,
+        resync,
         // Amendment A6: the latest queue snapshot, omitted when none was seen.
         ...(pending ? { queue: { pending } } : {}),
       });
@@ -984,6 +996,11 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
     case 'session.send': {
       const session = findSession(sessionId);
       if (!session) return replyError(conn, id, 'not_found', 'no such session');
+      // §8 rule 7 and A12: a Retry reuses the request id, and a device that
+      // already took that message answers it again without delivering it
+      // twice. This is the whole reason a Retry is safe.
+      const already = state.served.answerFor(sessionId, id);
+      if (already !== undefined) return reply(conn, id, already);
       // A10 §6.3: a shared session accepts every send; the device decides
       // between injecting now and holding until the terminal turn ends.
       if (session.control === 'shared') return sharedSend(conn, id, session, frame);
@@ -999,10 +1016,10 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
         const queuedId = String(id);
         const pending = [...(state.queues.get(sessionId) ?? []), { id: queuedId, text, ts: Date.now() }];
         emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending });
-        reply(conn, id, { accepted: 'queued', queued_id: queuedId });
+        replySend(conn, id, sessionId, { accepted: 'queued', queued_id: queuedId });
         return;
       }
-      reply(conn, id, { accepted: 'sent' });
+      replySend(conn, id, sessionId, { accepted: 'sent' });
       playRemote(sessionId, text, String(id));
       return;
     }
@@ -1381,7 +1398,7 @@ function sharedSend(
     session.state === 'needs_input';
 
   if (!busy) {
-    reply(conn, id, { accepted: 'sent' });
+    replySend(conn, id, sessionId, { accepted: 'sent' });
     afterEcho(() => {
       emitUserMessage(sessionId, blockId, text);
       playShared(sessionId, text, false);
@@ -1391,7 +1408,7 @@ function sharedSend(
 
   // A11 clarification 1: `auto` on a running thread steers when the agent can.
   if (mode === 'auto' && agent?.capabilities.includes('steer')) {
-    reply(conn, id, { accepted: 'steered' });
+    replySend(conn, id, sessionId, { accepted: 'steered' });
     afterEcho(() => {
       emitUserMessage(sessionId, blockId, text);
       playShared(sessionId, text, true);
@@ -1405,7 +1422,7 @@ function sharedSend(
       return replyError(conn, id, 'unsupported', 'stop it in the terminal');
     }
     interruptTurn(sessionId);
-    reply(conn, id, { accepted: 'sent' });
+    replySend(conn, id, sessionId, { accepted: 'sent' });
     afterEcho(() => {
       emitUserMessage(sessionId, blockId, text);
       playShared(sessionId, text, false);
@@ -1418,7 +1435,7 @@ function sharedSend(
     ...(state.held.get(sessionId) ?? []),
     { block_id: blockId, text, queued_id: queuedId },
   ]);
-  reply(conn, id, { accepted: 'queued', queued_id: queuedId });
+  replySend(conn, id, sessionId, { accepted: 'queued', queued_id: queuedId });
   // A19: a held message is a queue entry and nothing else. Its block appears
   // when the CLI takes it, after the output of the turn it waited for.
   afterEcho(() => {

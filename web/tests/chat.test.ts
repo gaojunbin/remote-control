@@ -545,3 +545,43 @@ describe('sending', () => {
     });
   });
 });
+
+/**
+ * A tab used to keep a full `ChatSession` for every conversation it had ever
+ * opened. `close` unsubscribed and deleted nothing, so an afternoon of moving
+ * between sessions was an afternoon of transcripts held in memory.
+ */
+describe('closed conversations', () => {
+  const open = (id: string): void => {
+    useChat.getState().open(DEVICE, id);
+    useChat.getState().close(DEVICE, id);
+  };
+
+  it('keeps the recent ones and evicts the rest with their command lists', async () => {
+    const { useCommands } = await import('../src/stores/commands');
+    useCommands.setState({
+      entries: Object.fromEntries(
+        ['ses-1', 'ses-2', 'ses-3', 'ses-4', 'ses-5'].map((id) => [
+          id,
+          { commands: [], at: 1, loading: false },
+        ]),
+      ),
+    });
+
+    for (const id of ['ses-1', 'ses-2', 'ses-3', 'ses-4', 'ses-5']) open(id);
+
+    const kept = Object.keys(useChat.getState().sessions).sort();
+    expect(kept).toEqual([`${DEVICE}/ses-3`, `${DEVICE}/ses-4`, `${DEVICE}/ses-5`]);
+    expect(Object.keys(useCommands.getState().entries).sort()).toEqual(['ses-3', 'ses-4', 'ses-5']);
+  });
+
+  it('never evicts the conversation on screen, which closes on every reconnect', () => {
+    for (const id of ['ses-1', 'ses-2', 'ses-3', 'ses-4']) open(id);
+    // The one the reader is on: closed by the effect's cleanup, then opened
+    // again the moment the socket is back.
+    useChat.getState().open(DEVICE, 'ses-1');
+    for (const id of ['ses-5', 'ses-6', 'ses-7']) open(id);
+
+    expect(useChat.getState().sessions[`${DEVICE}/ses-1`]).toBeDefined();
+  });
+});

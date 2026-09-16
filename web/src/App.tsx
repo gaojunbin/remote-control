@@ -13,6 +13,7 @@ import { UsersPage } from './features/users/UsersPage';
 import { useServiceWorkerNavigation } from './push/useServiceWorkerNavigation';
 import { useAuth } from './stores/auth';
 import { useConnection } from './stores/connection';
+import { signOut } from './stores/signOut';
 import { readSettingsFor, useSettings } from './stores/settings';
 
 export function App() {
@@ -21,7 +22,6 @@ export function App() {
   const check = useAuth((s) => s.check);
   const markSignedOut = useAuth((s) => s.markSignedOut);
   const connect = useConnection((s) => s.connect);
-  const disconnect = useConnection((s) => s.disconnect);
   const navigate = useNavigate();
   const location = useLocation();
   // Every screen reads `strings`, which is a view on the table this names. The
@@ -45,15 +45,17 @@ export function App() {
     readSettingsFor(username);
   }, [username]);
 
+  // A revoked session and the Sign out button end the same way: the socket is
+  // closed and every store the account wrote to is emptied.
   const onUnauthorized = useCallback(() => {
     markSignedOut();
-    disconnect();
-  }, [markSignedOut, disconnect]);
+    signOut();
+  }, [markSignedOut]);
 
   useEffect(() => {
     if (status === 'signed-in') connect(onUnauthorized);
-    if (status === 'signed-out') disconnect();
-  }, [status, connect, disconnect, onUnauthorized]);
+    if (status === 'signed-out') signOut();
+  }, [status, connect, onUnauthorized]);
 
   useEffect(() => {
     if (status === 'signed-out' && location.pathname !== '/login') {

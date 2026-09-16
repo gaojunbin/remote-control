@@ -23,6 +23,8 @@ interface DevicesState {
   rename: (deviceId: string, name: string) => Promise<void>;
   revoke: (deviceId: string) => Promise<void>;
   requestUpdate: (deviceId: string, build: string) => Promise<void>;
+  /** Sign-out: nothing of the previous account stays in the tab (`signOut`). */
+  reset: () => void;
 }
 
 const without = (errors: Record<string, string>, deviceId: string): Record<string, string> => {
@@ -83,6 +85,8 @@ export const useDevices = create<DevicesState>((set, get) => ({
       set((s) => ({ updateErrors: { ...s.updateErrors, [deviceId]: message } }));
     }
   },
+
+  reset: () => set({ devices: [], loaded: false, error: null, updateErrors: {} }),
 }));
 
 /** A22: the sentence under the hostname, or null when there is nothing to say. */

@@ -611,6 +611,7 @@ describe.runIf(fixturesAvailable())('A19 a held message is a queue entry', () =>
       historyLoading: false,
       historyHasMore: false,
       error: null,
+      closedSeq: null,
     };
     // `accepted: "queued"` retires the row; the device's snapshot names it too.
     chat = foldChat(chat, queueEvent(12, [id]));

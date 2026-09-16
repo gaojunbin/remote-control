@@ -163,6 +163,9 @@ describe('the landing rule', () => {
     await waitFor(() => expect(screen.getByText(strings.login.subtitle)).toBeInTheDocument());
 
     useAuth.setState({ status: 'signed-in', username: 'admin' });
+    // Signing out emptied the lists, so the rule waits for this account's own
+    // `hello` rather than deciding from what the previous one had.
+    useDevices.getState().replaceAll([]);
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: strings.devices.title })).toBeInTheDocument(),
     );

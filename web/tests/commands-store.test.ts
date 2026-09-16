@@ -19,7 +19,7 @@ vi.mock('../src/lib/gateway', () => ({
 const { COMMANDS_TTL_MS, useCommands } = await import('../src/stores/commands');
 const { useChat } = await import('../src/stores/chat');
 const { useSessions } = await import('../src/stores/sessions');
-const { selectView } = await import('../src/stores/timeline');
+const { emptyTimeline, selectView } = await import('../src/stores/timeline');
 const { RequestError } = await import('../src/lib/ws');
 
 const DEVICE = 'dev-mac';
@@ -106,7 +106,7 @@ describe('the command list', () => {
 
 describe('running one command', () => {
   const rows = () =>
-    selectView(useChat.getState().sessions[KEY]?.timeline ?? { order: [], items: {}, lastSeq: 0, oldestSeq: null, optimistic: [] }, 'detailed').roots;
+    selectView(useChat.getState().sessions[KEY]?.timeline ?? emptyTimeline(), 'detailed').roots;
 
   beforeEach(() => {
     useChat.getState().open(DEVICE, SESSION);

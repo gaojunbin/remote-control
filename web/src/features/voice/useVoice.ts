@@ -206,6 +206,9 @@ export function useVoice({
         await socket.start();
       } catch {
         segments.current.end(index);
+        // A dictation that ended while this socket was still connecting is not
+        // a failure: the teardown is what rejected the connect.
+        if (run !== runId.current) return false;
         fail(strings.voice.failed);
         return false;
       }
@@ -322,6 +325,19 @@ export function useVoice({
     );
     return () => window.clearInterval(handle);
   }, [state]);
+
+  /**
+   * The composer can be taken away mid-dictation: the device goes offline, or
+   * the terminal takes the session back. The field greys out, and a run left
+   * going would keep the microphone open and keep streaming audio to the
+   * gateway for as long as the tab lived. It ends here instead, keeping the
+   * words already recognised, which are in the field.
+   */
+  useEffect(() => {
+    if (enabled) return;
+    if (stateRef.current === 'idle' || stateRef.current === 'error') return;
+    cancel();
+  }, [enabled, cancel]);
 
   useEffect(() => () => teardown(), [teardown]);
 

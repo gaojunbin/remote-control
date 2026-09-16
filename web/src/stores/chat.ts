@@ -36,10 +36,20 @@ import {
   replaceBlock,
   type TimelineState,
 } from './timeline';
+import { useCommands } from './commands';
 import { useSessions, sessionKey } from './sessions';
 import { useOutbox } from './outbox';
 
 const HISTORY_PAGE = 200;
+
+/**
+ * How many closed conversations keep their transcript. A tab left open all day
+ * used to hold every session it had ever visited, timeline and all; the ones
+ * the reader is moving between are worth keeping, the rest are a page of
+ * history away. The current conversation is never among them: `close` runs on
+ * a reconnect too, and evicting it there would blank the screen.
+ */
+const KEEP_CLOSED = 3;
 
 export interface ChatSession {
   key: string;
@@ -53,6 +63,12 @@ export interface ChatSession {
   historyLoading: boolean;
   historyHasMore: boolean;
   error: string | null;
+  /**
+   * When the view was left, as a monotonic stamp rather than a clock: several
+   * conversations can be left inside one millisecond, and the order they were
+   * left in is what decides which ones stay.
+   */
+  closedSeq: number | null;
 }
 
 function blank(deviceId: string, sessionId: string): ChatSession {
@@ -68,7 +84,29 @@ function blank(deviceId: string, sessionId: string): ChatSession {
     historyLoading: false,
     historyHasMore: true,
     error: null,
+    closedSeq: null,
   };
+}
+
+/** Bumped by every `close`, so the order conversations were left in is exact. */
+let closeTick = 0;
+
+/**
+ * Keep the open conversations and the `KEEP_CLOSED` most recently left ones.
+ * The slash-command list of an evicted conversation goes with it: it is the
+ * same never-cleared shape, and it is re-fetched the moment one is opened.
+ */
+function evictClosed(sessions: Record<string, ChatSession>): Record<string, ChatSession> {
+  const closed = Object.values(sessions)
+    .filter((chat) => chat.closedSeq !== null)
+    .sort((a, b) => (b.closedSeq ?? 0) - (a.closedSeq ?? 0));
+  if (closed.length <= KEEP_CLOSED) return sessions;
+  const next = { ...sessions };
+  for (const chat of closed.slice(KEEP_CLOSED)) {
+    delete next[chat.key];
+    useCommands.getState().clear(chat.sessionId);
+  }
+  return next;
 }
 
 interface ChatState {
@@ -89,6 +127,8 @@ interface ChatState {
   approve: (key: string, requestId: string, optionId: string) => Promise<void>;
   answer: (key: string, requestId: string, answers: QuestionAnswers) => Promise<void>;
   removeQueued: (key: string, queuedId: string) => Promise<void>;
+  /** Sign-out: nothing of the previous account stays in the tab (`signOut`). */
+  reset: () => void;
 }
 
 function patch(
@@ -187,6 +227,8 @@ export const useChat = create<ChatState>((set, get) => ({
     const key = sessionKey(deviceId, sessionId);
     if (!get().sessions[key]) {
       set((s) => ({ sessions: { ...s.sessions, [key]: blank(deviceId, sessionId) } }));
+    } else {
+      patch(set, key, (chat) => (chat.closedSeq === null ? chat : { ...chat, closedSeq: null }));
     }
     const socket = getSocket();
     if (!socket) return;
@@ -203,12 +245,14 @@ export const useChat = create<ChatState>((set, get) => ({
           const folded = result.events.reduce(foldChat, base);
           // Amendment A6: an explicit queue snapshot wins over replayed events.
           const queue = result.queue ? result.queue.pending : folded.queue;
+          const timeline = dropQueued(
+            applyEvents(folded.timeline, result.events),
+            queue.map((item) => item.id),
+          );
           return {
             ...folded,
-            timeline: dropQueued(
-              applyEvents(folded.timeline, result.events),
-              queue.map((item) => item.id),
-            ),
+            timeline,
+            historyHasMore: folded.historyHasMore || timeline.dropped > folded.timeline.dropped,
             queue,
             usage: result.session.usage ?? folded.usage,
             ready: true,
@@ -233,8 +277,18 @@ export const useChat = create<ChatState>((set, get) => ({
 
   close: (deviceId, sessionId) => {
     getSocket()?.unsubscribe(sessionId);
-    void deviceId;
+    const key = sessionKey(deviceId, sessionId);
+    set((s) => {
+      const chat = s.sessions[key];
+      if (!chat) return {};
+      closeTick += 1;
+      return {
+        sessions: evictClosed({ ...s.sessions, [key]: { ...chat, closedSeq: closeTick } }),
+      };
+    });
   },
+
+  reset: () => set({ sessions: {} }),
 
   ingestEvent: (sessionId, event, deviceId) => {
     const state = get();
@@ -250,7 +304,14 @@ export const useChat = create<ChatState>((set, get) => ({
     getSocket()?.updateCursor(sessionId, event.seq);
     patch(set, key, (chat) => {
       const folded = foldChat(chat, event);
-      return { ...folded, timeline: applyEvent(folded.timeline, event) };
+      const timeline = applyEvent(folded.timeline, event);
+      return {
+        ...folded,
+        timeline,
+        // The cap dropped the oldest rows, so there is older history again
+        // even where the last page said there was none.
+        historyHasMore: folded.historyHasMore || timeline.dropped > folded.timeline.dropped,
+      };
     });
     upsertSessionFrom(key, [event]);
   },

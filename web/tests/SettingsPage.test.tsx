@@ -92,8 +92,10 @@ describe('settings: interface language', () => {
 
 /**
  * A24: the Account group names the signed-in account and its role, and carries
- * the one row that account is allowed — Users for an admin, Change password for
- * a member. `docs/DESIGN.md` § "Accounts".
+ * the rows that account is allowed. The two are independent: Accounts belongs
+ * to the admin role, and a password belongs to whoever has one — the gateway
+ * refuses the change for the built-in `admin` account alone, whose password is
+ * the gateway's own. `docs/DESIGN.md` § "Accounts".
  */
 describe('settings: the account', () => {
   it('shows the username with its role word under it', () => {
@@ -112,13 +114,23 @@ describe('settings: the account', () => {
     expect(screen.queryByRole('button', { name: strings.users.title })).not.toBeInTheDocument();
   });
 
-  it('offers an admin the accounts screen and not a password it cannot change', () => {
+  it('offers the built-in admin the accounts screen and not a password it cannot change', () => {
     renderPage();
 
     expect(screen.getByRole('button', { name: strings.users.title })).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: strings.settings.changePassword }),
     ).not.toBeInTheDocument();
+  });
+
+  it('offers a second admin account both rows', () => {
+    useAuth.setState({ username: 'dana', role: 'admin' });
+    renderPage();
+
+    expect(screen.getByRole('button', { name: strings.users.title })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: strings.settings.changePassword }),
+    ).toBeInTheDocument();
   });
 
   it("posts a member's password change to /api/password", async () => {

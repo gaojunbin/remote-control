@@ -13,6 +13,12 @@ import { requestId } from './ids';
 
 export type SocketStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed';
 
+/**
+ * A failed request, wire or local. The `code` is what the app reads: every
+ * sentence a person sees comes from `lib/errors.ts` and the string tables, so
+ * a failure minted here carries an empty message rather than English nobody
+ * could translate.
+ */
 export class RequestError extends Error {
   readonly code: string;
   constructor(error: WireError) {
@@ -102,7 +108,7 @@ export class AppSocket {
     this.stopped = true;
     this.clearTimer('reconnectTimer');
     this.clearTimer('livenessTimer');
-    this.failAllPending(new RequestError({ code: 'internal', message: 'socket closed' }));
+    this.failAllPending(new RequestError({ code: 'internal', message: '' }));
     const socket = this.socket;
     this.socket = null;
     socket?.close(1000, 'client stop');
@@ -119,12 +125,12 @@ export class AppSocket {
     const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
     return new Promise<RequestResult<T>>((resolve, reject) => {
       if (!this.socket || this.status !== 'open') {
-        reject(new RequestError({ code: 'device_offline', message: 'not connected' }));
+        reject(new RequestError({ code: 'device_offline', message: '' }));
         return;
       }
       const timer = this.opts.setTimeout(() => {
         this.pending.delete(id);
-        reject(new RequestError({ code: 'timeout', message: 'no reply from the gateway' }));
+        reject(new RequestError({ code: 'timeout', message: '' }));
       }, timeoutMs);
       this.pending.set(id, {
         resolve: resolve as (value: unknown) => void,
@@ -202,7 +208,7 @@ export class AppSocket {
       if (this.socket !== socket) return;
       this.socket = null;
       this.clearTimer('livenessTimer');
-      this.failAllPending(new RequestError({ code: 'internal', message: 'connection lost' }));
+      this.failAllPending(new RequestError({ code: 'internal', message: '' }));
       const code = (ev as { code?: number } | undefined)?.code;
       if (code !== undefined && AUTH_CLOSE_CODES.has(code)) {
         this.stopped = true;
@@ -265,7 +271,7 @@ export class AppSocket {
         this.socket = null;
         socket?.close(4000, 'half-open');
         this.clearTimer('livenessTimer');
-        this.failAllPending(new RequestError({ code: 'timeout', message: 'connection stalled' }));
+        this.failAllPending(new RequestError({ code: 'timeout', message: '' }));
         this.scheduleReconnect();
         return;
       }

@@ -313,7 +313,15 @@ export function ChatPage() {
           </div>
         ) : null}
 
+        {/*
+          `docs/DESIGN.md` § "The composer" — **A draft belongs to its
+          session**. The route keeps one `ChatPage` across a switch, so the key
+          is what remounts the composer: a dictation running in the session
+          being left ends there (`useVoice` tears down on unmount) and its words
+          stay in that session's draft, which the store kept.
+        */}
         <Composer
+          key={key}
           session={session}
           agent={agent}
           deviceOnline={device?.online ?? false}

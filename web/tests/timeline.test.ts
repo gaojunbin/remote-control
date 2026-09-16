@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_TIMELINE_ITEMS,
   UNCONFIRMED_AFTER_MS,
   addOptimistic,
   applyEvent,
@@ -598,6 +599,73 @@ describe('detail levels', () => {
     for (const detail of ['simple', 'detailed'] as const) {
       const kinds = selectView(state, detail).roots.map((item) => item.event.kind);
       expect(kinds.filter((kind) => kind === 'turn_completed')).toHaveLength(1);
+    }
+  });
+});
+
+/**
+ * A tab left open on a busy agent used to gain a row per block for as long as
+ * the agent ran and never lose one: the store and the DOM grew without bound.
+ */
+describe('the row cap', () => {
+  const message = (seq: number): SessionEvent =>
+    ({
+      seq,
+      ts: 1_000 + seq,
+      kind: 'notice',
+      block_id: `n-${seq}`,
+      level: 'info',
+      text: `notice ${seq}`,
+    }) as SessionEvent;
+
+  it('drops the oldest rows and moves the history cursor with them', () => {
+    let state = emptyTimeline();
+    for (let seq = 1; seq <= MAX_TIMELINE_ITEMS + 50; seq += 1) state = applyEvent(state, message(seq));
+
+    expect(state.order).toHaveLength(MAX_TIMELINE_ITEMS);
+    expect(state.dropped).toBe(50);
+    // The rows that went are gone from `items` too, not merely unlisted.
+    expect(state.items['n-1']).toBeUndefined();
+    expect(state.order[0]).toBe('n-51');
+    // Scrolling back asks for what was dropped, not for what is on screen.
+    expect(state.oldestSeq).toBe(51);
+    expect(state.lastSeq).toBe(MAX_TIMELINE_ITEMS + 50);
+  });
+
+  it('keeps a page the reader asked for by scrolling back', () => {
+    let state = emptyTimeline();
+    for (let seq = 1; seq <= MAX_TIMELINE_ITEMS + 10; seq += 1) state = applyEvent(state, message(seq));
+    const older = Array.from({ length: 5 }, (_, i) => message(i + 1));
+
+    state = mergeHistory(state, older);
+
+    expect(state.order.length).toBe(MAX_TIMELINE_ITEMS + 5);
+    expect(state.oldestSeq).toBe(1);
+  });
+});
+
+/**
+ * The oldest event a session delivered live is often a `status`, which draws no
+ * row. Discarding its `seq` made the first history page ask for everything
+ * before the *next* event, so that one event came back a second time.
+ */
+describe('the history cursor', () => {
+  it('counts a state-only event as the oldest the session delivered', () => {
+    const status = { seq: 1, ts: 1, kind: 'status', state: 'running' } as unknown as SessionEvent;
+    const state = applyEvent(emptyTimeline(), status);
+
+    expect(state.order).toEqual([]);
+    expect(state.oldestSeq).toBe(1);
+  });
+
+  it.runIf(fixturesAvailable())('agrees with the history path on the shipped timelines', () => {
+    for (const file of ['timelines/claude.json', 'timelines/codex.json']) {
+      const fixture = readFixture<{ frames: { event: SessionEvent }[] }>(file);
+      const events = fixture.frames.map((frame) => frame.event);
+      const live = applyEvents(emptyTimeline(), events);
+      const history = mergeHistory(emptyTimeline(), events);
+
+      expect(live.oldestSeq).toBe(history.oldestSeq);
     }
   });
 });

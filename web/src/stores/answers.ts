@@ -25,6 +25,12 @@ interface AnswersState {
   setText: (requestId: string, questionId: string, value: string) => void;
   /** Forget a card once it has been answered; nothing else may be resubmitted. */
   clear: (requestId: string) => void;
+  /**
+   * Sign-out: a question's working state includes fields whose own placeholder
+   * says the value is not stored, so none of it outlives the account
+   * (`signOut`).
+   */
+  reset: () => void;
 }
 
 export const useAnswers = create<AnswersState>((set) => ({
@@ -65,6 +71,8 @@ export const useAnswers = create<AnswersState>((set) => ({
       delete drafts[requestId];
       return { drafts };
     }),
+
+  reset: () => set({ drafts: {} }),
 }));
 
 export const draftOf = (requestId: string) => (state: AnswersState): AnswerDraft =>

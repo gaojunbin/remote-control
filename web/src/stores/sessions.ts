@@ -31,6 +31,8 @@ interface SessionsState {
   create: (params: CreateSessionParams) => Promise<Session>;
   setArchived: (session: Session, archived: boolean) => Promise<void>;
   takeover: (session: Session) => Promise<Session>;
+  /** Sign-out: nothing of the previous account stays in the tab (`signOut`). */
+  reset: () => void;
 }
 
 export const useSessions = create<SessionsState>((set, get) => ({
@@ -61,6 +63,8 @@ export const useSessions = create<SessionsState>((set, get) => ({
       delete next[sessionKey(deviceId, sessionId)];
       return { sessions: next };
     }),
+
+  reset: () => set({ sessions: {}, loaded: false, agentFilter: null }),
 
   create: async (params) => {
     const { session } = await rpc('session.create', params);
