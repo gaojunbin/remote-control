@@ -2170,7 +2170,7 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 20), "the Settings tab is there")
         settings.tap()
 
-        let version = app.staticTexts["1.3.0"]
+        let version = app.staticTexts["1.3.1"]
         XCTAssertTrue(scrollDown(to: version), "the About group names this build")
         attach(name: "ios-about-version")
     }

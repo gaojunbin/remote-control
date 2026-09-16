@@ -1310,9 +1310,9 @@ func run() async -> (passed: Int, failures: [String]) {
                     "NSSpeechRecognitionUsageDescription", "NSLocalNetworkUsageDescription"] {
             expect(project.contains("INFOPLIST_KEY_\(key):"), "the app declares \(key)")
         }
-        expect(project.contains("MARKETING_VERSION: '1.3.0'"),
+        expect(project.contains("MARKETING_VERSION: '1.3.1'"),
                "the app ships the version this round tagged")
-        expect(project.contains("CURRENT_PROJECT_VERSION: 2"),
+        expect(project.contains("CURRENT_PROJECT_VERSION: 3"),
                "and a build number TestFlight can tell apart")
     } else {
         expect(false, "the check can read project.yml")
