@@ -2,13 +2,26 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from rc_gateway.state import GatewayState
 
-from .conftest import close_code_for, device_hello, drain_until, enroll_device, session_summary
+from .conftest import (
+    close_code_for,
+    device_hello,
+    drain_until,
+    enroll_device,
+    fake_app,
+    frames_of,
+    hub_rig,
+    session_summary,
+)
 
 SESSION_ID = "11111111-2222-3333-4444-555555555555"
 
@@ -296,3 +309,119 @@ def test_attachments_beyond_the_protocol_bounds_are_refused(
             )
             reply = drain_until(app, "reply")
             assert reply["error"]["code"] == "too_large"
+
+
+async def test_one_maximal_forward_at_a_time(tmp_path: Path) -> None:
+    """GW-1: two protocol-legal maximal sends at once are more memory than the container has."""
+    from rc_gateway.budget import MAX_INFLIGHT_BYTES
+    from rc_gateway.frames import MAX_ATTACHMENT_BYTES
+
+    rig = await hub_rig(tmp_path)
+    await rig.hub._store_session(rig.device_id, session_summary(SESSION_ID, rig.device_id))
+    payload = "A" * MAX_ATTACHMENT_BYTES
+    frame = {
+        "type": "session.send",
+        "session_id": SESSION_ID,
+        "text": "here you go",
+        "attachments": [
+            {"name": f"photo-{index}.jpg", "mime": "image/jpeg", "data_base64": payload}
+            for index in range(8)
+        ],
+    }
+    assert 8 * MAX_ATTACHMENT_BYTES > MAX_INFLIGHT_BYTES // 2
+
+    # The device's queue is never drained here, which is what a device on a slow link looks like.
+    await rig.hub.handle_app_frame(rig.app, {**frame, "id": "first"})
+    await rig.hub.handle_app_frame(rig.app, {**frame, "id": "second"})
+    replies = [item for item in frames_of(rig.app) if item.get("type") == "reply"]
+    assert len(replies) == 1
+    assert replies[0]["id"] == "second"
+    assert replies[0]["error"]["code"] == "too_large"
+    assert rig.hub._budget.held == 8 * MAX_ATTACHMENT_BYTES
+
+    # Draining the device gives the budget back, and the next large send goes through.
+    rig.device.drain()
+    assert rig.hub._budget.held == 0
+    await rig.hub.handle_app_frame(rig.app, {**frame, "id": "third"})
+    assert [item.get("type") for item in frames_of(rig.app)] == []
+    await rig.hub.stop()
+
+
+async def test_a_queued_frame_is_measured_without_a_second_copy(tmp_path: Path) -> None:
+    """GW-1: the accounting used to encode the payload twice, once only to read its length."""
+    rig = await hub_rig(tmp_path)
+    await rig.app.send({"type": "ping", "text": "héllo"})
+    item = rig.app.queue.get_nowait()
+    assert item.size == sys.getsizeof(item.raw)
+    await rig.hub.stop()
+
+
+async def test_an_account_holds_only_so_many_app_sockets(tmp_path: Path) -> None:
+    """GW-7: nothing capped them, and every broadcast is linear in how many there are."""
+    from rc_gateway.frames import CLOSE_TOO_MANY_APPS
+    from rc_gateway.hub import MAX_APPS_PER_USER
+
+    rig = await hub_rig(tmp_path)
+    first = rig.app
+    for _ in range(MAX_APPS_PER_USER - 1):
+        await rig.hub.attach_app(fake_app())
+    assert len(rig.hub._apps) == MAX_APPS_PER_USER
+
+    await rig.hub.attach_app(fake_app())
+    assert len(rig.hub._apps) == MAX_APPS_PER_USER
+    assert first.id not in rig.hub._apps
+    assert first.close_code == CLOSE_TOO_MANY_APPS
+
+    # Another account's sockets are counted separately.
+    await rig.hub.attach_app(fake_app("mallory"))
+    assert len(rig.hub._apps) == MAX_APPS_PER_USER + 1
+    await rig.hub.stop()
+
+
+def test_an_announced_agent_list_is_bounded_on_the_socket_too(
+    client: TestClient, auth: dict[str, str]
+) -> None:
+    """GW-10: `POST /api/devices/enroll` truncates to 16 and `hello` did not."""
+    from rc_gateway.hub import MAX_AGENT_ENTRY_BYTES, MAX_ANNOUNCED_AGENTS
+
+    enrolled = enroll_device(client, auth)
+    announced = [{"agent": f"agent-{index}", "available": True} for index in range(40)]
+    announced.append({"agent": "huge", "available": True, "path": "x" * MAX_AGENT_ENTRY_BYTES})
+    with client.websocket_connect("/ws/device", headers=_device_headers(enrolled)) as device:
+        device.send_json(device_hello(agents=announced))
+        device.receive_json()
+        listed = client.get("/api/devices", headers=auth).json()["devices"]
+    assert len(listed[0]["agents"]) == MAX_ANNOUNCED_AGENTS
+    assert all(item["agent"].startswith("agent-") for item in listed[0]["agents"])
+
+
+def test_a_binary_frame_does_not_drop_the_socket(client: TestClient, auth: dict[str, str]) -> None:
+    """GW-12: `receive_text` raised `KeyError` on one, costing the peer its link silently."""
+    enrolled = enroll_device(client, auth)
+    with client.websocket_connect("/ws/device", headers=_device_headers(enrolled)) as device:
+        device.send_json(device_hello())
+        device.receive_json()
+        device.send_bytes(b"\x00\x01\x02")
+        summary = session_summary(SESSION_ID, enrolled["device_id"])
+        device.send_json({"type": "session.updated", "session": summary})
+        with client.websocket_connect("/ws/app", headers=auth) as app:
+            hello = drain_until(app, "hello")
+    assert [item["session_id"] for item in hello["sessions"]] == [SESSION_ID]
+
+
+def test_a_run_of_binary_frames_closes_with_a_protocol_error(
+    client: TestClient, auth: dict[str, str]
+) -> None:
+    """GW-12: and a peer that will not stop is told why, instead of being abandoned."""
+    from rc_gateway.frames import CLOSE_PROTOCOL_ERROR
+    from rc_gateway.ws.text import MAX_CONSECUTIVE_BINARY
+
+    with (
+        pytest.raises(WebSocketDisconnect) as caught,
+        client.websocket_connect("/ws/app", headers=auth) as app,
+    ):
+        drain_until(app, "hello")
+        for _ in range(MAX_CONSECUTIVE_BINARY + 1):
+            app.send_bytes(b"\x00")
+        app.receive_json()
+    assert caught.value.code == CLOSE_PROTOCOL_ERROR

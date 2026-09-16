@@ -16,7 +16,14 @@ from rc_gateway.devices import (
 )
 from rc_gateway.state import GatewayState
 
-from .conftest import ORIGIN, close_code_for, device_hello, drain_until, enroll_device
+from .conftest import (
+    ORIGIN,
+    add_member,
+    close_code_for,
+    device_hello,
+    drain_until,
+    enroll_device,
+)
 
 
 def test_pairing_code_format() -> None:
@@ -281,3 +288,37 @@ def test_migrations_are_idempotent(tmp_path: Path) -> None:
         columns = [row[1] for row in connection.execute("PRAGMA table_info(pairing_codes)")]
     assert columns.count("redeemed_at") == 1
     assert first.path == second.path
+
+
+def test_cancelling_another_account_pairing_leaves_its_progress_alone(
+    client: TestClient, auth: dict[str, str]
+) -> None:
+    """GW-11: the hub's pairing map has no account column, so the 404 has to come first.
+
+    The damage is to the steps after enrolment: clearing the entry leaves `_advance_pairing` with
+    nothing to match the device against, so `online` and `agents` never reach the owner and their
+    pairing screen sits on "waiting" even though the device is up.
+    """
+    mallory = add_member(client, auth, "mallory")
+    code = client.post("/api/devices/pairing", headers=auth).json()["code"]
+    enrolled = client.post(
+        "/api/devices/enroll", json={"code": code, "name": "box", "platform": "linux"}
+    )
+    assert enrolled.status_code == 200, enrolled.text
+
+    assert client.delete(f"/api/devices/pairing/{code}", headers=mallory).status_code == 404
+
+    device_headers = {"Authorization": f"Bearer {enrolled.json()['device_token']}"}
+    with client.websocket_connect("/ws/app", headers=auth) as app:
+        drain_until(app, "hello")
+        with client.websocket_connect("/ws/device", headers=device_headers) as device:
+            device.send_json(device_hello())
+            device.receive_json()
+            steps = []
+            for _ in range(8):
+                frame = app.receive_json()
+                if frame.get("type") == "pairing.progress":
+                    steps.append(frame["step"])
+                if "agents" in steps:
+                    break
+    assert steps == ["online", "agents"]

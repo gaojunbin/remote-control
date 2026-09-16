@@ -32,6 +32,21 @@ The gateway never inspects message text, tool input or tool output. It parses th
 (`type`, `id`, `device_id`, `session_id`, `seq`) and the `Session` summaries it indexes, and treats
 the rest as opaque bytes bounded by size limits.
 
+### What one process is allowed to hold
+
+The container has 512 MiB (`mem_limit` in `docker-compose.yml`), and §5 lets one `session.send`
+carry eight attachments of 6 MiB, which base64 inflates to a 64 MiB frame. Forwarding one was
+measured at 128 MiB of live allocation — the parsed payload and the string queued for the device —
+with a 142 MiB peak, so the bounds are chosen as a budget rather than one at a time:
+
+| Bound | Figure | Why |
+| --- | --- | --- |
+| Large frames in flight through the forward path | one maximal frame, 72 MiB of payload (`rc_gateway/budget.py`) | Two would reach 592 MiB against a 512 MiB limit. A sender beyond it gets a `too_large` reply, not an OOM kill that takes every link with it |
+| Replay buffers kept at once | 16, so 64 MiB at the §6 per-session maximum | The map is bounded because each buffer is; evicting the coldest costs the next subscriber a `resync: true` |
+| `queue` snapshots and session owners kept at once | 512 and 8192 | Both are keyed by a session id a device chose, and both fall back cheaply: a snapshot is simply absent, an owner is re-read from the index |
+| `/ws/app` sockets per account | 8, oldest closed with 4009 | Every broadcast is linear in them, on the shared event loop, so one account's sockets are everybody's fan-out cost |
+| Agents a device may announce | 16 entries, each at most 64 KiB | `POST /api/devices/enroll` has always truncated to 16; `hello` and `agents.updated` now agree, because the blob is stored, returned by `GET /api/devices` and re-broadcast to every app socket. A gateway limit, not a wire rule: the protocol says nothing about how many agents a machine may have |
+
 ## Liveness: one clock, and what "offline" means
 
 The gateway pings both socket types every 25 s and closes a connection silent for 90 s. That is the
@@ -50,10 +65,16 @@ it is answered `device_offline` only when the period ends without one. A close c
 device is not coming back, not that the link went quiet. A second connection for the same device
 still replaces the first with `4001`, unchanged.
 
-Refused `/ws/device` upgrades are logged, at one line per source address per minute carrying how
-many attempts it made in between. A daemon left behind by a wiped machine retries forever — one
-gateway saw 685 refusals in three hours from a single address, all silent — and logging every one
-would let any client fill the disk.
+Refused upgrades are logged, at one line per source address per minute carrying how many attempts
+it made in between, and an address far past any sane retry backoff is refused before the handshake
+rather than accepted only to be closed. A daemon left behind by a wiped machine retries forever —
+one gateway saw 685 refusals in three hours from a single address, all silent — and logging every
+one would let any client fill the disk. All three upgrades count separately: `/ws/device`,
+`/ws/app` and `/ws/stt` each keep their own tally, so a flood on one never refuses another.
+
+All three are text protocols, and a binary frame on any of them is ignored rather than fatal. It
+used to raise inside the handler, which cost the peer its link with no close code and, on a device,
+the 20 s grace period too; a peer that sends three in a row is now closed with `1008` and told why.
 
 ## The block timeline
 
@@ -88,7 +109,7 @@ up to 1 MiB.
 The **device is the source of truth**. It holds the complete history and the `seq` counter, and the
 counter survives daemon restarts. The gateway holds two things: the latest `Session` summary per
 session in SQLite, so lists render while a device is offline, and a replay buffer of the last 2000
-events or 4 MiB per session, whichever is smaller.
+events or 4 MiB per session, whichever is smaller, for the 16 most recently used sessions.
 
 An app reconnecting renders its cached list, receives `hello`, then subscribes with the last `seq`
 it applied. If the buffer still covers that cursor it gets the missing events in the reply. If it
@@ -487,6 +508,20 @@ inside the frame handler that noticed the transition: awaiting it there would ho
 frame from that device behind a third party's response time. Whether an app is watching is decided
 at the transition, not when the call goes out, so running late cannot change the outcome. A
 shutdown gives the calls already in flight five seconds to finish before cancelling them.
+
+Web Push is a blocking library call, so it runs on threads of its own with an explicit ten-second
+timeout. Both matter: `pywebpush` passes its `timeout` argument through even when it is `None`, so
+its own default never applies and the call would wait until the operating system gave up, and the
+loop's default thread pool is what every blocking database call in the gateway uses — six threads
+on a 2-vCPU VPS. A vendor that black-holes connections must not be able to queue logins, device
+lookups and session-index reads behind it.
+
+A registration is bound to the account that made it and never changes hands. Both tables are keyed
+by the subscriber's own identifier — a push endpoint URL, an APNs device token — which is not a
+secret the gateway issued, so registering one that already belongs to another account is refused
+with `conflict` and deleting one only ever deletes that account's row. Without this, anyone who
+learned an endpoint could move someone's notifications onto their own account and have their own
+sessions delivered to that person's phone.
 
 ## Storage
 

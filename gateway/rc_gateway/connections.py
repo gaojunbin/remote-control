@@ -12,8 +12,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import sys
 import time
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import WebSocket
@@ -43,6 +46,29 @@ def encode(frame: Frame) -> str:
     return json.dumps(frame, ensure_ascii=False, separators=(",", ":"))
 
 
+@dataclass(frozen=True)
+class Queued:
+    """One serialised frame waiting for the socket, and what it holds until it is written."""
+
+    raw: str
+    #: What the string costs this process, not what it costs the wire: the queue caps exist to
+    #: bound memory, and asking for the UTF-8 length would materialise a second copy of a payload
+    #: that §5 allows to be tens of megabytes.
+    size: int
+    #: Called exactly once when the frame leaves the queue, however it leaves it. The forward
+    #: path uses it to give back the in-flight budget it claimed.
+    release: Callable[[], None] | None = None
+
+    def done(self) -> None:
+        if self.release is not None:
+            self.release()
+
+
+def queued_size(raw: str) -> int:
+    """The memory one serialised frame occupies, in O(1)."""
+    return sys.getsizeof(raw)
+
+
 class Connection:
     """One live WebSocket with a bounded writer task."""
 
@@ -57,7 +83,7 @@ class Connection:
         self.id = uuid.uuid4().hex
         self.cap = max(1, cap)
         self.byte_cap = max(1024, byte_cap)
-        self.queue: asyncio.Queue[tuple[str, int]] = asyncio.Queue(maxsize=self.cap)
+        self.queue: asyncio.Queue[Queued] = asyncio.Queue(maxsize=self.cap)
         self.last_frame_at = time.monotonic()
         self.last_ping_at = time.monotonic()
         self.ping_sent_at: float | None = None
@@ -97,18 +123,28 @@ class Connection:
             self.latency_ms = max(0, int((time.monotonic() - self.ping_sent_at) * 1000))
             self.ping_sent_at = None
 
-    async def send(self, frame: Frame) -> None:
-        """Queue one complete frame or fail the whole slow connection."""
+    async def send(self, frame: Frame, *, release: Callable[[], None] | None = None) -> None:
+        """Queue one complete frame or fail the whole slow connection.
+
+        The frame is serialised once and the queued string is what the byte accounting measures:
+        encoding it a second time to count its UTF-8 length would hold two copies of a payload
+        that §5 allows to reach tens of megabytes. ``release`` passes to this connection, which
+        calls it exactly once whether the frame is written, dropped or refused.
+        """
         if self.closed:
+            if release is not None:
+                release()
             raise ConnectionError("connection sender is closed")
         raw = encode(frame)
-        size = len(raw.encode("utf-8"))
+        size = queued_size(raw)
         if self.queue.full() or self._queued_bytes + size > self.byte_cap:
+            if release is not None:
+                release()
             raise SlowClientError(
                 f"send queue limit exceeded: items={self.queue.qsize()}/{self.cap} "
                 f"bytes={self._queued_bytes + size}/{self.byte_cap}"
             )
-        self.queue.put_nowait((raw, size))
+        self.queue.put_nowait(Queued(raw, size, release))
         self._queued_bytes += size
 
     async def stop(self, *, code: int | None = None, reason: str = "") -> None:
@@ -124,13 +160,27 @@ class Connection:
             sender.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await sender
+        self.drain()
+
+    def drain(self) -> None:
+        """Throw away what the queue still holds, releasing every frame's budget with it."""
+        while True:
+            try:
+                item = self.queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            self._queued_bytes = max(0, self._queued_bytes - item.size)
+            item.done()
 
     async def _run(self) -> None:
         try:
             while True:
-                raw, size = await self.queue.get()
-                self._queued_bytes = max(0, self._queued_bytes - size)
-                await self.ws.send_text(raw)
+                item = await self.queue.get()
+                self._queued_bytes = max(0, self._queued_bytes - item.size)
+                try:
+                    await self.ws.send_text(item.raw)
+                finally:
+                    item.done()
         except asyncio.CancelledError:
             raise
         except Exception as exc:

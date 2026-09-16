@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -17,13 +20,21 @@ from rc_gateway.push import (
     KIND_NEEDS_APPROVAL,
     KIND_NEEDS_INPUT,
     KIND_TURN_COMPLETED,
+    WEB_PUSH_TIMEOUT_SECONDS,
     PushService,
     transition_kind,
 )
-from rc_gateway.push_store import ApnsRegistration, PushStore
+from rc_gateway.push_store import ApnsRegistration, PushStore, WebPushSubscription
 from rc_gateway.state import GatewayState
 
-from .conftest import FakeWebPushSender, device_hello, drain_until, enroll_device, session_summary
+from .conftest import (
+    FakeWebPushSender,
+    add_member,
+    device_hello,
+    drain_until,
+    enroll_device,
+    session_summary,
+)
 
 SESSION_ID = "99999999-8888-7777-6666-555555555555"
 ENDPOINT = "https://push.example.com/subscription/abc"
@@ -279,3 +290,164 @@ def _p256_pem() -> bytes:
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption(),
     )
+
+
+def test_a_push_registration_never_changes_account(
+    client: TestClient, auth: dict[str, str], state: GatewayState
+) -> None:
+    """GW-2: re-registering someone else's endpoint must not move their notifications."""
+    mallory = add_member(client, auth, "mallory")
+    _subscribe(client, auth)
+
+    stolen = client.post(
+        "/api/push/web/subscribe",
+        json={"subscription": {"endpoint": ENDPOINT, "keys": {"p256dh": KEY, "auth": KEY}}},
+        headers=mallory,
+    )
+    assert stolen.status_code == 409
+    assert stolen.json()["error"]["code"] == "conflict"
+
+    owned = asyncio.run(state.push_store.list_web("admin"))
+    assert [item.endpoint for item in owned] == [ENDPOINT]
+    assert asyncio.run(state.push_store.list_web("mallory")) == []
+
+
+def test_a_push_registration_is_only_deleted_by_its_owner(
+    client: TestClient, auth: dict[str, str], state: GatewayState
+) -> None:
+    """GW-2: the DELETE routes are keyed by endpoint, so they have to filter on the account."""
+    mallory = add_member(client, auth, "mallory")
+    _subscribe(client, auth)
+
+    refused = client.request(
+        "DELETE", "/api/push/web/subscribe", json={"endpoint": ENDPOINT}, headers=mallory
+    )
+    assert refused.status_code == 200
+    assert [item.endpoint for item in asyncio.run(state.push_store.list_web("admin"))] == [ENDPOINT]
+
+    mine = client.request(
+        "DELETE", "/api/push/web/subscribe", json={"endpoint": ENDPOINT}, headers=auth
+    )
+    assert mine.status_code == 200
+    assert asyncio.run(state.push_store.list_web("admin")) == []
+
+
+@pytest.mark.asyncio
+async def test_an_apns_token_is_bound_to_one_account(tmp_path: Path) -> None:
+    """GW-2: the same rule on the APNs table, whose delete also drops queued deliveries."""
+    store = PushStore(tmp_path / "push.sqlite3")
+    registration = ApnsRegistration(
+        device_token="ef" * 32,
+        environment="sandbox",
+        bundle_id="com.example.app",
+        session_jti="j" * 20,
+        username="admin",
+        expires_at=9_999_999_999,
+    )
+    assert await store.upsert_apns(registration)
+    await store.enqueue(registration.device_token, "sandbox", "{}")
+
+    from dataclasses import replace
+
+    assert not await store.upsert_apns(replace(registration, username="mallory"))
+    assert [item.username for item in await store.list_apns("admin")] == ["admin"]
+    assert await store.list_apns("mallory") == []
+
+    await store.remove_apns(registration.device_token, "mallory")
+    assert len(await store.list_apns("admin")) == 1
+    assert await store.pending_count() == 1
+
+    await store.remove_apns(registration.device_token, "admin")
+    assert await store.list_apns("admin") == []
+    assert await store.pending_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_web_push_runs_on_its_own_threads_with_a_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GW-3: `pywebpush` never applies its own default timeout, and it must not use the loop's
+    default executor, which every blocking database call in the gateway shares."""
+    import pywebpush
+
+    seen: dict[str, Any] = {}
+
+    def fake_webpush(**kwargs: Any) -> Any:
+        seen.update(kwargs)
+        seen["thread"] = threading.current_thread().name
+        return SimpleNamespace(status_code=201)
+
+    monkeypatch.setattr(pywebpush, "webpush", fake_webpush)
+    service = PushService(
+        PushStore(tmp_path / "push.sqlite3"),
+        device_name=_name,
+        vapid_private_key="key",
+        vapid_contact="mailto:admin@example.com",
+    )
+    status = await service._send_with_pywebpush(_web_subscription(), "{}")
+    await service.stop()
+
+    assert status == 201
+    assert seen["timeout"] == WEB_PUSH_TIMEOUT_SECONDS
+    assert seen["thread"].startswith("rc-push")
+
+
+@pytest.mark.asyncio
+async def test_a_hanging_web_push_does_not_block_a_database_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GW-3: the default pool is two threads here, as it is six on a 2-vCPU VPS."""
+    import pywebpush
+
+    released = threading.Event()
+
+    def fake_webpush(**kwargs: Any) -> Any:
+        released.wait(timeout=10)
+        return SimpleNamespace(status_code=201)
+
+    monkeypatch.setattr(pywebpush, "webpush", fake_webpush)
+    loop = asyncio.get_running_loop()
+    default = ThreadPoolExecutor(max_workers=2, thread_name_prefix="rc-default")
+    loop.set_default_executor(default)
+    store = PushStore(tmp_path / "push.sqlite3")
+    service = PushService(
+        store,
+        device_name=_name,
+        vapid_private_key="key",
+        vapid_contact="mailto:admin@example.com",
+    )
+    try:
+        hanging = [
+            asyncio.create_task(service._send_with_pywebpush(_web_subscription(), "{}"))
+            for _ in range(4)
+        ]
+        await asyncio.sleep(0.1)
+        assert await asyncio.wait_for(store.pending_count(), timeout=2.0) == 0
+    finally:
+        released.set()
+        await asyncio.gather(*hanging, return_exceptions=True)
+        await service.stop()
+        default.shutdown(wait=True)
+
+
+def _web_subscription() -> WebPushSubscription:
+    return WebPushSubscription(
+        endpoint=ENDPOINT,
+        p256dh=KEY,
+        auth=KEY,
+        session_jti="j" * 20,
+        username="admin",
+        expires_at=9_999_999_999,
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_expired_registration_frees_the_endpoint(tmp_path: Path) -> None:
+    """GW-2: a row nobody owns any more must not lock the next owner of the same browser out."""
+    store = PushStore(tmp_path / "push.sqlite3")
+    from dataclasses import replace
+
+    stale = replace(_web_subscription(), expires_at=time.time() - 1)
+    assert await store.upsert_web(stale)
+    assert await store.upsert_web(replace(_web_subscription(), username="mallory"))
+    assert [item.username for item in await store.list_web("mallory")] == ["mallory"]

@@ -6,6 +6,7 @@ build a complete gateway on a temporary directory with injected senders.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -27,7 +28,7 @@ from .session_registry import SessionRegistry
 from .stt import Transcriber
 from .users import UserStore
 
-VERSION = "0.1.0"
+VERSION = "1.3.0"
 
 
 @dataclass
@@ -43,6 +44,7 @@ class GatewayState:
     enroll_limiter: RateLimiter
     pairing_limiter: RateLimiter
     polish_limiter: RateLimiter
+    stt_limiter: RateLimiter
     hub: Hub = field(init=False)
     push: PushService = field(init=False)
     transcriber: Transcriber | None = None
@@ -50,8 +52,14 @@ class GatewayState:
     apns: ApnsProvider | None = None
     #: Refused `/ws/device` upgrades, so an orphaned daemon is visible without flooding the log.
     device_rejects: RejectionLog = field(default_factory=RejectionLog)
+    #: The same flood valve for the two app-facing upgrades, which had none.
+    app_rejects: RejectionLog = field(default_factory=RejectionLog)
+    stt_rejects: RejectionLog = field(default_factory=RejectionLog)
     #: Claim tokens waiting to be scanned (A23). Memory only: a restart forgets them.
     pairing_requests: PairingRequests = field(default_factory=PairingRequests)
+    #: Live `/ws/stt` sockets per account (A29 neighbours it): transcription spends the operator's
+    #: speech credit, so one account cannot hold an unbounded number of streams open.
+    stt_sockets: Counter[str] = field(default_factory=Counter)
 
     def stt_view(self) -> dict[str, Any]:
         return {

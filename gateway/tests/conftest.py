@@ -438,6 +438,6 @@ def frames_of(connection: Connection) -> list[dict[str, Any]]:
     """Everything queued for a connection, drained."""
     out: list[dict[str, Any]] = []
     while not connection.queue.empty():
-        raw, _ = connection.queue.get_nowait()
-        out.append(json.loads(raw))
+        item = connection.queue.get_nowait()
+        out.append(json.loads(item.raw))
     return out

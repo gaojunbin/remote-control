@@ -10,9 +10,15 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from rc_gateway.app import create_app
+from rc_gateway.app import PAIRING_MAX_PER_IP, create_app
 from rc_gateway.auth import make_session_token, session_token_claims
-from rc_gateway.pairing_requests import MAX_OUTSTANDING, generate_claim_token, is_claim_token
+from rc_gateway.pairing_requests import (
+    MAX_OUTSTANDING,
+    MAX_OUTSTANDING_PER_ADDRESS,
+    MAX_WAITERS_PER_TOKEN,
+    generate_claim_token,
+    is_claim_token,
+)
 from rc_gateway.state import GatewayState
 
 from .conftest import ORIGIN, drain_until
@@ -110,20 +116,61 @@ def test_an_unknown_token_is_not_found(client: TestClient, auth: dict[str, str])
     assert client.post("/api/pairing/requests/NOTATOKEN/claim", headers=auth).status_code == 404
 
 
-def test_minting_is_rate_limited_per_address(client: TestClient) -> None:
-    statuses = [client.post("/api/pairing/requests").status_code for _ in range(8)]
-    assert statuses[:6] == [200] * 6
-    assert statuses[6:] == [429, 429]
+def test_minting_is_rate_limited_per_address(state: GatewayState, client: TestClient) -> None:
+    """Each token is spent as it is minted, so this counts the rate and not the occupancy."""
+    statuses = []
+    for _ in range(PAIRING_MAX_PER_IP + 2):
+        response = client.post("/api/pairing/requests")
+        statuses.append(response.status_code)
+        if response.status_code == 200:
+            state.pairing_requests.spend(response.json()["token"])
+    assert statuses[:PAIRING_MAX_PER_IP] == [200] * PAIRING_MAX_PER_IP
+    assert statuses[PAIRING_MAX_PER_IP:] == [429, 429]
     assert client.post("/api/pairing/requests").json()["error"]["code"] == "too_many_requests"
 
 
-def test_outstanding_tokens_are_capped(state: GatewayState, client: TestClient) -> None:
-    state.pairing_limiter.reset()
-    for _ in range(MAX_OUTSTANDING):
-        assert state.pairing_requests.mint() is not None
-        state.pairing_limiter.reset()
-    assert client.post("/api/pairing/requests").status_code == 429
+def test_one_address_cannot_hold_more_than_its_share_of_the_slots(client: TestClient) -> None:
+    """GW-9: the mint is unauthenticated, so occupancy is capped per address, not only globally."""
+    statuses = [
+        client.post("/api/pairing/requests").status_code
+        for _ in range(MAX_OUTSTANDING_PER_ADDRESS + 2)
+    ]
+    assert statuses[:MAX_OUTSTANDING_PER_ADDRESS] == [200] * MAX_OUTSTANDING_PER_ADDRESS
+    assert statuses[MAX_OUTSTANDING_PER_ADDRESS:] == [429, 429]
+
+
+def test_the_global_cap_evicts_the_oldest_unclaimed_token(state: GatewayState) -> None:
+    """GW-9: filling the gateway's slots must not take QR pairing away from everybody else."""
+    for index in range(MAX_OUTSTANDING):
+        assert state.pairing_requests.mint(f"10.0.0.{index}") is not None
+    oldest = next(iter(state.pairing_requests._requests))
+
+    fresh = state.pairing_requests.mint("10.9.9.9")
+    assert fresh is not None
     assert len(state.pairing_requests) == MAX_OUTSTANDING
+    assert state.pairing_requests.find(oldest) is None
+    assert state.pairing_requests.find(fresh.token) is not None
+
+
+@pytest.mark.asyncio
+async def test_one_token_holds_only_a_couple_of_polls_open(state: GatewayState) -> None:
+    """GW-8: the poll is unauthenticated and parks a task for 25 s, so the token caps them."""
+    state.pairing_requests.poll_timeout = 5.0
+    app = create_app(state)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url=ORIGIN) as http:
+        token = (await http.post("/api/pairing/requests")).json()["token"]
+        parked = [
+            asyncio.create_task(http.get(f"/api/pairing/requests/{token}"))
+            for _ in range(MAX_WAITERS_PER_TOKEN)
+        ]
+        await asyncio.sleep(0.1)
+        refused = await http.get(f"/api/pairing/requests/{token}")
+        assert refused.status_code == 429
+        assert refused.json()["error"]["code"] == "too_many_requests"
+        for task in parked:
+            task.cancel()
+        await asyncio.gather(*parked, return_exceptions=True)
 
 
 def test_a_claimed_code_enrols_like_a_typed_one(client: TestClient, auth: dict[str, str]) -> None:

@@ -19,8 +19,12 @@ from starlette.websockets import WebSocketDisconnect
 from .accounts import ROLE_ADMIN
 from .auth import SESSION_COOKIE_NAME, SessionClaims, bearer_token, session_token_claims
 from .frames import CLOSE_FORBIDDEN, CLOSE_UNAUTHORIZED
+from .logging import logger
 from .origins import origin_matches
+from .rejects import RejectionLog
 from .state import GatewayState
+
+log = logger("rc_gateway.security")
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
@@ -112,7 +116,9 @@ def reject_foreign_origin(request: Request) -> None:
         require_origin(request)
 
 
-async def authenticate_websocket(ws: WebSocket) -> Credential | None:
+async def authenticate_websocket(
+    ws: WebSocket, rejects: RejectionLog | None = None
+) -> Credential | None:
     """Accept the socket, then return its credential or close it with an A4 code.
 
     The accept comes first on purpose. Refusing the upgrade instead turns into an HTTP 403 at the
@@ -120,6 +126,10 @@ async def authenticate_websocket(ws: WebSocket) -> Credential | None:
     completed — so an app could not tell "your session expired, sign in again" from "the gateway
     is briefly unreachable, retry". Accepting and closing immediately, before a single frame is
     read, is what makes 4401 and 4403 observable.
+
+    ``rejects`` is the flood valve ``/ws/device`` has had since a production gateway saw 685
+    refused upgrades in three hours: an address far past any sane retry backoff is refused before
+    the handshake instead, and its refusals are reported one line per window.
     """
     state = state_of(ws)
     token, from_cookie = _extract(ws)
@@ -132,6 +142,8 @@ async def authenticate_websocket(ws: WebSocket) -> Credential | None:
     if credential is not None and not forbidden:
         await ws.accept()
         return credential
+    if rejects is not None and _report_refused(ws, state, rejects, forbidden):
+        return None
     if not await accept_for_close(ws):
         return None
     if forbidden:
@@ -139,6 +151,23 @@ async def authenticate_websocket(ws: WebSocket) -> Credential | None:
     else:
         await _close_unauthorized(ws)
     return None
+
+
+def _report_refused(
+    ws: WebSocket, state: GatewayState, rejects: RejectionLog, forbidden: bool
+) -> bool:
+    """Count one refused upgrade. True when the handshake should not be completed at all."""
+    address = client_ip(ws, state)
+    outcome = rejects.record(address)
+    if outcome.report is not None:
+        log.warning(
+            "app upgrade rejected",
+            reason="origin not allowed" if forbidden else "no valid credential",
+            address=address,
+            path=ws.scope.get("path", ""),
+            attempts=outcome.report,
+        )
+    return outcome.flooding
 
 
 async def accept_for_close(ws: WebSocket) -> bool:

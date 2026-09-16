@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import struct
 from pathlib import Path
@@ -14,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from rc_gateway.app import build_state, create_app
 from rc_gateway.config import ConfigError, SttConfig, load_config
+from rc_gateway.state import GatewayState
 from rc_gateway.stt import (
     MAX_BASE64_BYTES,
     MimoTranscriber,
@@ -461,3 +463,72 @@ def test_an_unknown_stt_provider_stops_the_gateway(
 
     monkeypatch.setenv("STT_PROVIDER", "MiMo")
     assert load_config(load_env_file=False).stt.enabled is True
+
+
+def test_signing_out_closes_an_open_stt_socket(
+    client: TestClient, auth: dict[str, str], transcriber: FakeTranscriber
+) -> None:
+    """GW-4: a socket that outlives its session keeps spending the operator's speech credit."""
+    with client.websocket_connect("/ws/stt?language=en", headers=auth) as socket:
+        socket.send_bytes(SILENCE)
+        assert client.post("/api/logout", headers=auth).status_code == 200
+        closed = socket.receive_json()
+        assert closed["type"] == "stt.error"
+        assert closed["code"] == "unauthorized"
+        socket.send_json({"type": "stt.stop"})
+    assert not [call for call in transcriber.calls if call["bytes"] > 44 + len(SILENCE)]
+
+
+def test_a_silent_stt_socket_is_closed(
+    client: TestClient, auth: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GW-4: nothing else closes it — the hub's heartbeat walks only devices and apps."""
+    monkeypatch.setattr("rc_gateway.ws.stt_ws.SILENT_TIMEOUT_SECONDS", 0.05)
+    with client.websocket_connect("/ws/stt", headers=auth) as socket:
+        closed = socket.receive_json()
+    assert closed == {
+        "type": "stt.error",
+        "message": "no audio received",
+        "code": "timeout",
+    }
+
+
+def test_transcription_is_rate_limited_per_address(
+    client: TestClient, auth: dict[str, str], state: GatewayState
+) -> None:
+    """GW-5: every transcript spends the operator's credit, exactly as polish does (A29)."""
+    state.stt_limiter.max_per_ip = 2
+    files = {"audio": ("clip.wav", b"RIFFdata", "audio/wav")}
+    assert client.post("/api/stt/transcribe", files=files, headers=auth).status_code == 200
+    assert client.post("/api/stt/transcribe", files=files, headers=auth).status_code == 200
+    refused = client.post("/api/stt/transcribe", files=files, headers=auth)
+    assert refused.status_code == 429
+    assert refused.json()["error"]["code"] == "too_many_requests"
+
+
+def test_the_stt_upgrade_is_rate_limited(
+    client: TestClient, auth: dict[str, str], state: GatewayState
+) -> None:
+    """GW-5: the socket is the cheaper way to spend the same credit, so it is limited too."""
+    state.stt_limiter.max_per_ip = 1
+    with client.websocket_connect("/ws/stt", headers=auth) as socket:
+        socket.send_json({"type": "stt.cancel"})
+    with client.websocket_connect("/ws/stt", headers=auth) as refused:
+        answer = refused.receive_json()
+    assert answer["code"] == "too_many_requests"
+
+
+def test_one_account_holds_only_a_few_stt_streams(client: TestClient, auth: dict[str, str]) -> None:
+    """GW-5: nothing capped how many live streams one account could hold open."""
+    from rc_gateway.ws.stt_ws import MAX_SOCKETS_PER_USER
+
+    with contextlib.ExitStack() as stack:
+        for _ in range(MAX_SOCKETS_PER_USER):
+            stack.enter_context(client.websocket_connect("/ws/stt", headers=auth))
+        with client.websocket_connect("/ws/stt", headers=auth) as refused:
+            answer = refused.receive_json()
+    assert answer == {
+        "type": "stt.error",
+        "message": "too many speech streams open",
+        "code": "too_many_requests",
+    }

@@ -55,7 +55,7 @@ async def subscribe_web(
     p256dh, auth = keys.get("p256dh"), keys.get("auth")
     if not _valid_key(p256dh) or not _valid_key(auth):
         raise HTTPException(status_code=400, detail={"code": "bad_request"})
-    await state.push_store.upsert_web(
+    stored = await state.push_store.upsert_web(
         WebPushSubscription(
             endpoint=endpoint,
             p256dh=str(p256dh),
@@ -65,18 +65,23 @@ async def subscribe_web(
             expires_at=float(credential.claims.expires_at),
         )
     )
+    if not stored:
+        log.warning("web push subscription refused: the endpoint belongs to another account")
+        raise HTTPException(status_code=409, detail={"code": "conflict"})
     log.info("web push subscription stored")
     return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
 
 
 @router.delete("/api/push/web/subscribe")
-async def unsubscribe_web(request: Request, _: Credential = Depends(require_user)) -> JSONResponse:
+async def unsubscribe_web(
+    request: Request, credential: Credential = Depends(require_user)
+) -> JSONResponse:
     state = state_of(request)
     body = await _bounded_body(request, BODY_MAX_BYTES)
     endpoint = body.get("endpoint")
     if not isinstance(endpoint, str) or not endpoint:
         raise HTTPException(status_code=400, detail={"code": "bad_request"})
-    await state.push_store.remove_web(endpoint)
+    await state.push_store.remove_web(endpoint, credential.username)
     return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
 
 
@@ -99,7 +104,7 @@ async def register_apns(
         or not 1 <= len(bundle_id) <= 255
     ):
         raise HTTPException(status_code=400, detail={"code": "bad_request"})
-    await state.push_store.upsert_apns(
+    stored = await state.push_store.upsert_apns(
         ApnsRegistration(
             device_token=token.lower(),
             environment=str(environment),
@@ -109,18 +114,23 @@ async def register_apns(
             expires_at=float(credential.claims.expires_at),
         )
     )
+    if not stored:
+        log.warning("apns registration refused: the device token belongs to another account")
+        raise HTTPException(status_code=409, detail={"code": "conflict"})
     log.info("apns registration stored", environment=environment)
     return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
 
 
 @router.delete("/api/push/apns/register")
-async def unregister_apns(request: Request, _: Credential = Depends(require_user)) -> JSONResponse:
+async def unregister_apns(
+    request: Request, credential: Credential = Depends(require_user)
+) -> JSONResponse:
     state = state_of(request)
     body = await _bounded_body(request, BODY_MAX_BYTES)
     token = body.get("token")
     if not isinstance(token, str) or not token:
         raise HTTPException(status_code=400, detail={"code": "bad_request"})
-    await state.push_store.remove_apns(token.lower())
+    await state.push_store.remove_apns(token.lower(), credential.username)
     return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
 
 

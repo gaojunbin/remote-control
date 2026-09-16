@@ -13,6 +13,7 @@ import contextlib
 import json
 import time
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol
 
 from .apns import ApnsProvider, ApnsResponse
@@ -37,6 +38,15 @@ _TEXTS = {
 RETRY_BACKOFF_SECONDS = (30.0, 120.0, 600.0)
 MAX_ATTEMPTS = 4
 WORKER_INTERVAL_SECONDS = 15.0
+#: `pywebpush` is a blocking `requests` call whose own default never applies: its signature
+#: defaults `timeout=None` and passes the key through, so `requests` waits until the OS gives up.
+#: Ten seconds, the same as the APNs client.
+WEB_PUSH_TIMEOUT_SECONDS = 10.0
+#: Push delivery gets its own threads. The default executor is shared by every blocking call in
+#: the gateway — 55 of them across the stores — and it holds `min(32, cpu_count + 4)` threads, six
+#: on a 2-vCPU VPS. A browser vendor that black-holes connections must not be able to take the
+#: pool that logins, device lookups and session reads are queued on.
+PUSH_THREADS = 4
 
 DeviceNameLookup = Callable[[str], Awaitable[str]]
 
@@ -92,6 +102,7 @@ class PushService:
         self._vapid_contact = vapid_contact
         self._web_sender = web_sender or self._send_with_pywebpush
         self._worker: asyncio.Task[None] | None = None
+        self._threads: ThreadPoolExecutor | None = None
 
     @property
     def web_enabled(self) -> bool:
@@ -111,6 +122,11 @@ class PushService:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._worker
             self._worker = None
+        if self._threads is not None:
+            # Not waited on: a vendor that is not answering would hold shutdown for its whole
+            # timeout, and the delivery is journalled or lost either way.
+            self._threads.shutdown(wait=False, cancel_futures=True)
+            self._threads = None
         if self.apns is not None:
             await self.apns.close()
 
@@ -157,7 +173,7 @@ class PushService:
     async def _deliver_one_web(self, subscription: WebPushSubscription, body: str) -> None:
         status = await self._web_sender(subscription, body)
         if status in {404, 410}:
-            await self.store.remove_web(subscription.endpoint)
+            await self.store.remove_web(subscription.endpoint, subscription.username)
 
     async def _send_with_pywebpush(
         self, subscription: WebPushSubscription, payload: str
@@ -172,6 +188,7 @@ class PushService:
                     vapid_private_key=self._vapid_private_key,
                     vapid_claims={"sub": self._vapid_contact},
                     ttl=300,
+                    timeout=WEB_PUSH_TIMEOUT_SECONDS,
                 )
                 raw = getattr(response, "status_code", None)
                 return raw if isinstance(raw, int) else None
@@ -182,7 +199,15 @@ class PushService:
                     return status
                 raise
 
-        return await asyncio.to_thread(send)
+        return await asyncio.get_running_loop().run_in_executor(self._executor(), send)
+
+    def _executor(self) -> ThreadPoolExecutor:
+        """Push's own threads, created on first delivery so an idle gateway holds none."""
+        if self._threads is None:
+            self._threads = ThreadPoolExecutor(
+                max_workers=PUSH_THREADS, thread_name_prefix="rc-push"
+            )
+        return self._threads
 
     # ---- apns ----
 

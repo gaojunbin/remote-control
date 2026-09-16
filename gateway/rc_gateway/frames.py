@@ -74,6 +74,10 @@ CLOSE_FORBIDDEN = 4403
 CLOSE_DEVICE_REPLACED = 4001
 CLOSE_PROTOCOL_ERROR = 1008
 CLOSE_SLOW_CLIENT = 4008
+#: This account already holds as many `/ws/app` sockets as the gateway allows, so its oldest was
+#: closed. Deliberately outside the A4 table: §2.4 gives every other code the meaning "reconnect
+#: with backoff", which is exactly right here, so this needs no amendment.
+CLOSE_TOO_MANY_APPS = 4009
 
 #: The full §1 error vocabulary lives here even where the gateway does not raise a code itself, so
 #: every component reads one list rather than three partial ones.

@@ -4,6 +4,11 @@ Binary frames carry raw little-endian 16-bit PCM at 16 kHz mono. The gateway wra
 buffer as WAV and asks the backend for a transcript roughly every two seconds while audio keeps
 arriving, skipping a partial whenever a request is still in flight, and produces the final
 transcript on ``stt.stop``. Audio is never written to disk.
+
+Every transcription spends the operator's speech credit, so the socket is bounded the way nothing
+else on this path was: the address is rate limited at the upgrade, an account may hold only a few
+streams at once, a stream that goes quiet is closed, and signing out closes it immediately rather
+than letting it transcribe on the revoked session's behalf.
 """
 
 from __future__ import annotations
@@ -17,18 +22,36 @@ from typing import Any
 from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
+from ..frames import SILENT_TIMEOUT_SECONDS
 from ..logging import logger
-from ..security import authenticate_websocket, state_of
+from ..security import (
+    Credential,
+    accept_for_close,
+    authenticate_websocket,
+    client_ip,
+    state_of,
+)
+from ..state import GatewayState
 from ..stt import PARTIAL_INTERVAL_SECONDS, SttError, Transcriber, Utterance
 
 log = logger("rc_gateway.ws.stt")
 router = APIRouter()
 
+#: Live streams one account may hold. A person dictates into one composer at a time; four covers
+#: a phone and a browser with one stale socket each.
+MAX_SOCKETS_PER_USER = 4
+
 
 @router.websocket("/ws/stt")
 async def stt_socket(ws: WebSocket, language: str | None = None) -> None:
     state = state_of(ws)
-    if await authenticate_websocket(ws) is None:
+    if state.stt_limiter.limited(client_ip(ws, state)):
+        log.warning("stt upgrade rate limited")
+        if await accept_for_close(ws):
+            await _fail(ws, "too many speech requests", "too_many_requests")
+        return
+    credential = await authenticate_websocket(ws, state.stt_rejects)
+    if credential is None:
         return
     if state.transcriber is None:
         await _fail(ws, "speech-to-text is not configured", "unsupported")
@@ -36,8 +59,14 @@ async def stt_socket(ws: WebSocket, language: str | None = None) -> None:
     if language and language not in state.config.stt.languages:
         await _fail(ws, "unsupported language", "bad_request")
         return
+    if state.stt_sockets[credential.username] >= MAX_SOCKETS_PER_USER:
+        log.warning("stt socket refused: account at the stream cap")
+        await _fail(ws, "too many speech streams open", "too_many_requests")
+        return
 
+    state.stt_sockets[credential.username] += 1
     session = _Stream(ws, state.transcriber, language)
+    watchdog = asyncio.create_task(_watch_revocation(session, state, credential))
     try:
         await session.run()
     except WebSocketDisconnect:
@@ -45,7 +74,31 @@ async def stt_socket(ws: WebSocket, language: str | None = None) -> None:
     except Exception:
         log.exception("stt socket failed")
     finally:
+        watchdog.cancel()
+        _release_socket(state, credential.username)
         await session.close()
+
+
+def _release_socket(state: GatewayState, username: str) -> None:
+    state.stt_sockets[username] -= 1
+    if state.stt_sockets[username] <= 0:
+        del state.stt_sockets[username]
+
+
+async def _watch_revocation(session: _Stream, state: GatewayState, credential: Credential) -> None:
+    """Close the stream the moment its login session is signed out or the account is disabled.
+
+    ``/ws/app`` has had this since A24; without it here a socket open at the moment of
+    ``POST /api/logout`` keeps transcribing the user's audio and keeps spending speech credit.
+    """
+    event = await state.sessions.revoked_event(credential.claims)
+    if event is not None:
+        try:
+            await event.wait()
+        except asyncio.CancelledError:
+            return
+    log.info("closing stt socket for a revoked session")
+    await session.abort("session revoked", "unauthorized")
 
 
 class _Stream:
@@ -62,7 +115,14 @@ class _Stream:
 
     async def run(self) -> None:
         while True:
-            message = await self.ws.receive()
+            # Nothing else would ever close a silent stream: the hub's heartbeat walks only
+            # devices and apps, and uvicorn's own WebSocket ping is disabled deliberately.
+            try:
+                message = await asyncio.wait_for(self.ws.receive(), timeout=SILENT_TIMEOUT_SECONDS)
+            except TimeoutError:
+                log.info("closing silent stt socket")
+                await self.abort("no audio received", "timeout")
+                return
             kind = message.get("type")
             if kind == "websocket.disconnect":
                 return
@@ -80,6 +140,14 @@ class _Stream:
                 return
             if command == "stt.cancel":
                 return
+
+    async def abort(self, message: str, code: str) -> None:
+        """Stop transcribing and close, whatever the reader is doing."""
+        if self._closed:
+            return
+        self._closed = True
+        await self._cancel_partial()
+        await _fail(self.ws, message, code)
 
     async def _append(self, payload: bytes) -> bool:
         try:

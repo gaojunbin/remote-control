@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import UploadFile
 
 from ..logging import logger
-from ..security import Credential, require_user, state_of
+from ..security import Credential, client_ip, require_user, state_of
 from ..stt import SttError
 
 log = logger("rc_gateway.stt")
@@ -33,6 +33,10 @@ _CONTENT_TYPES = {
 @router.post(UPLOAD_PATH)
 async def transcribe(request: Request, _: Credential = Depends(require_user)) -> JSONResponse:
     state = state_of(request)
+    # One operator key pays for every transcript, exactly as it does for polish (A29).
+    if state.stt_limiter.limited(client_ip(request, state)):
+        log.warning("transcription rate limited")
+        raise HTTPException(status_code=429, detail={"code": "too_many_requests"})
     if state.transcriber is None:
         raise HTTPException(status_code=503, detail={"code": "unsupported"})
     form = await request.form()

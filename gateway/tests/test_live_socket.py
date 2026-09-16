@@ -138,3 +138,31 @@ async def test_a_valid_credential_is_accepted_over_the_wire(
         hello = json.loads(await socket_.recv())
     assert hello["type"] == "hello"
     assert hello["protocol"] == 1
+
+
+async def test_a_flood_of_anonymous_app_upgrades_stops_being_completed(
+    server: _Server, state: GatewayState
+) -> None:
+    """GW-13: `/ws/device` has had this valve since a gateway saw 685 refusals in three hours."""
+    from rc_gateway.rejects import FLOOD_ATTEMPTS
+
+    for _ in range(FLOOD_ATTEMPTS):
+        assert await observed_close(f"{server.url}/ws/app") == CLOSE_UNAUTHORIZED
+    with pytest.raises(InvalidStatus):
+        async with websockets.connect(f"{server.url}/ws/app"):
+            pass
+    # The two upgrades count separately, and STT has the same valve.
+    assert await observed_close(f"{server.url}/ws/stt") == CLOSE_UNAUTHORIZED
+
+
+async def test_the_stt_upgrade_has_its_own_flood_valve(
+    server: _Server, state: GatewayState
+) -> None:
+    from rc_gateway.rejects import FLOOD_ATTEMPTS
+
+    state.stt_limiter.max_per_ip = 10_000
+    for _ in range(FLOOD_ATTEMPTS):
+        assert await observed_close(f"{server.url}/ws/stt") == CLOSE_UNAUTHORIZED
+    with pytest.raises(InvalidStatus):
+        async with websockets.connect(f"{server.url}/ws/stt"):
+            pass

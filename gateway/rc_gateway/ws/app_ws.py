@@ -17,10 +17,11 @@ from fastapi import APIRouter, WebSocket
 from starlette.websockets import WebSocketDisconnect
 
 from ..connections import AppConnection
-from ..frames import CLOSE_UNAUTHORIZED
+from ..frames import CLOSE_PROTOCOL_ERROR, CLOSE_UNAUTHORIZED
 from ..logging import logger
 from ..security import authenticate_websocket, state_of
 from ..state import VERSION
+from .text import BinaryFrames, TextReader
 
 log = logger("rc_gateway.ws.app")
 router = APIRouter()
@@ -29,7 +30,7 @@ router = APIRouter()
 @router.websocket("/ws/app")
 async def app_socket(ws: WebSocket) -> None:
     state = state_of(ws)
-    credential = await authenticate_websocket(ws)
+    credential = await authenticate_websocket(ws, state.app_rejects)
     if credential is None:
         return
     account = await state.users.get(credential.username)
@@ -40,6 +41,7 @@ async def app_socket(ws: WebSocket) -> None:
     connection.start()
     await state.hub.attach_app(connection)
     watchdog = asyncio.create_task(_watch_revocation(ws, connection, state, credential))
+    reader = TextReader(ws)
     try:
         await connection.send(
             await state.hub.app_hello_payload(
@@ -47,14 +49,19 @@ async def app_socket(ws: WebSocket) -> None:
             )
         )
         while True:
-            raw = await ws.receive_text()
+            # The raw text is not held across the handler: a `session.send` at the §5 maximum is
+            # a 64 MiB string, and keeping it alive while the parsed copy is serialised for the
+            # device would hold three copies of the same payload at once.
+            frame = _parse(await reader.read())
             connection.note_frame()
-            frame = _parse(raw)
             if frame is None:
                 continue
             await state.hub.handle_app_frame(connection, frame)
     except WebSocketDisconnect:
         pass
+    except BinaryFrames as exc:
+        log.warning("app socket closed: binary frames on a text protocol", reason=str(exc))
+        await connection.stop(code=CLOSE_PROTOCOL_ERROR, reason="text frames only")
     except Exception:
         log.exception("app socket failed", connection=connection.id)
     finally:

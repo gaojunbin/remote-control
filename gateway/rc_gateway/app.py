@@ -48,10 +48,16 @@ from .ws import app_ws, device_ws, stt_ws
 log = logger("rc_gateway.app")
 
 ENROLL_MAX_PER_IP = 30
-#: A23: an unauthenticated host may ask to be claimed this often per minute.
-PAIRING_MAX_PER_IP = 6
+#: A23: an unauthenticated host may mint a claim token and poll for it this often per minute. One
+#: host mints once and then holds a 25 s long poll open, which is three or four requests a minute,
+#: so this leaves room for a few hosts behind one address and still refuses a flood.
+PAIRING_MAX_PER_IP = 12
 #: A29: polish calls spend the operator's own model credit, so one address gets this many a minute.
 POLISH_MAX_PER_IP = 30
+#: Speech-to-text spends the same credit and had no limit at all. Counted per one-shot upload and
+#: per `/ws/stt` upgrade, never per partial: a person dictating opens one socket and the partials
+#: inside it are free, so this is far above anything a user can reach by talking.
+STT_MAX_PER_IP = 30
 _STATUS_CODES = {
     "bad_request": 400,
     "unauthorized": 401,
@@ -87,6 +93,7 @@ def build_state(
         enroll_limiter=RateLimiter(max_per_ip=ENROLL_MAX_PER_IP),
         pairing_limiter=RateLimiter(max_per_ip=PAIRING_MAX_PER_IP),
         polish_limiter=RateLimiter(max_per_ip=POLISH_MAX_PER_IP),
+        stt_limiter=RateLimiter(max_per_ip=STT_MAX_PER_IP),
     )
     state.apns = apns if apns is not None else _build_apns(config)
     state.push = PushService(

@@ -125,21 +125,29 @@ class PushStore:
 
     # ---- web push ----
 
-    async def upsert_web(self, subscription: WebPushSubscription) -> None:
-        await asyncio.to_thread(self._upsert_web, subscription)
+    async def upsert_web(self, subscription: WebPushSubscription) -> bool:
+        """Store one browser subscription. False when the endpoint belongs to another account."""
+        return await asyncio.to_thread(self._upsert_web, subscription)
 
-    def _upsert_web(self, subscription: WebPushSubscription) -> None:
+    def _upsert_web(self, subscription: WebPushSubscription) -> bool:
         now = time.time()
         with self._connect() as connection:
+            # A row whose login session has expired is nobody's any more, so the next owner of
+            # this browser is not blocked behind it until a delivery happens to prune it.
             connection.execute(
+                "DELETE FROM web_push WHERE endpoint=? AND expires_at<=?",
+                (subscription.endpoint, now),
+            )
+            cursor = connection.execute(
                 """
                 INSERT INTO web_push(
                     endpoint, p256dh, auth, session_jti, username, expires_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(endpoint) DO UPDATE SET
                     p256dh=excluded.p256dh, auth=excluded.auth,
-                    session_jti=excluded.session_jti, username=excluded.username,
+                    session_jti=excluded.session_jti,
                     expires_at=excluded.expires_at, updated_at=excluded.updated_at
+                WHERE web_push.username=excluded.username
                 """,
                 (
                     subscription.endpoint,
@@ -151,13 +159,20 @@ class PushStore:
                     now,
                 ),
             )
+            # A row never changes owner: re-registering someone else's endpoint would otherwise
+            # move their notifications to the caller and deliver the caller's sessions to their
+            # browser. The real owner's row has to expire or be removed first (A24).
+            return cursor.rowcount > 0
 
-    async def remove_web(self, endpoint: str) -> None:
-        await asyncio.to_thread(self._remove_web, endpoint)
+    async def remove_web(self, endpoint: str, username: str) -> None:
+        """Remove one browser subscription, and only if it is this account's (A24)."""
+        await asyncio.to_thread(self._remove_web, endpoint, username)
 
-    def _remove_web(self, endpoint: str) -> None:
+    def _remove_web(self, endpoint: str, username: str) -> None:
         with self._connect() as connection:
-            connection.execute("DELETE FROM web_push WHERE endpoint=?", (endpoint,))
+            connection.execute(
+                "DELETE FROM web_push WHERE endpoint=? AND username=?", (endpoint, username)
+            )
 
     async def list_web(self, username: str) -> list[WebPushSubscription]:
         """One account's browser subscriptions: a transition never reaches another's (A24)."""
@@ -186,13 +201,19 @@ class PushStore:
 
     # ---- apns ----
 
-    async def upsert_apns(self, registration: ApnsRegistration) -> None:
-        await asyncio.to_thread(self._upsert_apns, registration)
+    async def upsert_apns(self, registration: ApnsRegistration) -> bool:
+        """Store one phone. False when the device token is already another account's."""
+        return await asyncio.to_thread(self._upsert_apns, registration)
 
-    def _upsert_apns(self, registration: ApnsRegistration) -> None:
+    def _upsert_apns(self, registration: ApnsRegistration) -> bool:
         now = time.time()
         with self._connect() as connection:
+            # Same reason as `_upsert_web`: an expired registration holds nobody's phone.
             connection.execute(
+                "DELETE FROM apns_tokens WHERE device_token=? AND expires_at<=?",
+                (registration.device_token, now),
+            )
+            cursor = connection.execute(
                 """
                 INSERT INTO apns_tokens(
                     device_token, environment, bundle_id, session_jti, username, expires_at,
@@ -200,8 +221,9 @@ class PushStore:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(device_token) DO UPDATE SET
                     environment=excluded.environment, bundle_id=excluded.bundle_id,
-                    session_jti=excluded.session_jti, username=excluded.username,
+                    session_jti=excluded.session_jti,
                     expires_at=excluded.expires_at, updated_at=excluded.updated_at
+                WHERE apns_tokens.username=excluded.username
                 """,
                 (
                     registration.device_token,
@@ -213,14 +235,35 @@ class PushStore:
                     now,
                 ),
             )
+            # Same rule as `_upsert_web`: a row never changes owner.
+            return cursor.rowcount > 0
 
-    async def remove_apns(self, device_token: str) -> None:
-        await asyncio.to_thread(self._remove_apns, device_token)
+    async def remove_apns(self, device_token: str, username: str | None = None) -> None:
+        """Remove one phone's registration.
 
-    def _remove_apns(self, device_token: str) -> None:
+        ``username`` scopes the delete to one account and is what every route passes (A24).
+        ``None`` is for the gateway's own cleanup, where APNs itself said the token is dead and
+        the owner is beside the point.
+        """
+        await asyncio.to_thread(self._remove_apns, device_token, username)
+
+    def _remove_apns(self, device_token: str, username: str | None) -> None:
         with self._connect() as connection:
-            connection.execute("DELETE FROM apns_tokens WHERE device_token=?", (device_token,))
-            connection.execute("DELETE FROM apns_deliveries WHERE device_token=?", (device_token,))
+            if username is None:
+                cursor = connection.execute(
+                    "DELETE FROM apns_tokens WHERE device_token=?", (device_token,)
+                )
+            else:
+                cursor = connection.execute(
+                    "DELETE FROM apns_tokens WHERE device_token=? AND username=?",
+                    (device_token, username),
+                )
+            # The queued deliveries go with the registration, and stay when it was not this
+            # caller's to remove: dropping them would be another account's outage.
+            if cursor.rowcount > 0:
+                connection.execute(
+                    "DELETE FROM apns_deliveries WHERE device_token=?", (device_token,)
+                )
 
     async def list_apns(self, username: str) -> list[ApnsRegistration]:
         """One account's phones, for the same reason ``list_web`` takes a username (A24)."""

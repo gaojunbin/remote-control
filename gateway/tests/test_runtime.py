@@ -166,8 +166,8 @@ async def test_heartbeat_pings_and_closes_silent_connections(
 
     connection.last_ping_at = time.monotonic() - PING_INTERVAL_SECONDS - 1
     await hub.heartbeat_tick()
-    queued, _ = connection.queue.get_nowait()
-    assert '"ping"' in queued
+    queued = connection.queue.get_nowait()
+    assert '"ping"' in queued.raw
 
     connection.last_frame_at = time.monotonic() - SILENT_TIMEOUT_SECONDS - 1
     await hub.heartbeat_tick()
@@ -334,7 +334,38 @@ async def test_replay_buffers_are_bounded_and_least_recently_used_wins(
     # Touching a buffer makes it the most recent, so it outlives a later wave of new ones.
     warm = f"session-{MAX_REPLAY_BUFFERS + 5}"
     hub._buffer_for(warm)
-    for index in range(50):
+    for index in range(MAX_REPLAY_BUFFERS - 1):
         hub._buffer_for(f"late-{index}")
     assert warm in hub._buffers
+    await hub.stop()
+
+
+def test_the_replay_aggregate_fits_the_container() -> None:
+    """GW-6: the stated bound is a product, and it has to fit `docker-compose.yml`'s memory."""
+    from rc_gateway.budget import MAX_INFLIGHT_BYTES
+    from rc_gateway.hub import MAX_REPLAY_BUFFERS
+    from rc_gateway.replay import MAX_BYTES
+
+    mem_limit = 512 * 1024 * 1024
+    stated = MAX_REPLAY_BUFFERS * MAX_BYTES + MAX_INFLIGHT_BYTES
+    assert stated <= mem_limit // 2
+
+
+@pytest.mark.asyncio
+async def test_queue_snapshots_and_session_owners_are_bounded(
+    tmp_path: Path, state: GatewayState
+) -> None:
+    """GW-6: both maps are keyed by a session id a device chose, so neither may grow freely."""
+    from rc_gateway.hub import MAX_TRACKED_QUEUES, MAX_TRACKED_SESSION_OWNERS, Hub
+
+    hub = Hub(SessionIndex(tmp_path / "maps.sqlite3"), state.devices)
+    for index in range(MAX_TRACKED_QUEUES + 10):
+        hub._remember_queue(f"queue-{index}", {"seq": index, "kind": "queue"})
+    assert len(hub._queues) == MAX_TRACKED_QUEUES
+    assert "queue-0" not in hub._queues
+
+    for index in range(MAX_TRACKED_SESSION_OWNERS + 10):
+        hub._remember_session_owner(f"owned-{index}", "device-a")
+    assert len(hub._owners) == MAX_TRACKED_SESSION_OWNERS
+    assert "owned-0" not in hub._owners
     await hub.stop()

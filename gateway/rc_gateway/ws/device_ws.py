@@ -33,6 +33,7 @@ from ..frames import (
 from ..logging import logger
 from ..security import accept_for_close, client_ip, state_of
 from ..state import GatewayState
+from .text import BinaryFrames, TextReader
 
 log = logger("rc_gateway.ws.device")
 router = APIRouter()
@@ -67,11 +68,12 @@ async def device_socket(ws: WebSocket) -> None:
     await ws.accept()
     connection = DeviceConnection(ws, record.device_id)
     connection.start()
+    reader = TextReader(ws)
     attached = False
     try:
         # The slot is claimed only once the hello parses: a client stuck in a reconnect loop
         # would otherwise close its own working connection with 4001 on every attempt.
-        hello = await asyncio.wait_for(_receive(ws), timeout=HELLO_TIMEOUT_SECONDS)
+        hello = await asyncio.wait_for(_receive(reader), timeout=HELLO_TIMEOUT_SECONDS)
         if hello is None or frame_type(hello) != "hello":
             await connection.stop(code=CLOSE_PROTOCOL_ERROR, reason=BAD_HELLO_CLOSE_REASON)
             return
@@ -93,13 +95,20 @@ async def device_socket(ws: WebSocket) -> None:
             }
         )
         while True:
-            frame = await _receive(ws)
+            frame = await _receive(reader)
             if frame is None:
                 continue
             connection.note_frame()
             await state.hub.handle_device_frame(connection, frame)
     except (TimeoutError, WebSocketDisconnect):
         pass
+    except BinaryFrames as exc:
+        log.warning(
+            "device socket closed: binary frames on a text protocol",
+            device_id=record.device_id,
+            reason=str(exc),
+        )
+        await connection.stop(code=CLOSE_PROTOCOL_ERROR, reason="text frames only")
     except Exception:
         log.exception("device socket failed", device_id=record.device_id)
     finally:
@@ -135,9 +144,9 @@ def _claimed_device_id(ws: WebSocket) -> str:
     return "".join(char for char in claimed if char.isalnum() or char in "-_")[:64]
 
 
-async def _receive(ws: WebSocket) -> dict[str, Any] | None:
+async def _receive(reader: TextReader) -> dict[str, Any] | None:
     """Read one JSON object; malformed text is ignored rather than fatal."""
-    raw = await ws.receive_text()
+    raw = await reader.read()
     try:
         frame = json.loads(raw)
     except ValueError:

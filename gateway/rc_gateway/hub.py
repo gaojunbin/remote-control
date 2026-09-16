@@ -16,14 +16,17 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any
 
+from .budget import ByteBudget
 from .connections import AppConnection, DeviceConnection, SlowClientError, encode
 from .devices import UPDATE_FAILED, UPDATE_RUNNING, DeviceStore, normalize_pairing_code
 from .frames import (
     CLOSE_DEVICE_REPLACED,
     CLOSE_FORBIDDEN,
     CLOSE_SLOW_CLIENT,
+    CLOSE_TOO_MANY_APPS,
     CLOSE_UNAUTHORIZED,
     DEVICE_PUSH_TYPES,
     DEVICE_UPDATE,
@@ -83,9 +86,39 @@ OFFLINE_GRACE_SECONDS = 20.0
 #: Close codes that mean the device is not coming back, so `online` flips at once (A13, §2.5).
 IMMEDIATE_OFFLINE_CLOSES = frozenset({CLOSE_UNAUTHORIZED, CLOSE_FORBIDDEN})
 
-#: Replay buffers hold up to 4 MiB each, so the map itself has to be bounded. Evicting the coldest
-#: buffer only costs the next subscriber a `resync: true`, which the protocol already handles.
-MAX_REPLAY_BUFFERS = 512
+#: Replay buffers hold up to 4 MiB each (§6, a wire rule the gateway may not change), so the map
+#: itself has to be bounded by a number whose product fits the container. 16 buffers of 4 MiB is
+#: 64 MiB, which is the share `budget.py`'s arithmetic leaves for them inside `mem_limit: 512m`;
+#: the old 512 stated a 2 GiB ceiling, four times the whole container. Buffers rarely fill, and
+#: evicting the coldest only costs the next subscriber a `resync: true`, which the protocol
+#: already handles by paging history from the device.
+MAX_REPLAY_BUFFERS = 16
+
+#: The newest `queue` snapshot per session (A6) and the device that owns each session are both
+#: keyed by a session id a device chose, and entries leave only when a session is deleted or its
+#: device revoked: without a cap a long-lived device grows either map without bound. A snapshot is
+#: at most `MAX_EVENT_BYTES`, so 512 of them is 32 MiB; an owner is one device id, so 8192 of them
+#: is under a megabyte. Evicting either costs nothing but a read: `_owner_of` falls back to the
+#: index, and a session with no snapshot simply has none to replay.
+MAX_TRACKED_QUEUES = 512
+MAX_TRACKED_SESSION_OWNERS = 8192
+
+#: What a device may announce in `hello` and `agents.updated`, matching what
+#: `POST /api/devices/enroll` already truncates to. The per-entry ceiling is §4's event ceiling:
+#: an agent description is a handful of models and modes, never larger than one event.
+MAX_ANNOUNCED_AGENTS = 16
+MAX_AGENT_ENTRY_BYTES = MAX_EVENT_BYTES
+
+#: A31 aside: an account's app sockets. The web app and a phone need two or three, so eight is
+#: generous; a ninth closes the oldest rather than letting one account hold sockets until the
+#: container runs out of them. Every broadcast is linear in this number.
+MAX_APPS_PER_USER = 8
+APP_REPLACED_CLOSE_REASON = "too many app connections for this account"
+
+#: The gateway is holding as much of a large payload as it can, and this one has to wait. §1 has
+#: no "busy", and `too_large` is the code for a payload over a documented bound — this is that
+#: bound, stated in `budget.py`.
+FORWARD_BUSY_MESSAGE = "the gateway is forwarding another large message; try again"
 
 #: Session states that mean a turn is in progress (``needs_*`` are sub-states of running, §3).
 ACTIVE_STATES = frozenset({"running", "needs_approval", "needs_input"})
@@ -175,6 +208,7 @@ class Hub:
         self._grace: dict[str, _Grace] = {}
         self._updates: dict[str, asyncio.Task[None]] = {}
         self._pairings: dict[str, _Pairing] = {}
+        self._budget = ByteBudget()
         self._lock = asyncio.Lock()
         self._send_lock = asyncio.Lock()
         self._heartbeat: asyncio.Task[None] | None = None
@@ -551,8 +585,25 @@ class Hub:
     # ---- app side ----
 
     async def attach_app(self, connection: AppConnection) -> None:
+        """Take one app socket, closing this account's oldest if it is already at the cap.
+
+        Nothing else bounds them: the upgrade is not rate limited, every socket costs a queue and
+        a sender task, and `broadcast_user` and `_publish_event` walk them all for every device
+        update and every session event, so one account's sockets are everybody's fan-out cost.
+        """
         async with self._lock:
             self._apps[connection.id] = connection
+            mine = [item for item in self._apps.values() if item.username == connection.username]
+            surplus = mine[: max(0, len(mine) - MAX_APPS_PER_USER)]
+            for stale in surplus:
+                del self._apps[stale.id]
+        for stale in surplus:
+            log.info(
+                "app socket replaced: account at the connection cap",
+                connection=stale.id,
+                cap=MAX_APPS_PER_USER,
+            )
+            await stale.stop(code=CLOSE_TOO_MANY_APPS, reason=APP_REPLACED_CLOSE_REASON)
 
     async def detach_app(self, connection: AppConnection) -> None:
         async with self._lock:
@@ -735,6 +786,7 @@ class Hub:
         # Outside the send lock: a device inside its grace period is waited for, and holding the
         # lock across that would stall every other device's forwarding for the whole period.
         await self._await_device(device_id)
+        payload = _payload_bytes(frame)
         async with self._send_lock:
             async with self._lock:
                 device = self._devices.get(device_id)
@@ -747,8 +799,21 @@ class Hub:
                     error_reply(identifier, ERROR_DEVICE_OFFLINE, "device is not connected"),
                 )
                 return
+            if not self._budget.claim(payload):
+                log.warning(
+                    "large forward refused: no room in the in-flight budget",
+                    device_id=device_id,
+                    bytes=payload,
+                    held=self._budget.held,
+                )
+                await self._send_app(
+                    connection, error_reply(identifier, ERROR_TOO_LARGE, FORWARD_BUSY_MESSAGE)
+                )
+                return
             try:
-                await device.send(outgoing)
+                # The connection owns the release from here: it gives the budget back when the
+                # frame is written, dropped with the queue, or refused for want of room.
+                await device.send(outgoing, release=partial(self._budget.release, payload))
             except (SlowClientError, ConnectionError) as exc:
                 log.warning("forward to device failed", device_id=device_id, error=str(exc))
                 await self._drop_device(device)
@@ -883,7 +948,7 @@ class Hub:
         """
         owner = await self._owner_of(session_id)
         if owner is None:
-            self._owners[session_id] = device_id
+            self._remember_session_owner(session_id, device_id)
             return True
         if owner == device_id:
             return True
@@ -902,11 +967,24 @@ class Hub:
         """
         owner = self._owners.get(session_id)
         if owner is not None:
+            # Touched, so the coldest entry is the one eviction takes.
+            self._owners[session_id] = self._owners.pop(session_id)
             return owner
         owner = await self.index.owner(session_id)
         if owner is not None:
-            self._owners[session_id] = owner
+            self._remember_session_owner(session_id, owner)
         return owner
+
+    def _remember_session_owner(self, session_id: str, device_id: str) -> None:
+        while len(self._owners) >= MAX_TRACKED_SESSION_OWNERS:
+            del self._owners[next(iter(self._owners))]
+        self._owners[session_id] = device_id
+
+    def _remember_queue(self, session_id: str, event: Frame) -> None:
+        self._queues.pop(session_id, None)
+        while len(self._queues) >= MAX_TRACKED_QUEUES:
+            del self._queues[next(iter(self._queues))]
+        self._queues[session_id] = event
 
     # ---- account ownership (A24) ----
 
@@ -976,7 +1054,7 @@ class Hub:
         if text_field(event, "kind") == "queue":
             # A6: `queue` describes current state rather than timeline history, so the newest
             # snapshot is kept for `session.subscribe` instead of being replayed from the buffer.
-            self._queues[session_id] = event
+            self._remember_queue(session_id, event)
         # Recorded before the fan-out and without touching the disk, so no app can read a summary
         # that predates an event it has already been sent, and no event waits on SQLite.
         self.index.record_seq(session_id, seq)
@@ -1182,10 +1260,39 @@ def _attachments_over_limit(frame: Frame) -> str | None:
     return None
 
 
+def _payload_bytes(frame: Frame) -> int:
+    """How much attachment payload one forwarded frame carries, without copying any of it.
+
+    Only the base64 strings can be large, and their lengths are known in O(1), so the in-flight
+    budget is measured without materialising the encoded frame a second time.
+    """
+    attachments = frame.get("attachments")
+    if not isinstance(attachments, list):
+        return 0
+    total = 0
+    for item in attachments:
+        if isinstance(item, dict):
+            encoded = item.get("data_base64")
+            if isinstance(encoded, str):
+                total += len(encoded)
+    return total
+
+
 def _agent_list(value: Any) -> list[dict[str, Any]]:
+    """The agents a device announced, bounded exactly as ``POST /api/devices/enroll`` bounds them.
+
+    The blob is stored, re-broadcast inside `device.updated` to every app socket of the account
+    and returned by `GET /api/devices`, so an unbounded list on this path would reach an app queue
+    that drops the socket at 16 MiB. A gateway limit, not a wire rule: the protocol says nothing
+    about how many agents a machine may have.
+    """
     if not isinstance(value, list):
         return []
-    return [item for item in value if isinstance(item, dict)]
+    kept = []
+    for item in value[:MAX_ANNOUNCED_AGENTS]:
+        if isinstance(item, dict) and len(encode(item)) <= MAX_AGENT_ENTRY_BYTES:
+            kept.append(item)
+    return kept
 
 
 def _now_ms() -> int:

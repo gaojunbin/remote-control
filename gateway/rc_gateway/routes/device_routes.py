@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from ..config import PAIRING_TTL_SECONDS
 from ..logging import logger
 from ..origins import websocket_url
-from ..pairing_requests import is_claim_token
+from ..pairing_requests import TooManyWaiters, is_claim_token
 from ..security import Credential, client_ip, require_user, state_of
 from ..state import GatewayState
 from ..views import device_view
@@ -119,10 +119,12 @@ async def cancel_pairing(
     code: str, request: Request, credential: Credential = Depends(require_user)
 ) -> JSONResponse:
     state = state_of(request)
-    removed = await state.devices.cancel_pairing(code, credential.username)
-    await state.hub.pairing_cancelled(code)
-    if not removed:
+    # The hub's pairing progress is not account-scoped, so it is only ever cleared once the store
+    # has confirmed the code was this caller's: otherwise naming someone else's code would stop
+    # their `pairing.progress` frames and hang their pairing screen on "waiting".
+    if not await state.devices.cancel_pairing(code, credential.username):
         raise HTTPException(status_code=404, detail={"code": "not_found"})
+    await state.hub.pairing_cancelled(code)
     return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
 
 
@@ -130,11 +132,12 @@ async def cancel_pairing(
 async def create_pairing_request(request: Request) -> JSONResponse:
     """A host asks to be claimed by scanning (A23). Unauthenticated: the token grants nothing."""
     state = state_of(request)
-    if state.pairing_limiter.limited(client_ip(request, state)):
+    address = client_ip(request, state)
+    if state.pairing_limiter.limited(address):
         raise HTTPException(status_code=429, detail={"code": "too_many_requests"})
-    pending = state.pairing_requests.mint()
+    pending = state.pairing_requests.mint(address)
     if pending is None:
-        log.warning("pairing request refused: too many outstanding claim tokens")
+        log.warning("pairing request refused: this address holds too many claim tokens")
         raise HTTPException(status_code=429, detail={"code": "too_many_requests"})
     return JSONResponse(
         {
@@ -148,15 +151,26 @@ async def create_pairing_request(request: Request) -> JSONResponse:
 
 @router.get("/api/pairing/requests/{token}")
 async def pairing_request_status(token: str, request: Request) -> JSONResponse:
-    """The host's long poll: held open until the token is claimed, then the code, exactly once."""
+    """The host's long poll: held open until the token is claimed, then the code, exactly once.
+
+    Unauthenticated like the mint, and limited like it: each call parks a task for 25 s, so the
+    address is rate limited and the token itself allows only a couple of parked polls at a time.
+    """
     state = state_of(request)
+    if state.pairing_limiter.limited(client_ip(request, state)):
+        raise HTTPException(status_code=429, detail={"code": "too_many_requests"})
     pending = state.pairing_requests.find(token) if is_claim_token(token) else None
     if pending is None:
         raise HTTPException(status_code=404, detail={"code": "not_found"})
     if pending.expired(int(time.time())):
         state.pairing_requests.spend(token)
         raise HTTPException(status_code=410, detail={"code": "not_found"})
-    if not await state.pairing_requests.wait_for_claim(pending):
+    try:
+        claimed = await state.pairing_requests.wait_for_claim(pending)
+    except TooManyWaiters as exc:
+        log.warning("pairing poll refused: too many polls on one claim token")
+        raise HTTPException(status_code=429, detail={"code": "too_many_requests"}) from exc
+    if not claimed:
         return JSONResponse({"status": "waiting"}, headers={"Cache-Control": "no-store"})
     # Delivered exactly once: the host enrols with the code, and a replayed poll reads 404.
     state.pairing_requests.spend(token)
