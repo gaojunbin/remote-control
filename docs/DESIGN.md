@@ -664,7 +664,7 @@ that waits for a tap.
 ### Polishing what you dictated
 
 Speech is immediate, and immediate speech is full of "um", repeated starts and references that made
-sense with the screen in front of you — "the green blinking thing" for a session's pulsing status
+sense with the screen in front of you — "the yellow blinking thing" for a session's pulsing status
 dot. A transcript sent as-is makes the agent guess. When the gateway operator has configured an
 OpenAI-compatible model for it (a base URL and a key, nothing agent-related), the apps can pass a
 finished dictation through that model together with the recent conversation, and the model hands
@@ -673,7 +673,7 @@ the Voice group of Settings on both apps: one switch, the model — chosen from 
 serves — and a strength. **Moderate** removes fillers, false starts and repetitions, fixes what the
 recogniser plainly misheard, punctuates, and otherwise keeps the speaker's words and order.
 **Strong** also restructures for clarity and precision and resolves vague references from the
-conversation — "the green blinking thing" becomes the term the conversation used — while adding no
+conversation — "the yellow blinking thing" becomes the term the conversation used — while adding no
 request the speaker did not make. Both keep the language of the speaker and return text only.
 
 In the composer the words the recogniser produced land in the field the instant dictation ends, as
@@ -700,15 +700,22 @@ app to the background restores it at once.
 
 | Tone | Looks | When |
 | --- | --- | --- |
-| `working` | green, pulsing | `starting`, `running` |
-| `waiting` | amber, solid | `needs_approval`, `needs_input`: the agent is blocked on the user |
-| `live` | green, solid | `idle` or `readonly` while `control` is `remote`, `terminal` or `shared` — the session is alive and quiet: a turn finished, a terminal is still open, or the device holds it |
+| `working` | green, solid | `starting`, `running`: the agent is busy and needs nobody |
+| `waiting` | amber, pulsing | `needs_approval`, `needs_input`: the agent is blocked on the user |
+| `live` | amber, solid | `idle` or `readonly` while `control` is `remote`, `terminal` or `shared` — the session is alive and quiet: a turn finished and its result is there to be looked at, a terminal is still open, or the device holds it |
 | `off` | grey | `stopped`, or `idle` / `readonly` with `control: "none"` (the CLI exited and the session is resumable), or the device is offline whatever the state |
 | `failed` | red, solid | `error` |
 
-Only `working` animates, so a session blocked on the user never reads as a running one at a glance.
-The pulse stops under Reduce Motion. The dot's accessibility label stays the state word and its
-tooltip names the tone — "Working", "Waiting for you", "Live", "Off", "Failed". A device's own dot is
+The colour carries the meaning on its own, so nobody has to tell a steady dot from a pulsing one
+before deciding whether to look: **green means working — leave it; amber means there is something
+for you** — a finished turn to read, or a question to answer. Only `waiting` animates, so the one
+state that needs the person is the one that moves, and a running session is a steady green that
+asks for nothing (the owner's ruling, 2026-09-17; before it, `working` pulsed green and a finished
+turn was a steady green that looked the same as a running one at a glance). The pulse stops under
+Reduce Motion, where the amber alone still says it. A finished session stays amber until it runs
+again or is stopped: the apps do not track whether its result was read, and a dot that goes quiet
+because a screen was glanced at would be guessing. The dot's accessibility label stays the state
+word and its tooltip names the tone — "Working", "Waiting for you", "Done", "Off", "Failed". A device's own dot is
 not a session dot and does not follow this table: it is green when the device is online and a grey
 ring when it is not.
 
