@@ -73,6 +73,23 @@ def question_hook_command() -> list[str]:
     return [*entrypoint(), "hook", "permission-request"]
 
 
+def path_candidates(name: str) -> list[str]:
+    """Every `name` on PATH, in PATH order, skipping the directory the shim lives in.
+
+    Both the shim and the daemon want the executable the shim wraps, and
+    `shutil.which` would hand them the shim instead: `path_with_shim` puts this
+    directory first so `attach_ready` can see it. An empty PATH entry means the
+    working directory, which a daemon started by launchd or systemd must not
+    execute from, so it is skipped rather than read as `.`.
+    """
+    skip = os.path.abspath(str(bin_dir()))
+    return [
+        os.path.join(directory, name)
+        for directory in os.environ.get("PATH", "").split(os.pathsep)
+        if directory and os.path.abspath(directory) != skip
+    ]
+
+
 def path_with_shim(base: str | None = None) -> str:
     """`base` with the shim directory in front, added at most once.
 

@@ -20,6 +20,7 @@ from websockets.asyncio.client import ClientConnection, connect
 from . import PROTOCOL_VERSION, __version__, linkstate
 from .errors import RcError
 from .logging_setup import logger
+from .proxy import websocket_proxy
 
 log = logger("rc_client.gateway")
 
@@ -136,9 +137,11 @@ class GatewayLink:
         hello: HelloBuilder,
         handlers: dict[str, Handler],
         on_ready: Callable[[], Awaitable[None]] | None = None,
+        proxy: str,
     ) -> None:
         self.url = url
         self._token = token
+        self._proxy = proxy
         self._hello = hello
         self._handlers = handlers
         self._on_ready = on_ready
@@ -211,16 +214,16 @@ class GatewayLink:
 
     async def _session(self) -> None:
         # The link is a long-lived tunnel to the operator's own gateway, so it is
-        # dialled directly: the default (proxy=True) would silently adopt the
-        # system or environment proxy, and a SOCKS entry there fails the whole
-        # daemon with an ImportError unless python-socks is installed.
+        # dialled directly unless the device was enrolled with a proxy: the
+        # websockets default (proxy=True) would silently adopt whatever the
+        # service environment holds, which is not what the person chose.
         async with connect(
             self.url,
             additional_headers={"Authorization": f"Bearer {self._token}"},
             max_size=MAX_FRAME_BYTES,
             open_timeout=20,
             ping_interval=None,
-            proxy=None,
+            proxy=websocket_proxy(self._proxy),
         ) as socket:
             log.info("connected to the gateway", url=self.url)
             self._last_frame = time.monotonic()

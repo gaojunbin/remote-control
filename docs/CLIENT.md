@@ -52,6 +52,7 @@ about to download will run as a service, so the path has to be one nobody can si
 | --- | --- |
 | `--pair RC-XXXX-XXXX` | The pairing code from an app. Omit it to pair by scanning instead |
 | `--name NAME` | The device name shown in the apps. Defaults to the hostname |
+| `--proxy env\|URL` | Reach the gateway through an http or https proxy: `env` takes the one this host's proxy variables name, a URL names one and is exported for the installer's own `curl` and `uv` steps. The default dials directly; see "Reaching the gateway through a proxy" |
 | `--gateway ORIGIN` | Override the origin baked into the script |
 | `--manual` | Print the steps instead of running them, for a host without `curl` in the pipeline |
 | `--no-shell-rc` | Do not put the shim directory in front of `PATH` in your shell startup file |
@@ -68,11 +69,11 @@ fails, mint a fresh code or run the installer again.
 
 | Command | What it does |
 | --- | --- |
-| `rc-client enroll --gateway URL --pair CODE [--name N]` | Redeem a pairing code and write `config.toml` |
-| `rc-client enroll --gateway URL --scan [--name N]` | Print a QR code, wait for an app to scan it, then enrol with the code it returns |
+| `rc-client enroll --gateway URL --pair CODE [--name N] [--proxy env\|URL]` | Redeem a pairing code and write `config.toml` |
+| `rc-client enroll --gateway URL --scan [--name N] [--proxy env\|URL]` | Print a QR code, wait for an app to scan it, then enrol with the code it returns |
 | `rc-client run` | Run the daemon in the foreground |
 | `rc-client self-update --build SHA256` | Install the wheel the gateway serves, if it is that build, and restart the service |
-| `rc-client status` | Print the device identity, paths, build and service state |
+| `rc-client status` | Print the device identity, how the gateway is dialled, paths, build and service state |
 | `rc-client agents` | Print the detected agents as JSON |
 | `rc-client service install\|uninstall\|start\|stop\|status` | Manage the background service |
 | `rc-client shim install\|remove\|status [--no-shell-rc]` | Manage the `claude` shim that makes terminal sessions attachable |
@@ -93,7 +94,7 @@ directory to your `PATH` to call it by name.
 
 ```
 ~/.rc-client/
-  config.toml               gateway_origin, device_id, device_token, name   (0600)
+  config.toml               gateway_origin, device_id, device_token, name, proxy   (0600)
   venv/                     the private Python environment the installer creates
   state/rc-client.sqlite3   sessions, events, request idempotency, tail offsets
   state/client-build        the SHA-256 of the wheel this client was installed from   (0600)
@@ -110,6 +111,38 @@ directory to your `PATH` to call it by name.
 
 `RC_CLIENT_HOME` moves the whole directory, which is how you run a second daemon against a test
 gateway without touching your real one.
+
+## Reaching the gateway through a proxy
+
+The gateway link, enrollment, pairing and `self-update` all dial the gateway **directly** by default:
+following the environment at dial time would route a private tunnel through whatever `HTTPS_PROXY`
+happens to hold, and the daemon's environment is not yours anyway — it comes from a launchd plist or
+a systemd unit. A host that has no other way out, a cluster login node behind an HTTP proxy being
+the usual case, opts in once, at enrollment:
+
+```sh
+curl -fsSL https://rc.example.com/install.sh | sh -s -- --pair RC-7K42-QX9M --proxy env
+rc-client enroll --gateway https://rc.example.com --pair RC-7K42-QX9M --proxy http://proxy.example:3128
+```
+
+`config.toml` keeps the answer as `proxy`, and it is only ever `""` — dial directly — or one
+`http://` or `https://` URL, used for every dial. **`env` is not stored**: it means "work it out
+here, now". At enrollment the host reads its own proxy settings with the standard library's rules —
+`HTTPS_PROXY` for an `https://` gateway, which is what the `wss://` link uses, `HTTP_PROXY` only for
+a plain-http one, nothing at all when `NO_PROXY` bypasses the gateway's host, and on macOS the
+system network settings when no variable is set — and writes down the URL it found, or `""`. So the service environment never matters: the plist and the unit need no
+proxy variables, and neither the daemon's link nor `self-update` depends on the shell you enrolled
+from.
+`enroll` prints what it chose (`proxy: direct`, `proxy: http://proxy.example:3128`), and so does
+`rc-client status`, with any `user:password@` removed. Edit the key and restart the service to
+change it.
+
+Any other scheme is refused at enrollment rather than failing every dial later; "Network path" below
+says why.
+
+`install.sh --proxy URL` also exports `HTTPS_PROXY` and `HTTP_PROXY` for its own run, because `curl`,
+`uv` and the wheel download read the environment and would otherwise never get far enough to enrol.
+`--proxy env` changes nothing there — the variables are already set — and is passed on to `enroll`.
 
 ## Service management
 
@@ -186,8 +219,13 @@ untouched.
 On start, and whenever an app calls `device.agents`, the daemon locates each CLI and probes its
 version. Resolution order for `claude`:
 
-`RC_CLAUDE_BIN`, then `PATH`, then `~/.local/bin`, `~/.claude/local`, `~/.npm-global/bin`,
-`/usr/local/bin`, `/opt/homebrew/bin`, `~/node_modules/.bin`, `~/.yarn/bin`.
+`RC_CLAUDE_BIN`, then every `claude` on `PATH` in order, then `~/.local/bin`, `~/.claude/local`,
+`~/.npm-global/bin`, `/usr/local/bin`, `/opt/homebrew/bin`, `~/node_modules/.bin`, `~/.yarn/bin`.
+The device's own shim is never the answer: the service environment puts `~/.rc-client/bin` first on
+`PATH` so `attach_ready` can see the shim, and one PATH walk — the same one the shim itself uses to
+find what it wraps — skips that directory and every empty entry, which would mean the working
+directory. A `claude` anywhere else that turns out to be a copy of the shim is rejected by its
+contents.
 
 For `codex`: `RC_CODEX_BIN`, then the standalone build at
 `~/.codex/packages/standalone/current/bin/codex`, then `PATH`, then
@@ -1433,15 +1471,18 @@ Raise detail with `rc-client --log-level debug run`.
 
 ## Network path
 
-The daemon dials the gateway directly and ignores every proxy setting: neither the WebSocket link
-nor the enrollment request consults `HTTP_PROXY`, `ALL_PROXY` or the system network settings. The
-link is a long-lived tunnel to a gateway the operator runs, so a corporate or local proxy in the
-middle only adds a failure mode.
+The daemon dials the gateway directly unless the device was enrolled with a proxy, and it never
+consults the environment it happens to run in: the WebSocket link, enrollment, pairing and the
+`self-update` download all use the one URL `config.toml` holds, and `""` means a direct dial. The
+link is a long-lived tunnel to a gateway the operator runs, so a proxy in the middle is something a
+person asks for, not something the machine decides. How to ask, and how `--proxy env` is resolved on
+the enrolling host, is "Reaching the gateway through a proxy" above.
 
-Before that was pinned down, a machine with a SOCKS proxy in its macOS network settings logged
-`gateway link lost` with an `ImportError` on every reconnect and never came up. The client library
-had adopted the system proxy on its own and SOCKS support needs an extra package. A `gateway link
-lost` line now carries the exception message, so a failure of that kind is readable in
+The environment is ignored on purpose. Before that was pinned down, a machine with a SOCKS proxy in
+its macOS network settings logged `gateway link lost` with an `ImportError` on every reconnect and
+never came up: the client library had adopted the system proxy on its own, and SOCKS support needs
+a package this client does not ship — which is why a `socks5://` setting is refused outright today.
+A `gateway link lost` line carries the exception message, so a failure of that kind is readable in
 `~/.rc-client/logs/rc-client.err.log`.
 
 ### Reconnecting, and when not to

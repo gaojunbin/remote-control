@@ -65,15 +65,11 @@ def is_shim(path: str | Path) -> bool:
     return MARKER in head
 
 
-def real_claude(skip_dir: Path | None = None) -> str | None:
+def real_claude() -> str | None:
     """The first `claude` on PATH that is not one of our wrappers."""
-    skip = str(skip_dir or paths.bin_dir())
-    for directory in os.environ.get("PATH", "").split(os.pathsep):
-        if not directory or os.path.abspath(directory) == os.path.abspath(skip):
-            continue
-        candidate = Path(directory) / "claude"
+    for candidate in paths.path_candidates("claude"):
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK) and not is_shim(candidate):
-            return str(candidate)
+            return candidate
     return None
 
 

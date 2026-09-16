@@ -69,6 +69,7 @@ class Daemon:
             hello=self._hello,
             handlers=self._handlers(),
             on_ready=self._on_ready,
+            proxy=config.proxy,
         )
         self.hub.link_up = lambda: self.link.connected
         self._refresh_task: asyncio.Task[None] | None = None

@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 import tomli_w
 
 from .errors import RcError
+from .proxy import DIRECT, normalise_proxy
 
 CONFIG_FILENAME = "config.toml"
 
@@ -81,6 +82,10 @@ class Config:
     device_id: str
     device_token: str
     name: str
+    # How the gateway is reached: `""` directly, or one http/https proxy URL.
+    # `enroll --proxy env` resolves the environment's answer and stores that URL,
+    # so nothing here depends on the service's environment. See rc_client/proxy.py.
+    proxy: str = DIRECT
     mirror: MirrorConfig = field(default_factory=MirrorConfig)
     claude: ClaudeConfig = field(default_factory=ClaudeConfig)
 
@@ -90,6 +95,7 @@ class Config:
             "device_id": self.device_id,
             "device_token": self.device_token,
             "name": self.name,
+            "proxy": self.proxy,
             "mirror": self.mirror.to_dict(),
             "claude": self.claude.to_dict(),
         }
@@ -186,6 +192,7 @@ def load_config() -> Config:
         device_id=str(raw["device_id"]),
         device_token=str(raw["device_token"]),
         name=str(raw.get("name") or ""),
+        proxy=normalise_proxy(str(raw.get("proxy") or "")),
         mirror=_mirror_config(raw.get("mirror")),
         claude=_claude_config(raw.get("claude")),
     )

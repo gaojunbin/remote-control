@@ -24,6 +24,7 @@ from .build import as_digest, digest_of, write_build
 from .channel import shellrc
 from .config import ensure_dirs, load_config, log_dir, state_dir
 from .errors import RcError
+from .proxy import httpx_options
 
 WHEEL_PATH = "/dist/rc_client-latest.whl"
 WHEEL_NAME = re.compile(r"[A-Za-z0-9._+-]{1,128}\.whl")
@@ -74,12 +75,12 @@ def _wheel_name(disposition: str | None) -> str:
     return name
 
 
-async def _download(origin: str, directory: Path) -> Path:
-    """Fetch the served wheel under the name the gateway gives it."""
+async def _download(origin: str, directory: Path, proxy: str) -> Path:
+    """Fetch the served wheel under the name the gateway gives it, the way the device dials."""
     url = f"{origin}{WHEEL_PATH}"
     print(f"downloading {url}", flush=True)
     async with (
-        httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT, trust_env=False) as client,
+        httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT, **httpx_options(proxy)) as client,
         client.stream("GET", url) as response,
     ):
         if response.status_code >= 400:
@@ -118,7 +119,7 @@ async def self_update(build: str) -> bool:
     shim_arguments = _shim_arguments()
     workdir = Path(tempfile.mkdtemp(dir=state_dir(), prefix="update-"))
     try:
-        wheel = await _download(config.gateway_origin, workdir)
+        wheel = await _download(config.gateway_origin, workdir, config.proxy)
         served = digest_of(wheel)
         if served != requested:
             print(WRONG_BUILD, file=sys.stderr, flush=True)

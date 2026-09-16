@@ -10,13 +10,17 @@ from typing import Any
 import httpx
 import pytest
 
+from rc_client import proxy as proxy_module
 from rc_client.agents.grok import runtime as grok_runtime
 from rc_client.agents.registry import AGENT_IDS
 from rc_client.cli import EXIT_FAILURE, EXIT_OK, EXIT_REFUSED, build_parser, main
 from rc_client.config import Config, config_path, load_config, save_config
-from rc_client.enroll import device_facts, enroll
+from rc_client.enroll import ENROLL_TIMEOUT, device_facts, enroll
 from rc_client.errors import RcError
+from rc_client.proxy import DIRECT
 from rc_client.service import launchd, systemd
+
+PROXY_WITH_PASSWORD = "http://user:pw@proxy.example:3128"
 
 
 def test_the_parser_exposes_every_documented_command() -> None:
@@ -62,6 +66,66 @@ def test_status_prints_the_device_identity_without_the_token(capsys: Any) -> Non
     assert "dev-42" in output
     assert "mac-studio" in output
     assert "super-secret-token" not in output
+
+
+def test_status_says_how_the_gateway_is_dialled(capsys: Any) -> None:
+    save_config(
+        Config(
+            gateway_origin="https://rc.example.com",
+            device_id="dev-42",
+            device_token="tok-42",
+            name="login-node",
+            proxy=PROXY_WITH_PASSWORD,
+        )
+    )
+    assert main(["status"]) == EXIT_OK
+    output = capsys.readouterr().out
+    assert "proxy          http://proxy.example:3128" in output
+    assert "pw@" not in output
+
+    save_config(
+        Config(
+            gateway_origin="https://rc.example.com",
+            device_id="dev-42",
+            device_token="tok-42",
+            name="mac-studio",
+        )
+    )
+    assert main(["status"]) == EXIT_OK
+    assert "proxy          direct" in capsys.readouterr().out
+
+
+def test_enroll_resolves_env_on_this_machine_and_stores_what_it_found(
+    monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    # The daemon's own environment comes from a plist or a unit and names no
+    # proxy, so `env` is this shell's answer, resolved once and written down.
+    async def accept(self: Any, url: str, **kwargs: Any) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"device_id": "dev-9", "device_token": "tok-9"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", accept)
+    monkeypatch.setattr(proxy_module, "getproxies", lambda: {"https": PROXY_WITH_PASSWORD})
+    monkeypatch.setattr(proxy_module, "proxy_bypass", lambda host: False)
+    code = main(
+        [
+            "enroll",
+            "--gateway",
+            "https://rc.example.com",
+            "--pair",
+            "RC-AAAA-BBBB",
+            "--proxy",
+            "env",
+        ]
+    )
+    assert code == EXIT_OK
+    assert load_config().proxy == PROXY_WITH_PASSWORD
+    output = capsys.readouterr().out
+    assert "proxy: http://proxy.example:3128" in output
+    assert "pw@" not in output
 
 
 def test_grok_setup_turns_the_leader_flag_on_and_reports(
@@ -152,7 +216,7 @@ async def test_enroll_stores_the_returned_credentials(monkeypatch: pytest.Monkey
         )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", accept)
-    config = await enroll("https://rc.example.com", "rc-aaaa-bbbb", "laptop", [])
+    config = await enroll("https://rc.example.com", "rc-aaaa-bbbb", "laptop", [], proxy=DIRECT)
     assert sent["url"] == "https://rc.example.com/api/devices/enroll"
     assert sent["json"]["code"] == "RC-AAAA-BBBB"
     assert sent["json"]["client_version"]
@@ -161,9 +225,72 @@ async def test_enroll_stores_the_returned_credentials(monkeypatch: pytest.Monkey
     assert config_path().exists()
 
 
+async def test_enroll_keeps_the_proxy_choice_with_the_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+    real_init = httpx.AsyncClient.__init__
+
+    def record(self: Any, **kwargs: Any) -> None:
+        seen.update(kwargs)
+        real_init(self, **kwargs)
+
+    async def accept(self: Any, url: str, **kwargs: Any) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"device_id": "dev-9", "device_token": "tok-9"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "__init__", record)
+    monkeypatch.setattr(httpx.AsyncClient, "post", accept)
+    config = await enroll(
+        "https://rc.example.com", "RC-AAAA-BBBB", None, [], proxy=PROXY_WITH_PASSWORD
+    )
+    assert seen == {"timeout": ENROLL_TIMEOUT, "trust_env": False, "proxy": PROXY_WITH_PASSWORD}
+    assert config.proxy == PROXY_WITH_PASSWORD
+    assert load_config().proxy == PROXY_WITH_PASSWORD
+
+
+def test_enroll_refuses_a_proxy_it_cannot_dial(capsys: Any) -> None:
+    code = main(
+        [
+            "enroll",
+            "--gateway",
+            "https://rc.example.com",
+            "--pair",
+            "RC-AAAA-BBBB",
+            "--proxy",
+            "socks5://127.0.0.1:1080",
+        ]
+    )
+    assert code == EXIT_FAILURE
+    message = capsys.readouterr().err
+    assert "invalid proxy 'socks5://127.0.0.1:1080'" in message
+    assert "only http and https proxies are supported" in message
+
+
+def test_a_proxy_password_never_reaches_a_message(capsys: Any) -> None:
+    code = main(
+        [
+            "enroll",
+            "--gateway",
+            "https://rc.example.com",
+            "--pair",
+            "RC-AAAA-BBBB",
+            "--proxy",
+            "htp://agent:s3cret@proxy.example:3128",
+        ]
+    )
+    assert code == EXIT_FAILURE
+    message = capsys.readouterr().err
+    assert "s3cret" not in message
+    assert "htp://proxy.example:3128" in message
+
+
 async def test_enroll_refuses_a_remote_plain_http_gateway() -> None:
     with pytest.raises(RcError) as caught:
-        await enroll("http://rc.example.com", "RC-AAAA-BBBB", None, [])
+        await enroll("http://rc.example.com", "RC-AAAA-BBBB", None, [], proxy=DIRECT)
     assert caught.value.code == "bad_request"
 
 

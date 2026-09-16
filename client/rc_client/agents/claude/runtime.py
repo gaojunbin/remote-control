@@ -6,8 +6,9 @@ import asyncio
 import contextlib
 import os
 import re
-import shutil
 from pathlib import Path
+
+from ...channel.paths import path_candidates
 
 VERSION_TIMEOUT = 3.0
 _VERSION_RE = re.compile(r"(?<!\d)(\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?)")
@@ -22,9 +23,7 @@ def candidate_paths() -> list[str]:
     candidates: list[str] = []
     if explicit:
         candidates.append(os.path.expanduser(explicit))
-    found = shutil.which("claude")
-    if found:
-        candidates.append(found)
+    candidates.extend(path_candidates("claude"))
     home = Path.home()
     candidates.extend(
         str(path)
