@@ -63,6 +63,22 @@ xcodebuild -project RemoteControl.xcodeproj -scheme RemoteControl -configuration
   -only-testing:RemoteControlUITests CODE_SIGNING_ALLOWED=NO test
 ```
 
+**The simulator's language.** The UI-test simulator on the development Mac had been left with
+`AppleLanguages` `zh-Hans-SG` (found in round 31), which gives it the Pinyin keyboard by default.
+Tests that type still pass with an English keyboard only; before a full run, keep the simulator
+English:
+
+```sh
+xcrun simctl spawn <udid> defaults write .GlobalPreferences AppleLanguages -array en
+xcrun simctl spawn <udid> defaults write .GlobalPreferences AppleLocale -string en_US
+xcrun simctl shutdown <udid> && xcrun simctl boot <udid>
+```
+
+The interface-language tests pass the app its own `-AppleLanguages`, so they do not need the
+simulator to be Chinese. Separately, XCUITest's `typeText` has been seen to re-send letters when
+the composer's layout changes under it — the slash-command panel appearing on the first `/` — so
+the command tests type the slash first and the name once the panel is up.
+
 ## Running against a gateway
 
 The simulator shares the Mac's network, so sign in with `http://127.0.0.1:8787` against a gateway
@@ -82,7 +98,9 @@ xcrun simctl openurl booted "remotecontrol://session?device=<id>&id=<session_id>
 protocol from typed fixtures and scripts a live turn. It never constructs a transport, so the demo
 cannot reach the network even by accident. Every SwiftUI preview and the XCUITest smoke run on it.
 It answers `/api/config` from memory too, so the served client the Devices screen measures against
-is there in the demo — build `3f2b4a9c…`, version 1.3.2: two demo machines run 1.3.0 and the demo
+is there in the demo — build `3f2b4a9c…`, and for the version whatever this app ships
+(`DemoFixtures.servedClientVersion` is `AppBuild.version`, because a round ships all four components
+on one number, so the demo cannot fall a round behind): two demo machines run 1.3.0 and the demo
 gateway takes `device.update`, reports the device as updating and brings it back on the served
 build and version a few seconds later (A22). It also claims one printed pairing token, which is
 what the scan flow is driven with.
@@ -92,7 +110,11 @@ and in debug builds `--voice-preview`, which swaps in a scripted speech platform
 opens the microphone. The listening state, the full-screen glow included, is screenshotted through
 it. `--voice-level=<0…1>` pins that platform's input level, so the glow can be looked at at rest, at
 conversational speech and at the top of its range without speaking into a simulator; the default is
-0.65, ordinary speech.
+0.65, ordinary speech. `--voice-transcript=long` swaps the one short sentence it speaks for a
+dictation of about a minute, delivered in four partials, which is what the field following the words
+is proved against; anything else is the short sentence. `--field-scroll-probe` puts the message
+field's scroll position beside it as `composer.prompt.scroll`, for the same test. Both are read only
+where the scripted platform is, so a release build honours neither.
 
 `--demo-account` puts the same in-memory gateway *behind* the sign-in form instead of around it:
 `ConnectionStore.offlineDemo(registrationOpen:)` builds the store with the demo as both its HTTP
@@ -149,7 +171,9 @@ under `<name>@<origin>|<username>`, and `adopt(origin:username:)` re-reads them 
 The gateway address is the one global value, because there is nobody to scope it to until someone
 has signed in; the username is filed under the gateway it signed in on. `--reset-state` calls
 `reset()`, which removes every `preference.` and `gateway.` key rather than only the current
-account's, so a run never inherits the shape an earlier one left. `--language=` pins the language
+account's, and empties the draft store (`DraftStore.clearAll()`, first thing in the launch task,
+ahead of the demo opening a session), so a run never inherits the shape — or the half-typed
+words — an earlier one left. `--language=` pins the language
 for the run through `pinLanguage(_:)`, so signing in as an account that stored another language does
 not move the app out from under a test.
 
@@ -353,7 +377,7 @@ nothing at all.
 
 **Update (A22).** `GET /api/config` names the wheel the gateway serves (`client.version`,
 `client.build`, `client.url`) and every device reports the build it runs. The client line reads
-`client 1.3.2 · 3f2b4a9c` while there is nothing to say, and the eight characters give way to the
+`client <version> · 3f2b4a9c` while there is nothing to say, and the eight characters give way to the
 one notice there is:
 
 | `Device` says | The line reads | Update is |
@@ -364,14 +388,16 @@ one notice there is:
 | the gateway's own build | nothing | disabled, "This device runs the build the gateway serves." |
 
 **An update names its version** (`docs/DESIGN.md` § "The three screens"). The notice and the
-confirmation both say what the click would install: "Update available · 1.3.2" on the row, "Update
-macbook-air to 1.3.2? Its service restarts; sessions it drives are stopped." in the alert. The
+confirmation both say what the click would install: "Update available · &lt;version&gt;" on the row,
+"Update macbook-air to &lt;version&gt;? Its service restarts; sessions it drives are stopped." in the
+alert. The
 version is `GatewayConfig.servedVersion`, `client.version` from the same object `servedBuild` is
 read from, and it is nil on a gateway that serves no wheel and on an older one whose config carries
 no version — where the wording falls back to "Update available" and "…to the gateway's client?".
 Both sentences are written once, in `DeviceUpdateText` in `Sources/RCUI/Screens/DeviceLines.swift`,
 so the row and the alert can never name different versions; `RCUIVerify` reads the four strings off
-it. The demo gateway serves 1.3.2 over two machines on 1.3.0, which is what the screenshots show.
+it. The demo gateway serves this app's own version over two machines on 1.3.0, which is what the
+screenshots show.
 
 An offline device and a gateway serving no wheel disable the action too, each with its own reason on
 the accessibility hint. The rule itself is `DeviceUpdate` in `Sources/RCCore/State/DeviceUpdate.swift`,
@@ -846,6 +872,31 @@ rather than trusting a screenshot to be read by hand. Focus is a `Bool` binding 
 ways, so dictation still hands the cursor back to the field and a background tap still ends editing
 through `endEditing(true)`, which the field reports back.
 
+**While dictation runs, the field follows the words** (`docs/DESIGN.md` § "The composer"). The
+composer asks for it with `followsTail:` while the dictation phase is `listening` or `finishing`,
+and never otherwise. Typing needs nothing, because the caret keeps itself visible; dictation writes
+with the keyboard down and no caret to follow, which is why the last line had to be asked for.
+`TailFollowingTextView` takes the tail in `layoutSubviews` rather than where the text is written,
+because that is the first moment
+the view has both the height SwiftUI gave it and the size of the text now in it — a text that has
+just grown past the cap is still one line shorter there, and a scroll aimed at that lands short. It
+sets `contentOffset` rather than scrolling to the end of the text, so nothing in it has an opinion
+about the selection the field gets when it is later tapped, and never animates: the words arrive in
+bursts and an animation would still be running when the next one lands. Scrolling down is the only
+move it makes, so a field already showing its last line is left alone, and so is one that is not
+following. Tapping the field ends dictation through the takeover overlay and leaves the offset
+where the words ended, since nothing moves it once the flag is off.
+
+Two debug launch arguments prove it. `--voice-transcript=long` gives the scripted speech platform a
+dictation of about a minute, which wraps to twice the eight lines the field grows to at any width,
+delivered in four partials the way a long one really lands. `--field-scroll-probe` puts one more
+element beside the field, `composer.prompt.scroll`, whose label is `<offset>/<end>` in whole points: a UI test cannot ask a text view where it is scrolled to, because `value` on one
+reports the whole draft whether the field is showing its first line or its last, and equal numbers
+are what "the last line is the one in view" looks like from outside.
+`testALongDictationKeepsItsLastLineInView` types eight lines to measure what eight lines are worth,
+takes them back out, dictates the long one and holds the field's height and its scroll position
+against that — before and after Done.
+
 **The `+` menu presents nothing itself.** Files, Camera and Photos are three buttons that set a
 flag; every presenter — the file importer, the camera cover and `.photosPicker` — sits on the
 composer beside the others. Photos used to be a `PhotosPicker` built inside the `Menu`, and on a
@@ -1284,7 +1335,7 @@ the checks and both screenshots are driven from.
 
 `AppsInfo` is decoded from `GET /api/health`, `GET /api/config` and `hello` alike — the health call
 answers before sign-in, so a too-old app is stopped at the login screen — and `AppVersion` compares
-`CFBundleShortVersionString` (`AppBuild.version`, falling back to "1.3.2" without a bundle, which
+`CFBundleShortVersionString` (`AppBuild.version`, falling back to "1.3.3" without a bundle, which
 must match `MARKETING_VERSION` in `project.yml`) with `apps.ios.minimum_version` as
 `major.minor.patch`. The first source to say "below" sets `ConnectionStore.updateRequired`, and
 `UpdateRequiredView` then covers everything: "Update required", the app's version and the gateway's

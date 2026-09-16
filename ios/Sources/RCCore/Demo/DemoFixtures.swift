@@ -336,8 +336,10 @@ public enum DemoFixtures {
     public static let servedBuild = "3f2b4a9c1d8e7f60a5b4c3d2e1f0918273645a5b6c7d8e9f0a1b2c3d4e5f6a7b"
     public static let outdatedBuild = "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d"
     /// The versions those two builds are, so the demo's rows and its Update
-    /// confirmation name a client the way a real gateway would.
-    public static let servedClientVersion = "1.3.2"
+    /// confirmation name a client the way a real gateway would. A round ships
+    /// all four components on one version, so what the demo gateway serves is
+    /// whatever this app is: the demo cannot fall a round behind.
+    public static let servedClientVersion = AppBuild.version
     public static let outdatedClientVersion = "1.3.0"
 
     public static var devices: [Device] {

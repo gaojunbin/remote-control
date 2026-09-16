@@ -13,7 +13,7 @@ public enum SpeechBackend {
         -> (platform: any SpeechInputPlatform, isScripted: Bool) {
         #if DEBUG
         if arguments.contains("--voice-preview") {
-            return (ScriptedSpeechInput(level: scriptedLevel(arguments)), true)
+            return (scriptedPlatform(arguments), true)
         }
         #endif
         if settings.voiceBackend == .gateway, connection.stt.enabled,
@@ -23,17 +23,36 @@ public enum SpeechBackend {
         return (SystemSpeechRecognizer(localeIdentifier: settings.speechLocaleIdentifier), false)
     }
 
+    /// The scripted platform as the launch arguments asked for it. Both of the
+    /// arguments below are read only where that platform is, which is a debug
+    /// build behind `--voice-preview`.
+    ///
+    /// `--voice-transcript=long` speaks a dictation that outruns the field,
+    /// delivered in four partials the way a long one really lands, so a UI test
+    /// can watch the field follow the words. Anything else is the short
+    /// sentence every other test and preview hears.
+    static func scriptedPlatform(_ arguments: [String]) -> ScriptedSpeechInput {
+        let level = scriptedLevel(arguments)
+        guard value(of: "--voice-transcript=", in: arguments) == "long" else {
+            return ScriptedSpeechInput(level: level)
+        }
+        return ScriptedSpeechInput(transcript: ScriptedSpeechInput.longTranscript,
+                                   level: level, partials: 4)
+    }
+
     /// `--voice-level=0.5` holds the scripted platform at one input level, so
     /// the glow can be screenshotted at rest, at conversational speech and at
-    /// the top of its range. It is read only where the scripted platform is,
-    /// which is a debug build behind `--voice-preview`.
+    /// the top of its range.
     static func scriptedLevel(_ arguments: [String]) -> Double {
-        let prefix = "--voice-level="
-        guard let argument = arguments.first(where: { $0.hasPrefix(prefix) }),
-              let value = Double(argument.dropFirst(prefix.count)), value.isFinite else {
+        guard let value = value(of: "--voice-level=", in: arguments),
+              let level = Double(value), level.isFinite else {
             return ScriptedSpeechInput.defaultLevel
         }
-        return min(1, max(0, value))
+        return min(1, max(0, level))
+    }
+
+    private static func value(of prefix: String, in arguments: [String]) -> String? {
+        arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
     }
 }
 

@@ -25,13 +25,21 @@ public struct GrowingTextField: View {
     @Binding var text: String
     let isFocused: Binding<Bool>?
     let identifier: String?
+    /// Whether something outside is writing into the field and the last line
+    /// is the one to keep in view — `docs/DESIGN.md` § "The composer" →
+    /// **While dictation runs, the field follows the words**. Off for typing,
+    /// where the caret keeps itself visible.
+    let followsTail: Bool
+    @State private var scroll = FieldScrollProbe.report(offset: 0, end: 0)
 
     public init(_ placeholder: String, text: Binding<String>,
-                isFocused: Binding<Bool>? = nil, identifier: String? = nil) {
+                isFocused: Binding<Bool>? = nil, identifier: String? = nil,
+                followsTail: Bool = false) {
         self.placeholder = placeholder
         _text = text
         self.isFocused = isFocused
         self.identifier = identifier
+        self.followsTail = followsTail
     }
 
     public var body: some View {
@@ -47,13 +55,34 @@ public struct GrowingTextField: View {
                         .accessibilityHidden(true)
                 }
             }
+            .overlay(alignment: .bottomTrailing) { scrollProbe }
+    }
+
+    /// The scroll position where a UI test can read it, and nowhere else:
+    /// `FieldScrollProbe.isOn` is false in every build that was not launched
+    /// by a test asking for it.
+    @ViewBuilder
+    private var scrollProbe: some View {
+        if FieldScrollProbe.isOn, let identifier {
+            // A point tall and drawn in nothing: the element is there to be
+            // read, and a screenshot taken through the probe is the screenshot
+            // without it.
+            Text(verbatim: scroll)
+                .font(.system(size: 1))
+                .foregroundStyle(.clear)
+                .fixedSize()
+                .allowsHitTesting(false)
+                .accessibilityIdentifier("\(identifier).scroll")
+        }
     }
 
     @ViewBuilder
     private var field: some View {
         #if os(iOS)
         ScrollingTextView(placeholder: placeholder, text: $text,
-                          isFocused: isFocused, identifier: identifier)
+                          isFocused: isFocused, identifier: identifier,
+                          followsTail: followsTail,
+                          scroll: FieldScrollProbe.isOn ? $scroll : nil)
         #else
         TextField("", text: $text, axis: .vertical)
             .lineLimit(ComposerLayout.growth)
@@ -77,6 +106,8 @@ private struct ScrollingTextView: UIViewRepresentable {
     @Binding var text: String
     let isFocused: Binding<Bool>?
     let identifier: String?
+    let followsTail: Bool
+    let scroll: Binding<String>?
 
     @Environment(\.isEnabled) private var isEnabled
 
@@ -84,8 +115,8 @@ private struct ScrollingTextView: UIViewRepresentable {
         Coordinator(text: $text, isFocused: isFocused)
     }
 
-    func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
+    func makeUIView(context: Context) -> TailFollowingTextView {
+        let view = TailFollowingTextView()
         view.delegate = context.coordinator
         view.backgroundColor = .clear
         // The rounded surface and its padding belong to the composer, so the
@@ -111,16 +142,34 @@ private struct ScrollingTextView: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ view: UITextView, context: Context) {
-        if view.text != text { view.text = text }
+    func updateUIView(_ view: TailFollowingTextView, context: Context) {
+        let changed = view.text != text
+        if changed { view.text = text }
         if view.accessibilityLabel != placeholder { view.accessibilityLabel = placeholder }
         view.isEditable = isEnabled
         view.isSelectable = isEnabled
+        view.followsTail = followsTail
+        view.onScroll = report
         applyScrolling(to: view, coordinator: context.coordinator)
+        // The tail is taken in `layoutSubviews`, once the view has the height
+        // SwiftUI gave it: a text that just grew past the cap is still the
+        // height of one line ago here, and a scroll aimed at that lands short.
+        if changed, followsTail { view.setNeedsLayout() }
         applyFocus(to: view)
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView,
+    /// Hands the field's scroll position to the probe element beside it, on
+    /// the turn after this one: the position is read while SwiftUI is laying
+    /// the field out, and writing state inside that pass is undefined.
+    private var report: ((String) -> Void)? {
+        guard let scroll else { return nil }
+        return { position in
+            guard scroll.wrappedValue != position else { return }
+            DispatchQueue.main.async { scroll.wrappedValue = position }
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: TailFollowingTextView,
                       context: Context) -> CGSize? {
         let offered = proposal.width ?? uiView.bounds.width
         guard offered > 0, offered.isFinite else { return nil }
@@ -177,6 +226,7 @@ private struct ScrollingTextView: UIViewRepresentable {
             self.isFocused = isFocused
         }
 
+
         /// A text view laid out exactly like the field, for asking what a
         /// given number of lines is worth in points.
         func ruler(like view: UITextView) -> TextRuler {
@@ -197,6 +247,36 @@ private struct ScrollingTextView: UIViewRepresentable {
             guard let isFocused, isFocused.wrappedValue else { return }
             isFocused.wrappedValue = false
         }
+    }
+}
+
+/// The text view `GrowingTextField` draws, which can be asked to keep its last
+/// line in view while something outside is filling it.
+///
+/// The tail is taken in `layoutSubviews` rather than where the text is written,
+/// because that is the first moment the view has both the height SwiftUI gave
+/// it and the size of the text now in it. The offset is set rather than the end
+/// of the text scrolled to, so nothing here has an opinion about the selection
+/// the field gets when it is later tapped, and it is never animated: the words
+/// arrive in bursts and an animation would still be running when the next one
+/// lands. Scrolling down is the only move it makes — a field already showing
+/// its last line is left alone, and so is one that is not following at all.
+final class TailFollowingTextView: UITextView {
+    var followsTail = false
+    var onScroll: ((String) -> Void)?
+
+    /// How far the text can move inside the field: zero until it is longer
+    /// than the field is tall.
+    private var end: CGFloat {
+        contentSize.height - bounds.height + adjustedContentInset.bottom
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if followsTail, isScrollEnabled, end > contentOffset.y + 0.5 {
+            setContentOffset(CGPoint(x: 0, y: end), animated: false)
+        }
+        onScroll?(FieldScrollProbe.report(offset: contentOffset.y, end: end))
     }
 }
 

@@ -759,6 +759,26 @@ func run() async -> (passed: Int, failures: [String]) {
                                              arguments: ["--voice-preview"])
     #if DEBUG
     expect(scriptedBackend.isScripted, "the scripted platform needs an explicit launch argument")
+
+    // `docs/DESIGN.md` § "The composer" → **While dictation runs, the field
+    // follows the words**: the UI test that watches the field follow needs a
+    // dictation longer than the eight lines it grows to, arriving the way a
+    // long one really does rather than all at once.
+    let longBackend = SpeechBackend.make(settings: settings, connection: model.connection,
+                                         arguments: ["--voice-preview", "--voice-transcript=long"])
+    let longDictation = VoiceInputController(platform: longBackend.platform)
+    longDictation.start()
+    await settle { !longDictation.transcript.isEmpty }
+    let firstPartial = longDictation.transcript
+    expect(!firstPartial.isEmpty, "a long dictation starts on its first partial")
+    expect(firstPartial.count < ScriptedSpeechInput.longTranscript.count,
+           "which is a part of what was said rather than the whole of it")
+    await settle { longDictation.transcript.count > firstPartial.count }
+    expect(longDictation.transcript.count > firstPartial.count,
+           "and the rest of it arrives a partial at a time")
+    expect(ScriptedSpeechInput.longTranscript.count > 600,
+           "what is finally said is far past the eight lines the field grows to")
+    longDictation.cancel()
     #else
     expect(!scriptedBackend.isScripted, "release builds have no scripted speech platform")
     #endif
@@ -788,12 +808,16 @@ func run() async -> (passed: Int, failures: [String]) {
     equal(model.connection.config.servedVersion, DemoFixtures.servedClientVersion,
           "and the version that build is")
     equal(DeviceUpdateText.notice(.available, servedVersion: model.connection.config.servedVersion),
-          "Update available · 1.3.2", "the notice names the version it would install")
+          "Update available · \(DemoFixtures.servedClientVersion)",
+          "the notice names the version it would install")
     equal(DeviceUpdateText.notice(.available, servedVersion: nil), "Update available",
           "and says only that there is one when the gateway names no version")
     equal(DeviceUpdateText.confirmation(name: "macbook-air",
                                         servedVersion: model.connection.config.servedVersion),
-          "Update macbook-air to 1.3.2? Its service restarts; sessions it drives are stopped.",
+          """
+          Update macbook-air to \(DemoFixtures.servedClientVersion)? \
+          Its service restarts; sessions it drives are stopped.
+          """,
           "the confirmation names the machine and the version")
     equal(DeviceUpdateText.confirmation(name: "macbook-air", servedVersion: nil),
           "Update macbook-air to the gateway's client? Its service restarts; sessions it drives are stopped.",
@@ -1314,6 +1338,28 @@ func run() async -> (passed: Int, failures: [String]) {
     }
     try? FileManager.default.removeItem(at: draftDirectory)
 
+    // MARK: - `--reset-state` forgets every draft
+    //
+    // A UI test that typed into a session and never sent left its words in the
+    // draft file, and every later launch opened that session with them already
+    // in the field (round 31 saw "//usageusage" grow across runs). The reset a
+    // test launches with has to take the drafts along with the settings.
+    let staleDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("rc-ui-verify-stale-drafts-\(UUID().uuidString)")
+    let staleDrafts = DraftStore(directory: staleDirectory)
+    await staleDrafts.setDraft("/usage", account: "left|behind", key: "d/s")
+    let resetting = AppModel(connection: .offlineDemo(),
+                             settings: SettingsStore(defaults: freshDefaults()),
+                             drafts: staleDrafts, arguments: ["--reset-state"])
+    _ = resetting
+    var remaining = await staleDrafts.draft(account: "left|behind", key: "d/s")
+    for _ in 0..<50 where !remaining.isEmpty {
+        try? await Task.sleep(for: .milliseconds(50))
+        remaining = await staleDrafts.draft(account: "left|behind", key: "d/s")
+    }
+    equal(remaining, "", "a launch with --reset-state forgets the drafts a previous run left")
+    try? FileManager.default.removeItem(at: staleDirectory)
+
     // MARK: - The privacy strings and the version the app ships
     //
     // Every system resource the app reaches for needs a purpose string or iOS
@@ -1330,9 +1376,9 @@ func run() async -> (passed: Int, failures: [String]) {
                     "NSSpeechRecognitionUsageDescription", "NSLocalNetworkUsageDescription"] {
             expect(project.contains("INFOPLIST_KEY_\(key):"), "the app declares \(key)")
         }
-        expect(project.contains("MARKETING_VERSION: '1.3.2'"),
-               "the app ships the version this round tagged")
-        expect(project.contains("CURRENT_PROJECT_VERSION: 4"),
+        expect(project.contains("MARKETING_VERSION: '\(AppBuild.shipped)'"),
+               "the project ships the version this source tree carries")
+        expect(project.contains("CURRENT_PROJECT_VERSION: 5"),
                "and a build number TestFlight can tell apart")
     } else {
         expect(false, "the check can read project.yml")

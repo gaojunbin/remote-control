@@ -41,6 +41,14 @@ public actor DraftStore {
         try? FileManager.default.removeItem(at: fileURL(account: account))
     }
 
+    /// Every account's drafts, gone: what `--reset-state` asks for. A UI test
+    /// that typed into a session and did not send left its words on disk, and
+    /// every later launch opened that session with them already in the field.
+    public func clearAll() {
+        cache = [:]
+        try? FileManager.default.removeItem(at: directory)
+    }
+
     /// Forget the drafts of sessions this account no longer has.
     ///
     /// The `hello` snapshot is the whole list of what exists, so a key it does

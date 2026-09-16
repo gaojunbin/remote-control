@@ -94,8 +94,15 @@ public final class AppModel {
         self.connection.onSessionTransition = { [weak self] previous, current in
             self?.announceTurn(previous: previous, current: current)
         }
-        if entersDemo {
-            launch = Task { await self.enterDemo() }
+        // Drafts are the one piece of state an actor holds, so the reset of
+        // them is the first thing the launch task does, ahead of the demo that
+        // would otherwise open a session with a previous run's words in it.
+        let clearsDrafts = arguments.contains("--reset-state")
+        if entersDemo || clearsDrafts {
+            launch = Task {
+                if clearsDrafts { await self.drafts.clearAll() }
+                if entersDemo { await self.enterDemo() }
+            }
         }
     }
 

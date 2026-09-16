@@ -41,12 +41,16 @@ struct DeviceUpdateTests {
 
     @Test("The config names the version an update would install, or nothing at all")
     func servedVersion() throws {
+        // The gateway's own version and the client's differ here on purpose:
+        // `servedVersion` is the wheel's, and a decoder that read the outer
+        // one would pass on a config where the two agree.
         let json = """
-        {"public_origin": "https://rc.example.com", "version": "1.3.2",
-         "client": {"version": "1.3.2", "build": "\(served)", "url": "/dist/rc_client-latest.whl"}}
+        {"public_origin": "https://rc.example.com", "version": "2.0.0",
+         "client": {"version": "\(AppBuild.shipped)", "build": "\(served)",
+                    "url": "/dist/rc_client-latest.whl"}}
         """
         let config = try JSONDecoder().decode(GatewayConfig.self, from: Data(json.utf8))
-        #expect(config.servedVersion == "1.3.2")
+        #expect(config.servedVersion == AppBuild.shipped)
         #expect(GatewayConfig.empty.servedVersion == nil)
 
         // An older gateway answers with a build and no version; the screens

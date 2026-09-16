@@ -34,12 +34,18 @@ public struct AppVersion: Comparable, Sendable, Hashable, CustomStringConvertibl
 
 /// This build's own version, as the gateway's minimum is measured against it.
 public enum AppBuild {
+    /// The version this source tree ships. `ios/project.yml` sets the same
+    /// number as `MARKETING_VERSION` and `RCUIVerify` holds the two together,
+    /// so one edit here and one there is the whole version bump. Everything
+    /// with no app bundle to ask reads it: the check suites, the UI test
+    /// runner, and the demo gateway, whose served client is this app's own
+    /// version because a round ships all four components together.
+    public static let shipped = "1.3.3"
+
     /// `CFBundleShortVersionString`, which the Xcode project fills from
-    /// `MARKETING_VERSION`. The check suites run as plain executables with no
-    /// app bundle to read, so they fall back to the number this source tree
-    /// carries — the same one `ios/project.yml` sets.
+    /// `MARKETING_VERSION`, and `shipped` wherever there is no app bundle.
     public static let version: String =
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.3.2"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? shipped
 }
 
 /// Amendment A31: this build is older than the gateway will talk to.

@@ -31,8 +31,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.junbingao.remotecontrol
         CODE_SIGN_ENTITLEMENTS: App/RemoteControl.entitlements
-        MARKETING_VERSION: '1.3.2'
-        CURRENT_PROJECT_VERSION: 4
+        MARKETING_VERSION: '1.3.3'
+        CURRENT_PROJECT_VERSION: 5
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: App/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: Remote Control
@@ -55,6 +55,10 @@ targets:
     sources: [UITests]
     dependencies:
       - target: RemoteControl
+      # The runner names the version the app ships and the client the demo
+      # gateway serves, both of which are `AppBuild.shipped`.
+      - package: RemoteControlIOS
+        product: RCCore
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

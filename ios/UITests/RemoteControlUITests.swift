@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import RCCore
 
 /// A smoke test against the offline demo. It never reaches the network and
 /// never touches the microphone: dictation is driven by a scripted platform
@@ -215,6 +216,58 @@ final class RemoteControlUITests: XCTestCase {
                       "the draft the second dictation started from is still there")
     }
 
+    /// `docs/DESIGN.md` § "The composer" → **While dictation runs, the field
+    /// follows the words**. A dictation longer than the field's eight lines used
+    /// to leave it on its first screen until Done, so nothing that had just been
+    /// recognised could be read. Now the last line stays in view while the words
+    /// arrive, and Done leaves the field where they ended.
+    func testALongDictationKeepsItsLastLineInView() {
+        app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--demo", "--reset-state", "--voice-preview",
+                               "--voice-transcript=long", "--field-scroll-probe"]
+        app.launch()
+        openLiveSession()
+        XCTAssertTrue(promptField().waitForExistence(timeout: 15))
+
+        // What eight lines are worth, typed the way the cap is measured
+        // elsewhere and then taken back out, so dictation starts from an empty
+        // draft and the height it settles at can be held against this one. The
+        // first keystroke is typed by itself and waited for: the rest of a
+        // burst sent while the keyboard is still coming up can be dropped, and
+        // a baseline one line short would pass for a field that grew too far.
+        promptField().tap()
+        promptField().typeText("1")
+        XCTAssertTrue(waitFor { (promptField().value as? String ?? "") == "1" },
+                      "the field has the keyboard and takes what is typed")
+        promptField().typeText("\n2\n3\n4\n5\n6\n7\n8")
+        XCTAssertEqual((promptField().value as? String ?? "").filter(\.isNewline).count, 7,
+                       "eight lines stand in the field")
+        let eightLines = promptField().frame.height
+        promptField().typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 15))
+        XCTAssertTrue(waitFor { (promptField().value as? String ?? "").isEmpty },
+                      "the draft is empty again")
+        transcript().coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).tap()
+        XCTAssertTrue(waitForNoKeyboard(), "and the keyboard is down, as it is for dictation")
+
+        app.buttons["composer.voice"].tap()
+        let done = app.buttons["voice.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 15), "dictation is listening")
+        XCTAssertTrue(waitFor(timeout: 20) {
+            (promptField().value as? String ?? "").contains("tomorrow morning")
+        }, "the scripted dictation reaches the draft, every partial of it")
+
+        XCTAssertEqual(promptField().frame.height, eightLines, accuracy: 1,
+                       "the field grew to eight lines and no further")
+        XCTAssertTrue(waitFor { fieldShowsItsLastLine() },
+                      "and it is scrolled to the words that just arrived, not held on the first")
+        attach(name: "ios-round31-dictation-follows")
+
+        done.tap()
+        XCTAssertTrue(waitFor(timeout: 15) { !done.exists }, "Done ends the dictation")
+        XCTAssertTrue(fieldShowsItsLastLine(),
+                      "and leaves the field where the words ended")
+    }
+
     // MARK: - Reading position and the keyboard
 
     /// A tap that lands anywhere but the message field puts the keyboard away,
@@ -417,6 +470,25 @@ final class RemoteControlUITests: XCTestCase {
     private func promptField() -> XCUIElement {
         let view = app.textViews["composer.prompt"].firstMatch
         return view.exists ? view : app.textFields["composer.prompt"].firstMatch
+    }
+
+    /// Where the message field is scrolled, as "<offset>/<end>" in points.
+    /// `value` on a text view reports the whole draft whether the field is
+    /// showing its first line or its last, so the position comes from the one
+    /// extra element `--field-scroll-probe` puts beside the field.
+    private func fieldScroll() -> (offset: Double, end: Double)? {
+        let probe = app.descendants(matching: .any)["composer.prompt.scroll"].firstMatch
+        guard probe.exists else { return nil }
+        let numbers = probe.label.split(separator: "/").compactMap { Double($0) }
+        guard numbers.count == 2 else { return nil }
+        return (numbers[0], numbers[1])
+    }
+
+    /// Whether the last line of the draft is the one in view: there is more
+    /// text than the field is tall, and the text has moved all the way down.
+    private func fieldShowsItsLastLine() -> Bool {
+        guard let scroll = fieldScroll(), scroll.end > 1 else { return false }
+        return abs(scroll.offset - scroll.end) < 2
     }
 
     /// Amendment A10: an attached terminal session takes a message from here and
@@ -1428,7 +1500,7 @@ final class RemoteControlUITests: XCTestCase {
         openDevices()
         let row = deviceRow(DemoDevices.laptop)
         XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
-        XCTAssertTrue(app.staticTexts["Update available · 1.3.2"].waitForExistence(timeout: 15),
+        XCTAssertTrue(app.staticTexts["Update available · \(AppBuild.shipped)"].waitForExistence(timeout: 15),
                       "a device on an older build says what it would install")
         attach(name: "61-device-update-available")
 
@@ -1440,7 +1512,7 @@ final class RemoteControlUITests: XCTestCase {
         let alert = app.alerts["Update device"]
         XCTAssertTrue(alert.waitForExistence(timeout: 10), "which confirms before it acts")
         XCTAssertTrue(alert.staticTexts.containing(
-            NSPredicate(format: "label CONTAINS %@", "to 1.3.2?")).firstMatch.exists,
+            NSPredicate(format: "label CONTAINS %@", "to \(AppBuild.shipped)?")).firstMatch.exists,
                       "and names the version it would land on")
         XCTAssertTrue(alert.staticTexts.containing(
             NSPredicate(format: "label CONTAINS %@", "service restarts")).firstMatch.exists,
@@ -2177,7 +2249,7 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 20), "the Settings tab is there")
         settings.tap()
 
-        let version = app.staticTexts["1.3.2"]
+        let version = app.staticTexts[AppBuild.shipped]
         XCTAssertTrue(scrollDown(to: version), "the About group names this build")
         attach(name: "ios-about-version")
     }

@@ -55,6 +55,21 @@ struct PersistenceTests {
         #expect(await reloaded.draft(account: "a|admin", key: "d/other") == "")
     }
 
+    @Test("clearAll forgets every account's drafts, on disk as well")
+    func clearAllForgetsEveryDraft() async {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = DraftStore(directory: directory)
+        await store.setDraft("/usage", account: "a|admin", key: "d/s")
+        await store.setDraft("other words", account: "b|member", key: "d/t")
+        await store.clearAll()
+        #expect(await store.draft(account: "a|admin", key: "d/s") == "")
+        #expect(await store.draft(account: "b|member", key: "d/t") == "")
+        let reloaded = DraftStore(directory: directory)
+        #expect(await reloaded.draft(account: "a|admin", key: "d/s") == "",
+                "and a store reading the same directory finds nothing")
+    }
+
     @Test("A draft goes when the session it belongs to is no longer there")
     func draftsFollowTheSessionList() async {
         let directory = temporaryDirectory()

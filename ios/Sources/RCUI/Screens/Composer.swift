@@ -133,7 +133,8 @@ struct Composer: View {
     private var promptField: some View {
         @Bindable var chat = chat
         return GrowingTextField(placeholder, text: $chat.draft, isFocused: $isWriting,
-                                identifier: "composer.prompt")
+                                identifier: "composer.prompt",
+                                followsTail: dictationIsWriting)
             // Without this the bar takes its height from what is left over and
             // squeezes the field back to one scrolling line; the transcript is
             // the view that should give way, not the thing being written.
@@ -273,6 +274,17 @@ struct Composer: View {
     }
 
     private var isDictating: Bool { voice?.voice.phase.isBusy == true }
+
+    /// `docs/DESIGN.md` § "The composer" → **While dictation runs, the field
+    /// follows the words**: the field keeps its last line in view for as long
+    /// as words are landing in it — while listening and through the finishing
+    /// spinner — and never while it is being typed in, where the caret already
+    /// keeps itself visible. Asking for the microphone writes nothing yet, so
+    /// it is not one of the two.
+    private var dictationIsWriting: Bool {
+        guard let phase = voice?.voice.phase else { return false }
+        return phase == .listening || phase == .finishing
+    }
 
     /// A control that cannot act is not shown at all. A terminal session takes
     /// no bytes, and neither does an attachment whose device did not report
