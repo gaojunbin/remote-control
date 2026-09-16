@@ -122,6 +122,31 @@ scan over a black frame, and "Hold steady" is said only while a camera is actual
 Below 1024 px the web sidebar collapses into the Sessions page and the chat runs full width, which
 is the layout iOS uses natively.
 
+### The device row
+
+A device's row on the Devices screen said too much and separated too little (owner's ruling,
+2026-09-17): the hostname repeated the name one line down, the architecture named a chip nobody
+chooses a device by, each agent's logo came with its name, and with the separators gone two
+devices ran into each other. The row now reads, top to bottom:
+
+- **One computer glyph at the leading edge**, the same for every device whatever its platform —
+  `desktopcomputer` on iOS, the matching thin-line outline on the web — in the secondary ink and
+  sized to the title. The app cannot tell a laptop from a desktop, and one honest glyph beats a
+  wrong guess. It is the anchor the eye finds first, and what keeps two devices apart now that
+  nothing is drawn between them. The online dot leaves the name and sits with the word it belongs
+  to, on the status line.
+- **The name, once.** The title is the device's name exactly as it reported it; nothing below
+  repeats it. The hostname — which on a machine set up by `install.sh` is the name — and the
+  architecture are gone from the row. They stay on the device's own page, in one line under its
+  title, which is where someone goes to check them.
+- **The status line**: the dot, "online" or "offline", and the platform as a word — "macOS",
+  "Linux" — never the raw id. What each app already puts beside it (latency or last seen, the
+  session count on the web) stays where it is.
+- **The agents as logos alone**, evenly spaced, no names and no versions; each logo carries the
+  agent's name as its accessible label — `accessibilityLabel` on iOS, `aria-label` and a tooltip
+  on the web — so the row still reads aloud. Versions live on the device page's agent cards.
+- The client line, the update notice and the row menu are unchanged.
+
 ## Accounts
 
 **One gateway, many people, nothing shared.** Every person on a gateway has an account (protocol
