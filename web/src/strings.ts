@@ -495,7 +495,7 @@ export const en = {
     dotTone: {
       working: 'Working',
       waiting: 'Waiting for you',
-      live: 'Live',
+      live: 'Done',
       off: 'Off',
       failed: 'Failed',
     } as Record<string, string>,

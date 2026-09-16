@@ -516,8 +516,14 @@ Nothing of this reaches the gateway.
 - **A session's status dot** is toned by `dotTone(state, control, online)` in
   `src/components/dotTone.ts`, never by the state alone: a finished turn on a live session and a
   session whose CLI exited both report `idle`. The five tones and when each applies are the table in
-  `docs/DESIGN.md`; `tests/dotTone.test.ts` walks all of it. `OnlineDot`, the device's own dot, is
-  not part of it.
+  `docs/DESIGN.md`; `tests/dotTone.test.ts` walks all of it. The looks are five rules in
+  `src/components/ui.css`: `working` is a still green, `waiting` an amber that pulses, `live` a
+  still amber, `off` grey and `failed` red — green says the agent is working and needs nobody, amber
+  says there is something for you, and only `waiting` animates, which the reduced-motion block
+  stops. `tests/StatusDot.test.tsx` reads those rules and the class each tone renders. The tooltip
+  names the tone, so `live` reads "Done". `OnlineDot`, the device's own dot, is not part of it: it
+  is green when the device is online, a grey ring when it is not, and pulses only while the device
+  updates itself.
 - **`control: "shared"`** (amendments A10 and A11) is a live terminal session the device is
   attached to. It behaves like `remote`: the composer, the queue and approvals all work. What the
   attachment cannot carry is hidden rather than disabled, and "Take over" never appears, because

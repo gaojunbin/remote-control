@@ -283,20 +283,22 @@
 
 /*
  * A session's dot, one tone per line of the table in docs/DESIGN.md. The tone
- * is picked by `dotTone` in dotTone.ts, never by the markup. Only `working`
- * moves: a blocked session has to stay distinct from a running one at a glance.
+ * is picked by `dotTone` in dotTone.ts, never by the markup. Green means
+ * working — leave it; amber means there is something for you, a finished turn
+ * to read or a question to answer. Only `waiting` moves, so the one state that
+ * needs the person is the one that asks for a glance.
  */
 .dot.working {
   background: var(--running);
-  animation: rc-pulse 1.8s var(--ease) infinite;
 }
 
 .dot.waiting {
   background: var(--attention);
+  animation: rc-pulse 1.8s var(--ease) infinite;
 }
 
 .dot.live {
-  background: var(--running);
+  background: var(--attention);
 }
 
 .dot.off {
@@ -319,7 +321,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .dot.pulse,
-  .dot.working {
+  .dot.waiting {
     animation: none;
   }
 }

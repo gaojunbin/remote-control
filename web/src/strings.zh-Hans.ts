@@ -460,7 +460,7 @@ export const zhHans: StringTable = {
     dotTone: {
       working: '工作中',
       waiting: '等待你',
-      live: '实时',
+      live: '已完成',
       off: '关闭',
       failed: '失败',
     },

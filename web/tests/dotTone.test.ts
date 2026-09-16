@@ -59,7 +59,7 @@ describe('dotTone', () => {
   });
 
   it('marks a blocked session differently from a running one', () => {
-    // `working` is the only tone that animates, so the two must not share it.
+    // `waiting` is the one tone that animates, so the two must not share it.
     expect(dotTone('running', 'remote', true)).toBe('working');
     expect(dotTone('needs_input', 'remote', true)).toBe('waiting');
     expect(dotTone('needs_approval', 'remote', true)).toBe('waiting');
