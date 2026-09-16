@@ -1072,6 +1072,17 @@ final class RemoteControlUITests: XCTestCase {
         return element.exists && element.isHittable
     }
 
+    /// Scroll a transcript back towards its start until an element is in the
+    /// tree. A lazily laid-out row above the visible part does not exist until
+    /// it is scrolled into view; each step first gives the rows time to load.
+    private func scrollUp(to element: XCUIElement, in view: XCUIElement, swipes: Int = 8) -> Bool {
+        for _ in 0..<swipes {
+            if element.waitForExistence(timeout: 2) { return true }
+            view.swipeDown()
+        }
+        return element.exists
+    }
+
     /// `docs/DESIGN.md` § "Three tabs, one order, one landing rule": Devices,
     /// Sessions, Settings, in that order on both apps. The demo account has
     /// machines, so the app opens on the conversation.
@@ -2004,8 +2015,14 @@ final class RemoteControlUITests: XCTestCase {
         chooseDetailedTranscript()
         openSharedSession()
 
+        let transcript = app.scrollViews["chat.transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 20), "the conversation is open again")
         let row = app.descendants(matching: .any)["chat.message.agent"].firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 20),
+        // The transcript opens at its newest message and lays its rows out
+        // lazily, and the report sits near the top; whether it is on screen when
+        // the conversation opens depends on how much the demo has said below it
+        // by then, so it is scrolled into view rather than waited for.
+        XCTAssertTrue(scrollUp(to: row, in: transcript),
                       "Detailed draws it with the agent's other workings")
         XCTAssertTrue(row.label.contains("From another agent"),
                       "and never says the person said it")
@@ -2039,6 +2056,123 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(app.buttons["update.open"].exists, "with somewhere to get the newer build")
         XCTAssertTrue(app.buttons["update.signOut"].exists, "and a way to another gateway")
         attach(name: "ios-update-required")
+    }
+
+    // MARK: - Round 29
+
+    /// `docs/DESIGN.md` § "Status vocabulary" → **A notification opens its
+    /// session in place**: a link for session B while session A is open
+    /// replaces A with B, Back returns to the list rather than to A, and B is
+    /// streaming with its composer the moment it is on screen.
+    ///
+    /// The conversation B replaced used to close B's own store on its way out —
+    /// SwiftUI delivers the covered view's `onDisappear` after the new view's
+    /// task — and what was left on screen was a spinner with no composer under
+    /// it that no amount of waiting would resolve.
+    func testALinkOpensItsSessionOverAnOpenOneAndKeepsItsComposer() {
+        app.launch()
+        openLiveSession()
+        XCTAssertTrue(promptField().waitForExistence(timeout: 20),
+                      "the first conversation is open")
+
+        XCUIDevice.shared.system.open(
+            URL(string: "remotecontrol://session?device=demo-mac-studio&id=demo-session-vite")!)
+
+        XCTAssertTrue(waitFor(timeout: 30) { app.staticTexts["chat.status"].exists
+                                             || app.buttons["chat.takeover"].exists
+                                             || promptField().exists },
+                      "the linked session is on screen")
+        XCTAssertTrue(promptField().waitForExistence(timeout: 20),
+                      "with its composer, not a spinner that waits for a tap")
+        attach(name: "ios-link-opens-in-place")
+
+        // One conversation on the stack, so Back is the list.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 15),
+                      "and Back returns to the list, not to the session it replaced")
+    }
+
+    /// `docs/DESIGN.md` § "The composer" → **Attachments are named for what
+    /// they are**: "The Camera item is offered only where a camera exists."
+    /// A simulator has none, and presenting the picker there raises rather than
+    /// refusing.
+    func testAttachMenuOffersNoCameraWhereThereIsNone() {
+        app.launch()
+        openLiveSession()
+
+        let attach = app.buttons["composer.attach"]
+        XCTAssertTrue(attach.waitForExistence(timeout: 20), "the composer offers attachments")
+        attach.tap()
+
+        XCTAssertTrue(app.buttons["Files"].waitForExistence(timeout: 10), "the menu offers Files")
+        XCTAssertTrue(app.buttons["Photos"].exists, "and Photos")
+        XCTAssertFalse(app.buttons["Camera"].exists,
+                       "and nothing for a camera this machine does not have")
+        self.attach(name: "ios-attach-menu-no-camera")
+    }
+
+    /// Fixed frames clip at accessibility text sizes. The Send circle and the
+    /// attachment pill scale with the type, as the command panel's rows already
+    /// do.
+    func testSendCircleGrowsWithAccessibilityText() {
+        app.launchArguments += ["-UIPreferredContentSizeCategoryName",
+                                "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        openLiveSession()
+
+        let send = app.buttons["composer.send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 20), "the send button is on screen")
+        XCTAssertGreaterThan(send.frame.height, 48,
+                             "and its circle is bigger than the default 48 pt at AX5")
+        attach(name: "ios-send-circle-accessibility-size")
+    }
+
+    /// A string a store built with `L10n.string` and kept goes on saying what it
+    /// said in the language it was built in. The notification status is computed
+    /// at read time instead, so it follows the preference on the screen that
+    /// changes it rather than waiting to be left and re-entered.
+    func testNotificationStatusFollowsAChangeOfLanguage() {
+        app.launch()
+        let settings = app.tabBars.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 20), "the Settings tab is there")
+        settings.tap()
+
+        // The row combines its label and its value into one element, so it is
+        // found by what it reads rather than by an identifier on a child.
+        func status(reading value: String) -> XCUIElement {
+            app.descendants(matching: .any)
+                .matching(NSPredicate(format: "label CONTAINS %@", value)).firstMatch
+        }
+        XCTAssertTrue(status(reading: "Off").waitForExistence(timeout: 15),
+                      "the notification status reads in English to start with")
+
+        let language = app.segmentedControls["settings.language"]
+        XCTAssertTrue(scrollDown(to: language), "the interface language is a segmented control")
+        language.buttons["中文"].tap()
+
+        // The language control sits below the Notifications group, so reaching
+        // it scrolled the status row away, and a `List` recycles what it no
+        // longer shows. The screen was never left: the row is scrolled back to.
+        var reads = false
+        for _ in 0..<8 where !reads {
+            reads = status(reading: "已关闭").exists
+            if !reads { app.swipeDown() }
+        }
+        XCTAssertTrue(reads, "and the status is in the new language without leaving the screen")
+        attach(name: "ios-status-follows-language")
+    }
+
+    /// Every round that changes the app bumps its version, and the About group
+    /// is where the reader sees which build they are on.
+    func testAboutGroupNamesThisBuild() {
+        app.launch()
+        let settings = app.tabBars.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 20), "the Settings tab is there")
+        settings.tap()
+
+        let version = app.staticTexts["1.3.0"]
+        XCTAssertTrue(scrollDown(to: version), "the About group names this build")
+        attach(name: "ios-about-version")
     }
 
     /// Settings, Voice group: turn dictation polish on and come back to the

@@ -22,6 +22,28 @@ public protocol NotificationPlatform: AnyObject {
     func openSettings()
 }
 
+/// Where the reconciliation below got to, in one value.
+///
+/// The words are built from it at read time rather than stored: a string
+/// `L10n.string` produced and a store kept would go on saying what it said in
+/// the language it was first built in, long after the reader changed it.
+public enum PushStatus: Sendable, Equatable {
+    case off, unsupported, denied, waitingForPermission, appOnly, registering, on, refused
+
+    public var text: String {
+        switch self {
+        case .off: L10n.string("Off")
+        case .unsupported: L10n.string("Not available on this device")
+        case .denied: L10n.string("Blocked in iOS Settings")
+        case .waitingForPermission: L10n.string("Waiting for permission")
+        case .appOnly: L10n.string("On, in this app only")
+        case .registering: L10n.string("Registering with Apple")
+        case .on: L10n.string("On")
+        case .refused: L10n.string("The gateway refused the registration")
+        }
+    }
+}
+
 /// Reconciles one preference, one system authorization, one APNs token and one
 /// gateway registration.
 ///
@@ -31,7 +53,8 @@ public protocol NotificationPlatform: AnyObject {
 @Observable
 public final class PushController {
     public private(set) var authorization: PushAuthorization = .notDetermined
-    public private(set) var statusText = L10n.string("Off")
+    public private(set) var status: PushStatus = .off
+    public var statusText: String { status.text }
     public private(set) var errorMessage: String?
 
     @ObservationIgnored private let platform: any NotificationPlatform
@@ -86,7 +109,7 @@ public final class PushController {
             self.registeredToken = nil
             try? await api.unregisterPush(token: token)
             self.platform.unregister()
-            self.statusText = L10n.string("Off")
+            self.status = .off
         }
     }
 
@@ -97,7 +120,7 @@ public final class PushController {
     private func apply() async {
         guard platform.supported else {
             authorization = .unsupported
-            statusText = L10n.string("Not available on this device")
+            status = .unsupported
             return
         }
         authorization = await platform.authorization()
@@ -107,15 +130,15 @@ public final class PushController {
                 try? await api.unregisterPush(token: token)
             }
             platform.unregister()
-            statusText = L10n.string("Off")
+            status = .off
             return
         }
         switch authorization {
         case .denied:
-            statusText = L10n.string("Blocked in iOS Settings")
+            status = .denied
             return
         case .notDetermined:
-            statusText = L10n.string("Waiting for permission")
+            status = .waitingForPermission
             return
         default:
             break
@@ -124,12 +147,12 @@ public final class PushController {
         // sign-in — nothing is registered with Apple at all. The switch still
         // holds: the app's own banners for a finished turn need no gateway.
         guard let api, let environment = platform.environment else {
-            statusText = L10n.string("On, in this app only")
+            status = .appOnly
             return
         }
         platform.register()
         guard let token = platform.token else {
-            statusText = L10n.string("Registering with Apple")
+            status = .registering
             return
         }
         guard token != registeredToken else { return }
@@ -138,9 +161,9 @@ public final class PushController {
                                                         bundleID: bundleID))
             registeredToken = token
             errorMessage = nil
-            statusText = L10n.string("On")
+            status = .on
         } catch {
-            statusText = L10n.string("The gateway refused the registration")
+            status = .refused
             errorMessage = (error as? TransportError)?.errorDescription ?? error.localizedDescription
         }
     }

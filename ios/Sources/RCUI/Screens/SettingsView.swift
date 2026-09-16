@@ -54,7 +54,7 @@ struct SettingsView: View {
                     // in the demo too wherever the system can raise one.
                     .disabled(!push.isSupported)
                     .accessibilityIdentifier("settings.notifications")
-                SettingsRow("Status", value: push.statusText)
+                PushStatusRow(push: push, language: settings.language)
                 if push.authorization == .denied {
                     Button("Open iOS Settings") { push.openSystemSettings() }
                         .font(Theme.Text.label)
@@ -251,6 +251,22 @@ struct AccountRow: View {
 
 /// Label left, value right, one line each. The value is quiet: a settings
 /// screen is a list of labels, not a table of two columns.
+/// The push status, in the interface language.
+///
+/// `PushController` builds the words with `L10n.string` rather than through a
+/// `Text`, so nothing in the environment redraws them. The language is held
+/// here so that changing it rebuilds this row where it stands, instead of the
+/// row keeping the language it was first drawn in until the screen is left and
+/// re-entered.
+struct PushStatusRow: View {
+    let push: PushController
+    let language: InterfaceLanguage
+
+    var body: some View {
+        SettingsRow("Status", value: push.statusText)
+    }
+}
+
 struct SettingsRow: View {
     let label: LocalizedStringKey
     let value: String

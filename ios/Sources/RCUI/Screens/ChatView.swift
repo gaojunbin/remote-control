@@ -11,6 +11,9 @@ struct ChatView: View {
     @State private var showsTodos = false
     @State private var showsQueue = false
     @State private var elapsed = ""
+    /// Retry reuses the original request id, so two overlapping retries would
+    /// put two requests under one id. One at a time.
+    @State private var retry = OneAtATime()
 
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -43,7 +46,11 @@ struct ChatView: View {
             guard model.chat?.key != sessionKey, let session else { return }
             await model.open(session)
         }
-        .onDisappear { Task { await model.closeChat() } }
+        // The key, not "whatever is open": a conversation a notification
+        // replaced is told to close after its replacement is already installed
+        // (`docs/DESIGN.md` § "Status vocabulary" → **A notification opens its
+        // session in place**).
+        .onDisappear { Task { await model.closeChat(key: sessionKey) } }
         .onReceive(tick) { _ in updateElapsed() }
     }
 
@@ -63,7 +70,8 @@ struct ChatView: View {
                 NoticeBanner(text: L10n.string("Delivery unconfirmed. Nothing was resent automatically."),
                              tint: Theme.attention,
                              actionTitle: L10n.string("Retry"),
-                             action: { Task { await chat.retry(pending) } },
+                             action: { Task { await retry.run { await chat.retry(pending) } } },
+                             actionEnabled: !retry.isBusy,
                              dismiss: { chat.dismiss(pending) })
             }
             if let error = chat.errorMessage {

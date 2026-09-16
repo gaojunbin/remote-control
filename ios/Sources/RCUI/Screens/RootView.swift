@@ -59,10 +59,14 @@ public struct RootView: View {
         .pageBackground()
         .task { await model.restoreOrPrompt() }
         .onOpenURL { model.handle(url: $0) }
-        .onAppear { model.setSceneActive(scenePhase == .active) }
+        .onAppear { model.setSceneActive(SceneRule.isForeground(scenePhase)) }
+        // Only the background is leaving the app. Control Centre, the app
+        // switcher's peek, an incoming-call banner and a system alert make the
+        // scene inactive and nothing more, and the app lock's own footer
+        // promises it engages when the app returns from the background.
         .onChange(of: scenePhase) { _, phase in
-            model.setSceneActive(phase == .active)
-            guard phase != .active else { return }
+            model.setSceneActive(SceneRule.isForeground(phase))
+            guard SceneRule.isBackground(phase) else { return }
             model.lockIfNeeded()
             Task { await model.persistForBackground() }
         }
@@ -70,7 +74,7 @@ public struct RootView: View {
         // this app is both open and reading the stream it would duplicate.
         .onChange(of: model.connection.phase) { _, _ in model.syncRemoteBanners() }
         #if os(iOS)
-        .overlay { PrivacyShield(visible: scenePhase != .active).allowsHitTesting(false) }
+        .overlay { PrivacyShield(visible: SceneRule.shields(scenePhase)).allowsHitTesting(false) }
         #endif
         // Amendment A31: over everything, including the sign-in form, because
         // `GET /api/health` answers before anyone has a credential. Nothing
@@ -136,9 +140,12 @@ private struct MainShell: View {
         }
         // The landing rule reads the first device list, which arrives with the
         // hello. `initial` covers the shell appearing after the snapshot is
-        // already in — a relaunch on a warm connection.
+        // already in — a relaunch on a warm connection. The same snapshot is
+        // the whole list of what this account has, so it is also where drafts
+        // for sessions that no longer exist are forgotten.
         .onChange(of: model.connection.hasSnapshot, initial: true) { _, _ in
             model.decideLandingTab()
+            Task { await model.adoptSnapshot() }
         }
     }
 }

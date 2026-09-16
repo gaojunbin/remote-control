@@ -81,7 +81,7 @@ private struct MarkdownWebSurface {
         guard coordinator.identity != identity else { return }
         coordinator.identity = identity
         guard let assets = coordinator.assets, let url = URL(string: "rcmarkdown://assets/index.html") else {
-            onError("The preview assets are unavailable. The source is still readable.")
+            onError(L10n.string("The preview assets are unavailable. The source is still readable."))
             return
         }
         assets.setDocument(documentHTML())
@@ -144,8 +144,8 @@ private struct MarkdownWebSurface {
             if navigationAction.navigationType == .linkActivated, ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") { onLink(url) }
             return .cancel
         }
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) { onError("The preview did not finish. The source is still available.") }
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) { onError("The preview did not finish. The source is still available.") }
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) { onError(L10n.string("The preview did not finish. The source is still available.")) }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) { onError(L10n.string("The preview did not finish. The source is still available.")) }
     }
 }
 

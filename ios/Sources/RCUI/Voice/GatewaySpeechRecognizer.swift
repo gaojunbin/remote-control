@@ -29,8 +29,12 @@ import RCCore
     private let route = STTAudioRoute()
     private var engine: AVAudioEngine?
     private var input: AVAudioInputNode?
-    private var sockets: [STTSocket] = []
-    private var readers: [Task<Void, Never>] = []
+    /// The open segments, by the index the transcript keeps them under. A
+    /// socket and its reader are dropped the moment the socket's event stream
+    /// ends, so a ten-minute dictation holds one of each and not one per
+    /// thirty seconds of speech.
+    private var sockets: [Int: STTSocket] = [:]
+    private var readers: [Int: Task<Void, Never>] = [:]
     private var segments = TranscriptSegments()
     private var rollover: Task<Void, Never>?
     private var emit: (@Sendable (SpeechInputEvent) -> Void)?
@@ -115,10 +119,10 @@ import RCCore
         rollover?.cancel(); rollover = nil
         stopCapture()
         route.exchange(nil)
-        for reader in readers { reader.cancel() }
-        readers = []
-        let closing = sockets
-        sockets = []
+        for reader in readers.values { reader.cancel() }
+        readers = [:]
+        let closing = Array(sockets.values)
+        sockets = [:]
         Task { for socket in closing { await socket.cancel() } }
         segments = TranscriptSegments()
         emit = nil
@@ -142,6 +146,14 @@ import RCCore
         }
     }
 
+    /// A segment whose socket has closed. Its reader has already returned, so
+    /// nothing here cancels anything: both handles are simply let go, which is
+    /// what keeps a long dictation from holding one of each per thirty seconds.
+    private func retire(segment index: Int) {
+        sockets.removeValue(forKey: index)
+        readers.removeValue(forKey: index)
+    }
+
     /// Hold the cut until the speaker pauses, and take it anyway if they do not.
     private func waitForSilence() async {
         let forced = Date().addingTimeInterval(Self.segmentLimit - Self.segmentDuration)
@@ -155,16 +167,20 @@ import RCCore
     private func openSegment() async -> Bool {
         let index = segments.begin()
         let socket = STTSocket(client: client, language: language)
-        sockets.append(socket)
-        readers.append(Task { [weak self] in
+        sockets[index] = socket
+        readers[index] = Task { [weak self] in
             for await event in socket.events {
                 await self?.receive(event, segment: index)
             }
-        })
+            // The stream ends when the socket closes, which is where a settled
+            // segment stops costing anything.
+            await self?.retire(segment: index)
+        }
         do {
             try await socket.start()
         } catch {
             segments.end(index)
+            retire(segment: index)
             emit?(.failure(.unavailable))
             return false
         }

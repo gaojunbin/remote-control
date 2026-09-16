@@ -191,6 +191,46 @@ struct OptimisticSendTests {
         #expect(chat.timeline.roots.isEmpty)
     }
 
+    /// The composer puts a refused send's attachments back, so it has to be
+    /// told which outcome it is looking at rather than infer it from the field
+    /// (`docs/DESIGN.md` § "The composer" → **A draft belongs to its session**).
+    @Test("A send says what became of it: accepted, uncertain, refused or empty")
+    @MainActor
+    func sendReportsItsOutcome() async {
+        let channel = HeldSendChannel()
+        let chat = ChatStore(session: session(), channel: channel)
+
+        chat.draft = "first"
+        var sending = Task { await chat.send() }
+        await channel.waitForSend()
+        channel.release(.success(SendResult(accepted: .sent)))
+        let accepted = await sending.value
+        #expect(accepted == .accepted)
+
+        chat.draft = "second"
+        sending = Task { await chat.send() }
+        await channel.waitForSend()
+        channel.release(.failure(TransportError.deliveryUncertain))
+        let uncertain = await sending.value
+        #expect(uncertain == .uncertain)
+
+        chat.draft = "third"
+        sending = Task { await chat.send() }
+        await channel.waitForSend()
+        // The person typed on while the request was out: the words stay theirs,
+        // and the outcome still says refused, which is what lets the composer
+        // decide about the attachments by itself.
+        chat.draft = "typing the next one"
+        channel.release(.failure(GatewayErrorBody(code: .unsupported, message: "No.")))
+        let refused = await sending.value
+        #expect(refused == .refused)
+        #expect(chat.draft == "typing the next one")
+
+        chat.draft = ""
+        let empty = await chat.send()
+        #expect(empty == .empty)
+    }
+
     @Test("An uncertain delivery keeps the row, and Retry reuses it")
     @MainActor
     func uncertainKeepsTheRow() async {

@@ -216,9 +216,15 @@ private struct InlineVoiceInputModifier: ViewModifier {
             .onChange(of: session.voice.transcript) { _, _ in synchronize() }
             .onChange(of: session.voice.phase) { _, _ in synchronize() }
             .onChange(of: target) { _, _ in session.reset() }
-            .onAppear { session.voice.setSceneActive(scenePhase == .active) }
+            // Listening runs until Done is tapped, and only leaving the app
+            // ends it early: Control Centre, the app switcher's peek, an
+            // incoming-call banner and a system alert only make the app
+            // inactive, and dictation listens through them
+            // (`docs/DESIGN.md` § "The composer", Voice).
+            .onAppear { session.voice.setSceneActive(!SceneRule.isBackground(scenePhase)) }
             .onChange(of: scenePhase) { _, phase in
-                session.voice.setSceneActive(phase == .active, cancelAuthorization: phase == .background)
+                session.voice.setSceneActive(!SceneRule.isBackground(phase),
+                                             cancelAuthorization: SceneRule.isBackground(phase))
             }
             .onDisappear { session.reset() }
     }

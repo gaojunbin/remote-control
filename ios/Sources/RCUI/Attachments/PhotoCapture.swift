@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import ImageIO
+import RCCore
 import UniformTypeIdentifiers
 #if os(iOS)
 import UIKit
@@ -8,10 +9,13 @@ import UIKit
 
 enum PhotoPreparationError: LocalizedError {
     case invalidImage, imageTooLarge
+    /// Built here rather than drawn by a `Text`, so it goes through `L10n` at
+    /// the point it is made: the composer shows it with the verbatim
+    /// initialiser and a catalogue entry alone would never reach it.
     var errorDescription: String? {
         switch self {
-        case .invalidImage: "That image could not be read."
-        case .imageTooLarge: "That image is too large. Pick a smaller one."
+        case .invalidImage: L10n.string("That image could not be read.")
+        case .imageTooLarge: L10n.string("That image is too large. Pick a smaller one.")
         }
     }
 }
@@ -43,7 +47,10 @@ struct CameraCapture: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
-        picker.sourceType = .camera
+        // Documented as required: setting a source type the machine does not
+        // have raises rather than refusing. The composer offers the item only
+        // where `Camera.exists`, and this is the second lock on the same door.
+        if UIImagePickerController.isSourceTypeAvailable(.camera) { picker.sourceType = .camera }
         picker.mediaTypes = [UTType.image.identifier]
         picker.modalPresentationStyle = .fullScreen
         picker.delegate = context.coordinator

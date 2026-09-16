@@ -188,6 +188,23 @@
         }
       }
     },
+    "%lld ms": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld ms"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 毫秒"
+          }
+        }
+      }
+    },
     "%lld new update": {
       "extractionState": "manual",
       "localizations": {
@@ -609,6 +626,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "全部 agent"
+          }
+        }
+      }
+    },
+    "Allow camera access in Settings, or attach a photo instead.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow camera access in Settings, or attach a photo instead."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在“设置”中允许使用相机，或改为添加照片。"
+          }
+        }
+      }
+    },
+    "Allow camera access in Settings, or type the code": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow camera access in Settings, or type the code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在“设置”中允许使用相机，或改为输入配对码"
           }
         }
       }
@@ -1089,6 +1140,40 @@
         }
       }
     },
+    "Collapses the archive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapses the archive"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折叠归档"
+          }
+        }
+      }
+    },
+    "Collapses this device": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapses this device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折叠此设备"
+          }
+        }
+      }
+    },
     "Command, %@, %@": {
       "extractionState": "manual",
       "localizations": {
@@ -1119,6 +1204,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "命令，%1$@，%2$@，需要 %3$@"
+          }
+        }
+      }
+    },
+    "Completed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已完成"
           }
         }
       }
@@ -1939,6 +2041,40 @@
         }
       }
     },
+    "Expands the archive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expands the archive"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展开归档"
+          }
+        }
+      }
+    },
+    "Expands this device": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expands this device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展开此设备"
+          }
+        }
+      }
+    },
     "Files": {
       "extractionState": "manual",
       "localizations": {
@@ -2653,6 +2789,23 @@
         }
       }
     },
+    "Not completed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not completed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未完成"
+          }
+        }
+      }
+    },
     "Not connected to the gateway.": {
       "extractionState": "manual",
       "localizations": {
@@ -3248,6 +3401,23 @@
         }
       }
     },
+    "Remove %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除 %@"
+          }
+        }
+      }
+    },
     "Rename": {
       "extractionState": "manual",
       "localizations": {
@@ -3550,6 +3720,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "左右滑动查看表格"
+          }
+        }
+      }
+    },
+    "Search sessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search sessions"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索会话"
           }
         }
       }
@@ -4217,6 +4404,40 @@
         }
       }
     },
+    "That image could not be read.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That image could not be read."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取这张图片。"
+          }
+        }
+      }
+    },
+    "That image is too large. Pick a smaller one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That image is too large. Pick a smaller one."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这张图片太大了，请换一张小一些的。"
+          }
+        }
+      }
+    },
     "That is not your current password.": {
       "extractionState": "manual",
       "localizations": {
@@ -4264,6 +4485,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "响应内容过大，无法加载。"
+          }
+        }
+      }
+    },
+    "That session is no longer on this gateway.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That session is no longer on this gateway."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该网关上已经没有这个会话。"
           }
         }
       }
@@ -4519,6 +4757,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "麦克风不可用。请重试，或继续打字。"
+          }
+        }
+      }
+    },
+    "The preview assets are unavailable. The source is still readable.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The preview assets are unavailable. The source is still readable."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预览资源不可用，原文仍然可以阅读。"
+          }
+        }
+      }
+    },
+    "The preview did not finish. The source is still available.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The preview did not finish. The source is still available."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预览未能完成，原文仍然可用。"
           }
         }
       }

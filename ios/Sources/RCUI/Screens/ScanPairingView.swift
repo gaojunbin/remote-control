@@ -18,16 +18,26 @@ struct ScanPairingView: View {
     let scanner: any CodeScanning
 
     @Environment(\.dismiss) private var dismiss
-    @State private var status = L10n.string("Hold steady — the QR code is detected automatically.")
+    /// Nothing until the camera is known to be looking: "Hold steady" is said
+    /// only while one actually is (`docs/DESIGN.md` § "The three screens" →
+    /// **A camera the app may not use says so**).
+    @State private var status = ""
+    @State private var access: CameraAccess?
     @State private var isClaiming = false
     @State private var copied = false
 
     var body: some View {
         ZStack(alignment: .top) {
-            scanner.makeView(onCode: offer).ignoresSafeArea()
+            if access == .allowed { scanner.makeView(onCode: offer).ignoresSafeArea() }
             overlay
         }
         .background(Color.black)
+        .task {
+            let granted = await scanner.requestAccess()
+            access = granted
+            guard granted == .allowed else { return }
+            status = L10n.string("Hold steady — the QR code is detected automatically.")
+        }
     }
 
     private var overlay: some View {
@@ -46,11 +56,30 @@ struct ScanPairingView: View {
                     .accessibilityIdentifier("scan.cancel")
             }
             steps
+            if access == .denied { refused }
             Spacer(minLength: 0)
-            strip
+            if !status.isEmpty { strip }
         }
         .padding(.horizontal, Theme.Space.page)
         .padding(.vertical, Theme.Space.medium)
+    }
+
+    /// In place of the viewfinder: the same one line any denied permission
+    /// gets, and the one thing left to do about it. The scanner never pretends
+    /// to scan over a black frame.
+    private var refused: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.small) {
+            Text("Allow camera access in Settings, or type the code")
+                .font(.subheadline)
+                .foregroundStyle(Theme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("scan.cameraRefused")
+            Button("Open iOS Settings") { Camera.openSystemSettings() }
+                .buttonStyle(ChipButtonStyle())
+                .accessibilityIdentifier("scan.openSettings")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
     }
 
     private var steps: some View {

@@ -40,7 +40,7 @@ public final class AppModel {
     /// it and the app is the only place it can live.
     public private(set) var deviceUpdateErrors: [String: String] = [:]
 
-    @ObservationIgnored private let drafts = DraftStore()
+    @ObservationIgnored private let drafts: DraftStore
     @ObservationIgnored private let isUITesting: Bool
     /// Amendment A31: the oldest app build the demo gateway claims to work
     /// with. This build, so the demo runs — unless `--demo-update-required`
@@ -60,7 +60,9 @@ public final class AppModel {
                 settings: SettingsStore = SettingsStore(),
                 push: PushController? = nil,
                 turns: TurnNotifier? = nil,
+                drafts: DraftStore = DraftStore(),
                 arguments: [String] = ProcessInfo.processInfo.arguments) {
+        self.drafts = drafts
         // `--demo-account` puts the offline gateway behind the sign-in form
         // instead of around it, which is how the account screens are driven
         // with no gateway to reach.
@@ -169,7 +171,23 @@ public final class AppModel {
         await closeChat()
         path.removeAll()
         hasChosenLandingTab = false
+        // The account's drafts go with its cached transcripts and its token.
+        // Before the connection is torn down, not after: `signOut` empties
+        // `user` and drops the endpoint, so `account` would name nobody.
+        await drafts.clear(account: connection.account)
         await connection.signOut()
+    }
+
+    /// A `hello` snapshot is the whole list of what this account has, so a
+    /// draft key it does not name belongs to a session that has been deleted on
+    /// the device; left alone, its words would sit on disk for the life of the
+    /// install. Called once for each snapshot that arrives.
+    ///
+    /// Not for the demo: its scripted device resumes and archives sessions as
+    /// the run goes on, and nothing it writes is meant to outlive the run.
+    public func adoptSnapshot() async {
+        guard connection.hasSnapshot, !connection.isDemo else { return }
+        await drafts.retain(Set(connection.sessions.map(\.id)), account: connection.account)
     }
 
     /// `docs/DESIGN.md` § "Three tabs, one order, one landing rule": Sessions
@@ -194,7 +212,10 @@ public final class AppModel {
     // MARK: - Conversations
 
     /// Open a session: cached transcript first, then subscribe.
-    public func open(_ session: Session) async {
+    ///
+    /// `inPlace` is what a notification or a link asks for: the conversation
+    /// already open is replaced rather than stacked on.
+    public func open(_ session: Session, inPlace: Bool = false) async {
         await closeChat()
         guard let channel = connection.channel else { return }
         let store = ChatStore(session: session, channel: channel)
@@ -205,10 +226,19 @@ public final class AppModel {
         store.draft = await drafts.draft(account: connection.account, key: session.id)
         chat = store
         connection.addFrameHandler("chat") { [weak store] frame in store?.receive(frame) }
-        if path.last != session.id { path.append(session.id) }
+        route(to: session.id, inPlace: inPlace)
         let cached = await connection.cachedTranscript(sessionID: session.sessionID,
                                                        deviceID: session.deviceID)
         await store.open(cached: cached)
+    }
+
+    /// Where the navigation stack goes. `docs/DESIGN.md` § "Status vocabulary"
+    /// → **A notification opens its session in place**: the stack holds one
+    /// conversation, so Back from a session a notification opened returns to
+    /// the list rather than to the session it replaced.
+    private func route(to key: String, inPlace: Bool) {
+        guard path.last != key else { return }
+        if inPlace { path = [key] } else { path.append(key) }
     }
 
     public func closeChat() async {
@@ -219,6 +249,17 @@ public final class AppModel {
                                  sessionID: store.sessionID, deviceID: store.deviceID)
         await store.close()
         chat = nil
+    }
+
+    /// Close one named conversation and no other.
+    ///
+    /// SwiftUI delivers the new view's `onAppear` and `.task` before the
+    /// covered view's `onDisappear`, so a conversation leaving the screen is
+    /// told to close after its replacement is already installed. The key is
+    /// what keeps that late callback from closing the store it never owned.
+    public func closeChat(key: String) async {
+        guard chat?.key == key else { return }
+        await closeChat()
     }
 
     public func saveDraft() async {
@@ -248,14 +289,14 @@ public final class AppModel {
             return
         }
         guard let session = connection.session(deviceID: link.deviceID, sessionID: link.sessionID) else {
-            toast = "That session is no longer on this gateway."
+            toast = L10n.string("That session is no longer on this gateway.")
             return
         }
         // A link is a destination, so it settles the landing rule too: the
         // first device list must not move the tab out from under it.
         hasChosenLandingTab = true
         tab = .sessions
-        Task { await open(session) }
+        Task { await open(session, inPlace: true) }
     }
 
     public func handle(url: URL) {

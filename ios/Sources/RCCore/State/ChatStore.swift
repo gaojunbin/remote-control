@@ -771,17 +771,33 @@ public final class ChatStore {
 
     /// Send the draft. On an uncertain delivery the message stays visible with
     /// a Retry action that reuses this same request id.
-    public func send(mode: SendMode = .auto, attachments: [OutboundAttachment] = []) async {
+    /// What became of a send, so the composer can put back what a refusal
+    /// took (`docs/DESIGN.md` § "The composer" → **A draft belongs to its
+    /// session**): the words come back here, the attachments are the view's.
+    public enum SendOutcome: Sendable, Equatable {
+        /// Nothing was sent: the field held no words.
+        case empty
+        /// The device took it (now, queued or steered).
+        case accepted
+        /// The request may have landed; the row stays and offers Retry.
+        case uncertain
+        /// The request was read and refused; nothing is on its way.
+        case refused
+    }
+
+    @discardableResult
+    public func send(mode: SendMode = .auto, attachments: [OutboundAttachment] = []) async -> SendOutcome {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty else { return .empty }
         // Amendment A29: what goes is what is in the field — the words as
         // dictated while a polish is still out — and that answer is dropped.
         cancelPolish()
         draft = ""
-        await deliver(id: UUID().uuidString, text: text, attachments: attachments, mode: mode)
+        return await deliver(id: UUID().uuidString, text: text, attachments: attachments, mode: mode)
     }
 
-    public func retry(_ pending: PendingSend) async {
+    @discardableResult
+    public func retry(_ pending: PendingSend) async -> SendOutcome {
         await deliver(id: pending.id, text: pending.text,
                       attachments: pending.attachments, mode: pending.mode)
     }
@@ -790,7 +806,8 @@ public final class ChatStore {
     /// the message is in the transcript before the request has left, and the
     /// device's own event replaces it in place. Nothing here waits for a round
     /// trip that the user can feel.
-    private func deliver(id: String, text: String, attachments: [OutboundAttachment], mode: SendMode) async {
+    private func deliver(id: String, text: String, attachments: [OutboundAttachment],
+                         mode: SendMode) async -> SendOutcome {
         // Sending is a request to watch what happens next, so the
         // transcript returns to the tail before the message lands.
         isFollowingTail = true
@@ -814,16 +831,20 @@ public final class ChatStore {
             // be sent again: the device already has it.
             if result.accepted == .steered { timeline.markSteered(id) }
             mark(id: id, status: .accepted(result.accepted))
+            return .accepted
         } catch let error as TransportError where error == .deliveryUncertain || error == .requestTimedOut {
             // The message may well have landed, so the row stays and Retry
             // reuses this id rather than sending the agent a second copy.
             mark(id: id, status: .uncertain)
+            return .uncertain
         } catch let refusal as GatewayErrorBody {
             // A reply means the request was read and refused: it will never
             // arrive, so the row goes and the words come back to the draft.
             reject(id: id, text: text, reason: refusal.message)
+            return .refused
         } catch {
             reject(id: id, text: text, reason: describe(error))
+            return .refused
         }
     }
 

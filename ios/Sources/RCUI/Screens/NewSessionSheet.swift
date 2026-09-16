@@ -80,7 +80,7 @@ struct NewSessionSheet: View {
                     HStack {
                         Text(device.name)
                         if let latency = device.latencyMS {
-                            Text("\(latency) ms").foregroundStyle(Theme.inkSecondary)
+                            Text(L10n.string("%lld ms", latency)).foregroundStyle(Theme.inkSecondary)
                         }
                     }
                     .tag(device.deviceID)

@@ -156,6 +156,9 @@ struct DevicesView: View {
         guard let device = renaming, let api = model.connection.api else { return }
         let name = newName.trimmed
         renaming = nil
+        // The line belongs to the attempt being made, not to the screen: one
+        // failure must not outlive it and sit under a later success.
+        error = nil
         Task {
             do { _ = try await api.renameDevice(device.deviceID, name: name) }
             catch { self.error = model.connection.message(for: error) }
@@ -165,6 +168,7 @@ struct DevicesView: View {
     private func revoke() {
         guard let device = revoking, let api = model.connection.api else { return }
         revoking = nil
+        error = nil
         Task {
             do { try await api.revokeDevice(device.deviceID) }
             catch { self.error = model.connection.message(for: error) }

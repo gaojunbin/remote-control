@@ -16,7 +16,17 @@ import VisionKit
 /// overlay, the claim, the errors — is the same either way.
 @MainActor
 public protocol CodeScanning {
+    /// Whether the app may open this scanner's camera, asked of the person the
+    /// first time. `docs/DESIGN.md` § "The three screens" → **A camera the app
+    /// may not use says so**: the scanner is never drawn over a refusal.
+    func requestAccess() async -> CameraAccess
     func makeView(onCode: @escaping (String) -> Void) -> AnyView
+}
+
+extension CodeScanning {
+    /// A scanner with no camera behind it — the demo's and the UI test's — has
+    /// nothing to ask for.
+    public func requestAccess() async -> CameraAccess { .allowed }
 }
 
 /// The stand-in: one button, one payload, no camera. It is what the demo and
@@ -54,6 +64,8 @@ public enum SystemCodeScanner {
 /// it is unavailable.
 public struct CameraCodeScanner: CodeScanning {
     public init() {}
+
+    public func requestAccess() async -> CameraAccess { await Camera.requestAccess() }
 
     public func makeView(onCode: @escaping (String) -> Void) -> AnyView {
         if DataScannerViewController.isSupported, DataScannerViewController.isAvailable {
@@ -160,6 +172,18 @@ final class MetadataScannerController: UIViewController, AVCaptureMetadataOutput
         preview?.frame = view.bounds
     }
 
+    /// Started here rather than from `viewDidLoad`: a sheet presented over the
+    /// scanner, or the app backgrounded and restored, stops the session in
+    /// `viewDidDisappear`, and a preview that never starts again is a frozen
+    /// frame the reader cannot tell from a camera that is looking.
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        queue.async { [session] in
+            guard !session.isRunning else { return }
+            session.startRunning()
+        }
+    }
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         queue.async { [session] in session.stopRunning() }
@@ -178,7 +202,6 @@ final class MetadataScannerController: UIViewController, AVCaptureMetadataOutput
             output.metadataObjectTypes = output.availableMetadataObjectTypes.filter { $0 == .qr }
         }
         session.commitConfiguration()
-        session.startRunning()
     }
 
     /// The delegate queue is the main one, so the payloads are read here and

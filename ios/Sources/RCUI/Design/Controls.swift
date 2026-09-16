@@ -285,14 +285,19 @@ public struct NoticeBanner: View {
     var tint: Color = Theme.danger
     var actionTitle: String?
     var action: (() -> Void)?
+    /// False while the action this banner offers is still out, so a second tap
+    /// cannot start a second one.
+    var actionEnabled = true
     var dismiss: (() -> Void)?
 
     public init(text: String, tint: Color = Theme.danger, actionTitle: String? = nil,
-                action: (() -> Void)? = nil, dismiss: (() -> Void)? = nil) {
+                action: (() -> Void)? = nil, actionEnabled: Bool = true,
+                dismiss: (() -> Void)? = nil) {
         self.text = text
         self.tint = tint
         self.actionTitle = actionTitle
         self.action = action
+        self.actionEnabled = actionEnabled
         self.dismiss = dismiss
     }
 
@@ -310,6 +315,9 @@ public struct NoticeBanner: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(Theme.ink)
                     .frame(minHeight: Theme.Touch.minimum)
+                    .disabled(!actionEnabled)
+                    .opacity(actionEnabled ? 1 : 0.4)
+                    .accessibilityIdentifier("notice.action")
             }
             if let dismiss {
                 Button(action: dismiss) {

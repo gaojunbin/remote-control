@@ -28,6 +28,14 @@ struct Composer: View {
     @State private var showsCamera = false
     @State private var attachmentError: String?
     @State private var isWriting = false
+    /// How many photos this composer has taken from the library, so each one
+    /// is named for its place in the order they were attached in.
+    @State private var photosAttached = 0
+    /// The attachment pill and the Send circle grow with the type, as the
+    /// command panel's rows already do: a fixed frame around a label clips
+    /// well before the largest accessibility size.
+    @ScaledMetric(relativeTo: .caption) private var pillHeight: CGFloat = 30
+    @ScaledMetric(relativeTo: .body) private var primaryTouch: CGFloat = Theme.Touch.primary
 
     private var target: VoiceDraftTarget {
         VoiceDraftTarget(account: model.connection.account,
@@ -79,7 +87,7 @@ struct Composer: View {
                       maxSelectionCount: RequestLimits.maxAttachments, matching: .images)
         #if os(iOS)
         .fullScreenCover(isPresented: $showsCamera) {
-            CameraCapture { data in addPhoto(data, name: "photo.jpg") }
+            CameraCapture { data in addPhoto(data, name: AttachmentNaming.cameraPhoto) }
                 .ignoresSafeArea()
         }
         #endif
@@ -220,7 +228,7 @@ struct Composer: View {
                     sendButton
                 }
             }
-            .frame(minHeight: Theme.Touch.primary)
+            .frame(minHeight: primaryTouch)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: primarySlot)
         }
     }
@@ -245,7 +253,7 @@ struct Composer: View {
             Image(systemName: "arrow.up")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(Theme.onAccent)
-                .frame(width: Theme.Touch.primary, height: Theme.Touch.primary)
+                .frame(width: primaryTouch, height: primaryTouch)
                 .background(Theme.accent, in: Circle())
         }
         .buttonStyle(.plain)
@@ -275,9 +283,14 @@ struct Composer: View {
         if chat.allowsAttachments, agent?.supports(.attachments) == true {
             Menu {
                 Button { showsFileImporter = true } label: { Label("Files", systemImage: "folder") }
-                #if os(iOS)
-                Button { showsCamera = true } label: { Label("Camera", systemImage: "camera") }
-                #endif
+                // `docs/DESIGN.md` § "The composer" → **Attachments are named
+                // for what they are**: "The Camera item is offered only where
+                // a camera exists, and a refused camera gets the same one line
+                // as any denied permission." Presenting the picker where there
+                // is no camera raises rather than refusing.
+                if Camera.exists {
+                    Button { openCamera() } label: { Label("Camera", systemImage: "camera") }
+                }
                 Button { showsPhotos = true } label: { Label("Photos", systemImage: "photo") }
             } label: {
                 attachLabel
@@ -436,7 +449,7 @@ struct Composer: View {
                     }
                     .foregroundStyle(Theme.inkSecondary)
                     .padding(.horizontal, Theme.Space.small)
-                    .frame(height: 30)
+                    .frame(height: pillHeight)
                     .background(Theme.surfaceSunken, in: Capsule())
                 }
             }
@@ -471,12 +484,29 @@ struct Composer: View {
                                            : "Message · will be queued")
     }
 
+    /// `docs/DESIGN.md` § "The composer" → **A draft belongs to its session**:
+    /// "A refused send returns everything to the composer — the words and the
+    /// attachments — so a second tap sends what the first one meant to."
+    ///
+    /// The store returns the words and says so; the files are the view's, so
+    /// they come back here. A send that was accepted, or whose outcome is
+    /// unknown, keeps them — the pending record holds the bytes, and Retry
+    /// re-sends the same message rather than the words without their files.
     private func send(mode: SendMode) {
         let outgoing = attachments
         attachments = []
         attachmentError = nil
         Task {
-            await chat.send(mode: mode, attachments: outgoing)
+            switch await chat.send(mode: mode, attachments: outgoing) {
+            case .empty, .refused:
+                // Nothing is on its way, so nothing was taken from the
+                // composer — unless newer files were attached while the
+                // request was out, which are the person's and not ours.
+                if !outgoing.isEmpty, attachments.isEmpty { attachments = outgoing }
+            case .accepted, .uncertain:
+                // Nothing is waiting any more, so the next photo is photo-1.jpg.
+                if attachments.isEmpty { photosAttached = 0 }
+            }
             await model.saveDraft()
         }
     }
@@ -553,11 +583,28 @@ struct Composer: View {
 
     // MARK: - Attachments
 
+    /// The library's own `itemIdentifier` is a `PHAsset` local id — a UUID with
+    /// slashes and no extension — so a file named from it reaches the agent as
+    /// a path with nothing to say it is an image. `AttachmentNaming` owns the
+    /// rule instead.
     private func ingest(_ items: [PhotosPickerItem]) async {
         photoItems = []
         for item in items {
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            addPhoto(data, name: item.itemIdentifier ?? "photo.jpg")
+            photosAttached += 1
+            addPhoto(data, name: AttachmentNaming.libraryPhoto(photosAttached))
+        }
+    }
+
+    /// A camera the app may not use gets the same one line any denied
+    /// permission gets, and the picker is never presented behind it.
+    private func openCamera() {
+        Task {
+            guard await Camera.requestAccess() == .allowed else {
+                attachmentError = L10n.string("Allow camera access in Settings, or attach a photo instead.")
+                return
+            }
+            showsCamera = true
         }
     }
 
@@ -579,12 +626,13 @@ struct Composer: View {
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             // Check the size before reading: a large video would spike memory
             // and could be jetsammed before the guard below ever ran.
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            guard size <= RequestLimits.maxAttachmentBytes else {
+            guard PickedFile.size(of: url) <= RequestLimits.maxAttachmentBytes else {
                 attachmentError = L10n.string("%@ is larger than 6 MB.", url.lastPathComponent)
                 continue
             }
-            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { continue }
+            // Eagerly, inside the scope this loop is about to release: a
+            // mapping outliving its scoped access faults with `SIGBUS`.
+            guard let data = try? PickedFile.read(url) else { continue }
             let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
             add(data: data, name: url.lastPathComponent, mime: mime)
         }

@@ -252,7 +252,7 @@ func run() async -> (passed: Int, failures: [String]) {
         expect(chat.timeline.roots.last?.pending?.text == "one more thing",
                "the bubble is in the transcript before the request has been answered")
         expect(chat.draft.isEmpty, "and the field is clear the moment Send is tapped")
-        await sending.value
+        _ = await sending.value
         await settle(timeout: 5) { chat.timeline.optimistic.isEmpty }
         expect(chat.timeline.optimistic.isEmpty,
                "the device's echo under the same id retires the pending row")
@@ -290,6 +290,33 @@ func run() async -> (passed: Int, failures: [String]) {
     await settle { model.toast != nil }
     expect(model.toast != nil, "a link to an unknown session says so instead of opening nothing")
     model.toast = nil
+
+    // MARK: - A message from another agent, at both levels, across a reopen (A34)
+
+    if let shared = model.connection.sessions.first(where: { $0.sessionID == DemoFixtures.sharedSessionID }) {
+        let fromAgent: (TimelineEntry) -> Bool = { $0.userMessage?.source == .agent }
+        let originalDetail = model.settings.timelineDetail
+        model.settings.timelineDetail = .simple
+        await model.open(shared)
+        await settle(timeout: 10) { model.chat?.timeline.entries.contains(where: fromAgent) ?? false }
+        expect(model.chat?.timeline.entries.contains(where: fromAgent) ?? false,
+               "the shared demo session carries a message another agent filed")
+        expect(!(model.chat?.rows.contains(where: fromAgent) ?? true),
+               "Simple does not draw a message from another agent")
+        model.settings.timelineDetail = .detailed
+        expect(model.chat?.rows.contains(where: fromAgent) ?? false,
+               "Detailed draws it as soon as the level changes")
+        await model.closeChat(key: shared.id)
+        equal(model.chat == nil, true, "closing by key closes the conversation it names")
+        await model.open(shared)
+        await settle(timeout: 10) { model.chat?.rows.contains(where: fromAgent) ?? false }
+        expect(model.chat?.rows.contains(where: fromAgent) ?? false,
+               "and still draws it when the conversation is opened again at Detailed")
+        await model.closeChat(key: shared.id)
+        model.settings.timelineDetail = originalDetail
+    } else {
+        expect(false, "the demo has the shared session")
+    }
 
     // MARK: - Session list presentation
 
@@ -1105,6 +1132,37 @@ func run() async -> (passed: Int, failures: [String]) {
         expect(false, "the demo carries the attached Claude session")
     }
 
+    // MARK: - A notification opens its session in place
+    //
+    // `docs/DESIGN.md` § "Status vocabulary": tapping a notification for
+    // session B while session A is open replaces A with B, Back returns to the
+    // list rather than to A, and B is open the moment it is on screen — never
+    // a spinner that waits for a tap.
+    //
+    // SwiftUI delivers the new view's `.task` before the covered view's
+    // `onDisappear`, so the two callbacks are played here in that order. A
+    // close addressed to "the open chat" rather than to a named one closed the
+    // conversation that had just replaced it, and the visible screen was left
+    // with no store, no stream and no composer.
+    await model.closeChat()
+    model.path = []
+    if let held = model.connection.sessions.first(where: { $0.sessionID == DemoFixtures.liveSessionID }),
+       let opened = model.connection.sessions.first(where: { $0.sessionID == DemoFixtures.approvalSessionID }) {
+        await model.open(held)
+        equal(model.path, [held.id], "a session opened from the list is the one thing on the stack")
+        model.handle(SessionLink(deviceID: opened.deviceID, sessionID: opened.sessionID))
+        await settle { model.chat?.key == opened.id }
+        equal(model.path, [opened.id], "a notification replaces the conversation it found open")
+        // The covered view's `onDisappear`, which arrives second.
+        await model.closeChat(key: held.id)
+        equal(model.chat?.key, opened.id,
+              "and the conversation it replaced does not close it on the way out")
+        await model.closeChat(key: opened.id)
+        expect(model.chat == nil, "while the conversation on screen closes when it names itself")
+    } else {
+        expect(false, "the demo carries two sessions to open one over the other")
+    }
+
     // MARK: - Sign out
 
     await model.signOut()
@@ -1127,6 +1185,138 @@ func run() async -> (passed: Int, failures: [String]) {
     await outdated.signOut()
     equal(outdated.connection.updateRequired, nil,
           "and signing out is the way to a gateway this build can talk to")
+
+    // MARK: - What a scene phase means
+    //
+    // `docs/DESIGN.md` § "The composer" (Voice): "only leaving the app ends it
+    // early: the background suspends dictation … Control Centre, the app
+    // switcher's peek, an incoming-call banner and a system alert only make the
+    // app inactive, and dictation listens through them — as the app lock stays
+    // down through them". The privacy shield is the one rule that does follow
+    // `.inactive`: the switcher's snapshot is taken there.
+    expect(SceneRule.isBackground(.background), "the background is leaving the app")
+    expect(!SceneRule.isBackground(.inactive), "and Control Centre is not")
+    expect(!SceneRule.isBackground(.active), "nor is the app being used")
+    expect(SceneRule.isForeground(.active), "the app is reading the stream only while it is active")
+    expect(!SceneRule.isForeground(.inactive), "and not behind Control Centre")
+    expect(!SceneRule.isForeground(.background), "and not while it is suspended")
+    expect(SceneRule.shields(.inactive), "the privacy shield covers the switcher's snapshot")
+    expect(SceneRule.shields(.background), "and the suspended app")
+    expect(!SceneRule.shields(.active), "and nothing while the app is being used")
+
+    // MARK: - Attachments are named for what they are
+    //
+    // `docs/DESIGN.md` § "The composer". The library's own identifier is a
+    // `PHAsset` local id — a UUID with slashes and no extension — so a file
+    // named from it reaches the agent with nothing to say it is an image.
+    equal(AttachmentNaming.libraryPhoto(1), "photo-1.jpg", "the first photo is named for its place")
+    equal(AttachmentNaming.libraryPhoto(2), "photo-2.jpg", "and so is the next one")
+    equal(AttachmentNaming.cameraPhoto, "photo.jpg", "a camera shot is the one photo there is")
+    expect(!AttachmentNaming.libraryPhoto(1).contains("/"),
+           "and no name carries a path separator into the device's attachment directory")
+
+    // MARK: - One run of an action at a time
+    //
+    // Retry on the unconfirmed banner reuses the original request id, so a
+    // second tap while the first is still out would put two requests under one
+    // id. The button is disabled while it is out, and a tap that beats the
+    // redraw starts nothing either.
+    let gate = OneAtATime()
+    var runs = 0
+    var busyWhileRunning = false
+    await gate.run {
+        runs += 1
+        busyWhileRunning = gate.isBusy
+        await gate.run { runs += 1 }
+    }
+    equal(runs, 1, "a control that is already acting starts no second run")
+    expect(busyWhileRunning, "and says so while it acts, so the button can be disabled")
+    expect(!gate.isBusy, "and comes back when the action returns")
+
+    // MARK: - A picked file is read, not mapped
+    //
+    // The security-scoped access a picked URL carries ends with the loop that
+    // opened it, and faulting a page of a mapping whose access has ended is a
+    // `SIGBUS` rather than a thrown error. An eager read is a snapshot, which
+    // is what the check below measures.
+    let scratch = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("rc-ui-verify-\(UUID().uuidString).bin")
+    let first = Data(repeating: UInt8(ascii: "a"), count: 2 * 1024 * 1024)
+    let second = Data(repeating: UInt8(ascii: "b"), count: 2 * 1024 * 1024)
+    if (try? first.write(to: scratch)) != nil, let read = try? PickedFile.read(scratch) {
+        equal(PickedFile.size(of: scratch), first.count, "a picked file is measured before it is read")
+        // In place, through the same inode, which is what a mapping would show
+        // through: replacing the file would leave even a mapping on the bytes
+        // it was made from.
+        if let handle = try? FileHandle(forWritingTo: scratch) {
+            try? handle.write(contentsOf: second)
+            try? handle.close()
+        }
+        equal(read.first, UInt8(ascii: "a"), "and the bytes read are a snapshot, not a live mapping")
+        equal(read.count, first.count, "of the whole file")
+    } else {
+        expect(false, "the check can write and read a scratch file")
+    }
+    try? FileManager.default.removeItem(at: scratch)
+
+    // MARK: - Drafts belong to sessions that still exist, and to one account
+    //
+    // The `hello` snapshot is the whole list of what an account has, so a draft
+    // key it does not name belongs to a session deleted on the device; left
+    // alone its words would sit on disk for the life of the install. Signing
+    // out takes the rest with the account's cache — before the connection is
+    // torn down, because that is what empties `user`.
+    let draftDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("rc-ui-verify-drafts-\(UUID().uuidString)")
+    let drafts = DraftStore(directory: draftDirectory)
+    let account = AppModel(connection: .offlineDemo(),
+                           settings: SettingsStore(defaults: freshDefaults()),
+                           drafts: drafts, arguments: [])
+    await account.signIn(origin: "https://rc.example.com",
+                         username: DemoFixtures.memberUsername, password: "correct horse")
+    await settle { account.connection.hasSnapshot }
+    if account.connection.hasSnapshot, let live = account.connection.sessions.first {
+        let scope = account.connection.account
+        expect(!account.connection.isDemo, "the offline gateway behind the form is an ordinary account")
+        await drafts.setDraft("still here", account: scope, key: live.id)
+        await drafts.setDraft("long gone", account: scope, key: "\(live.deviceID)/deleted-session")
+        await account.adoptSnapshot()
+        equal(await drafts.draft(account: scope, key: live.id), "still here",
+              "a draft for a session the snapshot lists is kept")
+        equal(await drafts.draft(account: scope, key: "\(live.deviceID)/deleted-session"), "",
+              "and one for a session it does not name is forgotten")
+
+        await account.signOut()
+        equal(await drafts.draft(account: scope, key: live.id), "",
+              "signing out clears the account's drafts, under the account that wrote them")
+    } else {
+        expect(false, "the offline gateway answers with a snapshot to prune against")
+    }
+    try? FileManager.default.removeItem(at: draftDirectory)
+
+    // MARK: - The privacy strings and the version the app ships
+    //
+    // Every system resource the app reaches for needs a purpose string or iOS
+    // refuses it, and the local network is one of them: `GatewayEndpoint`
+    // accepts a gateway on the LAN and `Info.plist` sets `NSAllowsLocalNetworking`
+    // for it. The simulator shares the Mac's network and never asks, so nothing
+    // else here would notice the omission.
+    let projectFile = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("project.yml")
+    if let project = try? String(contentsOf: projectFile, encoding: .utf8) {
+        for key in ["NSPhotoLibraryUsageDescription", "NSCameraUsageDescription",
+                    "NSFaceIDUsageDescription", "NSMicrophoneUsageDescription",
+                    "NSSpeechRecognitionUsageDescription", "NSLocalNetworkUsageDescription"] {
+            expect(project.contains("INFOPLIST_KEY_\(key):"), "the app declares \(key)")
+        }
+        expect(project.contains("MARKETING_VERSION: '1.3.0'"),
+               "the app ships the version this round tagged")
+        expect(project.contains("CURRENT_PROJECT_VERSION: 2"),
+               "and a build number TestFlight can tell apart")
+    } else {
+        expect(false, "the check can read project.yml")
+    }
 
     return (passed, failures)
 }

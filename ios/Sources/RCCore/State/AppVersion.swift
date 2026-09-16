@@ -39,7 +39,7 @@ public enum AppBuild {
     /// app bundle to read, so they fall back to the number this source tree
     /// carries — the same one `ios/project.yml` sets.
     public static let version: String =
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.3.0"
 }
 
 /// Amendment A31: this build is older than the gateway will talk to.

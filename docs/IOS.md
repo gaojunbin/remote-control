@@ -44,6 +44,16 @@ Set `DEVELOPER_DIR` per process; never change the global selection with `sudo xc
 `RCVerify` reads `../protocol/fixtures` directly, so a contract change is checked on the next run
 without copying anything.
 
+**The version and the privacy strings are checked, not remembered.** `RCUIVerify` reads
+`project.yml` itself and fails when `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` are not the
+ones this round ships, or when any of the six purpose strings is missing. Six, not five: the app
+sets `NSAllowsLocalNetworking`, `GatewayEndpoint` accepts a gateway on loopback, an RFC 1918
+address or a `.local` name, and this file documents signing in from a physical iPhone against the
+Mac's LAN address — all of which need `NSLocalNetworkUsageDescription` on real hardware. The
+simulator shares the Mac's network and is never asked, which is why nothing local would have
+noticed. `NSBonjourServices` is not declared and is not needed: the app resolves an address the
+reader typed and browses for nothing.
+
 UI tests need a booted simulator:
 
 ```sh
@@ -377,7 +387,22 @@ The camera is behind `CodeScanning` (`Sources/RCUI/Screens/CodeScanner.swift`): 
 prefers VisionKit's `DataScannerViewController` and falls back to an `AVCaptureMetadataOutput`
 session where it is unavailable, and `StaticCodeScanner` hands over a printed payload on a tap. A
 simulator has no camera, so the demo takes the stand-in and the UI test drives the whole flow
-through it.
+through it. The fallback session starts from `viewWillAppear` rather than `viewDidLoad`, because
+`viewDidDisappear` stops it: a sheet presented over the scanner, or the app backgrounded and
+restored, used to leave a frozen preview that read exactly like a camera that was looking.
+
+**A camera the app may not use says so** (`docs/DESIGN.md` § "The three screens"). `CodeScanning`
+asks for the camera before anything is drawn — `requestAccess()`, which `CameraCodeScanner` answers
+through `Camera.requestAccess()` (`Sources/RCUI/Attachments/CameraAccess.swift`) and every scanner
+with no camera behind it answers `.allowed` by default. `ScanPairingView` holds the answer and
+draws the viewfinder only for `.allowed`; `.denied` — which is `denied` and `restricted` alike,
+because they read the same to the reader — puts one line where the camera would be, "Allow camera
+access in Settings, or type the code" (`scan.cameraRefused`), with an **Open iOS Settings** button
+(`scan.openSettings`). The status strip is not drawn at all until there is something to say, so
+"Hold steady — the QR code is detected automatically." is said only while a camera is actually
+looking. Before this the `try?` around `startScanning()` and the `try?` around
+`AVCaptureDeviceInput` both swallowed the refusal and the reader got a black frame under a strip
+that claimed to be scanning.
 
 **A device has a page (A33).** The row itself opens the machine; its swipe and its context menu
 still act on it without going anywhere. `DevicesView` wraps each row in a `NavigationLink(value:)`
@@ -451,6 +476,15 @@ shadow as well. `ChipButtonStyle` is tinted rather than outlined, so the Todos c
 model and permission chips and "Take over" all lost their borders in one place.
 `sessionRowLayout()` and `settingsRowLayout()` hold the row insets, so Sessions and Devices share
 one rhythm and Settings shares another.
+
+**A box around a label is `@ScaledMetric`, never a constant.** `Theme.Touch.minimum` and
+`Theme.Touch.primary` are the sizes at the default text size; a frame pinned to one of them around
+a label clips long before the largest accessibility size. The composer's Send circle and control
+row take `@ScaledMetric(relativeTo: .body)` from `Theme.Touch.primary`, and its attachment pills
+`@ScaledMetric(relativeTo: .caption)`, the way `CommandPanel` and `AgentLogo` already do.
+`testSendCircleGrowsWithAccessibilityText` launches with
+`-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge` and
+measures the circle.
 
 Settings reads like iOS grouped settings: a quiet caption, one soft surface, label left and control
 right, and the explanation as a footnote under the group rather than inside it. A monospace value
@@ -640,6 +674,23 @@ the proxy's scroll is reported as animating only once it is under way), and only
 nothing is moving pins a reader at the foot. The reproduction was by reasoning from the geometry
 callbacks, not a recording; the rule is unit-tested over its table.
 
+**The open transcript has a ceiling.** `Timeline` holds at most `Timeline.entryLimit` (3000) rows.
+Live events past that drop the oldest and set `hasMoreHistory` back to true, so scrolling up pages
+them from the gateway again. A page of history is not trimmed: it is older than everything held, so
+trimming after one would throw away exactly what the reader scrolled up to see. `ChatStore.rows`
+keeps its answer until the timeline's version or the detail level moves, because SwiftUI reads it
+on every render pass and the filter runs over the whole transcript.
+
+**"Open full output" cannot revert a block.** `session.block` answers with the seq of the version
+it holds, so a block that streamed on while the request was out answers below the row's newest seq
+and is refused; an answer at the same seq is the untruncated copy of what is on screen, which is
+the point of the request. When the reply is the first event to carry `first_seq` for that block,
+the row moves and the transcript is re-sorted, as a live replacement already was.
+
+**A closed conversation stays closed.** `ChatStore.close()` cancels the resubscribe a `hello` or a
+detected gap may have started and sets a flag `subscribe()` checks, so a conversation closed at the
+moment the socket came back cannot leave the gateway streaming a transcript nobody is reading.
+
 ## Dismissing the keyboard
 
 `dismissesKeyboardOnBackgroundTap()` in `Sources/RCUI/Design/KeyboardDismiss.swift` puts a
@@ -784,12 +835,47 @@ moment the menu closes, so the picker it was asked to present never arrived. Not
 the system picker's own collection, which is identified rather than named because the picker is
 titled in the phone's language and not the app's.
 
+**Camera is offered only where there is one**, and only after the camera says yes.
+`UIImagePickerController` documents that a source type must be checked with
+`isSourceTypeAvailable(_:)` and raises otherwise, so `Camera.exists` gates the menu item and
+`CameraCapture` checks it a second time before setting the source. The tap itself goes through
+`Camera.requestAccess()`; a refusal writes the notice line the composer gives any denied
+permission — "Allow camera access in Settings, or attach a photo instead." — and presents nothing.
+`testAttachMenuOffersNoCameraWhereThereIsNone` reads the menu on the simulator, which has no
+camera: Files and Photos, and nothing for a camera that is not there.
+
+**Attachments are named for what they are** (`docs/DESIGN.md` § "The composer").
+`AttachmentNaming` (`Sources/RCUI/Attachments/AttachmentNaming.swift`) owns the rule: a library
+photo is `photo-1.jpg`, `photo-2.jpg`, … by the order it was attached in, a camera shot is
+`photo.jpg`, and both carry the extension of what is actually sent, which is always JPEG because
+every photo goes through `PhotoPreparation.jpeg`. The composer used to name a library photo with
+`PhotosPickerItem.itemIdentifier`, which is a `PHAsset` local id — `B84E8479-…/L0/001`, a UUID with
+slashes and no extension — so the pill, the bubble and the file the device wrote all read as a raw
+identifier and the agent was handed a path with nothing to say it was an image.
+
+**A picked file is read, not mapped.** `PickedFile.read(_:)`
+(`Sources/RCUI/Attachments/PickedFile.swift`) is a plain `Data(contentsOf:)`. The security-scoped
+access a picked URL carries is released by the ingest loop's `defer`, while the bytes are not
+touched again until the message is base64-encoded on its way out; for a file outside the app
+container, faulting a page of a mapping whose scoped access has ended is a `SIGBUS` rather than a
+thrown error. The 6 MB cap `PickedFile.size(of:)` checks first is what makes the eager copy cheap.
+
 Above the field the composer draws one line at most, and only while something is happening to it: an
 attachment that was refused, what dictation is doing, or where the argument of a slash command
 already named goes (A27). It never says who owns the session — the
 header above the transcript already reads `terminal · attached`, and a control the app cannot drive
 is absent rather than dimmed under a caption explaining why. So the composer is the field row plus
 one control row, with a strip of attachment pills between them while a message carries files.
+
+**A draft goes when its session does.** `DraftStore.retain(_:account:)` drops the drafts of
+sessions the `hello` snapshot no longer lists. `AppModel.adoptSnapshot()` calls it once per
+snapshot, from the same `onChange(of: connection.hasSnapshot)` the landing rule reads, and never
+for the demo, whose scripted device resumes and archives sessions as the run goes on. `signOut()`
+clears the account's draft file alongside its cache, and does it **before** `connection.signOut()`,
+which empties `user` and drops the endpoint — after it, `connection.account` would name nobody. A session deleted on the device used to keep its text on disk for the life of the
+install. A refused send returns the words through the store and the attachments through the view:
+`ChatStore.send` answers `accepted`, `uncertain` or `refused`, and the composer puts its files back
+on `refused` unless newer ones were attached while the request was out.
 
 ## Slash commands
 
@@ -904,13 +990,22 @@ and a turning wheel would claim the app was busy when it is not.
 | An older device sends its own id, `source: "remote"`, identical text | Reconciled by text, one row per event |
 | The reply is `sent` or `steered` | Nothing; the row waits for the event |
 | The reply is `queued` | The row goes, and the queue row above the composer stands for the message until the device dequeues it and emits the `user_message` under the same id |
-| The reply is an error the gateway actually sent | The row goes, the message is shown in the composer, and the text returns to the draft if the user has not started another one |
-| The socket dropped, or the request timed out | The row stays, "Delivery unconfirmed" and Retry appear, and the retry reuses the id rather than sending a second copy |
+| The reply is an error the gateway actually sent | The row goes, the message is shown in the composer, and the text returns to the draft if the user has not started another one — and the composer puts its attachment pills back beside them |
+| The socket dropped, or the request timed out | The row stays, "Delivery unconfirmed" and Retry appear, and the retry reuses the id rather than sending a second copy. Retry is disabled while it is out (`OneAtATime`, `Sources/RCUI/Design/OneAtATime.swift`): the id is reused, so two overlapping retries would be two requests under one id |
 | Nothing at all for 60 s | The row says "Delivery unconfirmed" itself, through `OptimisticMessage.isUnconfirmed(at:)` |
 
 A resync keeps these rows — a message the user just typed must not vanish because the socket came
 back — and the reloaded history reconciles them, so a reconnect neither drops nor duplicates one.
 `Tests/RCCoreTests/OptimisticSendTests.swift` covers every line of that table.
+
+**A refused send returns everything**, the words and the attachments alike (`docs/DESIGN.md` §
+"The composer" → **A draft belongs to its session**). The composer clears its pills optimistically
+with the field, and `ChatStore.send` says what became of them: `accepted` and `uncertain` keep them
+cleared — the `PendingSend` holds the bytes and Retry re-sends the same message — while `refused`
+and `empty` put them back, because nothing was ever on its way. Newer pills attached while the
+request was out are the person's, so they are not overwritten. They used to be dropped before the
+await and never put back, so a second tap sent the words without the files and nothing said they
+had gone.
 
 The demo device holds its echo back by `DemoGateway.defaultEchoDelay`, 400 ms, and reports the
 message before it reports what the agent said about it, which is the order a real device uses. Under
@@ -1008,9 +1103,19 @@ state at `--voice-level=0`, `0.5` and `1`, which is what that argument exists fo
 
 ### No maximum duration
 
-Listening ends when the user taps Done, when the app is backgrounded, or when the recognizer fails.
-`VoiceInputController` arms no deadline at all; the only timer it owns is how long a backend may take
-to answer `finish()`, and `isAwaitingFinalTranscript` says when that one is up.
+Listening ends when the user taps Done, when the app is **backgrounded**, or when the recognizer
+fails. `VoiceInputController` arms no deadline at all; the only timer it owns is how long a backend
+may take to answer `finish()`, and `isAwaitingFinalTranscript` says when that one is up.
+
+Backgrounded, and nothing less. `SceneRule` (`Sources/RCUI/Screens/SceneRule.swift`) is the one
+place that reads a `ScenePhase`, and it says three things: `.background` is leaving the app,
+`.active` is the app being used, and the privacy shield alone follows `.inactive`, because that is
+where the switcher's snapshot is taken. Control Centre, the app switcher's peek, an incoming-call
+banner and a system permission alert all make the scene inactive and nothing more — dictation
+listens through them, and the app lock stays down through them, exactly as its own footer promises
+("when the app returns from the background"). Both handlers used to test `phase != .active`, so a
+Control Centre pull mid-sentence ended the recording with no message — `suspend()` clears
+`authorizedRun`, and coming back could not restart it — and cost a Face ID on the way back.
 
 Neither backend can hold one request open indefinitely, so both roll over underneath while the
 audio engine and its tap keep running. Each request owns one slot in `TranscriptSegments`
@@ -1082,8 +1187,27 @@ every `.sessionUpdated` to it with the previous and the new session (`onSessionT
 scene is active, the Notifications switch is on, and the system authorization is granted. The title
 is the device's name, the body the status word — "Turn finished", "Needs your approval", "Waiting
 for your answer", "Errored" — and `userInfo` is the gateway's own push payload, so tapping the
-banner takes the existing `PushRoute` → `handle(link:)` path and opens the session. A remote push
-that arrives while the app is active and connected is presented with no banner, because the app has
+banner takes the existing `PushRoute` → `handle(link:)` path and opens the session.
+
+**A notification opens its session in place** (`docs/DESIGN.md` § "Status vocabulary"). Tapping a
+notification, or following a `remotecontrol://session?device=…&id=…` link, for session B while
+session A is open replaces A with B: `AppModel.handle(_ link:)` calls `open(session, inPlace: true)`
+and the navigation stack becomes `[B]` rather than `[A, B]`, so Back returns to the list and not to
+the session that was left. Nothing of A is touched — `closeChat` writes its draft out on the way —
+and B is streaming with its composer the moment it is on screen.
+
+Closing is addressed to a named conversation, `closeChat(key:)`, and that is what makes the above
+work. SwiftUI delivers the new view's `onAppear` and `.task` **before** the covered view's
+`onDisappear`, the ordering `ScreenAwake` already exists because of; a close addressed to "the open
+chat" therefore arrived after B was installed and closed B. What was left on screen was
+`ChatView`'s third branch — a `ProgressView` with no composer under it — for good, because
+`.task` had already run for that view identity and would not run again.
+`VerificationUI/main.swift` plays the two callbacks in that order, and
+`testALinkOpensItsSessionOverAnOpenOneAndKeepsItsComposer` drives the real link through
+`XCUIDevice.shared.system.open` and looks for a composer.
+
+A remote push that arrives while the app is active and connected is presented with no banner,
+because the app has
 already said it; local ones always show. The Notifications switch now works in the demo too, since a
 local alert needs no gateway — and `PushController` no longer registers a device token when there is
 no gateway to hand it to (its status reads "On, in this app only"), so the demo still sends nothing
@@ -1189,6 +1313,39 @@ The bearer token lives in the Keychain, device-only and never synchronised. It i
 defaults, a log, a diagnostic report or a URL. The diagnostic report is built from an explicit
 allowlist rather than by serialising and redacting.
 
+**A reply belongs to the connection that asked for it.** `ConnectionStore` holds a scope counter
+that moves whenever it adopts a credential, enters the demo, ends a session or signs out.
+`/api/session` and `/api/config` are confirmed behind screens the app has already drawn, so both
+are held in a property, cancelled when the scope is left, and checked against the scope they were
+issued in before anything they carry is applied. Every other assignment after an `await` in the
+store — the cache paint, the two cache writes, an archive reply, a sign-in refusal, the
+pre-credential `/api/health` answer — takes the same check. Without it, signing out and back in as
+somebody else while `/api/session` was in flight left the app reporting the previous account and
+its role, writing the new account's cache and drafts under the old account's name; and a slow
+`/api/config` from a gateway the person had left could put amendment A31's blocking "Update
+required" screen over a gateway that states no minimum at all.
+
+**One frame the app cannot read is one frame, not a broken connection.** The receive loop decodes
+in its own `do`/`catch`: a frame that fails to decode is counted, named once per kind in the log
+(its `type` and, for a session event, its `kind` — never its content), and the loop reads on.
+Nothing validates frames against the schema at runtime anywhere in the system, so a device adapter
+that omits a required field reaches every app unfiltered; ending the connection over it failed
+every request in flight as "delivery unconfirmed" and reconnected, for as long as that session ran.
+`ProtocolFailure.unsupportedVersion` is raised while handling a `hello`, not while decoding, so an
+incompatible gateway is still terminal.
+
+**A request id is answered once.** Amendment A12 makes a retry reuse its request id, so two can be
+outstanding at once — a double tap on Retry, or two taps while the socket is coming back and both
+are held. The socket answers the first caller with `deliveryUncertain` before the second takes the
+slot, and the Retry button is disabled while a retry is in flight. Previously the first
+continuation was dropped, leaving its task suspended for the life of the process and its row on
+the screen forever.
+
+**Back-pressure costs the oldest frame.** Both transport streams are built by `EventBuffer`
+(`bufferingNewest`, 1024 app frames and 256 dictation events). A stream of frames is worth reading
+for its most recent element, so a burst that outruns the MainActor pump loses its beginning rather
+than its end.
+
 ## TestFlight
 
 `.github/workflows/ios-check.yml` runs on every push touching `ios/` or `protocol/`. It pins
@@ -1236,6 +1393,15 @@ Words reach the reader two ways, and both are one setting.
   language's `.lproj` table. `SettingsStore` points it at that table on launch and on every change,
   so the two paths can never disagree.
 
+**A string built that way is computed, never kept.** `L10n.string` reads the table that was current
+when it ran, so a store that assigns its words once goes on saying them in the language it was
+first built in. `PushController` keeps a `PushStatus` and builds `statusText` from it at read time,
+and `PushStatusRow` (`SettingsView.swift`) holds the language so that changing it rebuilds the row
+where it stands — `SettingsRow` takes a `String` for its value, which no environment can redraw.
+`testNotificationStatusFollowsAChangeOfLanguage` switches the segmented control and watches the
+Status row change without leaving the screen. Anything else that stores an `L10n.string` result
+rather than computing it has the same defect.
+
 The keys are the English text, so a key with no translation reads as English rather than as a
 placeholder. Relative times and durations carry words ("12m" → "12 分钟前", "yesterday" → "昨天")
 and are formatted through the same table. Never translated: what the agent wrote, what the device
@@ -1276,7 +1442,14 @@ four states was driven by the scripted device, and no real machine has yet repor
 a rate-limit window to this app. Its pull-to-refresh is wired to the same request the page opens
 with and no test asserts the gesture. The pairing camera is the one piece with no coverage at all: a
 simulator has none, so the scan flow was driven through the injected stand-in and neither
-VisionKit's data scanner nor the `AVCaptureMetadataOutput` fallback has read a real QR code. Segment rollover is covered as a rule and against a fake backend,
+VisionKit's data scanner nor the `AVCaptureMetadataOutput` fallback has read a real QR code. The
+refusal path is in the same position: `Camera.requestAccess()` reads
+`AVCaptureDevice.authorizationStatus(for: .video)`, which answers `.notDetermined` on a simulator
+and is never actually refused there, so the line and the Settings button that replace the
+viewfinder have been seen only by reading the code. The Local Network prompt of
+`NSLocalNetworkUsageDescription` is the same: the simulator shares the Mac's network and is never
+asked. `.inactive` is reasoned from code too — a headless simulator never reaches
+`ScenePhase.active`, so no run has pulled Control Centre over a live dictation. Segment rollover is covered as a rule and against a fake backend,
 never against a real microphone: no dictation has run past one recognition request on a device, and
 neither Apple's own limit nor the gateway's has been reached in practice. APNs delivery and gateway speech-to-text have never been
 exercised, the app has never run on a physical device, and dark mode and VoiceOver have not been
