@@ -9,9 +9,13 @@ web and iOS apps implement the same three, with the same vocabulary and the same
 
 ## The three screens
 
-**Add device.** A modal over the Devices list: one sentence of explanation, a macOS / Linux
-segmented control, the full one-liner in a monospace block with a Copy button, and below it the
-pairing code marked "single use" with its expiry countdown. A live checklist — gateway ready, device
+**Add device.** A modal over the Devices list: one sentence of explanation, the full one-liner in a
+monospace block with a Copy button, and below it the pairing code marked "single use" with its
+expiry countdown. There is no platform to choose: the installer tells macOS from Linux itself
+(`uname`), so the command is the same on both, and a control whose answer changes nothing is a
+question nobody should be asked. The gateway still hands out `install.macos` and `install.linux`
+(the same string today) so a platform whose command really differs can be added without a wire
+change; the apps read one of them. A live checklist — gateway ready, device
 handshake, detect installed agents — fills in as `pairing.progress` arrives, so the moment of "did
 it work" needs no refresh. A "Manual install" link covers a host without `curl`.
 
