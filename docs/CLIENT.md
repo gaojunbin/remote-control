@@ -52,6 +52,7 @@ about to download will run as a service, so the path has to be one nobody can si
 | --- | --- |
 | `--pair RC-XXXX-XXXX` | The pairing code from an app. Omit it to pair by scanning instead |
 | `--name NAME` | The device name shown in the apps. Defaults to the hostname |
+| `--proxy env\|URL` | Reach the gateway through a proxy: `env` follows `HTTPS_PROXY` and friends, a URL names one proxy. The default dials directly; see "Reaching the gateway through a proxy" |
 | `--gateway ORIGIN` | Override the origin baked into the script |
 | `--manual` | Print the steps instead of running them, for a host without `curl` in the pipeline |
 | `--no-shell-rc` | Do not put the shim directory in front of `PATH` in your shell startup file |
@@ -68,8 +69,8 @@ fails, mint a fresh code or run the installer again.
 
 | Command | What it does |
 | --- | --- |
-| `rc-client enroll --gateway URL --pair CODE [--name N]` | Redeem a pairing code and write `config.toml` |
-| `rc-client enroll --gateway URL --scan [--name N]` | Print a QR code, wait for an app to scan it, then enrol with the code it returns |
+| `rc-client enroll --gateway URL --pair CODE [--name N] [--proxy env\|URL]` | Redeem a pairing code and write `config.toml` |
+| `rc-client enroll --gateway URL --scan [--name N] [--proxy env\|URL]` | Print a QR code, wait for an app to scan it, then enrol with the code it returns |
 | `rc-client run` | Run the daemon in the foreground |
 | `rc-client self-update --build SHA256` | Install the wheel the gateway serves, if it is that build, and restart the service |
 | `rc-client status` | Print the device identity, paths, build and service state |
@@ -93,7 +94,7 @@ directory to your `PATH` to call it by name.
 
 ```
 ~/.rc-client/
-  config.toml               gateway_origin, device_id, device_token, name   (0600)
+  config.toml               gateway_origin, device_id, device_token, name, proxy   (0600)
   venv/                     the private Python environment the installer creates
   state/rc-client.sqlite3   sessions, events, request idempotency, tail offsets
   state/client-build        the SHA-256 of the wheel this client was installed from   (0600)
@@ -110,6 +111,27 @@ directory to your `PATH` to call it by name.
 
 `RC_CLIENT_HOME` moves the whole directory, which is how you run a second daemon against a test
 gateway without touching your real one.
+
+## Reaching the gateway through a proxy
+
+The gateway link, enrollment, pairing and `self-update` all dial the gateway **directly** by default:
+following the environment silently would route a private tunnel through whatever `HTTPS_PROXY`
+happens to hold, and a SOCKS entry there fails with an ImportError unless the optional socks
+packages are installed. A host that has no other way out, a cluster login node behind an HTTP proxy
+being the usual case, opts in once, at enrollment:
+
+```sh
+curl -fsSL https://rc.example.com/install.sh | sh -s -- --pair RC-7K42-QX9M --proxy env
+rc-client enroll --gateway https://rc.example.com --pair RC-7K42-QX9M --proxy http://proxy.example:3128
+```
+
+The choice is kept in `config.toml` as `proxy`: `""` dials directly, `"env"` follows `HTTPS_PROXY`,
+`HTTP_PROXY` and `NO_PROXY` (httpx and websockets both read them), and a URL (`http://`, `https://`,
+`socks4://`, `socks5://`, `socks5h://`) names one proxy for every dial. Edit the key and restart the
+service to change it. The installer's own downloads go through `curl`, which follows the environment
+on its own, so `--proxy` is only about what `rc-client` dials. On Linux the service unit does not
+inherit your shell, so `env` only works when the proxy variables reach systemd, for example through
+a drop-in with `Environment=HTTPS_PROXY=...`; a URL needs nothing else.
 
 ## Service management
 
@@ -186,8 +208,10 @@ untouched.
 On start, and whenever an app calls `device.agents`, the daemon locates each CLI and probes its
 version. Resolution order for `claude`:
 
-`RC_CLAUDE_BIN`, then `PATH`, then `~/.local/bin`, `~/.claude/local`, `~/.npm-global/bin`,
-`/usr/local/bin`, `/opt/homebrew/bin`, `~/node_modules/.bin`, `~/.yarn/bin`.
+`RC_CLAUDE_BIN`, then every `claude` on `PATH` in order, then `~/.local/bin`, `~/.claude/local`,
+`~/.npm-global/bin`, `/usr/local/bin`, `/opt/homebrew/bin`, `~/node_modules/.bin`, `~/.yarn/bin`.
+The device's own shim is never the answer: the service environment puts `~/.rc-client/bin` first on
+`PATH` so `attach_ready` can see the shim, and resolution steps past it to the real executable.
 
 For `codex`: `RC_CODEX_BIN`, then the standalone build at
 `~/.codex/packages/standalone/current/bin/codex`, then `PATH`, then
