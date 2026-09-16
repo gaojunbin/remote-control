@@ -1578,6 +1578,53 @@ longer sends the partial transcript — it used to — because a keystroke that 
 "stop and send" in another guise, which the design rules out; and on both apps the moment before
 the microphone is granted still shows the disabled Done, which the ruling did not cover.
 
+## 28. The review's 47 findings, fixed; every component carries its version (2026-09-16, round 29)
+
+Four fixers worked the four review files in parallel, each with a test that failed on the old
+source and passes now; the orchestrator re-ran every toolchain and read the diffs behind each High.
+
+Gateway (342 → 366 tests). GW-1 measured through the forward path with one protocol-legal maximal
+`session.send` (8 × 6 MiB, 64 MiB on the wire): live payload after `json.loads` 128 → 64 MiB,
+live when queued 192 → 128 MiB, peak allocation 256 → 142 MiB, process peak RSS 310 → 248 MiB (RSS
+understates it, because CPython keeps freed arenas). The byte budget admits one maximal frame; the
+arithmetic against `mem_limit: 512m` is in `rc_gateway/budget.py`, and two frames would need
+768 MiB, which was not granted — a second large send while one is forwarding is answered
+`too_large`, which the apps show with their permanent-refusal copy (a `busy` code would be an
+amendment; left as is). GW-2 reproduced with two accounts before the fix and refused after; the
+replay ceiling is now 16 × 4 MiB because the 4 MiB per session is a wire rule (§ Bounds) and was
+not changed. Not verified: a container run, real push delivery, the 4009 close against a real app.
+
+Web (550 → 578 tests). WEB-1 reproduced with the reviewer's probe shape (real `ChatPage`,
+`MemoryRouter`, A → B → A) and fixed by a per-session drafts store with the composer keyed on the
+session; sign-out resets every store, including `sessions`, `devices` and `users`, so the landing
+page waits for the new account's `hello` rather than painting the last account's devices. DOM
+windowing of the transcript was left: the store cap bounds growth, and a virtual list would mean
+rewriting the scroll-follow. No browser run this round.
+
+iOS (RCVerify 1288 → 1293, RCUIVerify 305 → 345, unit tests 325 → 340). IOSC-1 and IOSC-2
+reproduced as tests in the reviewer's two scenarios and pass with the scope counter; IOSC-3, IOSC-4
+and IOSC-7 likewise (IOSC-7 confirmed real: the stale full-output reply did revert the block).
+`ChatStore.send` now answers accepted / uncertain / refused / empty so the composer restores a
+refused send's attachments without inferring it from the field. IOSU-1's callback order was
+proved with a throw-away app on the simulator, and the fix is checked in RCUIVerify with the
+same order. The full UI suite: 62 tests (5 new), 4 skipped, 0 failures, 1 087 s. Not verified on hardware: the camera-denied
+scanner, the Local Network prompt (IOSU-6), Face ID on `.inactive`, the gateway recogniser's
+segment pruning; no automated check for IOSU-13/14/15 (view state, `#if os(iOS)` paths RCUIVerify
+cannot compile on macOS) and IOSU-9 (a mapped read of a temporary file does not fail on macOS).
+
+Two things learnt about the suite itself. `xcode-select -p` on this Mac is the Command Line Tools,
+so when a UI test fails xcodebuild's diagnostics collector cannot find `simctl` and the whole run
+aborts at the first failure with no assertion text in the console; runs with no failure are
+unaffected. And `testAgentMessageSitsOnTheAgentsSideAndSimpleHidesIt` failed twice and passed
+twice on the same build: the agent's report sits near the top of a lazily laid-out transcript that
+opens at its foot, so whether the row exists in the tree depended on whether the demo's question
+card had landed yet. The test now scrolls the row into view; RCUIVerify has a check that the store
+draws the message at Detailed after a reopen, which held throughout.
+
+Versions: gateway 1.3.0, web 1.3.0, iOS `MARKETING_VERSION` 1.3.0 (build 2); the device client is
+unchanged and stays 0.1.0; `IOS_MINIMUM_APP_VERSION` stays 0.1.0 because nothing here breaks an
+older app. Repo tag v1.3.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
