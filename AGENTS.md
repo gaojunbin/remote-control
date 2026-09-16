@@ -40,9 +40,11 @@ they read `AgentInfo` capabilities and the five attachment fields, never the age
   the round ends with a repo tag `vX.Y`: `ios/project.yml` `MARKETING_VERSION` (the app compares it
   as `major.minor.patch` against the gateway's minimum) and `CURRENT_PROJECT_VERSION`;
   `gateway/pyproject.toml`; `web/package.json`; `client/pyproject.toml` together with
-  `client/rc_client/__init__.py` — the client's version is what devices compare for Update (A22),
-  so it moves only when the client itself changes. A component left at an old number while the repo
-  is tagged ahead of it is a defect (round 29 found all four at 0.1.0 under a v1.2 tag).
+  `client/rc_client/__init__.py` and the `rc-client` entry in `client/uv.lock`. The owner's rule
+  (2026-09-16): all four components carry the round's version, whether or not each one changed, so
+  a device's Update action (A22) and the Settings screens read one number per release. A component
+  left at an old number while the repo is tagged ahead of it is a defect (round 29 found all four at
+  0.1.0 under a v1.2 tag).
 
 ## How agents are attached (why terminal sessions can be driven from a phone)
 

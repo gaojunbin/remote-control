@@ -1621,9 +1621,11 @@ opens at its foot, so whether the row exists in the tree depended on whether the
 card had landed yet. The test now scrolls the row into view; RCUIVerify has a check that the store
 draws the message at Detailed after a reopen, which held throughout.
 
-Versions: gateway 1.3.0, web 1.3.0, iOS `MARKETING_VERSION` 1.3.0 (build 2); the device client is
-unchanged and stays 0.1.0; `IOS_MINIMUM_APP_VERSION` stays 0.1.0 because nothing here breaks an
-older app. Repo tag v1.3.
+Versions: gateway 1.3.0, web 1.3.0, iOS `MARKETING_VERSION` 1.3.0 (build 2), and the device client
+1.3.0 too — its code did not change this round, but the owner's rule is one number per release
+across all four components, so every enrolled device will offer this update once the gateway is
+redeployed and the wheel it serves is rebuilt. `IOS_MINIMUM_APP_VERSION` stays 0.1.0 because
+nothing here breaks an older app. Repo tag v1.3.
 
 ## Smoke procedure
 
