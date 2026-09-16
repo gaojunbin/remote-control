@@ -201,6 +201,16 @@ mismatch exits 3 and leaves the old client in place. On success it installs the 
 the daemon on the new code) and `shim install`, keeping whatever `--no-shell-rc` choice your shell
 startup file already reflects.
 
+Then it refreshes everything else the wheel ships into the person's tools, so an update leaves the
+device where a fresh install would: `pi setup`, but **only when a pi extension is already
+installed** — a device that never had one keeps having none, and the updater says so in one line.
+That step is the new `rc-client`'s own, as the service and shim steps are, so what lands in
+`~/.pi/agent/extensions/` is the new build's extension; a failure there is printed to the log and
+does not fail the update, because it leaves a stale extension rather than a broken client. The
+updater touches nothing it did not put there: it never installs Codex, whose shared daemon the
+restarted device brings up by itself, and it never turns Grok's leader mode on or off, which is the
+installer's question and the person's answer.
+
 Everything the updater prints goes to `logs/update.log`, never the gateway token. The daemon watches
 the process it spawned: if it exits non-zero, the daemon is still alive to send `update.failed` with
 the log's last line, and the app shows it on the device row. If the daemon never comes back at all,
@@ -1241,9 +1251,10 @@ never been enrolled keeps the pi it has always had, and the permission modes bel
 an app is actually there to answer. And it writes nowhere but the socket.
 
 `attach_ready` is the installed file being byte-equal to the one in the running wheel. Nothing else
-counts as current: an `rc-client` update that changes the extension makes `attach_ready` false until
-`pi setup` runs again, and until then the device passes its own copy to the sessions it starts with
-`pi -e <bundled path>`. A `globalThis` marker inside the file makes the second load of a double-loaded
+counts as current, so an `rc-client` update that changes the extension runs `pi setup` itself when a
+copy is installed, and every pi started afterwards loads the new one. Where that step is skipped or
+fails, `attach_ready` is false until `pi setup` runs again, and until then the device passes its own
+copy to the sessions it starts with `pi -e <bundled path>`. A `globalThis` marker inside the file makes the second load of a double-loaded
 process a no-op.
 
 ### Sessions this device starts

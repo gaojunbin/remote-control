@@ -12,6 +12,7 @@ import httpx
 import pytest
 
 from rc_client import update
+from rc_client.agents.pi import paths as pi_paths
 from rc_client.build import as_digest, build_path, digest_of, read_build, write_build
 from rc_client.channel import shellrc
 from rc_client.config import Config, ensure_dirs, save_config
@@ -196,6 +197,64 @@ async def test_the_update_leaves_no_working_directory_behind(
     monkeypatch.setattr(httpx.AsyncClient, "stream", serve())
     assert await self_update(WHEEL_DIGEST) is True
     assert list(build_path().parent.glob("update-*")) == []
+
+
+# ------------------------------------------------------- what the wheel ships
+
+
+def install_pi_extension() -> Path:
+    """An older copy of the extension where pi loads it from."""
+    target = pi_paths.installed_extension()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("// an older build\n", encoding="utf-8")
+    return target
+
+
+def fail_on(enrolled: list[list[str]], monkeypatch: pytest.MonkeyPatch, *arguments: str) -> None:
+    """Make exactly one of the update's steps exit non-zero."""
+
+    async def spawn(*command: str, **kwargs: Any) -> FakeProcess:
+        enrolled.append(list(command))
+        return FakeProcess(1 if tuple(command[1:]) == arguments else 0)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+
+
+async def test_the_update_refreshes_an_installed_pi_extension(
+    enrolled: list[list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_pi_extension()
+    monkeypatch.setattr(httpx.AsyncClient, "stream", serve())
+    assert await self_update(WHEEL_DIGEST) is True
+    assert [command[1:] for command in enrolled][1:] == [
+        ["service", "install"],
+        ["shim", "install", "--no-shell-rc"],
+        ["pi", "setup"],
+    ]
+
+
+async def test_the_update_leaves_a_device_without_the_pi_extension_alone(
+    enrolled: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    monkeypatch.setattr(httpx.AsyncClient, "stream", serve())
+    assert await self_update(WHEEL_DIGEST) is True
+    assert [command[1:] for command in enrolled][1:] == [
+        ["service", "install"],
+        ["shim", "install", "--no-shell-rc"],
+    ]
+    assert "pi's extension is not installed" in capsys.readouterr().out
+    assert not pi_paths.installed_extension().exists()
+
+
+async def test_a_pi_extension_that_cannot_be_refreshed_still_leaves_the_update_done(
+    enrolled: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    install_pi_extension()
+    fail_on(enrolled, monkeypatch, "pi", "setup")
+    monkeypatch.setattr(httpx.AsyncClient, "stream", serve())
+    assert await self_update(WHEEL_DIGEST) is True
+    assert read_build() == WHEEL_DIGEST
+    assert "pi extension" in capsys.readouterr().err
 
 
 # ----------------------------------------------------------------- the log

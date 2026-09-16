@@ -20,6 +20,7 @@ from pathlib import Path
 
 import httpx
 
+from .agents.pi import install as pi_extension
 from .build import as_digest, digest_of, write_build
 from .channel import shellrc
 from .config import ensure_dirs, load_config, log_dir, state_dir
@@ -109,6 +110,25 @@ def _shim_arguments() -> list[str]:
     return [] if shellrc.installed(shellrc.rc_file()) else ["--no-shell-rc"]
 
 
+async def _refresh_pi_extension(executable: str) -> None:
+    """Put the wheel's pi extension where an installed one already sits.
+
+    An update refreshes what the wheel ships into the person's tools, and
+    nothing it did not put there: a device with no extension keeps having none.
+    The freshly installed `rc-client` does the copying, as it does for the
+    service and the shim, so what lands is the new build's file. Failing here
+    leaves a stale extension, not a broken client, so the update still counts.
+    """
+    state = pi_extension.state()
+    if not state.installed:
+        print(f"pi's extension is not installed ({state.target}); left alone", flush=True)
+        return
+    try:
+        await _step("the pi extension install", executable, "pi", "setup")
+    except (RcError, OSError) as exc:
+        print(f"the pi extension was not refreshed: {exc}", file=sys.stderr, flush=True)
+
+
 async def self_update(build: str) -> bool:
     """Install the requested build and restart the service. False when refused."""
     requested = as_digest(build)
@@ -138,6 +158,7 @@ async def self_update(build: str) -> bool:
         executable = rc_client_executable()
         await _step("the service install", executable, "service", "install")
         await _step("the shim install", executable, "shim", "install", *shim_arguments)
+        await _refresh_pi_extension(executable)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     print(f"updated to {served}", flush=True)
