@@ -54,7 +54,8 @@ after every changed component's toolchain is green:
    on what was and was not verified), then commit it.
 2. **Bump all four components to the round's version** (patch for fixes, minor for features), in
    one commit per component or one commit for the bumps alone:
-   - gateway: `gateway/pyproject.toml` `version`, and the `rc-gateway` entry in `gateway/uv.lock`;
+   - gateway: `gateway/pyproject.toml` `version`, `gateway/rc_gateway/__init__.py` `__version__`
+     (what `hello` and `GET /api/config` report), and the `rc-gateway` entry in `gateway/uv.lock`;
    - web: `web/package.json` `version`, and the two root entries in `web/package-lock.json`;
    - client: `client/pyproject.toml` `version`, `client/rc_client/__init__.py` `__version__`, and
      the `rc-client` entry in `client/uv.lock` (the wheel the gateway serves is named from it);
