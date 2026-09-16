@@ -325,5 +325,8 @@
       "update_url": "https://testflight.apple.com/join/EXAMPLE"
     }
   },
+  "preferences": {
+    "resume_after_limit": false
+  },
   "server_time": 1788944400000
 }

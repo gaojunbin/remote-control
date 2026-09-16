@@ -9,6 +9,7 @@
       "oneOf": [
         { "$ref": "#/$defs/Hello" },
         { "$ref": "#/$defs/HelloAck" },
+        { "$ref": "#/$defs/Preferences" },
         { "$ref": "#/$defs/SessionUpdated" },
         { "$ref": "#/$defs/SessionRemoved" },
         { "$ref": "#/$defs/SessionEvent" },
@@ -62,6 +63,16 @@
         }
       },
       "required": ["type", "device_id", "server_time", "config"]
+    },
+
+    "Preferences": {
+      "description": "Gateway -> device, after hello_ack and whenever the account's preferences change (A35).",
+      "type": "object",
+      "properties": {
+        "type": { "const": "preferences" },
+        "preferences": { "$ref": "objects.json#/$defs/Preferences" }
+      },
+      "required": ["type", "preferences"]
     },
 
     "SessionUpdated": {

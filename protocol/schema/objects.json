@@ -728,6 +728,17 @@
           "type": "integer",
           "minimum": 0
         },
+        "resume": {
+          "description": "The resume the device has scheduled after a usage limit, or null/absent when none (A35).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionResume"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "speed": {
           "type": [
             "string",
@@ -891,6 +902,66 @@
         "created_at",
         "last_login_at",
         "devices"
+      ]
+    },
+    "LimitStop": {
+      "description": "Why a turn ended when the vendor's usage limit was reached (A35): the window that was hit and when it resets, or null when the vendor named no time.",
+      "type": "object",
+      "properties": {
+        "window_minutes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "resets_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "resets_at"
+      ]
+    },
+    "SessionResume": {
+      "description": "The one resume a session can have pending after a usage limit stopped it (A35).",
+      "type": "object",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "estimated": {
+          "type": "boolean"
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "window_minutes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "at",
+        "estimated",
+        "attempts"
+      ]
+    },
+    "Preferences": {
+      "description": "An account's preferences: the switches that read the same on every app and device of the account (A35).",
+      "type": "object",
+      "properties": {
+        "resume_after_limit": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "resume_after_limit"
       ]
     }
   }

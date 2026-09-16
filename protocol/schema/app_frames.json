@@ -29,6 +29,9 @@
           "$ref": "#/$defs/PairingProgress"
         },
         {
+          "$ref": "#/$defs/PreferencesUpdated"
+        },
+        {
           "$ref": "#/$defs/Ping"
         },
         {
@@ -75,6 +78,12 @@
         },
         {
           "$ref": "#/$defs/SessionQueueRemove"
+        },
+        {
+          "$ref": "#/$defs/SessionResumeSet"
+        },
+        {
+          "$ref": "#/$defs/SessionResumeCancel"
         },
         {
           "$ref": "#/$defs/SessionTakeover"
@@ -134,6 +143,12 @@
         },
         {
           "$ref": "#/$defs/SessionQueueRemove"
+        },
+        {
+          "$ref": "#/$defs/SessionResumeSet"
+        },
+        {
+          "$ref": "#/$defs/SessionResumeCancel"
         },
         {
           "$ref": "#/$defs/SessionTakeover"
@@ -210,6 +225,10 @@
         },
         "apps": {
           "$ref": "objects.json#/$defs/AppsInfo"
+        },
+        "preferences": {
+          "description": "The account's preferences; absent on a gateway older than A35.",
+          "$ref": "objects.json#/$defs/Preferences"
         },
         "server_time": {
           "$ref": "objects.json#/$defs/Timestamp"
@@ -1448,6 +1467,94 @@
       "properties": {
         "result": {
           "$ref": "#/$defs/ResultDeviceUpdate"
+        }
+      }
+    },
+    "PreferencesUpdated": {
+      "description": "Gateway -> app: the account's preferences changed, from this or another app (A35).",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "preferences.updated"
+        },
+        "preferences": {
+          "$ref": "objects.json#/$defs/Preferences"
+        }
+      },
+      "required": [
+        "type",
+        "preferences"
+      ]
+    },
+    "SessionResumeSet": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/RequestBase"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "session.resume_set"
+        },
+        "session_id": {
+          "$ref": "objects.json#/$defs/Id"
+        },
+        "at": {
+          "$ref": "objects.json#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "session_id",
+        "at"
+      ]
+    },
+    "SessionResumeCancel": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/RequestBase"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "session.resume_cancel"
+        },
+        "session_id": {
+          "$ref": "objects.json#/$defs/Id"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "session_id"
+      ]
+    },
+    "ReplySessionResumeSet": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/ReplyOk"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/ResultSession"
+        }
+      }
+    },
+    "ReplySessionResumeCancel": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/ReplyOk"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/ResultSession"
         }
       }
     }

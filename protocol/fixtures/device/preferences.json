@@ -1,0 +1,6 @@
+{
+  "type": "preferences",
+  "preferences": {
+    "resume_after_limit": true
+  }
+}

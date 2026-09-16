@@ -59,6 +59,7 @@ APP_FRAME_TYPES = (
     "session.removed",
     "session.event",
     "pairing.progress",
+    "preferences.updated",
     "ping",
     "pong",
     "reply",
@@ -75,6 +76,8 @@ APP_FRAME_TYPES = (
     "session.commands",
     "session.command",
     "session.queue_remove",
+    "session.resume_set",
+    "session.resume_cancel",
     "session.takeover",
     "session.archive",
     "session.delete",
@@ -86,6 +89,7 @@ APP_FRAME_TYPES = (
 DEVICE_FRAME_TYPES = (
     "hello",
     "hello_ack",
+    "preferences",
     "session.updated",
     "session.removed",
     "session.event",
@@ -107,6 +111,8 @@ FORWARDED_TYPES = (
     "session.commands",
     "session.command",
     "session.queue_remove",
+    "session.resume_set",
+    "session.resume_cancel",
     "session.takeover",
     "session.archive",
     "session.delete",
@@ -131,6 +137,7 @@ EVENT_KINDS = (
     "queue",
     "notice",
     "error",
+    "resume",
 )
 TOOL_KINDS = (
     "shell",
@@ -162,6 +169,8 @@ HTTP_DEFS = {
     "registration.patch.request": "RegistrationPatchRequest",
     "registration.response": "RegistrationResponse",
     "config.response": "ConfigResponse",
+    "preferences.response": "PreferencesResponse",
+    "preferences.patch.request": "PreferencesPatchRequest",
     "devices.enroll.request": "EnrollRequest",
     "devices.enroll.response": "EnrollResponse",
     "devices.list.response": "DeviceListResponse",
@@ -185,6 +194,7 @@ HTTP_DEFS = {
     "push.apns.register.request": "ApnsRegisterRequest",
     "push.apns.unregister.request": "ApnsUnregisterRequest",
     "push.payload": "PushPayload",
+    "push.payload.limit": "PushPayload",
 }
 
 # fixture directory -> (schema file, definition or None for the file's root)
@@ -206,6 +216,7 @@ PATH_SCHEMAS = {
     "objects/session.codex-shared-running.json": ("objects.json", "Session"),
     "objects/agent.grok.json": ("objects.json", "AgentInfo"),
     "objects/agent.pi.json": ("objects.json", "AgentInfo"),
+    "objects/session.resume-pending.json": ("objects.json", "Session"),
     "app/reply.session.create.json": ("app_frames.json", "ReplySessionCreate"),
     "app/reply.session.send.json": ("app_frames.json", "ReplySessionSend"),
     "app/reply.session.set.json": ("app_frames.json", "ReplySessionSet"),
@@ -213,6 +224,7 @@ PATH_SCHEMAS = {
     "app/reply.session.commands.json": ("app_frames.json", "ReplySessionCommands"),
     "app/reply.session.takeover.json": ("app_frames.json", "ReplySessionTakeover"),
     "app/reply.session.archive.json": ("app_frames.json", "ReplySessionArchive"),
+    "app/reply.session.resume_set.json": ("app_frames.json", "ReplySessionResumeSet"),
     "app/reply.device.dirs.json": ("app_frames.json", "ReplyDeviceDirs"),
     "app/reply.device.git.json": ("app_frames.json", "ReplyDeviceGit"),
     "app/reply.device.agents.json": ("app_frames.json", "ReplyDeviceAgents"),

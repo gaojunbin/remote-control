@@ -48,6 +48,9 @@
         },
         {
           "$ref": "#/$defs/EventError"
+        },
+        {
+          "$ref": "#/$defs/Resume"
         }
       ]
     },
@@ -109,7 +112,8 @@
         "meta",
         "queue",
         "notice",
-        "error"
+        "error",
+        "resume"
       ]
     },
     "ToolKind": {
@@ -142,12 +146,13 @@
       ]
     },
     "Trigger": {
-      "description": "Who caused a message or a turn: an app, a person at the terminal, the device's queue, or another agent whose words the CLI filed as a user turn (A30).",
+      "description": "Who caused a message or a turn: an app, a person at the terminal, the device's queue, another agent whose words the CLI filed as a user turn (A30), or the device resuming the session after a usage limit reset (A35).",
       "enum": [
         "remote",
         "terminal",
         "queue",
-        "agent"
+        "agent",
+        "resume"
       ]
     },
     "Delivery": {
@@ -785,6 +790,10 @@
         },
         "usage": {
           "$ref": "objects.json#/$defs/Usage"
+        },
+        "limit": {
+          "description": "Present when the turn ended because the vendor's usage limit was reached; stop_reason is error (A35).",
+          "$ref": "objects.json#/$defs/LimitStop"
         }
       },
       "required": [
@@ -958,6 +967,48 @@
       "required": [
         "kind",
         "message"
+      ]
+    },
+    "Resume": {
+      "description": "What the device did about a resume after a usage limit (A35).",
+      "allOf": [
+        {
+          "$ref": "#/$defs/EventBase"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "resume"
+        },
+        "status": {
+          "enum": [
+            "scheduled",
+            "rescheduled",
+            "fired",
+            "cancelled",
+            "dropped"
+          ]
+        },
+        "at": {
+          "$ref": "objects.json#/$defs/Timestamp"
+        },
+        "estimated": {
+          "type": "boolean"
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400
+        }
+      },
+      "required": [
+        "kind",
+        "status"
       ]
     }
   }

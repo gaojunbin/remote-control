@@ -135,6 +135,17 @@
       "properties": { "open": { "type": "boolean" } },
       "required": ["open"]
     },
+    "PreferencesResponse": {
+      "description": "200 from GET and PATCH /api/preferences (A35).",
+      "type": "object",
+      "properties": { "preferences": { "$ref": "objects.json#/$defs/Preferences" } },
+      "required": ["preferences"]
+    },
+    "PreferencesPatchRequest": {
+      "description": "PATCH /api/preferences: every field optional, the ones present are set (A35).",
+      "type": "object",
+      "properties": { "resume_after_limit": { "type": "boolean" } }
+    },
     "ConfigResponse": {
       "description": "GET /api/config.",
       "type": "object",
@@ -395,7 +406,7 @@
           "type": "object",
           "properties": {
             "v": { "const": 1 },
-            "kind": { "enum": ["needs_approval", "needs_input", "turn_completed", "error"] },
+            "kind": { "enum": ["needs_approval", "needs_input", "turn_completed", "error", "limit_reached", "resumed", "resume_dropped"] },
             "device_id": { "$ref": "objects.json#/$defs/Uuid" },
             "session_id": { "$ref": "objects.json#/$defs/Id" },
             "device_name": { "type": "string", "minLength": 1 },

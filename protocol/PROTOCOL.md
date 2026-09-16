@@ -271,6 +271,8 @@ Passwords are stored hashed and never returned. `LoginRequest.username` is requi
 | GET | `/api/session` | – | `AuthSessionResponse` |
 | POST | `/api/password` | `PasswordChangeRequest` | `OkResponse`. Changes the caller's password; `401 unauthorized` when `current_password` is wrong, `400 bad_request` when the new one is outside the rules, `403 forbidden` for `admin`, whose password is `RC_PASSWORD` (A24). Other sign-ins of the account stay valid. |
 | GET | `/api/config` | – | `ConfigResponse` |
+| GET | `/api/preferences` | – | `PreferencesResponse` — the caller's account preferences (A35) |
+| PATCH | `/api/preferences` | `PreferencesPatchRequest` | `PreferencesResponse`. Every field is optional and the ones present are set; the change goes out as `preferences.updated` to the account's app sockets and as `preferences` to its devices (A35) |
 
 `fixtures/http/auth.session.response.json`
 
@@ -317,6 +319,24 @@ and its `url`; a device whose `client_build` differs can be brought to it with `
     "apns_enabled": false
   },
   "version": "0.1.0"
+}
+```
+
+An account's preferences (amendment A35) are the switches that must read the same on the phone,
+in the browser and on every device of the account, so they live on the gateway and not in an app.
+There is one today, `resume_after_limit`: whether a session that stopped because the vendor's usage
+limit was reached is resumed by its device once the limit resets (7.2). It is off until the person
+turns it on. `hello` on `/ws/app` carries the object as `preferences`; a gateway older than A35
+sends none, and an app shows the switch disabled with a note. Only the caller's own preferences
+are readable or writable.
+
+`fixtures/http/preferences.response.json`
+
+```json
+{
+  "preferences": {
+    "resume_after_limit": true
+  }
 }
 ```
 
@@ -487,11 +507,33 @@ tool output ever appears in a push.**
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `rc.v` | `1` | yes | Payload version |
-| `rc.kind` | `needs_approval` \| `needs_input` \| `turn_completed` \| `error` | yes | Why the user is being notified |
+| `rc.kind` | `needs_approval` \| `needs_input` \| `turn_completed` \| `error` \| `limit_reached` \| `resumed` \| `resume_dropped` | yes | Why the user is being notified. The last three (A35) follow the `resume` events of 5.15 |
 | `rc.device_id` | uuid | yes | Deep-link target |
 | `rc.session_id` | string | yes | Deep-link target |
 | `rc.device_name` | string | yes | Shown in the notification text |
 | `rc.title` | string | yes | The generic notification text |
+
+Three kinds follow what a device does about a session the usage limit stopped (amendment A35, 7.2):
+`limit_reached` when it schedules the resume (`resume {status: "scheduled"}`), `resumed` when the
+resume starts a turn (`fired`), and `resume_dropped` when it could not resume (`dropped`). The
+title stays generic — "mac-studio-office: paused by the usage limit", "mac-studio-office: resumed
+after the limit reset", "mac-studio-office: not resumed" — and the time is read in the app, which
+has the session's `resume`.
+
+`fixtures/http/push.payload.limit.json`
+
+```json
+{
+  "rc": {
+    "v": 1,
+    "kind": "limit_reached",
+    "device_id": "c5efb1ec-2912-4619-90f7-93b5172fd712",
+    "session_id": "6d1f3c58-8b2e-4d67-9a4f-2e7c1b0d5a93",
+    "device_name": "mac-studio-office",
+    "title": "mac-studio-office: paused by the usage limit"
+  }
+}
+```
 
 ### 3.8 Speech-to-text streaming socket
 
@@ -804,6 +846,7 @@ worked examples of A25 and A26.
 | `todos` | `{total, done}` \| null | yes | Counts for the header chip |
 | `usage` | `Usage` \| null | yes | |
 | `queued` | integer | yes | Number of queued remote messages |
+| `resume` | `SessionResume` \| null | no | The resume the device has scheduled for this session after a usage limit (7.2), or null or absent when there is none (A35) |
 
 #### `control` values
 
@@ -956,6 +999,18 @@ logic: `control` and the five attachment fields of 4.2 say everything.
 }
 ```
 
+A `SessionResume` (amendment A35) is the one resume a session can have pending:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `at` | timestamp | yes | When the device will send the resume prompt |
+| `estimated` | boolean | yes | True when the vendor named no reset time and `at` was computed from the window's length |
+| `attempts` | integer ≥ 0 | yes | How many resumes have already run into the limit again; the device drops the resume after the third |
+| `window_minutes` | integer ≥ 1 | no | The window that was hit, as `AgentLimit.window_minutes` (4.2) |
+
+`fixtures/objects/session.resume-pending.json` is an attached terminal session, idle, with a resume
+pending a minute after its five-hour window resets.
+
 ### 4.5 Session state
 
 | State | Meaning |
@@ -1091,7 +1146,7 @@ are timeline entries or state updates.
 | `first_seq` | integer | no | Where the block started; order by `first_seq ?? seq` |
 | `text` | string | yes | |
 | `attachments` | `Attachment[]` | no | Metadata only |
-| `source` | `remote` \| `terminal` \| `queue` \| `agent` | yes | Where the message came from. `agent` is a message the CLI put into the conversation on behalf of another agent — a teammate's message, a background task's notification — that nobody typed (A30) |
+| `source` | `remote` \| `terminal` \| `queue` \| `agent` \| `resume` | yes | Where the message came from. `agent` is a message the CLI put into the conversation on behalf of another agent — a teammate's message, a background task's notification — that nobody typed (A30). `resume` is the prompt the device sent for the person once a usage limit reset (A35, 7.2) |
 | `delivery` | `delivered` \| `absorbed` | no | Set only on `shared` sessions; see below |
 
 The `user_message` a device emits for an app's `session.send` carries the request's `id` as its
@@ -1179,6 +1234,24 @@ turn that was running as `completed`, since the CLI's reply is the end of what t
     }
   ],
   "source": "remote"
+}
+```
+
+`source: "resume"` (amendment A35) is the one message the device writes for the person: the fixed
+sentence of 7.2, sent when the usage limit that stopped the session has reset. Apps draw it in the
+person's bubble, captioned as sent for them after the limit reset, so the transcript says who
+continued the work and why; the turn it starts carries `trigger: "resume"` (5.9).
+
+`fixtures/events/user_message.resume.json`
+
+```json
+{
+  "seq": 42,
+  "ts": 1788966060000,
+  "kind": "user_message",
+  "block_id": "4c9e7a12-5b3d-4f80-a6e1-8d2c0b7f3e54",
+  "text": "The usage limit has reset. Continue where you left off, and let any subagents you started continue their work.",
+  "source": "resume"
 }
 ```
 
@@ -1595,10 +1668,11 @@ answered.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `turn_id` | uuid | yes | Matches `Session.turn.turn_id` |
-| `trigger` | `remote` \| `terminal` \| `queue` \| `agent` | yes | `turn_started` only. `agent` is a turn started by a message another agent put into the conversation (A30) |
+| `trigger` | `remote` \| `terminal` \| `queue` \| `agent` \| `resume` | yes | `turn_started` only. `agent` is a turn started by a message another agent put into the conversation (A30); `resume` is a turn the device started once a usage limit reset (A35) |
 | `stop_reason` | `completed` \| `interrupted` \| `error` | yes | `turn_completed` only |
 | `duration_ms` | integer | yes | `turn_completed` only |
 | `usage` | `Usage` | no | `turn_completed` only |
+| `limit` | `LimitStop` | no | `turn_completed` only. Present when the turn ended because the vendor's usage limit was reached; `stop_reason` is `error` (A35) |
 
 `fixtures/events/turn_started.json`
 
@@ -1652,6 +1726,47 @@ A Codex turn reports no cost, so `usage` carries the token totals only:
     "context_used": 36900,
     "context_window": 272000
   }
+}
+```
+
+A turn the vendor's usage limit ended (amendment A35) is an `error` stop that says so, and says when
+the limit resets when the vendor did. A `LimitStop` is `{window_minutes?, resets_at}`: the window
+that was hit as `AgentLimit.window_minutes` (300 for five hours, 10080 for a week) when it is known,
+and `resets_at` null when the vendor named no time. The device reads the limit from the agent, never
+from its words: Claude Code's result with HTTP status 429 — `api_error_status` in the SDK's result
+message, `apiErrorStatus` with `quotaLimits.resetsAt` in the transcript row — and Codex's
+`turn/completed` whose error is `usageLimitExceeded`, with the window from `account/rateLimits/read`.
+The vendor's sentence goes out as the `error` of 5.14, not as the agent's text. Grok Build and pi
+report no limit the device can read, so their turns never carry it.
+
+`fixtures/events/turn_completed.limit.json`
+
+```json
+{
+  "seq": 40,
+  "ts": 1788947998000,
+  "kind": "turn_completed",
+  "turn_id": "b7e2a5c4-3f1d-4a8e-9c6b-0d2f4e8a1b37",
+  "stop_reason": "error",
+  "duration_ms": 1200,
+  "limit": {
+    "window_minutes": 300,
+    "resets_at": 1788966000000
+  }
+}
+```
+
+A turn a resume started (7.2) carries `trigger: "resume"`; the status line reads it as a remote turn.
+
+`fixtures/events/turn_started.resume.json`
+
+```json
+{
+  "seq": 43,
+  "ts": 1788966060100,
+  "kind": "turn_started",
+  "turn_id": "9f4b2d1e-7c3a-4e58-b1d6-2a8f0c5e7d19",
+  "trigger": "resume"
 }
 ```
 
@@ -1776,6 +1891,50 @@ the `compact_boundary` system message the SDK streams, and the summary itself is
 }
 ```
 
+### 5.15 `resume`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `status` | `scheduled` \| `rescheduled` \| `fired` \| `cancelled` \| `dropped` | yes | |
+| `at` | timestamp | no | For `scheduled` and `rescheduled`: when the prompt will be sent |
+| `estimated` | boolean | no | For `scheduled` and `rescheduled`: `at` was computed from the window's length, not given by the vendor |
+| `attempts` | integer ≥ 0 | no | For `rescheduled`: how many resumes have run into the limit again |
+| `reason` | string | no | For `cancelled` and `dropped`: why, in the device's words, one line |
+
+What the device did about a session the usage limit stopped (amendment A35, 7.2), as a row of the
+timeline: `scheduled` when it set the resume after a limit stop or a person asked for one,
+`rescheduled` when the time moved — the person changed it, or the resumed turn ran into the limit
+again — `fired` the moment it sent the prompt, `cancelled` when a person or the switch ended it, and
+`dropped` when it could not resume: the terminal that owned the session is gone, or the third try
+hit the limit too. The pending resume also travels as `Session.resume` (4.4), which is what an app
+draws above the transcript; the event is the record in the timeline, and the gateway's cue for a
+push (3.7). Like `notice`, it changes no state.
+
+`fixtures/events/resume.json`
+
+```json
+{
+  "seq": 41,
+  "ts": 1788948000000,
+  "kind": "resume",
+  "status": "scheduled",
+  "at": 1788966060000,
+  "estimated": false
+}
+```
+
+`fixtures/events/resume.dropped.json`
+
+```json
+{
+  "seq": 42,
+  "ts": 1788966060000,
+  "kind": "resume",
+  "status": "dropped",
+  "reason": "The terminal that owned this session was closed."
+}
+```
+
 ---
 
 ## 6. App ↔ gateway frames
@@ -1793,13 +1952,14 @@ device is answered `not_found`, exactly as one naming nothing would be.
 
 | Type | Payload | When |
 | --- | --- | --- |
-| `hello` | `protocol`, `gateway_version`, `user`, `devices`, `sessions`, `stt`, `polish`, `apps`, `server_time` | First frame. `polish` (A29) may be absent on a gateway older than it, which means disabled; `apps` (A31) likewise, which means no minimum |
+| `hello` | `protocol`, `gateway_version`, `user`, `devices`, `sessions`, `stt`, `polish`, `apps`, `preferences`, `server_time` | First frame. `polish` (A29) may be absent on a gateway older than it, which means disabled; `apps` (A31) likewise, which means no minimum; `preferences` (A35) likewise, which means the switches it holds are not offered |
 | `device.updated` | `device` | A device connects, disconnects, is renamed or re-detects agents |
 | `device.removed` | `device_id` | A device is deleted |
 | `session.updated` | `session` | Any change to a session summary |
 | `session.removed` | `session_id`, `device_id` | A session is deleted |
 | `session.event` | `session_id`, `device_id`, `event` | Only for sessions this connection subscribed to |
 | `pairing.progress` | `code`, `step`, `device?` | While a pairing code is outstanding. `step` is `waiting`, `enrolled`, `online` or `agents`. |
+| `preferences.updated` | `preferences` | The account's preferences changed, from this app or another (A35) |
 | `ping` | – | Every 25 s; the app replies `pong` |
 | `reply` | `id`, `ok`, `result` or `error` | Answer to a request |
 
@@ -2278,6 +2438,8 @@ The gateway forwards these to the owning device and returns the device's reply.
 | `session.commands` | `session_id` | `{commands}` — the slash commands the session offers now (A27) |
 | `session.command` | `session_id`, `name`, `argument?` | `{}` — runs one; the echo and the outcome arrive as events (A27) |
 | `session.queue_remove` | `session_id`, `queued_id` | `{}` |
+| `session.resume_set` | `session_id`, `at` | `{session}` — schedules the resume of 7.2 for `at`, or moves the pending one there; `bad_request` unless `at` is at least a minute ahead and within eight days, `conflict` while a turn runs or while the terminal controls the session (A35) |
+| `session.resume_cancel` | `session_id` | `{session}` — removes the pending resume; idempotent (A35) |
 | `session.takeover` | `session_id` | `{session}` |
 | `session.archive` | `session_id`, `archived` | `{session}` |
 | `session.delete` | `session_id` | `{}` |
@@ -2309,6 +2471,8 @@ The result's `accepted` field reports what actually happened: `sent`, `queued` o
   ("controlled by terminal; take over first").
 - `session.send` to a session with `control: "none"` makes the device resume the session first
   (Claude `resume`, Codex `thread/resume`) and then send.
+- A `session.send` or `session.command` a person sends to a session with a pending resume (7.2)
+  cancels the resume: the person got there first (A35).
 - `session.set` with `effort` on Claude may need the SDK connection restarted before the next turn.
   The device replies immediately with the updated `Session` and applies the change lazily. The same
   applies to `permission_mode` when the agent cannot change it live.
@@ -2770,6 +2934,7 @@ device replaces the first; the old socket is closed with code 4001.
 | device → gateway | `reply` | `id`, `from`, `ok`, `result` or `error` |
 | gateway → device | forwarded request | any type from 6.3, plus `from` and `device_id` |
 | gateway → device | `ping` | – every 25 s |
+| gateway → device | `preferences` | `preferences` — after `hello_ack`, and whenever the account's preferences change (A35) |
 
 `fixtures/device/hello.json` (abridged)
 
@@ -2988,7 +3153,7 @@ The agent, session and option arrays are shortened here; the fixture holds the f
 
 Note the two fields the gateway added: `from` identifies the app connection and must be echoed in the
 reply, and `device_id` was injected because the request was addressed by `session_id`.
-`fixtures/device/forwarded/` holds all fifteen forwarded requests, plus the gateway's backfill
+`fixtures/device/forwarded/` holds all seventeen forwarded requests, plus the gateway's backfill
 variant of `session.history` described in 7.1.
 
 The gateway keeps a replay buffer of the last 2 000 events or 4 MiB per session, whichever is
@@ -3023,6 +3188,43 @@ the gateway consumes the reply itself.
 
 Apps need no special handling. The backfilled events arrive as normal session events and are applied
 by `block_id` like any other.
+
+### 7.2 Resuming after a usage limit
+
+Claude Code and Codex stop a turn when the vendor's usage window is used up — the five-hour window,
+or the weekly one — and say when it resets. The device tells such an end apart from a completed
+turn whatever the account prefers (`turn_completed` with `limit`, 5.9), and when the account's
+`resume_after_limit` (3.2) is on, resumes the session itself (amendment A35):
+
+- **Scheduling.** At a limit stop on a session whose `control` is `remote` or `shared`, the device
+  sets `Session.resume` to one minute after `limit.resets_at` — or, when the vendor named no time,
+  to now plus the window's length, five hours when the window is unknown, with `estimated: true` —
+  publishes `resume {status: "scheduled"}`, and keeps the record across its own restarts. A
+  `terminal` session gets none: the device has no way in. A person can set or move one with
+  `session.resume_set` and remove it with `session.resume_cancel`.
+- **Firing.** The device looks at pending resumes at least every 30 seconds, so a machine that slept
+  through the time fires on waking. When `at` has passed: a session that is `running` was taken
+  further by someone else, and the resume is `cancelled`; a session that was `shared` when the
+  resume was scheduled and whose CLI is gone (`control` now `none`) is `dropped`, because the
+  person who closed the terminal has said they are done with it; any other session gets the prompt
+  as a `session.send` would deliver it — a `none` session the device runs is resumed first, as 6.3
+  says — with `resume {status: "fired"}`, the `user_message {source: "resume"}` and a
+  `turn_started {trigger: "resume"}`.
+- **The prompt** is one fixed sentence, the same on every device and never edited per session:
+  `The usage limit has reset. Continue where you left off, and let any subagents you started continue their work.`
+- **Again.** When the resumed turn ends with `limit` once more, the device reschedules from the new
+  `resets_at` (`rescheduled`, `attempts` + 1); after the third such turn it drops the resume.
+- **Cancelling.** A `session.send` or `session.command` from a person on a session with a pending
+  resume cancels it; so does turning `resume_after_limit` off, which cancels every pending resume on
+  every device of the account, each with `resume {status: "cancelled"}`. Turning it on schedules
+  nothing for stops that already happened.
+- **Grok Build and pi** report no limit the device can read; their turns never carry `limit` and no
+  resume is scheduled for them. The device keeps one place where an agent's limit signal is read,
+  so an agent that gains one joins without a change to the wire.
+
+The gateway stores the preference per account (3.2), sends it to each device after `hello_ack` and
+on every change, and pushes (3.7) `limit_reached` on `resume {status: "scheduled"}`, `resumed` on
+`fired` and `resume_dropped` on `dropped` to the account's registrations.
 
 ---
 
@@ -3091,6 +3293,15 @@ by `block_id` like any other.
     older shows a blocking "Update required" screen — its version, the gateway's minimum, a button
     to `update_url` when there is one, and Sign out — and nothing else until it is updated. An equal
     or newer version, or a gateway that sends no `apps`, changes nothing.
+17. **A pending resume is shown where the session is, and is the person's to end.** A session
+    whose `resume` is set says, above its transcript, that it was paused by the usage limit and when
+    it resumes (A35, 7.2), with one action to change the time and one to cancel; the row goes when
+    `resume` is null. The Settings switch for `resume_after_limit` reads and writes the account's
+    preferences (3.2), so the phone, the browser and every device agree; a gateway that sends no
+    `preferences` in `hello` predates the switch, and the app shows it disabled with a note. A
+    `user_message` with `source: "resume"` is drawn in the person's bubble, captioned as sent for
+    them after the limit reset, and a `turn_started` with `trigger: "resume"` reads in the status
+    line as a remote turn does.
 
 ---
 
@@ -3148,6 +3359,12 @@ by `block_id` like any other.
 - [ ] Reports `apps.ios.minimum_version` as `major.minor.patch` in `GET /api/health`,
       `GET /api/config` and `hello`, with `update_url` when configured, and raises the minimum in the
       same release that stops supporting older iOS builds (A31).
+
+- [ ] Stores `preferences` per account, answers `GET` and `PATCH /api/preferences` for the caller's
+      account only, carries the object in `hello`, sends `preferences.updated` to the account's app
+      sockets and `preferences` to its devices after `hello_ack` and on every change, forwards
+      `session.resume_set` and `session.resume_cancel`, and pushes `limit_reached`, `resumed` and
+      `resume_dropped` on the matching `resume` events (A35).
 
 ### 9.2 Device
 
@@ -3244,6 +3461,16 @@ by `block_id` like any other.
       the device's own or its `source` is `cli` or `exec`, and removes with `session.removed` any
       other thread it published before (A18).
 
+- [ ] Ends a turn the usage limit stopped with `stop_reason: "error"` and `limit`, read from the
+      agent's own signal — Claude's 429 result, Codex's `usageLimitExceeded` — never from words,
+      and publishes the vendor's sentence as `error`, not as the agent's text; with
+      `resume_after_limit` on, schedules the resume of 7.2 on a `remote` or `shared` session, keeps
+      it across restarts, fires it a minute after the reset with the fixed prompt as `user_message
+      {source: "resume"}` under `trigger: "resume"`, drops it when the terminal that owned a
+      `shared` session is gone, cancels it when the person sends first or the switch goes off,
+      reschedules up to three times when the resumed turn hits the limit again, publishes each step
+      as a `resume` event, and answers `session.resume_set` and `session.resume_cancel` (A35).
+
 ### 9.3 App
 
 - [ ] Ignores unknown fields, unknown event kinds and unknown agent ids.
@@ -3304,6 +3531,12 @@ by `block_id` like any other.
 - [ ] Opens a device from its row, lists the agents found on it with how each is signed in, draws a
       meter per `AgentLimit` for accounts only, asks `device.agents` for fresh limits when the page
       opens, and draws nothing where `plan`, `email`, `endpoint` or `limits` are absent (A33).
+- [ ] Offers the "Resume after the limit resets" switch in Settings bound to the account's
+      `preferences` — disabled with a note when `hello` carries none — shows a session's pending
+      `resume` above its transcript with the time, a way to change it and a way to cancel it, draws
+      the `resume` rows and a turn's `limit` end in the timeline, draws a `source: "resume"`
+      message in the person's bubble with its caption, and treats `trigger: "resume"` like
+      `remote` in the status line (A35).
 - [ ] Decodes every fixture under `fixtures/` in its test suite.
 
 ---
@@ -3314,7 +3547,7 @@ by `block_id` like any other.
 | --- | --- |
 | `fixtures/app/` | One frame per app-socket type, in both directions, plus typed replies |
 | `fixtures/device/` | One frame per device-socket type |
-| `fixtures/device/forwarded/` | All fifteen forwarded requests as the device receives them, plus the A9 backfill variant |
+| `fixtures/device/forwarded/` | All seventeen forwarded requests as the device receives them, plus the A9 backfill variant |
 | `fixtures/events/` | One event per kind, and one `tool_call` per `tool_kind` |
 | `fixtures/objects/` | Bare `Session` and `AgentInfo` objects that no frame fixture carries, including the two attachable agents and the shared sessions |
 | `fixtures/http/` | One body per HTTP request and response |
@@ -3671,3 +3904,21 @@ beside the warning, because `absorbed` promises a re-send that will not come. Se
 report was drawn in the person's own bubble, muted: apps now draw a `source: "agent"` message on
 the agent's side, as a muted block captioned "from another agent", and their Simple detail level
 hides it with the agent's other workings. Nothing changes on the wire. See 5.2, 9.2 and 9.3.
+
+**2026-09-17 A35 — a session the usage limit stopped resumes itself when the limit resets.** A
+Claude Code or Codex turn that ran into the five-hour or weekly window ended, from a phone, like any
+other: the device read the CLI's 429 row as a completed turn and showed the vendor's sentence as the
+agent's words, and the work waited until someone noticed. The device now reads the limit from the
+agent's own signal and ends the turn with `stop_reason: "error"` and `limit {window_minutes,
+resets_at}`; with the account's `resume_after_limit` on — a preference the gateway stores and every
+app and device of the account reads the same, off by default — it schedules a resume a minute after
+the reset, keeps it across restarts, and sends one fixed sentence into the session as `user_message
+{source: "resume"}` under `trigger: "resume"`, so the terminal or the device-run agent continues
+where it stopped and brings its own subagents back. A terminal closed before the time means the
+person is done: the resume is dropped and said so. Each step is a `resume` event in the timeline
+and a snapshot in `Session.resume`, which the apps draw above the transcript with a way to move the
+time and a way to cancel; a person's own message cancels it too. New: `Preferences`,
+`GET`/`PATCH /api/preferences`, `hello.preferences`, `preferences.updated`, the device frame
+`preferences`, `session.resume_set`, `session.resume_cancel`, the `resume` event, `LimitStop`,
+`SessionResume`, the `resume` trigger and source, and three push kinds. See 3.2, 3.7, 4.4, 5.2,
+5.9, 5.15, 6, 7, 7.2, 8, 9 and 10.
