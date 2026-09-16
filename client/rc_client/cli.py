@@ -34,7 +34,7 @@ from .daemon import Daemon
 from .enroll import enroll
 from .errors import RcError
 from .logging_setup import setup_logging
-from .proxy import DIRECT, httpx_options, normalise_proxy
+from .proxy import DIRECT, httpx_options, redact_proxy, resolve_proxy
 from .service import codex as codex_supervision
 from .service import manager
 from .update import self_update
@@ -65,8 +65,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--proxy",
         default=DIRECT,
         help=(
-            "reach the gateway through a proxy: `env` follows HTTPS_PROXY and friends, "
-            "a URL names one proxy; the default dials directly"
+            "reach the gateway through an http or https proxy: `env` takes the one this "
+            "machine's proxy settings name right now, a URL names one; the default dials directly"
         ),
     )
 
@@ -136,13 +136,16 @@ async def _claim_by_scanning(origin: str, proxy: str) -> str:
 
 async def _cmd_enroll(args: argparse.Namespace) -> int:
     origin = normalise_origin(args.gateway)
-    proxy = normalise_proxy(args.proxy)
+    # `--proxy env` is this machine's answer, read now: the daemon's own
+    # environment comes from a plist or a unit and would name nothing.
+    proxy = resolve_proxy(args.proxy, origin)
     code = await _claim_by_scanning(origin, proxy) if args.scan else str(args.pair)
     agents = await detect_all()
-    config = await enroll(origin, code, args.name, agents, proxy)
+    config = await enroll(origin, code, args.name, agents, proxy=proxy)
     available = [info.agent for info in agents if info.available]
     print(f"Enrolled as {config.device_id} at {config.gateway_origin}")
     print(f"Configuration written to {config_path()}")
+    print(f"proxy: {redact_proxy(config.proxy)}")
     print("Agents detected: " + (", ".join(available) if available else "none"))
     return EXIT_OK
 
@@ -207,6 +210,7 @@ async def _cmd_status(args: argparse.Namespace) -> int:
     print(f"device_id      {config.device_id}")
     print(f"name           {config.name}")
     print(f"gateway        {config.gateway_origin}")
+    print(f"proxy          {redact_proxy(config.proxy)}")
     print(f"client build   {build or 'unknown (installed from source)'}")
     print(f"config         {config_path()}")
     print(f"state          {config_module.database_path()}")

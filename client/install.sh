@@ -200,8 +200,9 @@ Remote Control app, or to open its link in a signed-in browser.
 
   --pair CODE        pairing code minted in an app; omit it to pair by scanning
   --name NAME        device name shown in the apps (default: this hostname)
-  --proxy env|URL    reach the gateway through a proxy: "env" follows HTTPS_PROXY and
-                     friends, a URL names one proxy (default: dial directly)
+  --proxy env|URL    reach the gateway through an http or https proxy: "env" takes the
+                     one this host's proxy settings name, a URL names one and is used
+                     by this script too (default: dial directly)
   --gateway ORIGIN   override the gateway origin baked into this script
   --no-shell-rc      do not add the shim directory to your shell startup file
   --no-codex         skip the shared Codex app-server daemon setup
@@ -231,6 +232,15 @@ while [ $# -gt 0 ]; do
         *) fail "unknown option: $1" ;;
     esac
 done
+
+# A --proxy URL is what this host has to use for everything, not just what
+# rc-client dials: curl, uv and the wheel download all read the environment and
+# would otherwise time out before enrollment is ever reached. "env" needs
+# nothing, since it means the variables are here already.
+case "$PROXY" in
+    ""|[Ee][Nn][Vv]) ;;
+    *) export HTTPS_PROXY="$PROXY" HTTP_PROXY="$PROXY" ;;
+esac
 
 OS="$(uname -s)"
 ARCH="$(uname -m)"
@@ -304,7 +314,8 @@ Manual installation on $PLATFORM/$ARCH:
   7. "$VENV/bin/rc-client" enroll --gateway "$GATEWAY" --pair <your pairing code>
      or "$VENV/bin/rc-client" enroll --gateway "$GATEWAY" --scan   # prints a QR code
      add --proxy env (or --proxy http://proxy.example:3128) on a host that only
-     reaches the gateway through a proxy; curl above already follows HTTPS_PROXY
+     reaches the gateway through a proxy; export HTTPS_PROXY yourself for the
+     curl and uv steps above, which read it on their own
   8. "$VENV/bin/rc-client" service install && "$VENV/bin/rc-client" service start
   9. "$VENV/bin/rc-client" shim install   # lets the apps drive terminal Claude sessions
  10. "$VENV/bin/rc-client" codex setup    # lets the apps drive terminal Codex sessions

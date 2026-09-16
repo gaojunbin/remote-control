@@ -13,7 +13,7 @@ from .config import Config, normalise_origin, save_config
 from .errors import RcError
 from .logging_setup import logger
 from .models import AgentInfo
-from .proxy import DIRECT, httpx_options
+from .proxy import httpx_options
 
 log = logger("rc_client.enroll")
 
@@ -37,12 +37,15 @@ async def enroll(
     code: str,
     name: str | None,
     agents: list[AgentInfo],
-    proxy: str = DIRECT,
+    *,
+    proxy: str,
 ) -> Config:
     """POST /api/devices/enroll and persist the returned credentials.
 
-    `proxy` is how this host reaches the gateway (rc_client/proxy.py); it is
-    saved with the credentials so the daemon and the updater dial the same way.
+    `proxy` is how this host reaches the gateway (`""` directly, or a URL; see
+    rc_client/proxy.py). It is saved with the credentials, so the daemon and the
+    updater dial the same way; every caller states it, because a call that let it
+    default would quietly enroll a proxied host into a direct dial.
     """
     origin = normalise_origin(gateway)
     payload = {

@@ -82,8 +82,9 @@ class Config:
     device_id: str
     device_token: str
     name: str
-    # How the gateway is reached: `""` directly, `"env"` through the environment's proxy
-    # settings, or one proxy URL. See rc_client/proxy.py.
+    # How the gateway is reached: `""` directly, or one http/https proxy URL.
+    # `enroll --proxy env` resolves the environment's answer and stores that URL,
+    # so nothing here depends on the service's environment. See rc_client/proxy.py.
     proxy: str = DIRECT
     mirror: MirrorConfig = field(default_factory=MirrorConfig)
     claude: ClaudeConfig = field(default_factory=ClaudeConfig)

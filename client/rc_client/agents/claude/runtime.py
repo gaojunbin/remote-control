@@ -8,26 +8,13 @@ import os
 import re
 from pathlib import Path
 
+from ...channel.paths import path_candidates
+
 VERSION_TIMEOUT = 3.0
 _VERSION_RE = re.compile(r"(?<!\d)(\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?)")
 
 CLAUDE_HOME = Path.home() / ".claude"
 PROJECTS_DIR = CLAUDE_HOME / "projects"
-
-
-def on_path(name: str) -> list[str]:
-    """Every `name` on PATH, in PATH order, whether or not it exists.
-
-    `shutil.which` stops at the first hit, and in the service environment that
-    hit is the device's own shim: `path_with_shim` puts the shim directory in
-    front so `attach_ready` can see it. resolve_binary() rejects the shim, so
-    the real executable behind it has to stay reachable.
-    """
-    return [
-        os.path.join(directory, name)
-        for directory in os.environ.get("PATH", "").split(os.pathsep)
-        if directory
-    ]
 
 
 def candidate_paths() -> list[str]:
@@ -36,7 +23,7 @@ def candidate_paths() -> list[str]:
     candidates: list[str] = []
     if explicit:
         candidates.append(os.path.expanduser(explicit))
-    candidates.extend(on_path("claude"))
+    candidates.extend(path_candidates("claude"))
     home = Path.home()
     candidates.extend(
         str(path)

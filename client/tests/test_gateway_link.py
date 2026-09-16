@@ -17,6 +17,7 @@ from rc_client import gateway as rc_gateway
 from rc_client import linkstate
 from rc_client.errors import RcError
 from rc_client.gateway import ByteQueue, GatewayLink, close_code, describe_error, reconnect_delay
+from rc_client.proxy import DIRECT
 
 
 class FakeGateway:
@@ -116,7 +117,9 @@ async def hello_payload() -> dict[str, Any]:
 async def link_to(
     server: FakeGateway, handlers: dict[str, Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]]
 ) -> GatewayLink:
-    link = GatewayLink(server.url, "device-token", hello=hello_payload, handlers=handlers)
+    link = GatewayLink(
+        server.url, "device-token", hello=hello_payload, handlers=handlers, proxy=DIRECT
+    )
     link.start()
     await asyncio.wait_for(server.ready.wait(), timeout=5)
 
@@ -211,7 +214,9 @@ async def test_the_link_reconnects_and_re_sends_hello(gateway: FakeGateway) -> N
 
 
 async def test_frames_are_dropped_while_disconnected() -> None:
-    link = GatewayLink("ws://127.0.0.1:1/ws/device", "t", hello=hello_payload, handlers={})
+    link = GatewayLink(
+        "ws://127.0.0.1:1/ws/device", "t", hello=hello_payload, handlers={}, proxy=DIRECT
+    )
     await link.send({"type": "session.updated", "session": {}})
     await link.stop()
 
@@ -327,6 +332,7 @@ async def test_the_pump_answers_requests_while_connect_work_is_still_running(
         hello=hello_payload,
         handlers={"session.send": handler},
         on_ready=on_ready,
+        proxy=DIRECT,
     )
     link.start()
     await asyncio.wait_for(gateway.ready.wait(), timeout=5)
@@ -354,7 +360,12 @@ async def test_connect_work_is_dropped_when_the_connection_goes(
             raise
 
     link = GatewayLink(
-        gateway.url, "device-token", hello=hello_payload, handlers={}, on_ready=on_ready
+        gateway.url,
+        "device-token",
+        hello=hello_payload,
+        handlers={},
+        on_ready=on_ready,
+        proxy=DIRECT,
     )
     link.start()
     await asyncio.wait_for(running.wait(), timeout=5)
