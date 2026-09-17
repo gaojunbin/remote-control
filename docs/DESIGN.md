@@ -694,6 +694,34 @@ function owns the rule on each platform — `dotTone(state, control, online)` in
 `web/src/components/dotTone.ts`, `DotTone.of(state:control:online:)` in RCCore on iOS — and both are unit
 tested over the whole table.
 
+### Working means all of it
+
+A session is **working** while any work it started is still under way (owner's ruling,
+2026-09-18): its own turn, or a subagent it spawned that has not finished. The dot is green and the
+apps say "<agent> is working" for as long as that holds, and the turn does not end — no
+`turn_completed`, no "Turn finished" push, held messages stay held — until the last of it has. A
+session is **waiting** (`needs_approval`, `needs_input`) only when the agent has put a permission
+or a question to the person, whoever asked it — the agent itself or a subagent working for it. It
+is **idle** only when everything has finished. A parent that hands its work to background
+subagents and ends its own turn is still working; a row that read "Idle" or "Turn finished" while
+subagents were running was wrong, not early.
+
+How the device knows, per agent. Claude Code writes every subagent's transcript under the session's
+own directory — `<project>/<session id>/subagents/agent-<id>.jsonl` — and a subagent is working
+until the last row of its transcript is an assistant message that ended its turn (`end_turn`,
+`stop_sequence`, `max_tokens`) or the API error that stopped it; a transcript nothing has written to
+for thirty minutes counts as abandoned, so a subagent killed mid-tool cannot hold a session green
+for good. The rule is the same whether the device drives the session or is attached to a terminal.
+Codex announces the thread a subagent runs in as it announces any other (`thread/started`, the
+thread naming its `parentThreadId`) and that thread's turns; a parent is working while any child
+thread of its own is active, and a child is never a session of its own (A18 stands).
+
+**A session that speaks is alive** (A15, restated for Codex). A Codex thread the device archived
+and a terminal then resumed leaves the Archive on the first thing the thread says — a turn
+starting, its status turning active — whether or not the daemon announced the resume itself, and
+the terminal that spoke holds it (`shared`). Waiting for `thread/started` left a resumed session in
+the Archive while it worked.
+
 ### Being told when a turn ends
 
 A session that was working and now is not — a finished turn (`idle`), an approval or a question it
