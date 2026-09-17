@@ -2,7 +2,32 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
+/*
+ * What the dot colours mean, said once under the toolbar and nowhere else
+ * (docs/DESIGN.md § "A legend, once, and quiet"): a caption line in the
+ * secondary ink, no box, no border and no title, with the dots at the size the
+ * rows draw them. The amber entry takes the still tone, because the pulsing one
+ * and it are the same colour and one entry covers both.
+ */
+.session-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-4);
   margin-bottom: var(--sp-5);
+  font-size: var(--fs-12);
+  line-height: 1.45;
+  color: var(--ink-secondary);
+}
+
+.session-legend-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  white-space: nowrap;
 }
 
 /*
@@ -105,10 +130,6 @@
   line-height: 1.45;
   color: var(--ink-secondary);
   white-space: nowrap;
-}
-
-.session-state.attention {
-  color: var(--attention);
 }
 
 .session-time {

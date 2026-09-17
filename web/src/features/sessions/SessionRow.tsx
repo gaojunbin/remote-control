@@ -2,7 +2,7 @@ import { Archive, Folder } from 'lucide-react';
 import { AgentLogo } from '../../components/AgentLogo';
 import { StatusDot } from '../../components/StatusDot';
 import { relativeTime, tildePath } from '../../lib/format';
-import { agentLabel, sessionStateLabel, sessionTitle, strings } from '../../strings';
+import { agentLabel, sessionOriginLabel, sessionTitle, strings } from '../../strings';
 import { useSessions } from '../../stores/sessions';
 import type { Session } from '../../protocol/types';
 
@@ -17,17 +17,16 @@ export function SessionRow({ session, online, onOpen }: Props) {
   // Only a session the device drives can be archived. A terminal holds its own
   // row until it exits, and a row in the Archive comes back by being written to.
   const offersArchive = session.control === 'remote' && !session.archived;
-  const attention = session.state === 'needs_approval' || session.state === 'needs_input';
-  const state = session.archived
-    ? strings.sessions.archived
-    : online
-      ? sessionStateLabel(session)
-      : strings.sessions.deviceOffline;
+  // Where the session came from, whatever it is doing: the state is the dot's
+  // colour alone (docs/DESIGN.md § "The session row says where it came from").
+  // A hand-archived row says so before its origin.
+  const origin = sessionOriginLabel(session);
+  const word = session.archived ? `${strings.sessions.archived} · ${origin}` : origin;
 
   return (
     <li className="session-row">
       {/* Three lines (docs/DESIGN.md § "The session row"): title and time,
-          agent and status, then the working directory alone after a folder,
+          agent and origin, then the working directory alone after a folder,
           so the path has the whole width and no line says three things. */}
       <button type="button" className="session-open" onClick={onOpen} aria-label={strings.sessions.open}>
         <span className="session-line">
@@ -39,9 +38,9 @@ export function SessionRow({ session, online, onOpen }: Props) {
             <AgentLogo agent={session.agent} />
             {agentLabel(session.agent)}
           </span>
-          <span className={`session-state${attention ? ' attention' : ''}`}>
+          <span className="session-state">
             <StatusDot state={session.state} control={session.control} online={online} />
-            {state}
+            {word}
           </span>
         </span>
         <span className="session-cwd">

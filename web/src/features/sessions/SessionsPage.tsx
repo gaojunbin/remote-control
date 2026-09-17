@@ -10,6 +10,7 @@ import { selectAgents, selectSessionLayout, useSessions } from '../../stores/ses
 import { useSettings } from '../../stores/settings';
 import { AgentOption } from './AgentOption';
 import { NewSessionDrawer } from './NewSessionDrawer';
+import { SessionLegend } from './SessionLegend';
 import { SessionRow } from './SessionRow';
 import './sessions.css';
 
@@ -105,6 +106,8 @@ export function SessionsPage() {
           ]}
         />
       </div>
+
+      {groups.length > 0 ? <SessionLegend /> : null}
 
       {groups.length === 0 ? (
         <div className="card empty">

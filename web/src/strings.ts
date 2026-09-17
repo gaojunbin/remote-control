@@ -218,9 +218,19 @@ export const en = {
     archive: 'Archive',
     archiveGroup: (n: number) => `Archive · ${n}`,
     archived: 'Archived',
-    deviceOffline: 'Device offline',
     open: 'Open session',
     untitled: 'Untitled session',
+    /**
+     * The dot legend, drawn once above the list (`docs/DESIGN.md` § "A legend,
+     * once, and quiet"). Four entries, not five: the pulsing amber and the
+     * solid amber are one colour to the eye, and "For you" covers both a
+     * question waiting and a finished turn to look at.
+     */
+    legend: 'What the dots mean',
+    legendWorking: 'Working',
+    legendAttention: 'For you',
+    legendOff: 'Not running',
+    legendFailed: 'Error',
   },
 
   newSession: {
@@ -537,8 +547,8 @@ export const en = {
       working: 'Working',
       waiting: 'Waiting for you',
       live: 'Done',
-      off: 'Off',
-      failed: 'Failed',
+      off: 'Not running',
+      failed: 'Error',
     } as Record<string, string>,
     /** Speech-to-text languages. Every name but "Auto" is its own endonym. */
     voiceLanguage: {
@@ -556,9 +566,12 @@ export const en = {
     /** A24: what an account is and whether it may sign in. */
     role: { admin: 'Admin', member: 'Member' } as Record<string, string>,
     userState: { active: 'Active', disabled: 'Disabled' } as Record<string, string>,
-    terminal: 'terminal',
-    terminalAttached: 'terminal · attached',
-    terminalBusy: (state: string) => `terminal · ${state}`,
+    /**
+     * Where a session came from, which is what its row says beside the dot.
+     * One word for both apps: which of them pressed New session is nobody's
+     * business afterwards.
+     */
+    origin: { terminal: 'Terminal', remote: 'Remote Control' } as Record<string, string>,
   },
 
   /** Relative times and durations. Numbers stay; only the words move. */
@@ -673,19 +686,12 @@ export function userStateLabel(state: string): string {
 }
 
 /**
- * Row label for a session. Amendment A7 lets a terminal-controlled session
- * report `running`, so `control` has to stay visible in the list. A10 adds
- * `shared`: a terminal session the device is attached to.
+ * Row label for a session: where it came from, never what it is doing
+ * (`docs/DESIGN.md` § "The session row says where it came from"). The state is
+ * the dot's colour alone, so a row never says the same thing twice.
  */
-export function sessionStateLabel(session: { state: string; control: string }): string {
-  if (session.control === 'shared') return strings.labels.terminalAttached;
-  if (session.control !== 'terminal') return stateLabel(session.state);
-  const busy =
-    session.state === 'running' ||
-    session.state === 'starting' ||
-    session.state === 'needs_approval' ||
-    session.state === 'needs_input';
-  return busy ? strings.labels.terminalBusy(stateLabel(session.state)) : strings.labels.terminal;
+export function sessionOriginLabel(session: { origin: string }): string {
+  return strings.labels.origin[session.origin] ?? session.origin;
 }
 
 /**

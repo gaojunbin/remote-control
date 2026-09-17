@@ -207,9 +207,13 @@ export const zhHans: StringTable = {
     archive: '归档',
     archiveGroup: (n: number) => `归档 · ${n}`,
     archived: '已归档',
-    deviceOffline: '设备离线',
     open: '打开会话',
     untitled: '未命名会话',
+    legend: '圆点含义',
+    legendWorking: '运行中',
+    legendAttention: '等你处理',
+    legendOff: '未运行',
+    legendFailed: '出错',
   },
 
   newSession: {
@@ -490,8 +494,8 @@ export const zhHans: StringTable = {
       working: '工作中',
       waiting: '等待你',
       live: '已完成',
-      off: '关闭',
-      failed: '失败',
+      off: '未运行',
+      failed: '出错',
     },
     voiceLanguage: {
       auto: '自动',
@@ -506,9 +510,7 @@ export const zhHans: StringTable = {
     timelineDetail: { simple: '简约', detailed: '详细' },
     role: { admin: '管理员', member: '成员' },
     userState: { active: '正常', disabled: '已禁用' },
-    terminal: '终端',
-    terminalAttached: '终端 · 已连接',
-    terminalBusy: (state: string) => `终端 · ${state}`,
+    origin: { terminal: '终端', remote: '远程启动' },
   },
 
   format: {

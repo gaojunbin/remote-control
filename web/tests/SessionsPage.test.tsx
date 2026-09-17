@@ -164,14 +164,6 @@ describe('SessionsPage grouping', () => {
     expect(screen.queryByText('Fix flaky auth test')).not.toBeInTheDocument();
   });
 
-  it('marks a hand-archived row as Archived', async () => {
-    renderPage();
-
-    await userEvent.click(screen.getByRole('button', { name: strings.sessions.archiveGroup(2) }));
-
-    expect(screen.getByText(strings.sessions.archived)).toBeInTheDocument();
-  });
-
   it('tags every row with its agent', () => {
     renderPage();
 
@@ -262,7 +254,7 @@ describe('SessionsPage grouping', () => {
 
 /**
  * `docs/DESIGN.md` § "The session row": three lines — title and time, agent and
- * status, then the working directory alone after a folder glyph.
+ * origin, then the working directory alone after a folder glyph.
  */
 describe('the session row', () => {
   const rowFor = (title: string): HTMLElement => {
@@ -271,7 +263,15 @@ describe('the session row', () => {
     return row as HTMLElement;
   };
 
-  it('puts the agent at the leading edge and the status at the trailing edge of the second line', () => {
+  /** The word beside the dot on a row, by the row's title. */
+  const wordIn = (title: string): string =>
+    rowFor(title).querySelector('.session-state')?.textContent ?? '';
+
+  /** Every word the visible rows print beside their dots. */
+  const words = (): string[] =>
+    [...document.querySelectorAll('.session-state')].map((el) => el.textContent ?? '');
+
+  it('puts the agent at the leading edge and the origin at the trailing edge of the second line', () => {
     renderPage();
     const [first, second, ...rest] = rowFor('Fix flaky auth test').querySelectorAll('.session-line');
     if (!first || !second) throw new Error('the row has fewer than two lines');
@@ -295,6 +295,100 @@ describe('the session row', () => {
     expect(folder.getAttribute('stroke-linejoin')).toBe('round');
     expect(folder.getAttribute('aria-hidden')).toBe('true');
     expect(cwd.querySelector('.session-path bdi')?.textContent).toBe('~/dev/remote-control/gateway');
+  });
+
+  /**
+   * `docs/DESIGN.md` § "The session row says where it came from": the word is
+   * the origin whatever the state, and the state is the dot's colour alone.
+   */
+  it('says where a session came from, not what it is doing', () => {
+    renderPage();
+
+    // Running here; running inside a terminal; a terminal the device joined.
+    expect(wordIn('Fix flaky auth test')).toBe('Remote Control');
+    expect(dotTone('Fix flaky auth test')).toBe('working');
+    expect(wordIn('Refactor relay routing')).toBe('Terminal');
+    expect(wordIn('Wire the channel shim')).toBe('Terminal');
+    // A question waiting says nothing more than a quiet row does.
+    expect(wordIn('Migrate web to Vite 6')).toBe('Remote Control');
+    expect(dotTone('Migrate web to Vite 6')).toBe('waiting');
+  });
+
+  it('gives the word the secondary ink whatever the state', () => {
+    renderPage();
+    expect(document.querySelector('.session-state.attention')).toBeNull();
+  });
+
+  it('prints no state word on any row', () => {
+    renderPage();
+    for (const word of words()) {
+      expect(word).not.toMatch(/running|idle|attached|offline|error/i);
+    }
+  });
+
+  it('keeps "Archived" before the origin on a hand-archived row', async () => {
+    renderPage();
+    await userEvent.click(screen.getByRole('button', { name: strings.sessions.archiveGroup(2) }));
+
+    expect(wordIn('Drop the legacy ingest path')).toBe('Archived · Remote Control');
+  });
+
+  it('says the origin on an offline device too, and greys the dot', () => {
+    useDevices.setState({
+      devices: devices.map((d) => (d.name === CI ? { ...d, online: false } : d)),
+      loaded: true,
+      error: null,
+    });
+    renderPage();
+
+    expect(wordIn('Nightly perf sweep')).toBe('Terminal');
+    expect(dotTone('Nightly perf sweep')).toBe('off');
+    // The group header already says the machine is offline; the row does not.
+    for (const word of words()) expect(word).not.toMatch(/offline/i);
+  });
+});
+
+/**
+ * `docs/DESIGN.md` § "A legend, once, and quiet": what the colours mean, said
+ * once under the toolbar, in four entries rather than five.
+ */
+describe('the dot legend', () => {
+  const legend = (): HTMLElement | null => document.querySelector('.session-legend');
+
+  it('reads the four colours in order, drawn once', () => {
+    renderPage();
+    const line = legend();
+    if (!line) throw new Error('no legend');
+
+    expect(document.querySelectorAll('.session-legend')).toHaveLength(1);
+    expect([...line.querySelectorAll('.session-legend-entry')].map((e) => e.textContent)).toEqual([
+      'Working',
+      'For you',
+      'Not running',
+      'Error',
+    ]);
+    // The amber entry takes the still tone: the pulsing one is the same colour.
+    expect([...line.querySelectorAll('.dot')].map((d) => d.className)).toEqual([
+      'dot working',
+      'dot live',
+      'dot off',
+      'dot failed',
+    ]);
+  });
+
+  it('sits between the toolbar and the first group', () => {
+    renderPage();
+    const line = legend();
+    expect(line?.previousElementSibling?.className).toBe('sessions-toolbar');
+    expect(line?.nextElementSibling?.className).toBe('session-group');
+  });
+
+  it('is not drawn when the list is empty', () => {
+    useSessions.setState({ sessions: {}, loaded: true, agentFilter: null });
+    renderPage();
+
+    expect(legend()).toBeNull();
+    expect(screen.getByText(strings.sessions.empty)).toBeInTheDocument();
   });
 });
 

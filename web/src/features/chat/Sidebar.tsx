@@ -6,7 +6,7 @@ import { ArchiveGroupHeader, DeviceGroupHeader } from '../../components/GroupHea
 import { StatusDot } from '../../components/StatusDot';
 import { cx } from '../../lib/cx';
 import { baseName, relativeTime } from '../../lib/format';
-import { sessionStateLabel, sessionTitle, strings } from '../../strings';
+import { sessionTitle, strings } from '../../strings';
 import { useDevices } from '../../stores/devices';
 import { countWaiting, selectSessionLayout, selectSessionList, useSessions } from '../../stores/sessions';
 import { useSettings } from '../../stores/settings';
@@ -47,9 +47,6 @@ export function Sidebar({ activeKey, onNewSession }: Props) {
 
   const item = (session: Session, online: boolean) => {
     const key = `${session.device_id}/${session.session_id}`;
-    const attention = session.state === 'needs_approval' || session.state === 'needs_input';
-    // A10: a shared session keeps the terminal visible in the list.
-    const terminal = session.control === 'terminal' || session.control === 'shared';
     return (
       <li key={key}>
         <button
@@ -60,10 +57,11 @@ export function Sidebar({ activeKey, onNewSession }: Props) {
           <StatusDot state={session.state} control={session.control} online={online} />
           <span className="sidebar-item-text">
             <span className="sidebar-title">{sessionTitle(session)}</span>
-            <span className={cx('sidebar-sub', attention && 'attention')}>
-              {attention || terminal
-                ? sessionStateLabel(session)
-                : `${baseName(session.cwd)} · ${relativeTime(session.updated_at)}`}
+            {/* The folder and the time, whatever the session is doing: the dot
+                beside them carries the state (docs/DESIGN.md § "The session row
+                says where it came from"). */}
+            <span className="sidebar-sub">
+              {`${baseName(session.cwd)} · ${relativeTime(session.updated_at)}`}
             </span>
           </span>
         </button>

@@ -9,7 +9,8 @@ import { MemoryRouter } from 'react-router';
 import { App } from '../src/App';
 import { Composer } from '../src/features/chat/Composer';
 import { relativeAgo, relativeTime } from '../src/lib/format';
-import { en, sessionStateLabel, stringTables, strings } from '../src/strings';
+import { en, sessionOriginLabel, stringTables, strings } from '../src/strings';
+import { legendEntries } from '../src/features/sessions/legend';
 import { useAuth } from '../src/stores/auth';
 import { useSessions } from '../src/stores/sessions';
 import { useSettings } from '../src/stores/settings';
@@ -166,13 +167,19 @@ describe('the words themselves', () => {
     expect(relativeAgo(now - 36 * 3_600_000, now)).toBe('昨天');
   });
 
-  it('translates a session state, and the terminal it is attached to', () => {
-    expect(sessionStateLabel({ state: 'running', control: 'remote' })).toBe('running');
-    expect(sessionStateLabel({ state: 'idle', control: 'shared' })).toBe('terminal · attached');
+  it('translates where a session came from, and the legend beside it', () => {
+    expect(sessionOriginLabel({ origin: 'terminal' })).toBe('Terminal');
+    expect(sessionOriginLabel({ origin: 'remote' })).toBe('Remote Control');
+    expect(legendEntries().map((e) => e.label)).toEqual([
+      'Working',
+      'For you',
+      'Not running',
+      'Error',
+    ]);
 
     useSettings.setState({ language: 'zh-Hans' });
-    expect(sessionStateLabel({ state: 'running', control: 'remote' })).toBe('运行中');
-    expect(sessionStateLabel({ state: 'idle', control: 'shared' })).toBe('终端 · 已连接');
-    expect(sessionStateLabel({ state: 'running', control: 'terminal' })).toBe('终端 · 运行中');
+    expect(sessionOriginLabel({ origin: 'terminal' })).toBe('终端');
+    expect(sessionOriginLabel({ origin: 'remote' })).toBe('远程启动');
+    expect(legendEntries().map((e) => e.label)).toEqual(['运行中', '等你处理', '未运行', '出错']);
   });
 });

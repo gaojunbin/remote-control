@@ -112,10 +112,6 @@
   white-space: nowrap;
 }
 
-.sidebar-sub.attention {
-  color: var(--attention);
-}
-
 .sidebar-foot {
   padding: var(--sp-3) var(--sp-4);
   font-size: var(--fs-12);

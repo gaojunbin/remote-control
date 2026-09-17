@@ -25,7 +25,7 @@ import {
 import { addOptimistic, applyEvent, emptyTimeline, selectView } from '../src/stores/timeline';
 import { foldChat, foldSession, type ChatSession } from '../src/stores/chat';
 import { emptyDraft, useAnswers } from '../src/stores/answers';
-import { sessionStateLabel } from '../src/strings';
+import { sessionOriginLabel } from '../src/strings';
 import { useSettings } from '../src/stores/settings';
 import {
   claudeAgent,
@@ -303,11 +303,13 @@ describe.runIf(fixturesAvailable())('A10 status line and list labels', () => {
     expect(screen.queryByRole('button', { name: 'Take over' })).not.toBeInTheDocument();
   });
 
-  it('labels a shared session "terminal · attached" in the lists', () => {
-    expect(sessionStateLabel(sharedIdle)).toBe('terminal · attached');
-    expect(sessionStateLabel(sharedRunning)).toBe('terminal · attached');
-    expect(sessionStateLabel(terminalSession())).toBe('terminal');
-    expect(sessionStateLabel({ state: 'running', control: 'remote' })).toBe('running');
+  it('labels a shared session by where it came from, like any other row', () => {
+    // A shared session was started by a terminal, so its row reads "Terminal"
+    // whether it is idle or running; only the dot tells them apart.
+    expect(sessionOriginLabel(sharedIdle)).toBe('Terminal');
+    expect(sessionOriginLabel(sharedRunning)).toBe('Terminal');
+    expect(sessionOriginLabel(terminalSession())).toBe('Terminal');
+    expect(sessionOriginLabel({ origin: 'remote' })).toBe('Remote Control');
   });
 });
 
