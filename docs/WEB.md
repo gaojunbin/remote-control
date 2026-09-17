@@ -15,7 +15,7 @@ hand-written CSS with no framework. It talks only to the gateway and follows
 | `/pair` | Claims the token a host printed as a QR code and shows the same handshake (A23) |
 | `/sessions` | Every session across every device: one collapsible group per device, its active rows and then its own collapsed **Archive**, a search, an agent filter and a device filter, and **New session** in a right-hand drawer |
 | `/sessions/:deviceId/:sessionId` | The chat: sidebar, timeline, composer, status line |
-| `/settings` | Grouped settings — the account with its role, **Change password** for a member or **Users** for an admin, sign out, browser notifications, voice language and push-to-talk, and an About group with the gateway origin, both versions and the connection state |
+| `/settings` | Grouped settings — the account with its role, **Change password** for a member or **Users** for an admin, sign out, browser notifications, the **Sessions** group with "Resume after the limit resets" (A35), voice language and push-to-talk, and an About group with the gateway origin, both versions and the connection state |
 | `/users` | The admin's accounts screen: the registration switch, one row per account, Reset password / Disable / Delete, and **Add user** (A24). A member who types it lands on Sessions |
 
 ## Commands
@@ -40,7 +40,8 @@ cd web && npm ci
 
 `mock/server.ts` implements the app-facing half of the protocol — the HTTP API, `WS /ws/app` and
 `WS /ws/stt` — so the whole UI can be developed with no gateway and no device. It ships two devices
-and nineteen sessions covering running, needs-approval, needs-input, errored, idle,
+and twenty sessions covering running, needs-approval, needs-input, errored, idle, paused by the
+usage limit,
 terminal-controlled, shared through the Claude channel, shared through the Codex daemon, Codex,
 terminal sessions on a device that has neither the shim nor the Codex daemon, three sessions whose
 CLI exited (`control: "none"`) and two archived by hand, spread over both devices so every device
@@ -52,7 +53,15 @@ inside Grok's leader, which the device has joined (`control: "shared"`, A28), a 
 session an app started, so its command list can actually be opened, and a pi session on the
 `on-request` permission mode its extension enforces. The other device carries a Grok Build agent
 whose leader mode is off (`attach_ready: false`) and a terminal Grok session under it, which is
-where the leader hint renders.
+where the leader hint renders. `ses-limit` is the A35 scenario: a Claude Code turn that ran into
+the five-hour window, so its history ends with the vendor's sentence as an `error`, a
+`turn_completed` carrying `limit`, and the `resume {scheduled}` the device wrote, and its summary
+carries the pending `Session.resume` the notice above the transcript reads. Change and Cancel there
+reach `session.resume_set` and `session.resume_cancel`, which the mock answers with the session and
+a fresh `resume` row; a message sent into that session cancels the resume the way §6.3 says a device
+does. `GET` and `PATCH /api/preferences` are served per account, `hello` carries `preferences`, and
+a `PATCH` fans `preferences.updated` out to every app socket of the account, so two browser tabs
+signed in as the same person follow each other.
 Opening the running session plays a scripted turn: streamed thinking, streamed Markdown, tool rows
 with a live output box, a failing shell run, two diffs, an approval and a question. Both drive the
 turn to completion. The shared session plays the A10 path end to end: a send while the terminal is
@@ -249,6 +258,49 @@ draw them**, and the jump-to-latest count does not count them there. `drawnAt` i
 `src/stores/timeline.ts` was keyed by `kind` alone; it now reads `source` as well, through
 `isAgentMessage`, and both the rows and the count follow from that one function.
 
+## Paused by the usage limit (A35)
+
+A Claude Code or Codex turn the vendor's five-hour or weekly window ended closes with
+`stop_reason: "error"` and `limit {window_minutes, resets_at}`, and the device schedules a resume for
+a minute after the reset when the account has asked for one. Four surfaces carry it, and one small
+pure module carries every word.
+
+**The switch is the account's, not the browser's.** `src/stores/preferences.ts` holds
+`Preferences | undefined`: `hello.preferences` seeds it, a `preferences.updated` frame replaces it,
+and a change is written with `PATCH /api/preferences` and rolled back if the gateway refuses.
+`undefined` means a gateway older than A35 — not "off" — and Settings then draws the switch disabled
+under "Your gateway does not offer this yet." rather than as a choice that could be made. The store
+joins `signOut()` like every other store that holds something of an account's. Everything else in
+Settings is still local to the browser in `stores/settings.ts`; this one row is the exception, which
+is why it lives in its own store rather than in that one.
+
+**The notice sits above the transcript.** `ChatPage` draws `ResumeNotice` between the header and the
+timeline whenever `session.resume` is set, and nothing else changes: the status dot still reads the
+session's state, which is `idle`, because the pause is what the notice is for. It reads "Paused by
+the usage limit · resumes 3:50 PM", with "about" when the device estimated the time and "second
+try" / "third try" appended from `attempts`. **Change** opens a popover holding one
+`datetime-local` field prefilled with `at` and bounded to between a minute and eight days away; the
+form is `noValidate`, so the refusal is this app's sentence rather than the browser's own bubble,
+which no two browsers word the same. **Cancel** sends `session.resume_cancel` at once, with no
+confirmation. Both answer with the session, and nothing is guessed in between: a failure leaves the
+notice where it was and says why.
+
+**The timeline says what happened.** `TurnEndRow` draws a `limit` end as a notice — "Ended at the
+usage limit · resets 3:50 PM", and without the time when `resets_at` is null — rather than as the
+red "Turn failed" an ordinary `error` stop gets. `ResumeRow` draws the device's steps in the same
+voice, and `fired` draws nothing at all: `isRenderable` in `stores/timeline.ts` drops it before it
+becomes a block, because the moment of resuming is the prompt in the person's bubble. That prompt is
+a `user_message` with `source: "resume"`, drawn by `UserMessageRow` under the caption "Sent for you
+after the limit reset", and a `turn_started` with `trigger: "resume"` moves the session exactly as a
+remote turn does. None of these are the agent's workings, so **Simple keeps all of them**.
+
+`src/features/chat/resume.ts` is the one place the words and the bounds live: `timeText` (the
+viewer's zone, the clock face of the interface language, the date added when it is not today),
+`resumeNoticeText`, `limitEndText`, `resumeRowText`, `resumeBoundError` and the two
+`datetime-local` conversions, which go through the local calendar rather than `toISOString` so the
+field never shows a UTC minute. All of it is pure and takes the clock as an argument, so
+`tests/resume.test.ts` reads a fixed afternoon rather than whatever time the suite runs at.
+
 ## Push and the service worker
 
 `public/sw.js` is registered in production builds only. It is network-first for navigations,
@@ -256,6 +308,14 @@ cache-first for hashed assets under `/assets/`, and bypasses `/api`, `/ws`, `/in
 `/dist/`. Only successful same-origin responses are cached, so a gateway error page never becomes
 the offline shell. A push payload carries only a device name and a reason; clicking the notification
 focuses an open tab or opens `/sessions/<device_id>/<session_id>`.
+
+The line the notification shows is `rc.title`, which the gateway writes in full; the worker's own
+`TITLES` table is the fallback for a payload that carries none, and it knows the three A35 kinds —
+`limit_reached`, `resumed` and `resume_dropped` — alongside the four older ones. A kind this build
+has never seen still says a device needs attention and still deep-links to its session, so a tab
+left open across a gateway upgrade keeps working. `tests/service-worker.test.ts` evaluates `sw.js`
+against a stand-in `self` and drives both handlers, because the file is plain JavaScript the browser
+loads on its own and nothing else in the suite would reach it.
 
 ## Accounts
 
@@ -809,6 +869,11 @@ The logos of A26 were driven the same way, at 1280 px and 400 px: the four logos
 new-session form's agent control, in the open agent filter and on the session-row chips, and pi's
 permission picker in both the form and the composer now that the device's extension enforces its
 three modes.
+
+The usage-limit pause of A35 was driven the same way, at 1280 px and 400 px: the Sessions group in
+Settings with its switch and its sentence, and the notice above the transcript of the mock's paused
+session with the turn's `limit` end and the device's `resume` row under it. Screenshots are not
+checked into the repository.
 
 ## Not verified
 
