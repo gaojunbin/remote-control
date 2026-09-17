@@ -673,10 +673,35 @@ One word per state, the same word in both apps and in notifications.
 | `error` | "Errored" |
 | device offline | "Device offline" |
 
-One label comes from `control` rather than `state`: an attached terminal session reads **"terminal ·
-attached"** and takes the same dot as a session the device runs itself, because from the user's side
-it behaves the same way. `readonly` keeps its own label and stays reserved for a terminal session the
-device cannot reach.
+This table is the **chat header's** and the notifications' vocabulary. `readonly` keeps its own
+label and stays reserved for a terminal session the device cannot reach. The session list says
+something else beside its dot, below.
+
+### The session row says where it came from
+
+The word beside the dot on a session's row is the session's **origin**, not its state (owner's
+ruling, 2026-09-18): **"Terminal"** for a session a terminal started (`origin: terminal`),
+**"Remote Control"** for one started from the phone or the browser (`origin: remote`) — one word
+for both apps, because which app pressed New session is nobody's business afterwards. The state is
+the dot's alone: green working, amber for you — pulsing while a question or a permission waits,
+solid when a turn has finished and its result is there — grey when nothing holds the session or the
+machine is offline, red on an error. "running", "idle", "terminal · attached" and "device offline"
+leave the row; a row that read "running" beside a green dot said the same thing twice, and one that
+read "terminal · attached" beside an amber dot said two different things. The word takes the
+secondary ink whatever the state; only the dot carries colour. A hand-archived row still says
+"Archived" before its origin. The chat sidebar's rows follow the same rule: their sub-line is the
+folder and the time, and the dot is the state. zh-Hans: 终端 / 远程启动.
+
+### A legend, once, and quiet
+
+Nothing on the Sessions screen said what the colours meant (owner's report, 2026-09-18). One
+caption line now does, once per screen, above the list — under the toolbar on the web, the first
+row of the list on iOS — reading the four dots with their meanings: ● Working ● For you
+● Not running ● Error (运行中 / 等你处理 / 未运行 / 出错). Caption type, secondary ink, the dots at
+the size the rows use, no box, no border, no title. Four entries, not five: the pulsing amber and
+the solid amber are one colour to the eye, and "For you" covers both a question waiting and a
+finished turn to look at. It is not drawn on the chat sidebar or the Devices screen, and not when
+the list is empty, where the empty state speaks instead.
 
 ### Messages from other agents
 
