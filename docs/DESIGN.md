@@ -99,8 +99,9 @@ while the update runs and "Update failed · <reason>" when it did not come back,
 update itself (installed from source) is left alone and shows nothing. The gateway tries once per
 build it serves, waits while a session on the device is running, gives up after a failure until a
 person retries or a newer build arrives, so a machine that keeps failing is shown, not hammered.
-The device's own page keeps the client version among its facts, with the hostname and the
-architecture, for whoever comes to check.
+The device's own page states no client version and no build either (owner's ruling, 2026-09-18):
+its facts are the hostname and the architecture, and the only thing it says about the client is
+the same "Updating…" or "Update failed · <reason>" the row says, with Retry beside it.
 
 **An update leaves the device as a fresh install would.** The Retry confirmation names what it
 would install ("Update <name> to 1.4.6?") because a person about to retry deserves to know; the
@@ -158,8 +159,8 @@ devices ran into each other. The row now reads, top to bottom:
   A36). The row shows no client version at all — a device keeps itself current, so the number is
   nobody's to watch — and no "Update available". It carries a third line only while an update
   runs ("Updating…") or has failed ("Update failed · <reason>"); otherwise the agents follow the
-  status line directly. The device page keeps the full line, version and hash, as it keeps the
-  hostname and the architecture.
+  status line directly. The device page keeps the hostname and the architecture and nothing about
+  the client but the same notice.
 - The row menu is unchanged.
 
 **Devices can be filtered by platform** (owner's ruling, 2026-09-18). The Devices screen carries the
