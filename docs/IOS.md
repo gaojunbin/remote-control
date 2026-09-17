@@ -198,11 +198,13 @@ agent control uses, where the logo stands alone with no word to match. The colou
 unless the caller passes `tint: nil` to inherit whatever it has already set. An agent with no vector
 falls back to `AgentLabel.initial(_:)`, the first letter of its id, in the same box.
 
-Four places draw it. The **session row's chip** and the **device row's agent list** put the logo
-before the name. The **filter menu**, whose active choice the toolbar button repeats with its own
-logo, does the same — except on the chosen row, because a menu row carries one image and that one is
-spent on the checkmark. The **new-session sheet's** agent control is a segmented `Picker` where four
-names do not fit across a phone, so each segment is the logo alone with
+Four places draw it. The **session row's chip** puts the logo before the name. The **filter menu**,
+whose active choice the toolbar button repeats with its own logo, does the same — except on the
+chosen row, because a menu row carries one image and that one is spent on the checkmark. The
+**device row's agent list** draws the logos alone at `Theme.Mark.control`, each labelled with its
+agent's name for a reader who cannot see it (`docs/DESIGN.md` § "The device row"). The
+**new-session sheet's** agent control is a segmented `Picker` where four names do not fit across a
+phone, so each segment is the logo alone with
 `.accessibilityLabel(info.displayName)`, and a screen reader reads "Grok Build" where the eye reads
 the spiral. That control and the menu are drawn by UIKit, which takes an `Image` and a `Text` and
 drops every other view, so both call `AgentLogo.image(_:)` for the bare vector rather than the view.
@@ -358,11 +360,31 @@ headers use `FieldLabel`, the one label every form section in the app is headed 
 
 ## Devices
 
-One row per enrolled machine: name and latency, the dot with `online`/`offline` and the host, the
-agents it detected, and the client line. Every row offers the same three actions the web menu
+One row per enrolled machine: name and latency, the dot with `online`/`offline` and the platform,
+the agents it detected, and the client line. Every row offers the same three actions the web menu
 offers, with the same words in the same order — **Rename**, **Update**, **Revoke** — from one
 trailing swipe holding all three and from the context menu. Identifiers `device.rename`,
 `device.update`, `device.revoke`. Each action opens the same alert whichever way it was reached.
+
+**The row says less** (`docs/DESIGN.md` § "The device row", owner's ruling 2026-09-17). One
+`desktopcomputer` glyph sits at the leading edge in the secondary ink, sized to the title, with the
+four lines indented past it: it is the anchor that keeps two machines apart now that no separator is
+drawn between them, and it is the same glyph for every platform because the app cannot tell a laptop
+from a desktop. The online dot left the name and sits on the status line with the word it belongs
+to, which now reads `online · macOS` — the platform as a word, never the raw id. The hostname, which
+on a machine `install.sh` set up is the name, and the architecture are off the row entirely and are
+drawn on the machine's page instead, in `DeviceFactsLine` under the navigation title. The agents are
+their logos alone, spaced by `Theme.Space.small` and sized `Theme.Mark.control`, each carrying its
+agent's name as its `accessibilityLabel`, so the row still reads aloud; their names and versions are
+on the machine's page, beside the accounts.
+
+Both lines are one pure function each, in `Sources/RCCore/State/DeviceLine.swift`: `status(_:)` for
+the row and `facts(_:)` for the page, with `platformName(_:)` mapping `macos` and `linux` to macOS
+and Linux and printing anything else as it arrived. `Tests/RCCoreTests/DeviceLineTests.swift` covers
+them, `RCUIVerify` checks every demo device's two lines — no hostname, no architecture, no raw id
+and no agent name on the row; hostname and architecture on the page — and
+`testDeviceRowNamesTheMachineOnceAndDrawsItsAgentsAsLogos` reads the rendered row's accessibility
+label on the simulator.
 
 SwiftUI lays a trailing swipe out from the edge inwards, so the buttons are listed Revoke, Update,
 Rename and the row reads Rename · Update · Revoke from left to right; Rename is grey, Update is the
@@ -465,8 +487,10 @@ row actions are not repeated on the page.
 
 `DeviceDetailView` (`Sources/RCUI/Screens/DeviceDetailView.swift`) is the page: the name in the
 navigation bar, then the machine as its row words it — `DeviceStatusLine` and `DeviceClientLine`
-(`Screens/DeviceLines.swift`) are the row's own two lines, lifted out so the page and the row cannot
-drift apart — and then one `AgentAccountCard` per available agent, in the device's order.
+(`Screens/DeviceLines.swift`) are the row's own lines, lifted out so the page and the row cannot
+drift apart — then `DeviceFactsLine`, which is the page's alone and carries the hostname and the
+architecture the row dropped, and then one `AgentAccountCard` per available agent, in the device's
+order.
 
 A card names the agent by logo and name with its version, and under it one line per credential:
 *Anthropic account · Max · Max 5x · me@example.com*, *OpenAI API key · api.relay.example*,

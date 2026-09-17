@@ -47,7 +47,9 @@ struct DeviceDetailView: View {
     }
 
     /// The machine as its row words it, minus the name the navigation bar is
-    /// already carrying.
+    /// already carrying, plus the facts the row no longer carries: the hostname
+    /// and the architecture are checked here or nowhere (`docs/DESIGN.md`
+    /// § "The device row").
     private func header(_ device: Device) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.small) {
@@ -56,6 +58,7 @@ struct DeviceDetailView: View {
                     .font(Theme.Text.caption)
                     .foregroundStyle(Theme.inkSecondary)
             }
+            DeviceFactsLine(device: device)
             DeviceClientLine(device: device,
                              servedBuild: model.connection.config.servedBuild,
                              servedVersion: model.connection.config.servedVersion,

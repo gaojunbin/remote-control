@@ -184,8 +184,10 @@ struct DevicesView: View {
     }
 }
 
-/// The same shape as a session row: name and one number on the first line, a
-/// dot, a word and the machine on the second. No status column, no rules.
+/// One machine, behind one glyph. `docs/DESIGN.md` § "The device row": the name
+/// and one number on the first line, the dot with its state and platform on the
+/// second, the agents as their logos, then the client line. No status column,
+/// no rules, and nothing that repeats the name.
 struct DeviceRow: View {
     let device: Device
     var servedBuild: String?
@@ -193,34 +195,30 @@ struct DeviceRow: View {
     var localError: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.small) {
-                Text(device.name).font(Theme.Text.title).foregroundStyle(Theme.ink).lineLimit(1)
-                Spacer(minLength: 0)
-                Text(trailing)
-                    .font(Theme.Text.caption)
-                    .foregroundStyle(Theme.inkSecondary)
-            }
-            DeviceStatusLine(device: device)
-            if !device.availableAgents.isEmpty {
-                // `docs/DESIGN.md` § "Agents": the logo, then the name, for each
-                // agent this machine detected.
-                HStack(spacing: Theme.Space.tight) {
-                    ForEach(Array(device.availableAgents.enumerated()), id: \.element.id) { index, info in
-                        if index > 0 {
-                            Text("·").font(Theme.Text.caption).foregroundStyle(Theme.inkSecondary)
-                        }
-                        AgentLogo(agent: info.agent)
-                        Text(info.displayName)
-                            .font(Theme.Text.caption)
-                            .foregroundStyle(Theme.inkSecondary)
-                    }
+        HStack(alignment: .firstTextBaseline, spacing: Theme.Space.small) {
+            // The same glyph for every machine whatever its platform: the app
+            // cannot tell a laptop from a desktop, and one honest mark beats a
+            // wrong guess. It is what keeps two rows apart now that no
+            // separator is drawn between them.
+            Image(systemName: "desktopcomputer")
+                .font(Theme.Text.title)
+                .foregroundStyle(Theme.inkSecondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: Theme.Space.small) {
+                    Text(device.name).font(Theme.Text.title).foregroundStyle(Theme.ink).lineLimit(1)
                     Spacer(minLength: 0)
+                    Text(trailing)
+                        .font(Theme.Text.caption)
+                        .foregroundStyle(Theme.inkSecondary)
                 }
-                .lineLimit(1)
+                DeviceStatusLine(device: device)
+                if !device.availableAgents.isEmpty {
+                    DeviceAgentsLine(agents: device.availableAgents)
+                }
+                DeviceClientLine(device: device, servedBuild: servedBuild,
+                                 servedVersion: servedVersion, localError: localError)
             }
-            DeviceClientLine(device: device, servedBuild: servedBuild,
-                             servedVersion: servedVersion, localError: localError)
         }
         .accessibilityElement(children: .combine)
     }
@@ -229,6 +227,25 @@ struct DeviceRow: View {
     private var trailing: String {
         if device.online { return device.latencyMS.map { "\($0) ms" } ?? "" }
         return RelativeTime.short(since: device.lastSeen)
+    }
+}
+
+/// The agents a machine reported, as their logos and nothing else
+/// (`docs/DESIGN.md` § "The device row"). A logo is a drawing, so each one
+/// carries its agent's name as its accessible label and the row still reads
+/// aloud; the versions are on the machine's page, beside the accounts.
+private struct DeviceAgentsLine: View {
+    let agents: [AgentInfo]
+
+    var body: some View {
+        HStack(spacing: Theme.Space.small) {
+            ForEach(agents) { info in
+                AgentLogo(agent: info.agent, size: Theme.Mark.control)
+                    .accessibilityElement()
+                    .accessibilityLabel(info.displayName)
+            }
+            Spacer(minLength: 0)
+        }
     }
 }
 

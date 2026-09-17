@@ -1448,6 +1448,34 @@ final class RemoteControlUITests: XCTestCase {
     /// `docs/DESIGN.md` § "Devices": every row offers the same three actions on
     /// both apps, with the same words in the same order, and on the phone one
     /// trailing swipe holds all three.
+    /// `docs/DESIGN.md` § "The device row": the row names the machine once, says
+    /// its state and its platform as a word, and draws its agents as logos whose
+    /// names are read out rather than written. The hostname and the architecture
+    /// are on the machine's own page and on no row.
+    func testDeviceRowNamesTheMachineOnceAndDrawsItsAgentsAsLogos() {
+        openDevices()
+        let row = deviceRow(DemoDevices.studio)
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
+
+        let label = row.label
+        XCTAssertTrue(label.contains("mac-studio-office"), "the row is headed by the machine's name")
+        XCTAssertTrue(label.contains("online · macOS"),
+                      "and reads state and platform as words beside the dot")
+        XCTAssertFalse(label.contains("mac-studio.local"),
+                       "the hostname no longer repeats the name one line down")
+        XCTAssertFalse(label.contains("arm64"), "and the chip nobody chooses a machine by is gone")
+        XCTAssertFalse(label.contains("macos"), "the raw platform id is never on screen")
+        for agent in ["Claude Code", "Codex", "Grok Build"] {
+            XCTAssertTrue(label.contains(agent), "\(agent)'s logo is read out under its own name")
+        }
+
+        let runner = deviceRow(DemoDevices.ci)
+        XCTAssertTrue(runner.waitForExistence(timeout: 10), "the Linux machine is listed too")
+        XCTAssertTrue(runner.label.contains("offline · Linux"), "which says Linux, not linux")
+        XCTAssertFalse(runner.label.contains("x86_64"), "and carries no architecture either")
+        attach(name: "59-device-rows")
+    }
+
     func testDeviceRowSwipeHoldsRenameUpdateAndRevoke() {
         openDevices()
         let row = deviceRow(DemoDevices.laptop)
@@ -1553,6 +1581,10 @@ final class RemoteControlUITests: XCTestCase {
 
         let page = app.descendants(matching: .any)["device.page"]
         XCTAssertTrue(page.exists, "the row itself opens the machine")
+        // `docs/DESIGN.md` § "The device row": what the row dropped is checked
+        // here, in one line under the name the navigation bar carries.
+        XCTAssertTrue(anyText(containing: "mac-studio.local · arm64"),
+                      "the page keeps the hostname and the architecture the row no longer shows")
         for agent in ["claude", "codex", "grok", "pi"] {
             XCTAssertTrue(app.descendants(matching: .any)["device.agent.\(agent)"].exists,
                           "every agent the machine found has a card")
