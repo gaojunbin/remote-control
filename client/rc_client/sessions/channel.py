@@ -17,8 +17,12 @@ from ..events import BLOCK_KINDS, DELTA_FLUSH_MS, bound_event, should_store
 from ..ids import block_uuid
 from ..models import UNSET, Session, SessionState, now_ms
 from ..registry import Registry
+from .limits import LimitStop
 
 Publisher = Callable[[dict[str, Any]], Awaitable[None]]
+# What a finished turn reports to whoever schedules resumes: the session it
+# belongs to, and the usage limit that ended it when one did (amendment A35).
+TurnEndHook = Callable[[Session, LimitStop | None], Awaitable[None]]
 FLUSH_INTERVAL = DELTA_FLUSH_MS / 1000.0
 _TOKEN_COUNTS = ("input_tokens", "output_tokens", "total_tokens")
 
@@ -37,6 +41,9 @@ class SessionChannel:
         self._pending: dict[str, dict[str, Any]] = {}
         self._flusher: asyncio.Task[None] | None = None
         self._closed = False
+        # Set by the hub to the resume scheduler (amendment A35, 7.2). A channel
+        # nobody wired one into simply ends its turns.
+        self.on_turn_end: TurnEndHook | None = None
         # Seeded from the registry so a resumed session keeps the ordering its
         # already-delivered blocks were given.
         self._first_seq: dict[str, int] = registry.first_seqs(session.session_id)
@@ -188,6 +195,26 @@ class SessionChannel:
             fields["code"] = code
         await self.emit("error", **fields)
 
+    async def resume(
+        self,
+        status: str,
+        at: int | None = None,
+        estimated: bool | None = None,
+        attempts: int | None = None,
+        reason: str | None = None,
+    ) -> None:
+        """One step of a resume after a usage limit, as a timeline row (A35, 5.15)."""
+        fields: dict[str, Any] = {"status": status}
+        if at is not None:
+            fields["at"] = at
+        if estimated is not None:
+            fields["estimated"] = estimated
+        if attempts is not None:
+            fields["attempts"] = attempts
+        if reason:
+            fields["reason"] = reason
+        await self.emit("resume", **fields)
+
     async def publish_queue(self, pending: list[dict[str, Any]]) -> None:
         self.session.queued = len(pending)
         await self.emit("queue", pending=pending)
@@ -210,8 +237,17 @@ class SessionChannel:
         return turn_id
 
     async def end_turn(
-        self, stop_reason: str, duration_ms: int, usage: dict[str, Any] | None = None
+        self,
+        stop_reason: str,
+        duration_ms: int,
+        usage: dict[str, Any] | None = None,
+        limit: LimitStop | None = None,
     ) -> None:
+        """End the turn, saying so it was the vendor's usage limit when it was.
+
+        `limit` is only ever set beside `stop_reason: "error"` (A35, 5.9), and
+        the hook that follows is what schedules the session's resume.
+        """
         turn = self.session.turn or {}
         turn_id = str(turn.get("turn_id") or uuid.uuid4())
         fields: dict[str, Any] = {
@@ -219,6 +255,8 @@ class SessionChannel:
             "stop_reason": stop_reason,
             "duration_ms": duration_ms,
         }
+        if limit is not None:
+            fields["limit"] = limit.to_dict()
         if usage and _has_counts(usage):
             merged = dict(self.session.usage or {})
             merged.update(usage)
@@ -232,3 +270,5 @@ class SessionChannel:
         await self.flush_all()
         await self.emit("turn_completed", **fields)
         await self.set_state("idle")
+        if self.on_turn_end is not None:
+            await self.on_turn_end(self.session, limit)

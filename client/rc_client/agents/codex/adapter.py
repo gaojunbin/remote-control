@@ -14,6 +14,7 @@ from ...errors import RcError
 from ...logging_setup import logger
 from ...models import UNSET, Command, SpeedSetting, now_ms
 from ...sessions.channel import SessionChannel
+from ...sessions.limits import LimitStop
 from ..base import Emit
 from . import commands as slash
 from .echoes import Echo, EchoLog
@@ -225,7 +226,15 @@ class CodexRunner:
         self._turn_done.set()
         self._last_output_flush.clear()
         usage = dict(completion.get("usage") or self._translator.usage)
-        await self.channel.end_turn(stop_reason, duration, usage or None)
+        # A private app-server has no quota read of its own (A33), so a usage
+        # limit stop here says that and no more (amendment A35).
+        limit = completion.get("limit")
+        await self.channel.end_turn(
+            stop_reason,
+            duration,
+            usage or None,
+            limit=limit if isinstance(limit, LimitStop) else None,
+        )
         if self._on_turn_end is not None:
             await self._on_turn_end()
 

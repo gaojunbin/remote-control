@@ -20,7 +20,9 @@ from ....errors import RcError
 from ....logging_setup import logger
 from ....models import UNSET, Command, SpeedSetting, now_ms
 from ....sessions.channel import SessionChannel
+from ....sessions.limits import LimitStop, codex_limit_windows
 from .. import commands as slash
+from ..account import LIMITS_TIMEOUT, RATE_LIMITS
 from ..echoes import Echo, EchoLog
 from ..models import ModelCatalog, tier_id
 from ..reports import ThreadFacts
@@ -105,6 +107,9 @@ class CodexDaemonSession:
         self._terminal_holds = False
         self._terminal_spoke = False
         self._local_turn = False
+        # What started the turn this device is about to run: `remote` for a
+        # person's message, `resume` for the scheduler's prompt (A35).
+        self._trigger = "remote"
         self._created_here = thread_id is None if created_here is None else created_here
 
     # ------------------------------------------------------------- accessors
@@ -378,7 +383,7 @@ class CodexDaemonSession:
         self._turn_id = turn_id
         self._turn_started_at = now_ms()
         self._turn_done.clear()
-        await self.channel.begin_turn("terminal" if not self._echoes else "remote")
+        await self.channel.begin_turn("terminal" if not self._echoes else self._trigger)
 
     async def _turn_completed(self, params: dict[str, Any]) -> None:
         completion: dict[str, Any] = {}
@@ -396,14 +401,34 @@ class CodexDaemonSession:
         await self._publish_unread(stop_reason)
         self._turn_id = None
         self._local_turn = False
+        self._trigger = "remote"
         self._turn_epoch += 1
         self._turn_done.set()
         self._last_output_flush.clear()
         usage = dict(completion.get("usage") or self._translator.usage)
-        await self.channel.end_turn(stop_reason, duration, usage or None)
+        limit = await self._limit_windows(completion.get("limit"))
+        await self.channel.end_turn(stop_reason, duration, usage or None, limit=limit)
         if self._on_turn_end is not None:
             await self._on_turn_end()
         await self._control_changed()
+
+    async def _limit_windows(self, limit: Any) -> LimitStop | None:
+        """Put the window that ran out on a usage-limit stop (amendment A35).
+
+        The turn says only that the limit was reached; the daemon knows both
+        windows, and a read that fails leaves the stop without a time rather
+        than turning it into an ordinary error.
+        """
+        if not isinstance(limit, LimitStop):
+            return None
+        try:
+            reply = await asyncio.wait_for(self._client.request(RATE_LIMITS, {}), LIMITS_TIMEOUT)
+        except (RcError, TimeoutError):
+            return limit
+        except Exception as exc:  # a quota read must never cost the turn's end
+            log.warning("could not read the Codex quota", error=type(exc).__name__)
+            return limit
+        return codex_limit_windows(reply)
 
     async def _settings_updated(self, params: dict[str, Any]) -> None:
         settings = params.get("threadSettings")
@@ -579,6 +604,7 @@ class CodexDaemonSession:
         if evicted is not None:
             await self._publish_steer(evicted)
         self._local_turn = True
+        self._trigger = source
         self._turn_started_at = now_ms()
         params: dict[str, Any] = {
             "threadId": thread_id,

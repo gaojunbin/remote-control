@@ -68,6 +68,7 @@ class Daemon:
             config.device_token,
             hello=self._hello,
             handlers=self._handlers(),
+            signals={"preferences": self._preferences},
             on_ready=self._on_ready,
             proxy=config.proxy,
         )
@@ -81,6 +82,9 @@ class Daemon:
     async def run(self) -> None:
         scrub_parent_secrets()
         self.hub.load()
+        # Amendment A35: the resumes the device owes, read back before anything
+        # can publish a session, so a restart does not lose one.
+        self.hub.resumes.load()
         await self.codex.start(resolve_codex())
         # A leader the person's configuration asks for, started here when no TUI
         # has started one yet (A28). Failing to reach it is not fatal: Grok
@@ -95,6 +99,7 @@ class Daemon:
         await self._prepare_attachment()
         self.link.start()
         self.mirror.start()
+        self.hub.resumes.start()
         self._refresh_task = asyncio.create_task(self._refresh_loop())
         self._lag_task = asyncio.create_task(watch_loop_lag(), name="loop-lag")
         try:
@@ -145,6 +150,7 @@ class Daemon:
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
                 setattr(self, name, None)
+        await self.hub.resumes.stop()
         await self.mirror.stop()
         await self.codex.stop()
         await self.grok.stop()
@@ -207,6 +213,8 @@ class Daemon:
             "session.commands": self.hub.commands,
             "session.command": self.hub.command,
             "session.queue_remove": self.hub.queue_remove,
+            "session.resume_set": self.hub.resumes.set_request,
+            "session.resume_cancel": self.hub.resumes.cancel_request,
             "session.takeover": self.hub.takeover,
             "session.archive": self.hub.archive,
             "session.delete": self.hub.delete,
@@ -215,6 +223,12 @@ class Daemon:
             "device.agents": self._device_agents,
             "device.update": self._device_update,
         }
+
+    async def _preferences(self, frame: dict[str, Any]) -> None:
+        """The account's switches, after `hello_ack` and on every change (A35)."""
+        preferences = frame.get("preferences")
+        preferences = preferences if isinstance(preferences, dict) else {}
+        await self.hub.resumes.set_enabled(bool(preferences.get("resume_after_limit")))
 
     async def _device_dirs(self, params: dict[str, Any]) -> dict[str, Any]:
         recents = merge_recents(self._session_recents())

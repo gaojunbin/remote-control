@@ -67,6 +67,14 @@ CREATE TABLE IF NOT EXISTS requests (
     ts         INTEGER NOT NULL,
     PRIMARY KEY (session_id, request_id)
 );
+CREATE TABLE IF NOT EXISTS resumes (
+    session_id     TEXT PRIMARY KEY,
+    at             INTEGER NOT NULL,
+    estimated      INTEGER NOT NULL DEFAULT 0,
+    attempts       INTEGER NOT NULL DEFAULT 0,
+    window_minutes INTEGER,
+    control        TEXT NOT NULL DEFAULT 'remote'
+);
 """
 
 
@@ -199,7 +207,7 @@ class Registry:
         return sessions
 
     def delete_session(self, session_id: str) -> None:
-        for table in ("sessions", "events", "requests"):
+        for table in ("sessions", "events", "requests", "resumes"):
             self._defer(f"DELETE FROM {table} WHERE session_id = ?", (session_id,))
         with self._lock:
             self._seqs.pop(session_id, None)
@@ -210,7 +218,7 @@ class Registry:
         if old_id == new_id:
             return
         self._defer("DELETE FROM sessions WHERE session_id = ?", (new_id,))
-        for table in ("sessions", "events", "requests"):
+        for table in ("sessions", "events", "requests", "resumes"):
             self._defer(
                 f"UPDATE OR REPLACE {table} SET session_id = ? WHERE session_id = ?",
                 (new_id, old_id),
@@ -401,6 +409,48 @@ class Registry:
                 "SELECT next_seq FROM sessions WHERE session_id = ?", (session_id,)
             ).fetchone()
         return int(row["next_seq"]) - 1 if row else 0
+
+    # ---------------------------------------------------------------- resumes
+
+    def save_resume(
+        self,
+        session_id: str,
+        at: int,
+        estimated: bool,
+        attempts: int,
+        window_minutes: int | None,
+        control: str,
+    ) -> None:
+        """Persist one pending resume, so a restart does not lose it (A35, 7.2)."""
+        self._defer(
+            "INSERT OR REPLACE INTO resumes"
+            " (session_id, at, estimated, attempts, window_minutes, control)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (session_id, at, 1 if estimated else 0, attempts, window_minutes, control),
+        )
+
+    def load_resumes(self) -> list[dict[str, Any]]:
+        """Every stored resume, as the scheduler's own rows."""
+        self.flush()
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT session_id, at, estimated, attempts, window_minutes, control"
+                " FROM resumes ORDER BY at ASC"
+            ).fetchall()
+        return [
+            {
+                "session_id": str(row["session_id"]),
+                "at": int(row["at"]),
+                "estimated": bool(row["estimated"]),
+                "attempts": int(row["attempts"]),
+                "window_minutes": row["window_minutes"],
+                "control": str(row["control"]),
+            }
+            for row in rows
+        ]
+
+    def delete_resume(self, session_id: str) -> None:
+        self._defer("DELETE FROM resumes WHERE session_id = ?", (session_id,))
 
     # -------------------------------------------------------------- key/value
 

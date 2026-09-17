@@ -11,6 +11,7 @@ import re
 from typing import Any
 
 from ...models import now_ms
+from ...sessions.limits import codex_turn_limit
 from ..base import COMPACTION_NOTICE, Emit
 
 _SNAKE = re.compile(r"_([a-z0-9])")
@@ -230,6 +231,11 @@ class CodexTranslator:
             "stop_reason": stop_reason,
             "duration_ms": int(turn.get("durationMs") or 0),
         }
+        # Amendment A35: the turn names the usage limit but not the window,
+        # which the caller fills in from `account/rateLimits/read`.
+        limit = codex_turn_limit(turn)
+        if limit is not None:
+            fields["limit"] = limit
         if self.usage:
             fields["usage"] = dict(self.usage)
         self.turn_id = None

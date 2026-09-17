@@ -23,6 +23,7 @@ from claude_agent_sdk import (
 
 from ...diffs import from_tool_input
 from ...models import now_ms
+from ...sessions.limits import claude_result_limit
 from ..base import COMPACTION_NOTICE, Emit
 from . import markers
 from .injected import classify
@@ -285,6 +286,12 @@ class ClaudeTranslator:
         }
         if usage:
             fields["usage"] = usage
+        # Amendment A35: the SDK reports the vendor's 429 as a status and not as
+        # a time; the adapter reads the reset out of the session's transcript.
+        limit = claude_result_limit(getattr(message, "api_error_status", None))
+        if limit is not None:
+            fields["stop_reason"] = "error"
+            fields["limit"] = limit
         emits = [Emit("turn_completed", fields)]
         if message.is_error and message.result:
             emits.insert(0, Emit("error", {"message": str(message.result)[:2000]}))

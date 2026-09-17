@@ -48,6 +48,9 @@ SEND_QUEUE_BYTES = 96 * 1024 * 1024
 MAX_ERROR_CHARS = 200
 
 Handler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+# A gateway → device frame that is told, not asked: it carries no `id` and is
+# never replied to. `preferences` is the first of them (amendment A35).
+Signal = Callable[[dict[str, Any]], Awaitable[None]]
 HelloBuilder = Callable[[], Awaitable[dict[str, Any]]]
 
 
@@ -136,6 +139,7 @@ class GatewayLink:
         *,
         hello: HelloBuilder,
         handlers: dict[str, Handler],
+        signals: dict[str, Signal] | None = None,
         on_ready: Callable[[], Awaitable[None]] | None = None,
         proxy: str,
     ) -> None:
@@ -144,6 +148,7 @@ class GatewayLink:
         self._proxy = proxy
         self._hello = hello
         self._handlers = handlers
+        self._signals = signals or {}
         self._on_ready = on_ready
         self._queue = ByteQueue(SEND_QUEUE_ITEMS, SEND_QUEUE_BYTES)
         self._connected = False
@@ -317,6 +322,12 @@ class GatewayLink:
             return
         if frame_type in {"pong", "hello_ack"}:
             return
+        signal = self._signals.get(frame_type)
+        if signal is not None:
+            task = asyncio.create_task(self._announce(signal, frame))
+            self._inflight.add(task)
+            task.add_done_callback(self._inflight.discard)
+            return
         handler = self._handlers.get(frame_type)
         if handler is None:
             await self._reply(frame, RcError("unsupported", f"unknown request {frame_type}"))
@@ -324,6 +335,15 @@ class GatewayLink:
         task = asyncio.create_task(self._serve(handler, frame))
         self._inflight.add(task)
         task.add_done_callback(self._inflight.discard)
+
+    async def _announce(self, signal: Signal, frame: dict[str, Any]) -> None:
+        """Apply a frame the gateway told us about; nobody is owed a reply."""
+        try:
+            await signal(frame)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("gateway signal failed", signal=frame.get("type"))
 
     async def _serve(self, handler: Handler, frame: dict[str, Any]) -> None:
         try:

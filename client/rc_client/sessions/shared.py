@@ -34,6 +34,7 @@ from ..logging_setup import logger
 from ..models import now_ms
 from . import titles
 from .attach import Attachment, HookQuestion
+from .limits import TurnEnd
 
 if TYPE_CHECKING:  # pragma: no cover - imported for types only
     from .hub import SessionEntry, SessionHub
@@ -120,13 +121,14 @@ class SharedState:
         return not self.running and not self.waiting and self.question is None
 
 
-def pending_item(text: str, request_id: str) -> dict[str, Any]:
+def pending_item(text: str, request_id: str, source: str = "remote") -> dict[str, Any]:
     """One held message: a queue entry that also carries its bubble's identity.
 
     The bubble is the app's request id (amendment A12), which is also the id
     the queue reports, so a message drawn on sending and shown again as queued
     and once more as delivered is one block throughout. `message_id` stays the
-    channel's own: it names the injection, not the bubble.
+    channel's own: it names the injection, not the bubble. `source` is what the
+    bubble says the message was: a person's, or the device's resume (A35).
     """
     message_id = str(uuid.uuid4())
     block_id = request_id or str(uuid.uuid4())
@@ -138,6 +140,7 @@ def pending_item(text: str, request_id: str) -> dict[str, Any]:
         "message_id": message_id,
         "block_id": block_id,
         "retried": False,
+        "source": source,
     }
 
 
@@ -197,7 +200,7 @@ class SharedControl:
         entry.session.control = control  # type: ignore[assignment]
         await entry.channel.emit("meta", control=control)
         if entry.session.turn is not None:
-            await self._end_turn(entry, "stopped")
+            await self._end_turn(entry, TurnEnd("stopped"))
         await entry.channel.set_state("readonly" if control == "terminal" else "idle")
         if entry.queue:
             # The held messages survive the detachment and go out through the
@@ -227,7 +230,7 @@ class SharedControl:
         entry: SessionEntry,
         running: bool,
         trigger: str = "terminal",
-        stop_reason: str = "completed",
+        end: TurnEnd | None = None,
     ) -> None:
         """Called after every transcript read: the only source of turn state.
 
@@ -235,8 +238,9 @@ class SharedControl:
         the keyboard, or another agent whose message the CLI filed as a user
         turn (amendment A30). An injection of our own names itself when it goes
         out and is still in flight here, which is what `waiting` protects.
-        `stop_reason` is how those rows say the turn ended, which is `completed`
-        unless the person interrupted it (amendment A32).
+        `end` is how those rows say the turn ended: `completed` unless the
+        person interrupted it (amendment A32) or the vendor's usage limit
+        stopped it (A35).
         """
         state = entry.shared
         if state is None:
@@ -244,19 +248,19 @@ class SharedControl:
         if running and not state.running and not state.waiting:
             state.trigger = trigger
         state.running = running
-        await self._settle(entry, stop_reason)
+        await self._settle(entry, end)
         if not running:
             await self.drain(entry)
 
-    async def _settle(self, entry: SessionEntry, stop_reason: str = "completed") -> None:
+    async def _settle(self, entry: SessionEntry, end: TurnEnd | None = None) -> None:
         """Reconcile turn, state and prompts with what the transcript says.
 
         An injection counts as busy before its row appears, so the apps see the
         turn start at once instead of at the next transcript read. Something
         waiting on the person outranks a running turn, and an approval outranks
         a question: it blocks the work the question was asked about. A turn
-        that is over ends as `stop_reason` says, which only a transcript read
-        has anything to say about.
+        that is over ends as `end` says, which only a transcript read has
+        anything to say about.
         """
         state = entry.shared
         if state is None:
@@ -271,15 +275,15 @@ class SharedControl:
         elif busy:
             await entry.channel.set_state("running")
         else:
-            await self._end_turn(entry, stop_reason)
+            await self._end_turn(entry, end or TurnEnd())
 
-    async def _end_turn(self, entry: SessionEntry, stop_reason: str) -> None:
+    async def _end_turn(self, entry: SessionEntry, end: TurnEnd) -> None:
         turn = entry.session.turn
         if turn is None:
             await entry.channel.set_state("idle")
             return
         started = int(turn.get("started_at") or now_ms())
-        await entry.channel.end_turn(stop_reason, max(0, now_ms() - started))
+        await entry.channel.end_turn(end.stop_reason, max(0, now_ms() - started), limit=end.limit)
 
     async def echo_delivered(self, entry: SessionEntry, message_id: str) -> None:
         """The injected row reached the transcript: the bubble is already correct."""
@@ -331,6 +335,7 @@ class SharedControl:
         request_id: str,
         text: str,
         attachments: list[dict[str, Any]],
+        source: str = "remote",
     ) -> dict[str, Any]:
         state = entry.shared
         if state is None:
@@ -339,8 +344,10 @@ class SharedControl:
             raise RcError("unsupported", "attachments cannot be delivered to a terminal session")
         # Amendment A15: held or injected, the message brings the session back.
         await entry.channel.revive()
-        await titles.from_prompt(entry.channel, text)
-        item = pending_item(text, request_id)
+        if source != "resume":
+            # The resume prompt is the device's sentence, not a title (A35).
+            await titles.from_prompt(entry.channel, text)
+        item = pending_item(text, request_id, source)
         if state.injectable and await self._inject(entry, item):
             return {"accepted": "sent"}
         # Amendment A19: held is not delivered, and not a block either. The
@@ -370,7 +377,7 @@ class SharedControl:
         if not await state.attachment.inject(message_id, str(item["text"])):
             return False
         state.mark_inflight(message_id)
-        state.trigger = "remote"
+        state.trigger = str(item.get("source") or "remote")
         state.remember(item)
         await self._emit_message(entry, item, "delivered")
         await self._settle(entry)
@@ -381,7 +388,7 @@ class SharedControl:
             "user_message",
             block_id=str(item["block_id"]),
             text=str(item["text"]),
-            source="remote",
+            source=str(item.get("source") or "remote"),
             delivery=delivery,
         )
 

@@ -36,6 +36,8 @@ from ..registry import Registry
 from . import titles
 from .attach import Attachment, HookQuestion, SessionStart
 from .channel import SessionChannel
+from .limits import LimitStop
+from .resume import ResumeScheduler
 from .shared import EXIT_SETTLE, SharedControl, SharedState
 
 log = logger("rc_client.hub")
@@ -87,6 +89,9 @@ class SessionHub:
         self._agents = agents
         self.entries: dict[str, SessionEntry] = {}
         self.shared = SharedControl(self)
+        # Amendment A35: what the device does about a session the usage limit
+        # stopped. Replaceable so a test can drive it from its own clock.
+        self.resumes = ResumeScheduler(self)
         # Set by the daemon once the shared Codex app-server answers a handshake
         # (amendment A11); absent means the per-session spawn path.
         self.codex_daemon: CodexDaemonService | None = None
@@ -125,8 +130,22 @@ class SessionHub:
             raise RcError("not_found", f"unknown session {session_id}")
         return entry
 
+    def _channel(self, session: Session) -> SessionChannel:
+        """A channel wired to the hub, so every turn's end reaches the scheduler."""
+        channel = SessionChannel(self.registry, session, self.publish)
+        channel.on_turn_end = self._turn_ended
+        return channel
+
+    async def _turn_ended(self, session: Session, limit: LimitStop | None) -> None:
+        """Amendment A35: a turn the usage limit ended schedules its own resume."""
+        await self.resumes.on_turn_end(session, limit)
+
     def load(self) -> None:
-        """Restore persisted sessions as resumable, terminal-free records."""
+        """Restore persisted sessions as resumable, terminal-free records.
+
+        `resume` is not restored here: a pending one belongs to the scheduler,
+        which reads its own records back and puts them on the sessions (A35).
+        """
         for session in self.registry.load_sessions():
             if not session.session_id or not session.agent:
                 continue
@@ -135,9 +154,10 @@ class SessionHub:
             session.state = "stopped" if session.archived else "idle"
             session.turn = None
             session.queued = 0
+            session.resume = None
             self.entries[session.session_id] = SessionEntry(
                 session=session,
-                channel=SessionChannel(self.registry, session, self.publish),
+                channel=self._channel(session),
             )
 
     def register_mirrored(self, session: Session, transcript: str | None = None) -> SessionEntry:
@@ -149,7 +169,7 @@ class SessionHub:
         session.device_id = self.device_id
         entry = SessionEntry(
             session=session,
-            channel=SessionChannel(self.registry, session, self.publish),
+            channel=self._channel(session),
             transcript=transcript,
         )
         self.entries[session.session_id] = entry
@@ -251,9 +271,7 @@ class SessionHub:
             speed=params.get("speed"),
         )
         session.git = await session_git(cwd, worktree=worktree)
-        entry = SessionEntry(
-            session=session, channel=SessionChannel(self.registry, session, self.publish)
-        )
+        entry = SessionEntry(session=session, channel=self._channel(session))
         self.entries[session.session_id] = entry
         entry.channel.start()
         self.registry.upsert_session(session)
@@ -318,13 +336,21 @@ class SessionHub:
 
     # ------------------------------------------------------------------ send
 
-    async def send(self, params: dict[str, Any]) -> dict[str, Any]:
+    async def send(self, params: dict[str, Any], source: str = "remote") -> dict[str, Any]:
+        """Deliver one message. `source` is the trigger it carries (PROTOCOL 5.2).
+
+        Only the scheduler sends anything but `remote`: its prompt is the one
+        message the device writes for the person (A35), and it must not cancel
+        the very resume it is running.
+        """
         session_id = str(params.get("session_id") or "")
         request_id = str(params.get("id") or "")
         entry = self.entry(session_id)
         cached = self.registry.recall_request(session_id, request_id) if request_id else None
         if cached is not None:
             return cached
+        if source == "remote":
+            await self.resumes.cancelled_by_person(session_id)
 
         text = str(params.get("text") or "")
         if len(text.encode("utf-8")) > MAX_TEXT_BYTES:
@@ -336,7 +362,7 @@ class SessionHub:
 
         async with entry.lock:
             if entry.shared is not None:
-                result = await self.shared.send(entry, request_id, text, attachments)
+                result = await self.shared.send(entry, request_id, text, attachments, source)
                 if request_id:
                     self.registry.remember_request(session_id, request_id, result)
                 return result
@@ -353,13 +379,13 @@ class SessionHub:
             if mode == "queue":
                 # An explicit queue request always queues, even when idle: the
                 # app told the user their message would wait its turn.
-                result = await self._enqueue(entry, request_id, text, attachments)
+                result = await self._enqueue(entry, request_id, text, attachments, source)
             elif not runner.busy:
-                await self._start_turn(entry, text, attachments, request_id)
+                await self._start_turn(entry, text, attachments, request_id, source)
                 result = {"accepted": "sent"}
             elif mode == "interrupt":
                 await runner.interrupt()
-                await self._start_turn(entry, text, attachments, request_id)
+                await self._start_turn(entry, text, attachments, request_id, source)
                 result = {"accepted": "sent"}
             elif (
                 mode == "auto"
@@ -368,7 +394,7 @@ class SessionHub:
             ):
                 result = {"accepted": "steered"}
             else:
-                result = await self._enqueue(entry, request_id, text, attachments)
+                result = await self._enqueue(entry, request_id, text, attachments, source)
             if mode == "queue" and not runner.busy:
                 await self._drain_queue_locked(entry)
 
@@ -382,6 +408,7 @@ class SessionHub:
         text: str,
         attachments: list[dict[str, Any]] | None,
         request_id: str = "",
+        source: str = "remote",
     ) -> None:
         """Start a turn for a message an app sent, under that request's own id.
 
@@ -392,8 +419,11 @@ class SessionHub:
         runner = entry.runner
         if runner is None:
             raise RcError("agent_unavailable", "the session is not running")
-        await titles.from_prompt(entry.channel, text)
-        await runner.send(text, attachments, block_id=request_id or None)
+        if source != "resume":
+            # A session is named after something somebody said, and the resume
+            # prompt is the device's own sentence (A35, 7.2).
+            await titles.from_prompt(entry.channel, text)
+        await runner.send(text, attachments, source=source, block_id=request_id or None)
 
     def _terminal_conflict_message(self, entry: SessionEntry) -> str:
         """Only offer "take over" when this agent can actually be taken over."""
@@ -411,6 +441,7 @@ class SessionHub:
         request_id: str,
         text: str,
         attachments: list[dict[str, Any]],
+        source: str = "remote",
     ) -> dict[str, Any]:
         """Hold a message until the turn boundary, keeping its attachments.
 
@@ -420,7 +451,13 @@ class SessionHub:
         """
         queued_id = request_id or str(uuid.uuid4())
         entry.queue.append(
-            {"id": queued_id, "text": text, "ts": now_ms(), "attachments": attachments}
+            {
+                "id": queued_id,
+                "text": text,
+                "ts": now_ms(),
+                "attachments": attachments,
+                "source": source,
+            }
         )
         await entry.channel.publish_queue(self.queue_snapshot(entry))
         return {"accepted": "queued", "queued_id": queued_id}
@@ -457,7 +494,9 @@ class SessionHub:
             await runner.send(
                 str(item["text"]),
                 item.get("attachments") or None,
-                source="queue",
+                # A resume that had to wait for a turn is still a resume (A35);
+                # anything else went into the queue as the person's message.
+                source="resume" if item.get("source") == "resume" else "queue",
                 block_id=str(item["id"]),
             )
         except RcError as exc:
@@ -600,6 +639,7 @@ class SessionHub:
         if cached is not None:
             return cached
         self._check_commands_capability(entry)
+        await self.resumes.cancelled_by_person(session_id)
         name = str(params.get("name") or "").strip().lstrip("/")
         if not name:
             raise RcError("bad_request", "name is required")

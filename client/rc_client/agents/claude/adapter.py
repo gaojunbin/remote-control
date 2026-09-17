@@ -30,7 +30,9 @@ from ...errors import RcError
 from ...logging_setup import logger
 from ...models import UNSET, Command, SpeedSetting, now_ms
 from ...sessions.channel import SessionChannel
+from ...sessions.limits import LimitStop, claude_transcript_limit
 from ..base import Emit
+from . import transcripts
 from .questions import QUESTION_TOOL, answers_by_prompt, normalise_questions
 from .translate import ClaudeTranslator
 
@@ -222,10 +224,31 @@ class ClaudeRunner:
         )
         self._interrupting = False
         self._translator.clear_interrupt()
-        await self.channel.end_turn(str(completion["stop_reason"]), duration, usage or None)
+        limit = completion.get("limit")
+        if isinstance(limit, LimitStop):
+            limit = await self._limit_reset(limit)
+        else:
+            limit = None
+        await self.channel.end_turn(
+            str(completion["stop_reason"]), duration, usage or None, limit=limit
+        )
         self._turn_done.set()
         if self._on_turn_end is not None:
             await self._on_turn_end()
+
+    async def _limit_reset(self, limit: LimitStop) -> LimitStop:
+        """Fill in when the window resets, which only the transcript records (A35).
+
+        The SDK's result says the request was refused with 429 and no more; the
+        CLI writes the window and its reset into the session's own transcript,
+        whose path the device already knows.
+        """
+        session_id = self._translator.session_id or self.channel.session.session_id
+        path = transcripts.find_transcript(session_id)
+        if path is None:
+            return limit
+        found = await asyncio.to_thread(claude_transcript_limit, path)
+        return found or limit
 
     async def _context_usage(self) -> dict[str, Any]:
         client = self._client

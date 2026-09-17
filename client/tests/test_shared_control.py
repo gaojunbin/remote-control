@@ -13,6 +13,7 @@ from rc_client.models import AgentInfo, Choice
 from rc_client.registry import Registry
 from rc_client.sessions.attach import Attachment, HookQuestion
 from rc_client.sessions.hub import SessionEntry, SessionHub
+from rc_client.sessions.limits import TurnEnd
 from rc_client.sessions.shared import SharedState
 
 QUESTION_TOOL = "AskUserQuestion"
@@ -505,7 +506,9 @@ async def test_a_turn_the_person_interrupted_is_closed_as_interrupted(harness: H
     reader.translate(
         {"type": "user", "uuid": "row-typed", "message": {"role": "user", "content": "go"}}
     )
-    await harness.hub.shared.tick(entry, reader.busy, reader.turn_trigger, reader.stop_reason)
+    await harness.hub.shared.tick(
+        entry, reader.busy, reader.turn_trigger, TurnEnd(reader.stop_reason, reader.limit)
+    )
     assert harness.events("turn_started")[-1]["trigger"] == "terminal"
     starts = len(harness.events("turn_started"))
 
@@ -520,7 +523,9 @@ async def test_a_turn_the_person_interrupted_is_closed_as_interrupted(harness: H
         }
     )
     assert reader.busy is False
-    await harness.hub.shared.tick(entry, reader.busy, reader.turn_trigger, reader.stop_reason)
+    await harness.hub.shared.tick(
+        entry, reader.busy, reader.turn_trigger, TurnEnd(reader.stop_reason, reader.limit)
+    )
     assert harness.events("turn_completed")[-1]["stop_reason"] == "interrupted"
     assert len(harness.events("turn_started")) == starts
     assert entry.session.turn is None

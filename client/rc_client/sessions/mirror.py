@@ -28,6 +28,7 @@ from ..models import Session, now_ms
 from ..procscan import file_writers
 from . import titles
 from .hub import SessionEntry, SessionHub
+from .limits import TurnEnd
 
 log = logger("rc_client.mirror")
 
@@ -49,15 +50,16 @@ def _turn_trigger(tailer: Tailer) -> str:
     return "terminal"
 
 
-def _stop_reason(tailer: Tailer) -> str:
-    """How the rows just read say the turn ended (amendment A32).
+def _turn_end(tailer: Tailer) -> TurnEnd:
+    """How the rows just read say the turn ended (amendments A32, A35).
 
     Only a Claude transcript records the marker the CLI leaves where the person
-    interrupted a turn; every other tailer lets its turns run out.
+    interrupted a turn, and the 429 row it writes when the vendor's usage limit
+    stopped one; every other tailer lets its turns run out.
     """
     if isinstance(tailer, transcripts.TranscriptTailer):
-        return tailer.stop_reason
-    return "completed"
+        return TurnEnd(tailer.stop_reason, tailer.limit)
+    return TurnEnd()
 
 
 @dataclass(slots=True)
@@ -468,8 +470,8 @@ class MirrorService:
             if entry.shared is not None:
                 tailer = mirror.tailer if mirror is not None else None
                 trigger = tailer.turn_trigger if tailer is not None else "terminal"
-                reason = tailer.stop_reason if tailer is not None else "completed"
-                await self.hub.shared.tick(entry, running, trigger, reason)
+                end = _turn_end(tailer) if tailer is not None else TurnEnd()
+                await self.hub.shared.tick(entry, running, trigger, end)
                 continue
             if not scan.complete:
                 continue
@@ -568,14 +570,14 @@ class MirrorService:
             # Grok's `eventId` counter resumes a tail even when the file moved,
             # and is the same mark the leader reads when it joins (A28).
             grok_cursor.write(self.hub.registry, session_id, tailer.cursor)
-        await self._after_rows(entry, tailer.busy, _turn_trigger(tailer), _stop_reason(tailer))
+        await self._after_rows(entry, tailer.busy, _turn_trigger(tailer), _turn_end(tailer))
 
     async def _after_rows(
-        self, entry: SessionEntry, running: bool, trigger: str, stop_reason: str = "completed"
+        self, entry: SessionEntry, running: bool, trigger: str, end: TurnEnd | None = None
     ) -> None:
         entry.session.updated_at = now_ms()
         if entry.shared is not None:
-            await self.hub.shared.tick(entry, running, trigger, stop_reason)
+            await self.hub.shared.tick(entry, running, trigger, end)
         elif entry.session.control == "terminal":
             await entry.channel.set_state("running" if running else "readonly")
         await entry.channel.publish_summary()

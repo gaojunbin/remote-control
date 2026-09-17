@@ -31,6 +31,8 @@ BASE_URL = "OPENAI_BASE_URL"
 AUTH_CLAIM = "https://api.openai.com/auth"
 PLAN_CLAIM = "chatgpt_plan_type"
 LIMITS_TIMEOUT = 5.0
+# The app-server method that reports what is left of the account's quota (A33).
+RATE_LIMITS = "account/rateLimits/read"
 NO_DAEMON = "Codex shared daemon is not running"
 SLOW_DAEMON = "the Codex shared daemon did not answer in time"
 

@@ -25,7 +25,7 @@ OPTIONAL_AGENT_FIELDS = {
     "shared_attachments",
     "speeds",
 }
-OPTIONAL_SESSION_FIELDS = {"speed"}
+OPTIONAL_SESSION_FIELDS = {"speed", "resume"}
 
 
 def assert_round_trip(

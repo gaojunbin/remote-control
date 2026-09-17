@@ -206,6 +206,40 @@ class AgentInfo:
 
 
 @dataclass(slots=True)
+class SessionResume:
+    """The one resume a session can have pending after a usage limit (A35, 7.2).
+
+    `estimated` says the vendor named no reset time and `at` was computed from
+    the window's length; `attempts` counts the resumes that ran into the limit
+    again, and the device drops the resume after the third.
+    """
+
+    at: int
+    estimated: bool = False
+    attempts: int = 0
+    window_minutes: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "at": self.at,
+            "estimated": self.estimated,
+            "attempts": self.attempts,
+        }
+        if self.window_minutes is not None:
+            result["window_minutes"] = self.window_minutes
+        return result
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SessionResume:
+        return cls(
+            at=int(data["at"]),
+            estimated=bool(data.get("estimated")),
+            attempts=int(data.get("attempts") or 0),
+            window_minutes=data.get("window_minutes"),
+        )
+
+
+@dataclass(slots=True)
 class Session:
     session_id: str
     device_id: str
@@ -230,6 +264,10 @@ class Session:
     todos: dict[str, int] | None = None
     usage: dict[str, Any] | None = None
     queued: int = 0
+    # The resume the device has scheduled after a usage limit, null when there
+    # is none (amendment A35). Always published, so an app that redraws from a
+    # summary is never left holding one the device has dropped.
+    resume: SessionResume | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -255,10 +293,12 @@ class Session:
             "todos": self.todos,
             "usage": self.usage,
             "queued": self.queued,
+            "resume": self.resume.to_dict() if self.resume else None,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Session:
+        resume = data.get("resume")
         return cls(
             session_id=str(data["session_id"]),
             device_id=str(data.get("device_id") or ""),
@@ -282,6 +322,7 @@ class Session:
             todos=data.get("todos"),
             usage=data.get("usage"),
             queued=int(data.get("queued") or 0),
+            resume=SessionResume.from_dict(resume) if isinstance(resume, dict) else None,
         )
 
 

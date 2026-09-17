@@ -35,6 +35,10 @@ HISTORY_KINDS = frozenset(
         "turn_completed",
         "notice",
         "error",
+        # Amendment A35: like `notice`, a `resume` changes no state and reads as
+        # a row of the timeline, so a reload and the gateway's backfill must
+        # both be able to replay it.
+        "resume",
     }
 )
 # Kinds whose latest event replaces the previous one under the same key.

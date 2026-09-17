@@ -15,6 +15,7 @@ from typing import Any
 
 from ...diffs import from_tool_input
 from ...models import now_ms
+from ...sessions.limits import LimitStop, claude_row_limit
 from ...tailing import FileTail
 from ..base import COMPACTION_NOTICE, Emit
 from . import markers
@@ -314,6 +315,9 @@ class TranscriptTailer:
     # The text of the last user message published, which is how the second
     # record the CLI keeps of one typed command is recognised (amendment A32).
     last_message: str = ""
+    # The vendor's usage limit that ended the turn, when one did (amendment
+    # A35). Set beside `stop_reason = "error"`, and cleared by the next turn.
+    limit: LimitStop | None = None
     tail: FileTail = field(init=False)
 
     def __post_init__(self) -> None:
@@ -378,9 +382,7 @@ class TranscriptTailer:
         message_id = channel_message_id(_text_of(message.get("content")))
         if message_id is None:
             return []
-        self.awaiting_reply = True
-        self.turn_trigger = "remote"
-        self.stop_reason = "completed"
+        self._begin_turn("remote")
         return [Emit(CHANNEL_DELIVERED, {"message_id": message_id})]
 
     def _attachment(self, row: dict[str, Any]) -> list[Emit]:
@@ -433,6 +435,7 @@ class TranscriptTailer:
             # the tool result this row may also carry is published as usual.
             self.awaiting_reply = False
             self.stop_reason = "interrupted"
+            self.limit = None
             return []
         if markers.is_command_output(said):
             # The CLI answered the command, which is the end of what it did —
@@ -463,10 +466,15 @@ class TranscriptTailer:
         if message is None:
             return []
         source = "agent" if message.by_agent else "terminal"
-        self.awaiting_reply = True
-        self.turn_trigger = source
-        self.stop_reason = "completed"
+        self._begin_turn(source)
         return self._publish(row, message.text, source)
+
+    def _begin_turn(self, trigger: str) -> None:
+        """A turn starts here, which clears how the last one ended."""
+        self.awaiting_reply = True
+        self.turn_trigger = trigger
+        self.stop_reason = "completed"
+        self.limit = None
 
     def _publish(self, row: dict[str, Any], text: str, source: str) -> list[Emit]:
         self.last_message = text
@@ -493,6 +501,9 @@ class TranscriptTailer:
         all — ends it. Reading the blocks instead once drained a phone's held
         messages into a turn that was still running.
         """
+        limited = self._limit_row(row)
+        if limited is not None:
+            return limited
         message = row.get("message") or {}
         message_id = str(message.get("id") or row.get("uuid") or "msg")
         emits: list[Emit] = []
@@ -525,6 +536,23 @@ class TranscriptTailer:
         if not has_tool and message.get("stop_reason") != "tool_use":
             self.awaiting_reply = False
         return emits
+
+    def _limit_row(self, row: dict[str, Any]) -> list[Emit] | None:
+        """The 429 row the CLI writes when the vendor's usage window is used up.
+
+        Amendment A35: this is not the agent speaking, so its sentence goes out
+        as an `error` rather than as `assistant_text`, and the turn it ends is
+        an `error` stop carrying the window and its reset.
+        """
+        limit = claude_row_limit(row)
+        if limit is None:
+            return None
+        self.awaiting_reply = False
+        self.stop_reason = "error"
+        self.limit = limit
+        message = row.get("message") or {}
+        said = _text_of(message.get("content")).strip()
+        return [Emit("error", {"message": said})] if said else []
 
     def _tool_use(self, block: dict[str, Any]) -> list[Emit]:
         name = str(block.get("name") or "Tool")
