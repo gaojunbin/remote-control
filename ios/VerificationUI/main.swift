@@ -816,6 +816,40 @@ func run() async -> (passed: Int, failures: [String]) {
         expect(fonts.count >= 20, "the KaTeX fonts ship with the bundle")
     }
 
+    // MARK: - The device row says less (`docs/DESIGN.md` § "The device row")
+    //
+    // Both lines are written once, in `DeviceLine`, so what the row says and
+    // what only the page says can be read here without drawing a view.
+
+    equal(DeviceLine.platformName(.macos), "macOS", "the row says the platform as a word")
+    equal(DeviceLine.platformName(.linux), "Linux", "for each of the two the client runs on")
+    equal(DeviceLine.platformName(DevicePlatform(rawValue: "sunos")), "sunos",
+          "and prints one this build never heard of as it arrived")
+
+    for device in model.connection.devices {
+        let row = DeviceLine.status(device)
+        equal(row, "\(device.online ? "online" : "offline") · \(DeviceLine.platformName(device.platform))",
+              "\(device.name)'s row says its state and its platform, and nothing else")
+        expect(!row.contains(device.hostname), "the row never repeats \(device.name)'s hostname")
+        expect(!row.contains(device.arch), "nor names the chip it is built on")
+        expect(!row.contains(device.platform.rawValue), "nor shows the raw platform id")
+        for info in device.availableAgents {
+            expect(!row.contains(info.displayName),
+                   "nor writes \(info.displayName) in ink beside its logo")
+        }
+        let page = DeviceLine.facts(device)
+        expect(page.contains(device.hostname), "\(device.name)'s page keeps its hostname")
+        expect(page.contains(device.arch), "and the chip it is built on")
+    }
+
+    // The agents on the row are logos alone, so their names reach a reader who
+    // cannot see them only as the labels the row hands each logo.
+    if let studio = model.connection.device(DemoFixtures.macDeviceID) {
+        equal(studio.availableAgents.map(\.displayName),
+              ["Claude Code", "Codex", "Grok Build", "pi"],
+              "every logo on the row is labelled with the agent it stands for")
+    }
+
     // MARK: - Amendment A22: a device is updated from the app
 
     equal(model.connection.config.servedBuild, DemoFixtures.servedBuild,

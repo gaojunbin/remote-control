@@ -1,7 +1,7 @@
 import SwiftUI
 import RCCore
 
-/// The dot, the word and the machine. It is the second line of a device's row
+/// The dot, the state and the platform. It is the second line of a device's row
 /// and the first line of its page, written once so the two never drift.
 struct DeviceStatusLine: View {
     let device: Device
@@ -9,12 +9,23 @@ struct DeviceStatusLine: View {
     var body: some View {
         HStack(spacing: 5) {
             OnlineDot(online: device.online, updating: device.updateState == .updating)
-            Text(device.online ? "online" : "offline")
+            Text(DeviceLine.status(device))
                 .font(Theme.Text.meta)
                 .foregroundStyle(Theme.inkSecondary)
-            Text("·").font(Theme.Text.caption).foregroundStyle(Theme.inkSecondary)
-            CodeText("\(device.hostname) · \(device.platform.rawValue) \(device.arch)",
-                     font: Theme.Text.metaMono)
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+/// `docs/DESIGN.md` § "The device row": the hostname and the architecture are
+/// facts someone opens a machine's page to check, so they are drawn there and
+/// on no row.
+struct DeviceFactsLine: View {
+    let device: Device
+
+    var body: some View {
+        HStack(spacing: 5) {
+            CodeText(DeviceLine.facts(device), font: Theme.Text.metaMono)
             Spacer(minLength: 0)
         }
     }
