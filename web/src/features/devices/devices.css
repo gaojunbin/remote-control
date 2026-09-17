@@ -116,15 +116,9 @@
   color: var(--ink-tertiary);
 }
 
+/* The notice stands alone on the line: nothing precedes it, so no separator. */
 .device-update {
   color: var(--ink-secondary);
-}
-
-/* Parted from the version the way the two halves of the meta line are. */
-.device-update::before {
-  content: '·';
-  margin-right: var(--sp-2);
-  color: var(--line-strong);
 }
 
 .device-update.failed {

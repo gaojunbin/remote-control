@@ -64,33 +64,46 @@ const openMenuFor = async (name: string): Promise<HTMLElement> => {
 
 const updateItem = () => screen.getByRole('menuitem', { name: strings.devices.update });
 
-describe('the client build on a device row', () => {
-  it('names the version and the first eight characters of the build', () => {
+const rowOf = (name: string): HTMLElement => {
+  const row = screen.getByText(name).closest('li');
+  if (!row) throw new Error(`no row for ${name}`);
+  return row as HTMLElement;
+};
+
+describe('the client line on a device row', () => {
+  it('says only the version a device on the gateway’s build runs — no "client", no build hash', () => {
     renderPage();
-    expect(screen.getByText(`client 0.1.0 · ${CLIENT_BUILD.slice(0, 8)}`)).toBeInTheDocument();
+    const row = rowOf('mac-studio-office');
+    expect(within(row).getByText('0.1.0')).toBeInTheDocument();
+    expect(within(row).queryByText(/client/)).not.toBeInTheDocument();
+    expect(within(row).queryByText(new RegExp(CLIENT_BUILD.slice(0, 8)))).not.toBeInTheDocument();
   });
 
-  it('names the version it would install when the build differs from the gateway’s', () => {
+  it('says only "Update available" when the build differs from the gateway’s', () => {
     renderPage();
-    expect(screen.getByText(strings.devices.updateAvailableTo('0.1.0'))).toBeInTheDocument();
-    // The build itself gives way to the notice on that row.
+    const row = rowOf('ci-runner-01');
+    expect(within(row).getByText(strings.devices.updateAvailable)).toBeInTheDocument();
+    // Neither the version it would install nor the one it runs: the
+    // confirmation and the device page name those.
+    expect(screen.queryByText(strings.devices.updateAvailableTo('0.1.0'))).not.toBeInTheDocument();
+    expect(within(row).queryByText(/0\.0\.9/)).not.toBeInTheDocument();
     expect(screen.queryByText(new RegExp(OLD_CLIENT_BUILD.slice(0, 8)))).not.toBeInTheDocument();
-    expect(screen.getByText('client 0.0.9')).toBeInTheDocument();
   });
 
-  it('says only "Update available" when the gateway does not name the version', () => {
+  it('says the same when the gateway does not name the version', () => {
     useAuth.setState({
       config: { ...config, client: { build: CLIENT_BUILD, url: '/dist/rc_client-latest.whl' } },
     });
     renderPage();
-    expect(screen.getByText(strings.devices.updateAvailable)).toBeInTheDocument();
+    expect(within(rowOf('ci-runner-01')).getByText(strings.devices.updateAvailable)).toBeInTheDocument();
   });
 
-  it('says nothing when the gateway serves no build', () => {
+  it('says each device’s version when the gateway serves no build', () => {
     useAuth.setState({ config: { ...config, client: undefined } });
     renderPage();
     expect(screen.queryByText(strings.devices.updateAvailable)).not.toBeInTheDocument();
-    expect(screen.queryByText(strings.devices.updateAvailableTo('0.1.0'))).not.toBeInTheDocument();
+    expect(within(rowOf('ci-runner-01')).getByText('0.0.9')).toBeInTheDocument();
+    expect(within(rowOf('mac-studio-office')).getByText('0.1.0')).toBeInTheDocument();
   });
 
   it('draws "Updating…" and a pulsing dot while an update runs', () => {

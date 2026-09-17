@@ -1,8 +1,10 @@
 /**
  * One registered device, as `docs/DESIGN.md` § "The device row" rules it: a
  * computer glyph at the leading edge, the name once, a status line of dot,
- * online word and platform word, and the agents as logos alone. The hostname
- * and the architecture live on the device's own page, not here.
+ * online word and platform word, a client line that says one thing — the
+ * version the device runs, or that an update is there to take — and the agents
+ * as logos alone. The hostname, the architecture, the build hash and the version
+ * an update would install live on the device's own page, not here.
  */
 import { LaptopMinimal, MoreHorizontal } from 'lucide-react';
 import { Link } from 'react-router';
@@ -28,9 +30,6 @@ interface Props {
   onRevoke: () => void;
 }
 
-/** A build is a SHA-256; eight characters name it without filling the row. */
-const shortBuild = (build: string): string => build.slice(0, 8);
-
 export function DeviceRow({
   device,
   sessionCount,
@@ -47,11 +46,14 @@ export function DeviceRow({
 
   const notice = updateNotice(device, updateError, served);
   const updating = device.update_state === 'updating';
-  // The build is worth showing only while nothing louder replaces it.
-  const clientText =
-    notice === null && device.client_build
-      ? strings.devices.clientBuild(device.client_version, shortBuild(device.client_build))
-      : strings.devices.clientVersion(device.client_version);
+  // The row never names the version an update would install: the confirmation
+  // and the device page do. "Update available" is the whole of what it says.
+  const noticeText =
+    notice === null
+      ? null
+      : notice.tone === 'available'
+        ? strings.devices.updateAvailable
+        : notice.text;
 
   const blocked = !device.online
     ? strings.devices.updateOffline
@@ -94,8 +96,11 @@ export function DeviceRow({
           </span>
         </div>
         <div className="device-client">
-          <span className="mono">{clientText}</span>
-          {notice ? <span className={cx('device-update', notice.tone)}>{notice.text}</span> : null}
+          {notice && noticeText ? (
+            <span className={cx('device-update', notice.tone)}>{noticeText}</span>
+          ) : (
+            <span className="mono">{device.client_version}</span>
+          )}
         </div>
       </div>
 
