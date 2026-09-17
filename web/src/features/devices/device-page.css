@@ -28,10 +28,26 @@
 }
 
 /* The machine's own facts, under the name: the hostname and the architecture
-   the row no longer carries, and the client build. */
+   the row no longer carries. No client version and no build (A36). */
 .device-page-head .hint {
   margin-top: 2px;
   word-break: break-word;
+}
+
+/* A36: what the update is doing, or what it did wrong and the way to try
+   again. Drawn only then, in the same words the row uses. */
+.device-page-update {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  margin-top: var(--sp-2);
+  font-size: var(--fs-13);
+  color: var(--ink-secondary);
+}
+
+.device-page-update.failed {
+  color: var(--danger);
 }
 
 .device-page-none {

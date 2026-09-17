@@ -121,10 +121,9 @@ export const en = {
     lastSeen: (rel: string) => `last seen ${rel}`,
     renameTitle: 'Rename device',
     renameLabel: 'Device name',
-    clientBuild: (version: string, build: string) => `client ${version} · ${build}`,
-    clientVersion: (version: string) => `client ${version}`,
-    // A36: a device updates itself, so the row says nothing until an update is
-    // running or has failed, and the only action left is trying a failure again.
+    // A36: a device updates itself, so nothing says which client it runs. An
+    // app speaks only while an update runs or has failed, and the only action
+    // left is trying a failure again.
     retryUpdate: 'Retry update',
     updating: 'Updating…',
     updateFailed: (message: string) => `Update failed · ${message}`,

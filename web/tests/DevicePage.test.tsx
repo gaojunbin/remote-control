@@ -10,6 +10,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { DevicePage } from '../src/features/devices/DevicePage';
+import { useAuth } from '../src/stores/auth';
 import { useDevices } from '../src/stores/devices';
 import { strings } from '../src/strings';
 import { rpc } from '../src/lib/gateway';
@@ -69,11 +70,17 @@ describe('the header and the agent list', () => {
     expect(screen.getByRole('heading')).toHaveTextContent(device.name);
     expect(screen.getByRole('img', { name: 'online' })).toBeInTheDocument();
     expect(screen.getByText(`${device.hostname} · ${device.platform} · ${device.arch}`)).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        strings.devices.clientBuild(device.client_version, device.client_build!.slice(0, 8)),
-      ),
-    ).toBeInTheDocument();
+    await waitFor(() => expect(rpc).toHaveBeenCalled());
+  });
+
+  // A36: a device keeps itself current, so no surface names its client.
+  it('names neither the client version nor its build', async () => {
+    renderPage('dev-mac');
+    const device = deviceNamed('dev-mac');
+
+    expect(screen.queryByText(new RegExp(device.client_version))).not.toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(device.client_build!.slice(0, 8)))).not.toBeInTheDocument();
+    expect(screen.queryByText(/client/i)).not.toBeInTheDocument();
     await waitFor(() => expect(rpc).toHaveBeenCalled());
   });
 
@@ -230,5 +237,94 @@ describe('the fresh windows stay on the page', () => {
 
   it('is what the mock device list already carries', () => {
     expect(deviceNamed('dev-mac').agents).toEqual(freshAgents('dev-mac').map(withoutLimits));
+  });
+});
+
+/**
+ * A36: the page says what the automatic update is doing and what it did wrong,
+ * and a failure is the only thing a person is asked to act on.
+ */
+describe('the update notice on the page', () => {
+  const CLIENT_BUILD = 'a'.repeat(64);
+  const config = {
+    public_origin: 'https://rc.example.com',
+    stt: { enabled: false, languages: ['auto'] },
+    push: { web_enabled: false, apns_enabled: false },
+    version: '1.4.6',
+    client: { version: '1.4.6', build: CLIENT_BUILD, url: '/dist/rc_client-latest.whl' },
+  };
+
+  const showDevice = (patch: Partial<Device>): void => {
+    useDevices.setState({
+      devices: devices.map((d) => (d.device_id === 'dev-mac' ? { ...d, ...patch } : d)),
+      loaded: true,
+      error: null,
+      updateErrors: {},
+    });
+  };
+
+  const retryButton = () => screen.getByRole('button', { name: strings.devices.retryUpdate });
+
+  beforeEach(() => {
+    useAuth.setState({ status: 'signed-in', config });
+  });
+
+  it('says nothing while nothing is happening', async () => {
+    renderPage('dev-mac');
+
+    expect(document.querySelector('.device-page-update')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: strings.devices.retryUpdate }),
+    ).not.toBeInTheDocument();
+    await waitFor(() => expect(rpc).toHaveBeenCalled());
+  });
+
+  it('says "Updating…" while the update runs, and offers nothing to press', async () => {
+    showDevice({ update_state: 'updating' });
+    renderPage('dev-mac');
+
+    expect(screen.getByText(strings.devices.updating)).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: strings.devices.retryUpdate }),
+    ).not.toBeInTheDocument();
+    await waitFor(() => expect(rpc).toHaveBeenCalled());
+  });
+
+  it('says why it failed and asks the device again on Retry', async () => {
+    showDevice({ update_state: 'failed', update_message: 'the device did not come back' });
+    renderPage('dev-mac');
+
+    expect(
+      screen.getByText(strings.devices.updateFailed('the device did not come back')),
+    ).toBeInTheDocument();
+    await userEvent.click(retryButton());
+
+    expect(screen.getByText(/Update mac-studio-office to 1\.4\.6\?/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: strings.devices.updateConfirm }));
+
+    await waitFor(() =>
+      expect(rpc).toHaveBeenCalledWith('device.update', {
+        device_id: 'dev-mac',
+        build: CLIENT_BUILD,
+      }),
+    );
+  });
+
+  it('disables Retry while the device is offline, and says why', async () => {
+    showDevice({ update_state: 'failed', update_message: 'no', online: false });
+    renderPage('dev-mac');
+
+    expect(retryButton()).toBeDisabled();
+    expect(retryButton()).toHaveAttribute('title', strings.devices.updateOffline);
+  });
+
+  it('disables Retry while the gateway serves no wheel, and says why', async () => {
+    useAuth.setState({ config: { ...config, client: undefined } });
+    showDevice({ update_state: 'failed', update_message: 'no' });
+    renderPage('dev-mac');
+
+    expect(retryButton()).toBeDisabled();
+    expect(retryButton()).toHaveAttribute('title', strings.devices.updateNoBuild);
+    await waitFor(() => expect(rpc).toHaveBeenCalled());
   });
 });

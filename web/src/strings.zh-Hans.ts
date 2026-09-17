@@ -115,8 +115,6 @@ export const zhHans: StringTable = {
     lastSeen: (rel: string) => `最后在线 ${rel}`,
     renameTitle: '重命名设备',
     renameLabel: '设备名称',
-    clientBuild: (version: string, build: string) => `客户端 ${version} · ${build}`,
-    clientVersion: (version: string) => `客户端 ${version}`,
     retryUpdate: '重试更新',
     updating: '更新中…',
     updateFailed: (message: string) => `更新失败 · ${message}`,
