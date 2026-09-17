@@ -160,6 +160,24 @@ devices ran into each other. The row now reads, top to bottom:
   hash and the versioned notice, as it keeps the hostname and the architecture.
 - The row menu is unchanged.
 
+### The session row
+
+A session's row said three things on one line — the agent, the status and the working directory —
+and the path, the longest of the three, was what got cut (owner's ruling, 2026-09-18). The row is
+now three lines, on both apps:
+
+- **The title, with the time at the trailing edge.** Unchanged.
+- **The agent at the leading edge, the status at the trailing edge**: the agent chip from §
+  "Agents", then the dot and its word — "running", "terminal · attached", "needs approval" — as
+  § "The status dot" colours them, and "Archived" before the status on a hand-archived row. A
+  trailing status is not a column: nothing lines up across rows but the edge the time already
+  sits on.
+- **The working directory alone**, after a folder glyph, the path in mono truncating from the head
+  so the folder it ends in is what survives. The glyph is lucide's `Folder` — a closed folder
+  from the front, its tab on the left, every corner rounded — drawn to the same rule as the
+  laptop before a device (§ "The device row"): a 1.5-unit stroke on the 24-unit grid, round caps
+  and joins, no fill, in the ink. The web uses lucide's; iOS draws the same path (`FolderGlyph`).
+
 ## Accounts
 
 **One gateway, many people, nothing shared.** Every person on a gateway has an account (protocol

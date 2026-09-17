@@ -1860,6 +1860,42 @@ on a phone or in a browser beyond the screenshots; the first web screenshot of t
 stray "·" before "Update available" from the old separator rule, which is what the CSS change fixed
 and the second screenshot confirmed.
 
+## 36. The session row is three lines (2026-09-18, 1.4.3)
+
+The owner's ruling, from the phone: the second line of a session's row carried the coding agent,
+the connection or running state and the working directory together, too much for one line, and
+the path was what got cut. The row is now three lines on both apps — title with the time at the
+trailing edge; the agent chip at the leading edge and the status at the trailing edge; the working
+directory alone after a folder glyph in the same style as the device row's laptop (black outline,
+no fill, round caps and joins). Ruled in `docs/DESIGN.md` § "The session row".
+
+iOS: `SessionRow` in `Screens/SessionsView.swift` restructured; new `Design/OutlineGlyph.swift`
+(the grid and stroke rule the laptop and the folder share) and `Design/FolderGlyph.swift`
+(`FolderShape`, lucide's `Folder` as six rounded corners walked with tangent arcs on the 24-unit
+grid; `FolderGlyph`, 14 pt scaled with the footnote, in the ink); `LaptopGlyph` now reads the shared
+rule. Web: `SessionRow.tsx` restructured into two `.session-line`s and a `.session-cwd`; the
+`StatusDot` moved off the title to the state word; lucide `Folder` at 14 px, stroke 1.5, in the
+ink; the path truncates from the head (`direction: rtl` plus a `<bdi>`); rows are `--row-h-three`
+(84 px) at every width and the phone-width rules that wrapped the state onto its own line are gone.
+No new strings.
+
+**Verified.** Web: two new tests in `tests/SessionsPage.test.tsx` — the second line starts with the
+agent chip and ends with the state holding the dot and carries no path; the third line is an
+unfilled `svg` folder with round caps and joins followed by the tilde path — 659 → 661 tests, tsc,
+lint and build clean; Playwright read the first three rows at 1280 and 400 px as
+`["<title><time>", "<agent><state>"]` plus the path, each row 84 px. iOS: RCUIVerify 459 → 467
+(the shared stroke's caps and joins, the folder's bounds on the grid (2, 3, 20, 17) and at twice
+the grid, the tab's rise, the level edges, the rounded corner); unit tests 365 and RCVerify 1357
+unchanged; three UI tests on simulator 32BBA636 — the sessions list and chat, the device row and
+the About version row — 3 passed, 0 failures, 52 s. Gateway 397 and client 1071 (+3 skipped) after
+the bump. Screenshots `web-round36-sessions-{1280,400}.png` and `ios-round36-sessions.png` in the
+session scratchpad. All four components 1.4.3, iOS build 10, tag v1.4.3.
+
+**Not verified.** The full iOS UI suite was not rerun; head truncation of a path longer than the
+row was not exercised on either app (the demo and mock paths fit); neither app was looked at on a
+phone or in a browser beyond the screenshots; the chat sidebar's compact rows are unchanged and
+were not looked at.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

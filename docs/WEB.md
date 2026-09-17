@@ -752,6 +752,21 @@ waits for output.
 block for Codex's read-only commands, a short turn for the rest, and nothing but the echo for
 Grok's `/context`, which renders in its own pager.
 
+## The session row
+
+`features/sessions/SessionRow.tsx` draws what `docs/DESIGN.md` § "The session row" rules: three
+lines, each a `.session-line` that puts one thing at the leading edge and one at the trailing edge.
+The first is the title and the relative time. The second is the agent chip and the status — the
+`StatusDot` moved off the title to sit with its word, "Archived" or the state label or "device
+offline" — so the line says two things, not three. The third, `.session-cwd`, is the working
+directory alone: a lucide `Folder` drawn to the same rule as the device row's laptop (ink, no fill,
+stroke 1.5, round caps and joins, 14 px), then the path in mono from `tildePath`. The path truncates
+from the head — `direction: rtl` on the span and a `<bdi>` around the text keep the characters in
+order while the ellipsis lands at the start — so the folder the path ends in is what survives a
+narrow row. Rows are `--row-h-three` tall at every width; the phone-width rules that used to wrap
+the status onto its own line are gone with the column they served. `tests/SessionsPage.test.tsx`
+holds the row to the three lines, the order on the second and the folder's outline.
+
 ## The device row
 
 `features/devices/DeviceRow.tsx` draws what `docs/DESIGN.md` § "The device row" rules. A lucide

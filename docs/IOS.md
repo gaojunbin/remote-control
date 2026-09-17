@@ -293,10 +293,16 @@ logo and the full name in the one quiet tint every agent shares; no agent has a 
 All on every launch and is never written to defaults. The device filter is a parameter of the
 same function, for the callers that narrow to one machine.
 
-A row is two lines: the title and the relative time on the first, then the agent chip, a dot, the
-status word and the working directory on the second. The path is the only part that gives way
-when the line is tight, and it truncates from the head so the folder survives. Nothing is
-right-aligned into a second column, because a column of statuses reads as a table.
+A row is three lines (`docs/DESIGN.md` § "The session row"): the title and the relative time on
+the first; the agent chip at the leading edge and the status — `StatusLabel`, dot and word, with
+"Archived ·" before it on a hand-archived row — at the trailing edge of the second; and the working
+directory alone on the third, after a `FolderGlyph` (`Design/FolderGlyph.swift`: lucide's `Folder`
+as a `FolderShape` of six rounded corners on `OutlineGlyph`'s 24-unit grid, stroked in the ink at
+1.5 units with round caps and joins, 14 pt scaled with the footnote). The path truncates from the
+head so the folder it ends in survives a tight row. `OutlineGlyph` (`Design/OutlineGlyph.swift`) is
+the one rule the folder and the device row's laptop share; `RCUIVerify` checks the folder's bounds
+on the grid and at twice the grid, the tab's rise, the rounded corner and the stroke's caps and
+joins.
 
 ## The status dot
 
