@@ -2885,7 +2885,8 @@ out of the Archive when the device's `session.updated` arrives.
 
 - the **latest** event for each block: `user_message`, `assistant_text` with `done: true`, `thinking`
   with `done: true`, `tool_call`, `approval`, `question`;
-- plus `turn_started`, `turn_completed`, `notice` and `error`;
+- plus `turn_started`, `turn_completed`, `notice`, `error` and `resume` (A35: what the device did
+  about a paused session is part of the record, so a reload and the gateway's backfill keep it);
 - plus the latest `todos` snapshot.
 
 It never returns streaming deltas, `status`, `meta` or `queue` events: those describe current state
@@ -3921,4 +3922,4 @@ time and a way to cancel; a person's own message cancels it too. New: `Preferenc
 `GET`/`PATCH /api/preferences`, `hello.preferences`, `preferences.updated`, the device frame
 `preferences`, `session.resume_set`, `session.resume_cancel`, the `resume` event, `LimitStop`,
 `SessionResume`, the `resume` trigger and source, and three push kinds. See 3.2, 3.7, 4.4, 5.2,
-5.9, 5.15, 6, 7, 7.2, 8, 9 and 10.
+5.9, 5.15, 6, 6.4, 7, 7.2, 8, 9 and 10.
