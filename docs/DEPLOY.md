@@ -236,11 +236,13 @@ docker compose build
 docker compose up -d
 ```
 
-Each of the five databases applies its own additive migrations when it is opened, so an existing
-`DATA_DIR` is brought up to the new schema in place and an upgrade needs no manual step. Signed-in
-apps stay signed in: login sessions are recorded in `auth.sqlite3` rather than in memory, so a
-restart or an image update no longer signs everyone out. Expired and revoked rows are pruned at
-startup, which is logged as `pruned expired login sessions`.
+Each of the six databases applies its own additive migrations when it is opened, so an existing
+`DATA_DIR` is brought up to the new schema in place and an upgrade needs no manual step. A release
+that adds a database — `preferences.sqlite3` in 1.4.0 — creates it on the first start and needs no
+manual step either, and brings no new environment variable with it. Signed-in apps stay signed in:
+login sessions are recorded in `auth.sqlite3` rather than in memory, so a restart or an image update
+no longer signs everyone out. Expired and revoked rows are pruned at startup, which is logged as
+`pruned expired login sessions`.
 
 **Updating the devices.** The gateway serves one client wheel at `/dist/rc_client-latest.whl` and
 reports it to the apps as `client` in `GET /api/config`: its version, its SHA-256 and its URL. Every
@@ -255,8 +257,8 @@ wheel has been built. The apps then offer no update, because there is no build t
 `docker compose build` produces always carries one.
 
 **Backing up.** Everything durable is in the `rc-data` volume: the accounts, login sessions, the
-device registry, the session index, push subscriptions, the token-signing secret and the VAPID
-private key.
+device registry, the session index, push subscriptions, the per-account preferences, the
+token-signing secret and the VAPID private key.
 
 ```sh
 docker run --rm -v remote-control_rc-data:/data -v "$PWD":/backup alpine \

@@ -487,12 +487,37 @@ instruction. `hello` and `GET /api/config` carry `polish.enabled`, which is what
 the setting or disable it with a note. Without the two variables everything about dictation is as
 it was.
 
+## Account preferences
+
+Some choices cannot live in an app. Whether a session the vendor's usage limit stopped resumes
+itself once the limit resets (amendment A35) is acted on by a device while no app is running, and
+it has to read the same in the browser and on the phone, so the gateway keeps it: one row per
+account in a sixth SQLite file, `preferences.sqlite3`, with one switch in it today,
+`resume_after_limit`, off until the person turns it on. An account with no row reads the defaults,
+so nothing is seeded, and a deleted account's row goes with its push registrations.
+
+`GET` and `PATCH /api/preferences` read and write the caller's own account and nothing else: no
+path here names a username, so there is nothing to scope wrongly. A `PATCH` that changes something
+is published at once — `preferences.updated` to every app socket of the account, the `preferences`
+frame to every device of it — and every device is told again right after `hello_ack`, so a daemon
+that was offline while the switch moved acts on the current value without asking for it. A `PATCH`
+that changes nothing announces nothing. `hello` on `/ws/app` carries the object too; a gateway
+older than A35 sends none, which is how an app knows to show the switch disabled.
+
+What a device does with a paused session is the device's own business (`docs/CLIENT.md`). The
+gateway forwards `session.resume_set` and `session.resume_cancel` like any other request, relays
+the `resume` events of §5.15 and the `limit` on a `turn_completed` untouched, and turns three of
+those events into notifications.
+
 ## Push
 
 The gateway watches for four things worth interrupting someone about: a session that needs approval,
-one that needs an answer, a completed turn, and an error. It sends Web Push through VAPID and APNs
-through an ES256 provider token, with a payload that names the device and the reason and nothing
-else:
+one that needs an answer, a completed turn, and an error. Three more come from A35, and they are not
+state changes — a session with a resume pending is idle like any other — so they are cued by the
+`resume` event itself: `limit_reached` on `scheduled`, `resumed` on `fired`, `resume_dropped` on
+`dropped`. A time that moved (`rescheduled`) and a resume a person ended (`cancelled`) are silent.
+It sends Web Push through VAPID and APNs through an ES256 provider token, with a payload that names
+the device and the reason and nothing else:
 
 ```json
 {"rc": {"v": 1, "kind": "needs_approval", "device_id": "…", "session_id": "…",
@@ -501,7 +526,9 @@ else:
 
 A notification fires on an observed *transition* between two states, and only when no app is
 actively watching that session. A session the gateway is seeing for the first time has no previous
-state, so a device reconnecting with a hundred sessions produces no notifications at all.
+state, so a device reconnecting with a hundred sessions produces no notifications at all. The three
+resume kinds follow the same "no app is watching" rule: the app that has the session open draws the
+notice above the transcript, and a push on top of it would say the same thing twice.
 
 Delivery is an outbound HTTP call to a browser vendor or to APNs, so it runs as a task rather than
 inside the frame handler that noticed the transition: awaiting it there would hold every later
@@ -527,17 +554,18 @@ sessions delivered to that person's phone.
 
 | Where | What |
 | --- | --- |
-| Gateway `DATA_DIR` | `auth.sqlite3` (issued login sessions), `devices.sqlite3` (devices, pairing codes — both hashed), `sessions.sqlite3` (the latest summary per session), `push.sqlite3` (Web Push subscriptions, APNs tokens, a delivery journal), `session_secret` and `vapid_private.pem`. The databases and both secrets are created at 0600 |
+| Gateway `DATA_DIR` | `auth.sqlite3` (issued login sessions), `devices.sqlite3` (devices, pairing codes — both hashed), `sessions.sqlite3` (the latest summary per session), `push.sqlite3` (Web Push subscriptions, APNs tokens, a delivery journal), `users.sqlite3` (the accounts and their hashed passwords), `preferences.sqlite3` (one row of switches per account, A35), `session_secret` and `vapid_private.pem`. The databases and both secrets are created at 0600 |
 | Gateway memory | Live connections, the per-session replay buffer, and a cache in front of the login-session store that also holds the event which closes a socket the moment its session is signed out |
 | Device `~/.rc-client` | `config.toml` at 0600 (gateway origin, device id, device token, name), `state/rc-client.sqlite3` (sessions, events, a key-value table, and request ids for `session.send` idempotency), `state/attachments/`, `state/channel.sock` and `state/claude-mcp.json` for the attachment, `bin/claude` when the shim is installed, `logs/` |
 | iOS | The bearer token in the Keychain, device-only and never synchronised; a session list and per-session draft cache in Application Support, versioned separately from the wire protocol |
 | Browser | The session cookie, plus whatever the service worker caches of the built app |
 
 Schema changes on the gateway are additive only: `CREATE TABLE IF NOT EXISTS` cannot add a column to
-a database that already exists, so each of the four stores declares the columns it has gained since
+a database that already exists, so each of the six stores declares the columns it has gained since
 its first release and applies the missing ones every time it opens the file. An existing `DATA_DIR`
-is migrated in place, which is what makes an image update over a live volume safe. Nothing is
-dropped or renamed.
+is migrated in place, which is what makes an image update over a live volume safe. A new store is
+the other additive move: `preferences.sqlite3` appears beside the rest on the first start after the
+upgrade, with no migration to run. Nothing is dropped or renamed.
 
 A login session is a row rather than a process-local entry, so a token issued before a restart is
 still valid afterwards: the first request that presents it misses the memory cache, finds the row,
