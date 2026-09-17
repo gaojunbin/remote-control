@@ -2296,6 +2296,23 @@
         }
       }
     },
+    "Error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出错"
+          }
+        }
+      }
+    },
     "Errored": {
       "extractionState": "manual",
       "localizations": {
@@ -2445,6 +2462,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "折叠"
+          }
+        }
+      }
+    },
+    "For you": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For you"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等你处理"
           }
         }
       }
@@ -3176,6 +3210,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "未继续"
+          }
+        }
+      }
+    },
+    "Not running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not running"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未运行"
           }
         }
       }
@@ -3923,7 +3974,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remote Control"
+            "value": "远程启动"
           }
         }
       }
@@ -5131,6 +5182,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "接管"
+          }
+        }
+      }
+    },
+    "Terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端"
           }
         }
       }
@@ -6763,6 +6831,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "开启后，你口述的内容和最近几条消息会发送给此网关配置的模型。关闭时不发送任何内容。"
+          }
+        }
+      }
+    },
+    "Working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Working"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行中"
           }
         }
       }

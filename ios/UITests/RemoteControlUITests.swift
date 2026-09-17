@@ -787,6 +787,40 @@ final class RemoteControlUITests: XCTestCase {
         }
     }
 
+    /// `docs/DESIGN.md` § "The session row says where it came from" and § "A
+    /// legend, once, and quiet": a row's word is where the session came from,
+    /// its state is the dot's colour alone, and one caption above the list says
+    /// what the colours mean — on this screen and on no other.
+    func testSessionRowsNameTheirOriginAndTheDotsAreExplainedOnce() {
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
+
+        let remote = app.buttons["session.demo-session-auth"]
+        XCTAssertTrue(remote.waitForExistence(timeout: 10), "a session this app started is listed")
+        XCTAssertTrue(remote.label.contains("Remote Control"),
+                      "and its row says where it came from — \(remote.label)")
+        XCTAssertFalse(remote.label.contains("running"),
+                       "rather than what it is doing, which the green dot already says")
+
+        let terminal = app.buttons["session.demo-session-vite"]
+        XCTAssertTrue(terminal.label.contains("Terminal"),
+                      "a session a terminal started says so — \(terminal.label)")
+        XCTAssertFalse(terminal.label.contains("needs approval"),
+                       "and leaves the waiting to the amber dot")
+
+        let legend = app.descendants(matching: .any).matching(identifier: "sessions.legend").firstMatch
+        XCTAssertTrue(legend.waitForExistence(timeout: 10),
+                      "the colours are explained above the list")
+        XCTAssertEqual(legend.label, "Working, For you, Not running, Error",
+                       "in four entries, read as one line")
+        attach(name: "31-origin-and-legend")
+
+        app.tabBars.buttons["Devices"].tap()
+        XCTAssertTrue(app.buttons["devices.add"].waitForExistence(timeout: 15), "the Devices screen is up")
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "sessions.legend").firstMatch.exists,
+                       "and carries no legend of its own, because nothing is explained twice")
+    }
+
     /// A machine's finished sessions sit in its own collapsed Archive, and a
     /// search reaches inside it without opening it by hand.
     func testDeviceArchiveOpensOnTapAndOnSearch() {
