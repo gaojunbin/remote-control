@@ -23,6 +23,7 @@ from ....sessions import titles
 from ..account import RATE_LIMITS
 from ..models import ModelCatalog, catalog_cache
 from . import approvals, terminals, threads
+from .children import ChildIndex
 from .repair import DaemonRepair
 from .rpc import DaemonClient
 from .session import CodexDaemonSession
@@ -97,6 +98,9 @@ class CodexDaemonService:
         # `updated_at` is the moment the apps last heard about the session,
         # which a title or a settings change moves for reasons of our own.
         self._used: dict[str, int] = {}
+        # Threads a session of ours spawned a subagent in. They are never
+        # sessions themselves (A18); their work is their parent's.
+        self._children = ChildIndex()
         self._attaching: set[str] = set()
         self._catalog = ModelCatalog()
         self._config = thread_config()
@@ -122,6 +126,10 @@ class CodexDaemonService:
     def knows(self, thread_id: str) -> bool:
         """Whether this thread is the daemon's, so the rollout mirror leaves it alone."""
         return thread_id in self._known
+
+    def child_parent(self, thread_id: str) -> str | None:
+        """The session a subagent's thread works for, when it is one of ours."""
+        return self._children.parent(thread_id)
 
     async def start(self, binary: str | None) -> bool:
         """Try the daemon once. False means the device stays on the fallback path."""
@@ -211,6 +219,18 @@ class CodexDaemonService:
                 await self._adopt_by_id(thread_id)
             await self._forget_deleted(page, live)
             await self.refresh_terminals()
+        await self._check_children()
+
+    async def _check_children(self) -> None:
+        """Let a turn end whose subagents have gone silent for good.
+
+        Outside the index lock: ending a turn drains the session's queue, which
+        starts the next turn and talks to the daemon on its own account.
+        """
+        for entry in list(self.hub.entries.values()):
+            runner = entry.runner
+            if isinstance(runner, CodexDaemonSession):
+                await runner.check_children()
 
     async def refresh_terminals(self) -> None:
         """Decide which threads a terminal is in, on the scan interval.
@@ -341,6 +361,8 @@ class CodexDaemonService:
         thread = result.get("thread") if isinstance(result.get("thread"), dict) else result
         if not isinstance(thread, dict) or threads.is_ephemeral(thread):
             return
+        if await self._adopt_child(thread):
+            return
         summary = threads.ThreadSummary.parse(thread)
         if summary is None:
             return
@@ -351,6 +373,23 @@ class CodexDaemonService:
             return
         self._known.add(summary.thread_id)
         await self._adopt(summary, loaded=True, terminal=spoke, spoke=spoke)
+
+    async def _adopt_child(self, thread: dict[str, Any]) -> bool:
+        """Take a thread one of our sessions spawned as that session's subagent.
+
+        A subagent is never a session whoever spawned it (A18), and it is not
+        somebody else's application either: it is work this device's own
+        session started, so the parent stays green until it is done.
+        """
+        parent_id = threads.parent_of(thread)
+        child_id = str(thread.get("id") or thread.get("sessionId") or "")
+        if not child_id or parent_id is None or parent_id not in self.hub.entries:
+            return False
+        self._children.remember(child_id, parent_id)
+        session = self._session(parent_id)
+        if session is not None:
+            await session.child_activity(child_id, True)
+        return True
 
     async def _adopt(
         self,
@@ -525,6 +564,10 @@ class CodexDaemonService:
         thread_id = str(params.get("threadId") or "")
         if not thread_id:
             return
+        parent_id = self._children.parent(thread_id)
+        if parent_id is not None:
+            await self._child_spoke(parent_id, thread_id, method, params)
+            return
         if method == "thread/closed":
             await self._thread_closed(thread_id)
             return
@@ -547,26 +590,62 @@ class CodexDaemonService:
         await session.notification(method, params)
 
     async def _retry_attach(self, thread_id: str) -> None:
-        """A loaded thread we have no runner for just spoke; take one now.
+        """A thread we have no runner for just spoke; take one now.
 
         A thread with no session at all is one that was empty when we met it,
-        and this is the moment it stops being empty.
+        and this is the moment it stops being empty. A thread we do hold is
+        alive because it spoke, whatever the archive still says: a session the
+        device archived and a terminal then resumed leaves the Archive on the
+        thread's first word, and the client that said it is not this one, so
+        the terminal holds the thread (A15, design § "A session that speaks is
+        alive"). Speaking is also proof the daemon has the thread loaded, which
+        the index may still be a scan behind on.
         """
-        if thread_id not in self._loaded:
-            return
         entry = self.hub.entries.get(thread_id)
         if entry is None:
+            if thread_id not in self._loaded:
+                return
             async with self._lock:
                 if thread_id not in self.hub.entries:
                     await self._adopt_by_id(thread_id, spoke=True)
             return
+        self._loaded.add(thread_id)
+        await entry.channel.revive()
         await self._attach(entry)
+        if isinstance(entry.runner, CodexDaemonSession):
+            entry.runner.claim_terminal()
         await self.publish_control(entry)
+
+    async def _child_spoke(
+        self, parent_id: str, child_id: str, method: str, params: dict[str, Any]
+    ) -> None:
+        """One of a session's subagents said something; only its parent shows it.
+
+        A subagent's thread is never a session (A18), so nothing of it reaches
+        the apps but the one fact the parent's row is made of: whether work the
+        session started is still running.
+        """
+        if method == "thread/closed":
+            self._children.forget(child_id)
+        session = self._session(parent_id)
+        if session is None:
+            return
+        if method == "turn/started" or method.startswith("item/"):
+            active = True
+        elif method in {"turn/completed", "thread/closed"}:
+            active = False
+        elif method == "thread/status/changed":
+            active = threads.is_active(params.get("status"))
+        else:
+            return
+        await session.child_activity(child_id, active)
 
     async def _thread_started(self, params: dict[str, Any]) -> None:
         """Another client opened a thread, which is the one it is now sitting in."""
         thread = params.get("thread")
         if not isinstance(thread, dict) or threads.is_ephemeral(thread):
+            return
+        if await self._adopt_child(thread):
             return
         summary = threads.ThreadSummary.parse(thread)
         if summary is None:

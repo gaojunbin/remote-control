@@ -13,6 +13,7 @@ import contextlib
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 from ....attachments import Attachment, describe, materialise, wire_attachments
@@ -27,6 +28,7 @@ from ..echoes import Echo, EchoLog
 from ..models import ModelCatalog, tier_id
 from ..reports import ThreadFacts
 from ..translate import CodexTranslator, item_type, normalise, text_of
+from .children import ChildWatch, child_states
 from .dialogs import DialogDesk
 from .rpc import DaemonClient
 
@@ -43,6 +45,19 @@ TURN_BOUNDARIES = frozenset({"turn/started", "turn/completed", "thread/status/ch
 
 ControlCallback = Callable[[], Awaitable[None]]
 TurnEndCallback = Callable[[], Awaitable[None]]
+
+
+@dataclass(slots=True)
+class HeldTurn:
+    """A parent turn that ended while the subagents it started were still working.
+
+    Working means all of it: the turn is not over, so none of what its end
+    would carry is published until the last child has finished.
+    """
+
+    stop_reason: str
+    usage: dict[str, Any] = field(default_factory=dict)
+    limit: Any = None
 
 
 class CodexDaemonSession:
@@ -86,6 +101,10 @@ class CodexDaemonSession:
         self._turn_id: str | None = None
         self._turn_started_at = 0
         self._interrupting = False
+        # The subagents this thread spawned, and the completion its own turn
+        # reported while they were still working (round 37).
+        self._children = ChildWatch()
+        self._held: HeldTurn | None = None
         self._turn_epoch = 0
         self._turn_done = asyncio.Event()
         self._turn_done.set()
@@ -131,7 +150,7 @@ class CodexDaemonSession:
     @property
     def local_turn(self) -> bool:
         """Whether the turn running right now is one this device started."""
-        return self._turn_id is not None and self._local_turn
+        return self._local_turn and self.busy
 
     @property
     def created_here(self) -> bool:
@@ -139,7 +158,8 @@ class CodexDaemonSession:
 
     @property
     def busy(self) -> bool:
-        return self._turn_id is not None
+        """Whether this session is working: its own turn, or a subagent's."""
+        return self._turn_id is not None or self._held is not None
 
     @property
     def supports_steer(self) -> bool:
@@ -364,6 +384,7 @@ class CodexDaemonSession:
             if isinstance(item, dict):
                 stamp = params.get("completedAtMs" if completed else "startedAtMs")
                 await self._publish_item(item, completed, stamp)
+                await self._note_children(item, completed)
             return
         if method == "thread/settings/updated":
             await self._settings_updated(params)
@@ -381,6 +402,10 @@ class CodexDaemonSession:
             return
         self._translator.turn_id = turn_id
         self._turn_id = turn_id
+        if self._held is not None:
+            # Subagents are holding the turn open, so whatever the parent does
+            # next belongs to it: one turn, from the prompt to the last child.
+            return
         self._turn_started_at = now_ms()
         self._turn_done.clear()
         await self.channel.begin_turn("terminal" if not self._echoes else self._trigger)
@@ -392,25 +417,74 @@ class CodexDaemonSession:
                 completion = dict(emit.fields)
                 continue
             await self._apply(emit)
-        duration = int(completion.get("duration_ms") or 0) or max(
-            0, now_ms() - self._turn_started_at
-        )
         reported = str(completion.get("stop_reason") or "completed")
         stop_reason = "interrupted" if self._interrupting else reported
         self._interrupting = False
-        await self._publish_unread(stop_reason)
         self._turn_id = None
+        usage = dict(completion.get("usage") or self._translator.usage)
+        held = self._held
+        if stop_reason != "interrupted" and self._children.working:
+            # Working means all of it: the agent is done and its subagents are
+            # not, so nothing of the turn's end is published yet.
+            self._held = HeldTurn(stop_reason, usage, completion.get("limit"))
+            log.info("a codex turn waits for its subagents", agents=self._children.count)
+            return
+        reported_ms = int(completion.get("duration_ms") or 0)
+        duration = self._elapsed() if held is not None else reported_ms or self._elapsed()
+        await self._settle_turn(stop_reason, usage, completion.get("limit"), duration)
+
+    def _elapsed(self) -> int:
+        """How long the whole turn has taken, subagents included."""
+        return max(0, now_ms() - self._turn_started_at)
+
+    async def _settle_turn(
+        self, stop_reason: str, usage: dict[str, Any], limit: Any, duration: int
+    ) -> None:
+        """End the turn for good: everything this session started has finished."""
+        await self._publish_unread(stop_reason)
+        self._held = None
+        self._children.forget()
         self._local_turn = False
         self._trigger = "remote"
         self._turn_epoch += 1
         self._turn_done.set()
         self._last_output_flush.clear()
-        usage = dict(completion.get("usage") or self._translator.usage)
-        limit = await self._limit_windows(completion.get("limit"))
-        await self.channel.end_turn(stop_reason, duration, usage or None, limit=limit)
+        windows = await self._limit_windows(limit)
+        await self.channel.end_turn(stop_reason, duration, usage or None, limit=windows)
         if self._on_turn_end is not None:
             await self._on_turn_end()
         await self._control_changed()
+
+    # -------------------------------------------------------------- subagents
+
+    async def child_activity(self, child_id: str, active: bool) -> None:
+        """A thread this session spawned started or finished its work."""
+        if not child_id:
+            return
+        if self._children.note(child_id, active):
+            await self._release()
+
+    async def check_children(self) -> None:
+        """Let go of subagents that have gone silent, on the scan interval."""
+        if self._held is not None and not self._children.working:
+            await self._release()
+
+    async def _release(self) -> None:
+        """End the turn the subagents were holding open, now that they are done."""
+        held = self._held
+        if held is None or self._turn_id is not None:
+            return
+        await self._settle_turn(held.stop_reason, held.usage, held.limit, self._elapsed())
+
+    async def _note_children(self, raw: dict[str, Any], completed: bool) -> None:
+        """Read one live item for what it says about this thread's subagents.
+
+        The daemon may never send us a child's own notifications, but the
+        parent's timeline names them: this is where a session learns that work
+        it started is still running.
+        """
+        for child_id, active in child_states(normalise(raw), completed).items():
+            await self.child_activity(child_id, active)
 
     async def _limit_windows(self, limit: Any) -> LimitStop | None:
         """Put the window that ran out on a usage-limit stop (amendment A35).
@@ -451,6 +525,10 @@ class CodexDaemonSession:
         active = isinstance(status, dict) and status.get("type") == "active"
         if active and self._turn_id is None:
             self._turn_id = f"unknown:{uuid.uuid4()}"
+            if self._held is not None:
+                # The subagents have kept this turn open; the thread going
+                # active again is that same turn carrying on.
+                return
             self._local_turn = False
             self._turn_started_at = now_ms()
             self._turn_done.clear()
@@ -665,8 +743,10 @@ class CodexDaemonSession:
     async def interrupt(self) -> bool:
         thread_id = self._thread_id
         turn_id = self._turn_id
-        if thread_id is None or turn_id is None:
+        if thread_id is None:
             return False
+        if turn_id is None:
+            return await self._interrupt_held()
         self._interrupting = True
         await self.channel.set_state("running", "interrupting")
         self._dialogs.deny_all()
@@ -679,6 +759,22 @@ class CodexDaemonSession:
                 log.warning("codex interrupt was rejected; waiting for the turn to settle")
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._turn_done.wait(), timeout=DRAIN_TIMEOUT)
+        return True
+
+    async def _interrupt_held(self) -> bool:
+        """Stop a turn its subagents were holding open.
+
+        The parent's own turn is already over, so there is nothing on this
+        thread for `turn/interrupt` to stop; the subagents run in threads of
+        their own that the person never sees. Ending the turn is what the stop
+        button means here, and the children are let go with it.
+        """
+        held = self._held
+        if held is None:
+            return False
+        await self.channel.set_state("running", "interrupting")
+        self._dialogs.deny_all()
+        await self._settle_turn("interrupted", held.usage, held.limit, self._elapsed())
         return True
 
     # -------------------------------------------------------------- commands
