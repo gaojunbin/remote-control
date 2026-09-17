@@ -112,6 +112,9 @@ def build_state(
         state.devices,
         on_session_transition=state.push.on_session_transition,
         on_session_resume=state.push.on_session_resume,
+        # A36: the hub asks every device for the wheel this gateway serves, so it has to be able
+        # to read which one that is at any moment, not only at startup.
+        served_build=state.served_build,
     )
     state.transcriber = transcriber if transcriber is not None else _build_transcriber(config)
     state.polisher = polisher if polisher is not None else _build_polisher(config)

@@ -103,6 +103,11 @@ class GatewayState:
     def served_client(self) -> ServedClient | None:
         return served_client(self.config.client_dist_dir)
 
+    def served_build(self) -> str | None:
+        """The build every device is brought to (A36); None where no wheel has been built."""
+        served = self.served_client()
+        return None if served is None else served.build
+
     def config_view(self) -> dict[str, Any]:
         view: dict[str, Any] = {
             "public_origin": self.config.public_origin,

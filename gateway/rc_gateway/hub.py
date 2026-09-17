@@ -19,6 +19,12 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
+from .auto_update import (
+    BUSY_STATES,
+    UPDATE_RETRY_SECONDS,
+    AutoUpdate,
+    DeviceUpdates,
+)
 from .budget import ByteBudget
 from .connections import AppConnection, DeviceConnection, SlowClientError, encode
 from .devices import UPDATE_FAILED, UPDATE_RUNNING, DeviceStore, normalize_pairing_code
@@ -178,6 +184,18 @@ class _Pending:
 
 
 @dataclass
+class _GatewayRequest:
+    """A request the gateway made on its own account (A9), waiting for the device's reply.
+
+    The frame type travels with it so the reply is acted on where every other reply is — on the
+    device's read loop, in frame order — rather than in whatever task happens to be waiting.
+    """
+
+    kind: str
+    waiter: asyncio.Future[Frame]
+
+
+@dataclass
 class _Grace:
     """A device whose link dropped, still reported online while it might come back (A13)."""
 
@@ -208,6 +226,8 @@ class Hub:
         request_timeout: float = REQUEST_TIMEOUT_SECONDS,
         offline_grace: float = OFFLINE_GRACE_SECONDS,
         update_timeout: float = UPDATE_TIMEOUT_SECONDS,
+        update_retry: float = UPDATE_RETRY_SECONDS,
+        served_build: Callable[[], str | None] | None = None,
     ) -> None:
         self.index = index
         self.device_store = device_store
@@ -224,7 +244,7 @@ class Hub:
         self._device_owners: dict[str, str] = {}
         self._queues: dict[str, Frame] = {}
         self._pending: dict[tuple[str, str], _Pending] = {}
-        self._gateway_pending: dict[str, asyncio.Future[Frame]] = {}
+        self._gateway_pending: dict[str, _GatewayRequest] = {}
         self._backfills: set[asyncio.Task[None]] = set()
         self._notifications: set[asyncio.Task[None]] = set()
         self._grace: dict[str, _Grace] = {}
@@ -234,6 +254,18 @@ class Hub:
         self._lock = asyncio.Lock()
         self._send_lock = asyncio.Lock()
         self._heartbeat: asyncio.Task[None] | None = None
+        # A36. A gateway with no wheel to serve has nothing to bring a device to, so a hub built
+        # without one simply never asks.
+        self._auto_update = AutoUpdate(
+            DeviceUpdates(
+                ask=self._ask_device,
+                connection=self._device_connection,
+                record=self.device_store.get,
+                busy=self._device_is_busy,
+            ),
+            served_build=served_build if served_build is not None else lambda: None,
+            retry_after=update_retry,
+        )
 
     # ---- lifecycle ----
 
@@ -254,9 +286,10 @@ class Hub:
             self._end_grace(device_id)
         for device_id in list(self._updates):
             self._cancel_update_timer(device_id)
+        self._auto_update.stop()
         await self._drain_notifications()
         for waiting in self._gateway_pending.values():
-            waiting.cancel()
+            waiting.waiter.cancel()
         self._gateway_pending.clear()
         for pending in list(self._pending.values()):
             if pending.timer is not None:
@@ -315,6 +348,8 @@ class Hub:
         log.info("device connected", device_id=connection.device_id, within_grace=reconnected)
 
     async def detach_device(self, connection: DeviceConnection) -> None:
+        # A36: an attempt belongs to the connection that earned it; the next hello starts over.
+        self._auto_update.forget(connection)
         async with self._lock:
             if self._devices.get(connection.device_id) is not connection:
                 return
@@ -421,9 +456,8 @@ class Hub:
         # A22: the device that comes back is the outcome of any update it was asked for, so the
         # build it announces lands before the apps are told anything about it.
         self._cancel_update_timer(connection.device_id)
-        await self.device_store.record_build(
-            connection.device_id, text_field(frame, "client_build") or None
-        )
+        client_build = text_field(frame, "client_build") or None
+        await self.device_store.record_build(connection.device_id, client_build)
         await self.device_store.touch(connection.device_id)
         sessions = frame.get("sessions")
         if isinstance(sessions, list):
@@ -431,6 +465,8 @@ class Hub:
                 if isinstance(summary, dict):
                     await self._store_session(connection.device_id, summary)
         await self._announce_device(connection)
+        # A36: a device behind the served wheel is brought to it without anyone pressing Update.
+        self._auto_update.on_hello(connection, client_build)
         self._start_backfill(connection, sessions if isinstance(sessions, list) else [])
         await self._advance_pairing(connection.device_id, "online")
         if has_available_agent(connection.agents):
@@ -515,9 +551,10 @@ class Hub:
 
     async def _ask_device(self, connection: DeviceConnection, request: Frame) -> Frame | None:
         """Send a gateway-originated request and wait for the device's reply."""
+        kind = frame_type(request)
         identifier = uuid.uuid4().hex
         waiter: asyncio.Future[Frame] = asyncio.get_running_loop().create_future()
-        self._gateway_pending[identifier] = waiter
+        self._gateway_pending[identifier] = _GatewayRequest(kind=kind, waiter=waiter)
         frame = {
             **request,
             "id": identifier,
@@ -529,10 +566,12 @@ class Hub:
                 await connection.send(frame)
             return await asyncio.wait_for(waiter, timeout=self.request_timeout)
         except (SlowClientError, ConnectionError):
-            log.warning("backfill request could not be sent", device_id=connection.device_id)
+            log.warning(
+                "gateway request could not be sent", device_id=connection.device_id, kind=kind
+            )
             return None
         except (TimeoutError, asyncio.CancelledError):
-            log.warning("backfill request timed out", device_id=connection.device_id)
+            log.warning("gateway request timed out", device_id=connection.device_id, kind=kind)
             return None
         finally:
             self._gateway_pending.pop(identifier, None)
@@ -569,17 +608,23 @@ class Hub:
                 connection.device_id, text_field(frame, "message") or "the update did not complete"
             )
 
-    # ---- client updates (A22) ----
+    # ---- client updates (A22, A36) ----
 
     async def _begin_update(self, device_id: str) -> None:
-        """The device accepted ``device.update``: it is away until it returns, or until it fails."""
+        """The device accepted ``device.update``: it is away until it returns, or until it fails.
+
+        Whoever asked — the gateway itself or an app's Retry — an update that starts clears the
+        build remembered from the last one that failed, so a wheel is worth trying again (A36).
+        """
         await self.device_store.set_update(device_id, UPDATE_RUNNING)
         await self._announce_stored_device(device_id)
         self._arm_update_timer(device_id)
 
     async def _fail_update(self, device_id: str, message: str) -> None:
         self._cancel_update_timer(device_id)
-        await self.device_store.set_update(device_id, UPDATE_FAILED, message)
+        await self.device_store.set_update(
+            device_id, UPDATE_FAILED, message, failed_build=self._auto_update.served_build()
+        )
         await self._announce_stored_device(device_id)
 
     def _arm_update_timer(self, device_id: str) -> None:
@@ -601,8 +646,25 @@ class Hub:
         if record is None or record.update_state != UPDATE_RUNNING:
             return
         log.warning("client update did not complete", device_id=device_id)
-        await self.device_store.set_update(device_id, UPDATE_FAILED, UPDATE_TIMEOUT_MESSAGE)
+        await self.device_store.set_update(
+            device_id,
+            UPDATE_FAILED,
+            UPDATE_TIMEOUT_MESSAGE,
+            failed_build=self._auto_update.served_build(),
+        )
         await self._announce_stored_device(device_id)
+
+    def _device_connection(self, device_id: str) -> DeviceConnection | None:
+        return self._devices.get(device_id)
+
+    async def _device_is_busy(self, device_id: str) -> bool:
+        """Whether a session on this device is mid-turn, counted as the device counts them (A22).
+
+        Read only while an automatic update is parked waiting for the machine to go quiet, so the
+        index lookup is nowhere near the path a session event takes.
+        """
+        sessions = await self.index.list_sessions(device_id=device_id)
+        return any(text_field(item, "state") in BUSY_STATES for item in sessions)
 
     # ---- app side ----
 
@@ -913,8 +975,15 @@ class Hub:
             return
         if target == GATEWAY_ORIGIN_ID:
             waiting = self._gateway_pending.pop(identifier, None)
-            if waiting is not None and not waiting.done():
-                waiting.set_result(frame)
+            if waiting is None:
+                return
+            # The gateway's own `device.update` moves the device exactly as an app's does (A36),
+            # and it does so here so that an `update.failed` arriving right behind the acceptance
+            # is applied after it, not before.
+            if waiting.kind == DEVICE_UPDATE and frame.get("ok") is True:
+                await self._begin_update(device.device_id)
+            if not waiting.waiter.done():
+                waiting.waiter.set_result(frame)
             return
         key = (target, identifier)
         pending = self._pending.get(key)
@@ -1144,6 +1213,8 @@ class Hub:
             return
         owner = await self.device_owner(device_id)
         await self.broadcast_user(owner, {"type": "session.updated", "session": indexed.summary})
+        # A36: an automatic update a busy device refused is asked again the moment it goes quiet.
+        await self._auto_update.on_session_change(device_id)
         # A session the gateway has never seen has no transition to report: an index that was
         # just created (or a device reconnecting after a wipe) must not produce a push storm.
         if self._on_session_transition is None or previous is None:
@@ -1301,6 +1372,7 @@ class Hub:
         await connection.stop(code=CLOSE_SLOW_CLIENT, reason="slow client")
 
     async def _drop_device(self, connection: DeviceConnection) -> None:
+        self._auto_update.forget(connection)
         async with self._lock:
             if self._devices.get(connection.device_id) is connection:
                 del self._devices[connection.device_id]

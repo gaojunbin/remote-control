@@ -48,9 +48,7 @@ def test_config_omits_the_client_without_a_wheel(client: TestClient, auth: dict[
     assert body["version"]
 
 
-def test_hello_stores_the_build_and_clears_a_failed_update(
-    client: TestClient, auth: dict[str, str]
-) -> None:
+def test_hello_stores_the_build_it_reports(client: TestClient, auth: dict[str, str]) -> None:
     enrolled = enroll_device(client, auth)
     build = "a" * 64
     headers = {"Authorization": f"Bearer {enrolled['device_token']}"}
@@ -148,12 +146,16 @@ async def test_a_hello_cancels_the_timer(tmp_path: Path) -> None:
 def test_the_whole_update_path_runs_over_the_sockets(
     tmp_path: Path, client: TestClient, auth: dict[str, str]
 ) -> None:
-    """The app asks, the device accepts, and the row says `updating` until the device comes back."""
+    """The app asks, the device accepts, and the row says `updating` until the device comes back.
+
+    This is the request an app still sends under A36, as Retry. The device says hello already on
+    the served build so that nothing but the app asks it to update.
+    """
     build = write_wheel(tmp_path, version="0.2.0", body=b"the new wheel")
     enrolled = enroll_device(client, auth)
     headers = {"Authorization": f"Bearer {enrolled['device_token']}"}
     with client.websocket_connect("/ws/device", headers=headers) as device:
-        device.send_json(device_hello(client_build="d" * 64))
+        device.send_json(device_hello(client_build=build))
         device.receive_json()
         with client.websocket_connect("/ws/app", headers=auth) as app:
             drain_until(app, "hello")
@@ -171,7 +173,7 @@ def test_the_whole_update_path_runs_over_the_sockets(
             device.send_json(
                 {
                     "type": "reply",
-                    "id": "e2e-1",
+                    "id": forwarded["id"],
                     "from": forwarded["from"],
                     "ok": True,
                     "result": {"accepted": True, "from": "d" * 64},
