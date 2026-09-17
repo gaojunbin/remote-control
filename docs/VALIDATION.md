@@ -1718,6 +1718,81 @@ on a phone or in a browser this round; the demo's session list in the simulator 
 colours in the screenshot the iOS UI test attaches. Full iOS UI suite: 63 tests, 4 skipped, 0 failures, 1 361 s, with the simulator English and the Mac's load back under ten. All four
 components 1.3.4 (iOS build 6), tag v1.3.4.
 
+## 33. A session the usage limit stopped resumes itself; the device row says less (2026-09-17, 1.4.0)
+
+The owner asked for a session Claude Code or Codex stopped at the five-hour or weekly window to
+continue by itself once the window resets: one account-wide switch in Settings, off by default;
+detection on the device; a resume scheduled from the vendor's reset time; one plain English prompt
+that also tells the agent to let its subagents continue; the pending resume visible in its session
+with a way to change the time and a way to cancel; a terminal closed before the time treated as
+"done with this one" (dropped, and pushed); pushes when paused, resumed and dropped; Grok Build and
+pi left with the hook only. Frozen as amendment **A35** (`protocol/`, ed84bb3 and ee21b6a for the
+history rule) and `docs/DESIGN.md` § "Paused by the usage limit" (c68246f), then built in parallel
+by four owners; a second pair, in git worktrees off the same base, simplified the device row
+(`docs/DESIGN.md` § "The device row", 5542cb9) and was merged before the round closed.
+
+**What the evidence was.** Claude Code writes a limit stop into the session's transcript as an
+assistant row with `isApiErrorMessage: true`, `apiErrorStatus: 429`, `error: "rate_limit"` and
+`quotaLimits {rateLimitType: "five_hour", resetsAt: <Unix seconds>}` (`message.model` is
+`<synthetic>`, `stop_reason` `stop_sequence`); 91 such rows sit in this Mac's own history, and one
+of them, identifiers shortened, is the fixture the device tests replay. The SDK's `ResultMessage`
+(claude-agent-sdk 0.2.152) carries the same status as `api_error_status`. Before this round the
+device read that row as a completed turn and published the vendor's sentence as the agent's text.
+Codex: the installed standalone build's app-server `TurnError` carries `codexErrorInfo`, serialised
+`usageLimitExceeded` (the core enum spells it `usage_limit_exceeded`; the reader takes both), and
+`account/rateLimits/read` gives the windows' `resets_at`. The weekly `rateLimitType` value was not
+observed; the reader maps `seven_day` and leaves the window unnamed otherwise.
+
+**Gateway** (`21bd14e`): `preference_store.py` in its own `preferences.sqlite3`, `GET`/`PATCH
+/api/preferences` for the caller only, `hello.preferences`, the `preferences` frame to devices
+after `hello_ack` and on change, `preferences.updated` to the account's app sockets, the two resume
+requests forwarded by session, the `resume` kind and `turn_completed.limit` passing untouched, and
+pushes `limit_reached` / `resumed` / `resume_dropped` on `scheduled` / `fired` / `dropped` under the
+existing "not while an app watches the session" rule. Tests 366 → 397; two timing flakes under a
+load average above 70 passed alone and on the next clean runs. Also fixed this round, before A35:
+`state.VERSION` and `__version__` had stayed at 1.3.0 under tag v1.3.4 (`hello` and `/api/config`
+reported it); `state.VERSION` now reads the package version and the closing checklist names the
+file (ac30672, 2e96cfe).
+
+**Client** (`da574ea`): `sessions/limits.py` reads a limit stop from each agent's own signal and
+nothing else; `sessions/resume.py` keeps pending resumes in a new `resumes` registry table, checks
+every 30 s and once at start, fires a minute after the reset with the fixed sentence as
+`user_message {source: "resume"}` under `trigger: "resume"`, cancels when the session is running
+again or the person sent first, drops when the terminal that owned a `shared` session is gone,
+reschedules up to three times, and publishes every step as a `resume` event and a summary
+(`Session.resume`, null when none). Tests 1021 → 1071 (+3 skipped); one Codex-daemon timing test
+failed once under load and passed alone and on the full rerun.
+
+**Web** (`f533424`, row `7c2e92e`): `stores/preferences.ts`, the Sessions group in Settings (disabled
+with a note on an older gateway), the amber notice with Change (`datetime-local`, a minute to eight
+days) and Cancel, the timeline rows, the captioned resume message, the service worker's three
+kinds, the mock's paused session. Tests 590 → 652, and 658 with the device row; at the default 5 s
+per-test timeout 12 tests timed out under load and all passed at 60 s with two workers.
+
+**iOS** (`46b770d`, row `e27008b`): `Resume.swift`, `Preferences.swift`, `PreferencesStore`,
+`ResumeText` (every sentence in the viewer's clock), `ResumeNotice` through a second action on
+`NoticeBanner`, `SessionPreferences`, the timeline rows and caption, the foreground banner for
+scheduled / fired / dropped, a demo paused session, 31 zh-Hans strings. RCVerify 1293 → 1357,
+RCUIVerify 367 → 418 (447 with the device row), unit tests 342 → 361 (365), two new UI tests plus
+one for the device row; version 1.4.0, build 7.
+
+**The device row** on both apps: one computer glyph leads every row, the name is said once, the
+status line reads dot · online · macOS, hostname and architecture moved to the device page, agents
+are logos alone with the agent's name as their accessible label. Screenshots
+`ios-round33b-devices.png`, `web-round33b-devices-{1280,400}.png`, and for the resume
+`ios-round33-resume-{banner,settings}.png`, `web-round33-resume-{banner,settings}-{1280,400}.png`
+in the session scratchpad.
+
+**Not verified.** No live limit stop was reproduced against a real agent: a five-hour window cannot
+be exhausted on demand, so the Claude path is verified on a real transcript row replayed through
+the tailer and the SDK path on a faked result, and the Codex path on the daemon's schema rather than
+an observed turn. Push delivery for the three new kinds was not exercised against APNs or a browser.
+Neither app was checked by eye on a phone or in a browser beyond the screenshots the tests took.
+The gateway's "not while an app watches" rule for the resume pushes is a judgement the contract
+does not state. Full iOS UI suite on the merged tree: 66 tests, 4 skipped, 0 failures, 1 308 s, with the
+simulator English and the Mac's load under twenty. All four components 1.4.0 (iOS build 7), tag v1.4.0. The round itself met its subject: four of the six subagents hit the five-hour limit
+at 05:45 and were resumed by hand after 08:50, which is the case A35 automates.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
