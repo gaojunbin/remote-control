@@ -3312,8 +3312,9 @@ on every change, and pushes (3.7) `limit_reached` on `resume {status: "scheduled
     client version or an "Update available" on the device row, and never offers Update while
     nothing is wrong. The row says "Updating…" while `update_state` is `updating` and "Update
     failed · <message>" while it is `failed`, and only then offers **Retry update**, which sends
-    `device.update` with `config.client.build` exactly as A22's Update did. The device's own page
-    may still state the client version among its facts.
+    `device.update` with `config.client.build` exactly as A22's Update did. Neither the row nor
+    the device's own page states the client version or its build: a person is never asked to know
+    it.
 
 ## 9. Conformance checklist
 
@@ -3497,9 +3498,10 @@ on every change, and pushes (3.7) `limit_reached` on `resume {status: "scheduled
       the accounts screen only to `admin` (A24).
 - [ ] Shows `model`, `permission_mode` and `effort` on a terminal-held session as values it cannot
       change, by label when `AgentInfo` lists the id and by the id otherwise (A17).
-- [ ] Offers Rename and Revoke on every device row, shows no client version and no "Update
-      available" there, reads "Updating…" and "Update failed · <message>" from `update_state`, and
-      offers **Retry update** only while it is `failed` (A22, A36).
+- [ ] Offers Rename and Revoke on every device row, shows no client version or build on the row
+      or the device page and no "Update available", reads "Updating…" and "Update failed ·
+      <message>" from `update_state`, and offers **Retry update** only while it is `failed`
+      (A22, A36).
 - [ ] Offers `speeds` as one control that cycles standard → each tier → standard, drawn only when
       the list is non-empty, and shows a terminal-held session's `speed` as a value it cannot change
       (A21).
@@ -3946,6 +3948,7 @@ does it: when a device's `hello` carries a `client_build` that is not the served
 sends `device.update {build}` on its own account (`from: "gateway"`), retries while the device is
 busy with a running session, gives up on `update.failed` or a five-minute silence and leaves the
 failure for a person, and tries again by itself only when the served build changes. Apps drop the
-client version and "Update available" from the device row and offer **Retry update** only on a
-failed device; "Updating…" and "Update failed · <message>" stay. Nothing changes on the wire: the
+client version and its build from the device row and the device page alike, drop "Update
+available", and offer **Retry update** only on a failed device; "Updating…" and "Update failed ·
+<message>" stay. Nothing changes on the wire: the
 request, its replies and `Device.update_state` are A22's. See 3.2, 4.3, 6.3, 7, 8 and 9.
