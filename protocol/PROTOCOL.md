@@ -290,7 +290,8 @@ Passwords are stored hashed and never returned. `LoginRequest.username` is requi
 `user` is the `User` object of 4.10: the account the token belongs to and its `role`.
 
 `client` names the wheel the gateway serves: its `version`, its `build` (the SHA-256 of the file)
-and its `url`; a device whose `client_build` differs can be brought to it with `device.update` (A22).
+and its `url`; a device whose `client_build` differs is brought to it with `device.update` — by the
+gateway itself, as soon as it can (A36), or by an app retrying after a failure (A22).
 
 `fixtures/http/config.response.json`
 
@@ -650,7 +651,7 @@ Schema: `schema/objects.json`. These objects appear in HTTP bodies and in frames
 | `arch` | `arm64` \| `x86_64` | yes | |
 | `client_version` | string | yes | `rc-client` version |
 | `client_build` | string \| null | no | SHA-256 of the wheel the client was installed from; null when unknown (A22) |
-| `update_state` | `idle` \| `updating` \| `failed` | no | An app-requested update in flight or failed; absent means idle (A22) |
+| `update_state` | `idle` \| `updating` \| `failed` | no | An update the gateway (A36) or an app (A22) asked for, in flight or failed; absent means idle |
 | `update_message` | string \| null | no | Why the last update failed (A22) |
 | `online` | boolean | yes | True while the device socket is live |
 | `last_seen` | timestamp | yes | |
@@ -2446,7 +2447,7 @@ The gateway forwards these to the owning device and returns the device's reply.
 | `device.dirs` | `device_id`, `path?` | `{path, parent, entries, recent}` |
 | `device.git` | `device_id`, `path` | `{is_repo, branch?, dirty?, ahead?, behind?}` |
 | `device.agents` | `device_id` | `{agents}` — the agents as `hello` reports them, with `accounts[].limits` read fresh for this reply (A33) |
-| `device.update` | `device_id`, `build` | `{accepted: true, from}` — the device fetches the gateway's wheel, refuses it unless its SHA-256 is `build`, installs it, restarts its service and reconnects with the new `client_build` (A22). `conflict` while a session it drives is running or when it already runs `build`; `unsupported` when the client cannot update itself (installed from source). |
+| `device.update` | `device_id`, `build` | `{accepted: true, from}` — the device fetches the gateway's wheel, refuses it unless its SHA-256 is `build`, installs it, restarts its service and reconnects with the new `client_build` (A22). `conflict` while a session it drives is running or when it already runs `build`; `unsupported` when the client cannot update itself (installed from source). The gateway sends it on its own account, with `from: "gateway"`, whenever a device's build is not the served one (A36); an app sends it to retry a failed update. |
 
 Every request carries `id`. `session.stop` is idempotent. `session.delete` removes the session from
 the device registry and does **not** delete the agent's own transcripts. `device.dirs` returns
@@ -2930,7 +2931,7 @@ device replaces the first; the old socket is closed with code 4001.
 | device → gateway | `session.removed` | `session_id` |
 | device → gateway | `session.event` | `session_id`, `event` |
 | device → gateway | `agents.updated` | `agents` |
-| device → gateway | `update.failed` | `message` — the update the app asked for did not complete; the old client is still running (A22) |
+| device → gateway | `update.failed` | `message` — the update that was asked for did not complete; the old client is still running (A22, A36) |
 | device → gateway | `pong` | – |
 | device → gateway | `reply` | `id`, `from`, `ok`, `result` or `error` |
 | gateway → device | forwarded request | any type from 6.3, plus `from` and `device_id` |
@@ -3306,6 +3307,14 @@ on every change, and pushes (3.7) `limit_reached` on `resume {status: "scheduled
 
 ---
 
+18. **A device keeps itself current; an app shows only what went wrong.** The gateway updates
+    every device to the wheel it serves without being asked (A36), so an app never shows a device's
+    client version or an "Update available" on the device row, and never offers Update while
+    nothing is wrong. The row says "Updating…" while `update_state` is `updating` and "Update
+    failed · <message>" while it is `failed`, and only then offers **Retry update**, which sends
+    `device.update` with `config.client.build` exactly as A22's Update did. The device's own page
+    may still state the client version among its facts.
+
 ## 9. Conformance checklist
 
 ### 9.1 Gateway
@@ -3322,6 +3331,11 @@ on every change, and pushes (3.7) `limit_reached` on `resume {status: "scheduled
       `hello`, forwards `device.update`, marks the device `updating` on an accepted reply and
       `failed` with the message on `update.failed` or when no `hello` follows within five minutes,
       and clears both on the next `hello` (A22).
+- [ ] Sends `device.update {build}` itself, `from: "gateway"`, to a device whose `hello`
+      carries a `client_build` that is neither null nor the served build — once per served build
+      per device, retried while the device answers `conflict` for a running session, never again
+      after `update.failed` or a timeout until an app retries or the served build changes; a
+      device that answers `unsupported` is left alone (A36).
 - [ ] Issues claim tokens for hosts, lets a signed-in user claim one, mints the pairing code for
       the host on that claim and hands it out exactly once (A23).
 - [ ] Sends every `/ws/app` frame after `hello` — `device.updated`, `session.updated`,
@@ -3483,8 +3497,9 @@ on every change, and pushes (3.7) `limit_reached` on `resume {status: "scheduled
       the accounts screen only to `admin` (A24).
 - [ ] Shows `model`, `permission_mode` and `effort` on a terminal-held session as values it cannot
       change, by label when `AgentInfo` lists the id and by the id otherwise (A17).
-- [ ] Offers Rename, Update and Revoke on every device row, shows "Update available" when the
-      device's `client_build` differs from `config.client.build`, and reflects `update_state` (A22).
+- [ ] Offers Rename and Revoke on every device row, shows no client version and no "Update
+      available" there, reads "Updating…" and "Update failed · <message>" from `update_state`, and
+      offers **Retry update** only while it is `failed` (A22, A36).
 - [ ] Offers `speeds` as one control that cycles standard → each tier → standard, drawn only when
       the list is non-empty, and shows a terminal-held session's `speed` as a value it cannot change
       (A21).
@@ -3923,3 +3938,14 @@ time and a way to cancel; a person's own message cancels it too. New: `Preferenc
 `preferences`, `session.resume_set`, `session.resume_cancel`, the `resume` event, `LimitStop`,
 `SessionResume`, the `resume` trigger and source, and three push kinds. See 3.2, 3.7, 4.4, 5.2,
 5.9, 5.15, 6, 6.4, 7, 7.2, 8, 9 and 10.
+
+**2026-09-18 A36 — a device keeps itself current.** Bringing a device to the gateway's wheel was a
+person's job: the row said "Update available" and someone had to press Update, on every device,
+after every release, and nobody should have to know which client a machine runs. The gateway now
+does it: when a device's `hello` carries a `client_build` that is not the served build, the gateway
+sends `device.update {build}` on its own account (`from: "gateway"`), retries while the device is
+busy with a running session, gives up on `update.failed` or a five-minute silence and leaves the
+failure for a person, and tries again by itself only when the served build changes. Apps drop the
+client version and "Update available" from the device row and offer **Retry update** only on a
+failed device; "Updating…" and "Update failed · <message>" stay. Nothing changes on the wire: the
+request, its replies and `Device.update_state` are A22's. See 3.2, 4.3, 6.3, 7, 8 and 9.
