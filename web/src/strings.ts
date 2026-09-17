@@ -121,11 +121,10 @@ export const en = {
     lastSeen: (rel: string) => `last seen ${rel}`,
     renameTitle: 'Rename device',
     renameLabel: 'Device name',
-    clientBuild: (version: string, build: string) => `client ${version} · ${build}`,
-    clientVersion: (version: string) => `client ${version}`,
-    update: 'Update',
-    updateAvailable: 'Update available',
-    updateAvailableTo: (version: string) => `Update available · ${version}`,
+    // A36: a device updates itself, so nothing says which client it runs. An
+    // app speaks only while an update runs or has failed, and the only action
+    // left is trying a failure again.
+    retryUpdate: 'Retry update',
     updating: 'Updating…',
     updateFailed: (message: string) => `Update failed · ${message}`,
     updateTitle: 'Update device',
@@ -135,8 +134,6 @@ export const en = {
         : `Update ${name} to ${version}? Its service restarts; sessions it drives are stopped.`,
     updateConfirm: 'Update device',
     updateOffline: 'This device is offline.',
-    updateInFlight: 'This device is already updating.',
-    updateCurrent: 'This device runs the build the gateway serves.',
     updateNoBuild: 'This gateway is not serving a client build.',
     revokeTitle: 'Revoke device',
     revokeBody: (name: string) =>

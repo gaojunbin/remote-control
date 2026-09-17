@@ -1,6 +1,7 @@
 /**
- * A22 in the device list: the build a device runs, the three states an update
- * can be in, and the request the Update item sends.
+ * A36 in the device list: a device keeps itself current, so a row says nothing
+ * about its client until an update is running or has failed, and the only
+ * action an app offers is trying a failed one again.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -27,10 +28,16 @@ const config = {
 
 const request = vi.fn(async () => ({ accepted: true, from: OLD_CLIENT_BUILD }));
 
-/** `mac` runs the gateway's build; `ci` runs the one before it. */
+/**
+ * `mac` runs the gateway's build; `ci` runs the one before it. Both start idle,
+ * whatever the mock's own story is, so each test names the state it is about.
+ */
 function setDevices(patch: { mac?: Partial<Device>; ci?: Partial<Device> } = {}): void {
+  const idle: Partial<Device> = { update_state: 'idle', update_message: null };
   const next = devices.map((device) =>
-    device.device_id === 'dev-mac' ? { ...device, ...patch.mac } : { ...device, ...patch.ci },
+    device.device_id === 'dev-mac'
+      ? { ...device, ...idle, ...patch.mac }
+      : { ...device, ...idle, ...patch.ci },
   );
   useDevices.setState({ devices: next, loaded: true, error: null, updateErrors: {} });
 }
@@ -62,7 +69,7 @@ const openMenuFor = async (name: string): Promise<HTMLElement> => {
   return screen.getByRole('menu');
 };
 
-const updateItem = () => screen.getByRole('menuitem', { name: strings.devices.update });
+const retryItem = () => screen.getByRole('menuitem', { name: strings.devices.retryUpdate });
 
 const rowOf = (name: string): HTMLElement => {
   const row = screen.getByText(name).closest('li');
@@ -70,40 +77,30 @@ const rowOf = (name: string): HTMLElement => {
   return row as HTMLElement;
 };
 
+const failed = { update_state: 'failed' as const, update_message: 'the device did not come back' };
+
 describe('the client line on a device row', () => {
-  it('says only the version a device on the gateway’s build runs — no "client", no build hash', () => {
+  it('says nothing at all about a device that runs the gateway’s build', () => {
     renderPage();
     const row = rowOf('mac-studio-office');
-    expect(within(row).getByText('0.1.0')).toBeInTheDocument();
-    expect(within(row).queryByText(/client/)).not.toBeInTheDocument();
+    expect(row.querySelector('.device-client')).toBeNull();
+    expect(within(row).queryByText('0.1.0')).not.toBeInTheDocument();
+    expect(within(row).queryByText(/client/i)).not.toBeInTheDocument();
     expect(within(row).queryByText(new RegExp(CLIENT_BUILD.slice(0, 8)))).not.toBeInTheDocument();
   });
 
-  it('says only "Update available" when the build differs from the gateway’s', () => {
+  it('says nothing about a device behind the gateway either: it updates itself', () => {
     renderPage();
     const row = rowOf('ci-runner-01');
-    expect(within(row).getByText(strings.devices.updateAvailable)).toBeInTheDocument();
-    // Neither the version it would install nor the one it runs: the
-    // confirmation and the device page name those.
-    expect(screen.queryByText(strings.devices.updateAvailableTo('0.1.0'))).not.toBeInTheDocument();
+    expect(row.querySelector('.device-client')).toBeNull();
     expect(within(row).queryByText(/0\.0\.9/)).not.toBeInTheDocument();
-    expect(screen.queryByText(new RegExp(OLD_CLIENT_BUILD.slice(0, 8)))).not.toBeInTheDocument();
+    expect(screen.queryByText(/available/i)).not.toBeInTheDocument();
   });
 
-  it('says the same when the gateway does not name the version', () => {
-    useAuth.setState({
-      config: { ...config, client: { build: CLIENT_BUILD, url: '/dist/rc_client-latest.whl' } },
-    });
-    renderPage();
-    expect(within(rowOf('ci-runner-01')).getByText(strings.devices.updateAvailable)).toBeInTheDocument();
-  });
-
-  it('says each device’s version when the gateway serves no build', () => {
+  it('says nothing when the gateway serves no build', () => {
     useAuth.setState({ config: { ...config, client: undefined } });
-    renderPage();
-    expect(screen.queryByText(strings.devices.updateAvailable)).not.toBeInTheDocument();
-    expect(within(rowOf('ci-runner-01')).getByText('0.0.9')).toBeInTheDocument();
-    expect(within(rowOf('mac-studio-office')).getByText('0.1.0')).toBeInTheDocument();
+    const { container } = renderPage();
+    expect(container.querySelectorAll('.device-client')).toHaveLength(0);
   });
 
   it('draws "Updating…" and a pulsing dot while an update runs', () => {
@@ -115,19 +112,48 @@ describe('the client line on a device row', () => {
   });
 
   it('draws the reason an update failed', () => {
-    setDevices({ ci: { update_state: 'failed', update_message: 'the device did not come back' } });
+    setDevices({ ci: failed });
     renderPage();
     expect(
       screen.getByText(strings.devices.updateFailed('the device did not come back')),
     ).toBeInTheDocument();
+    expect(rowOf('mac-studio-office').querySelector('.device-client')).toBeNull();
   });
 });
 
-describe('the Update item', () => {
+describe('the Retry update item', () => {
+  it('is not offered while nothing is wrong', async () => {
+    renderPage();
+    const menu = await openMenuFor('ci-runner-01');
+    const labels = [...menu.querySelectorAll('.menu-label')].map((n) => n.textContent);
+    expect(labels).toEqual([strings.common.rename, strings.common.revoke]);
+  });
+
+  it('is not offered while the update is still running', async () => {
+    setDevices({ ci: { update_state: 'updating' } });
+    renderPage();
+    const menu = await openMenuFor('ci-runner-01');
+    const labels = [...menu.querySelectorAll('.menu-label')].map((n) => n.textContent);
+    expect(labels).toEqual([strings.common.rename, strings.common.revoke]);
+  });
+
+  it('sits between Rename and Revoke once the update failed', async () => {
+    setDevices({ ci: failed });
+    renderPage();
+    const menu = await openMenuFor('ci-runner-01');
+    const labels = [...menu.querySelectorAll('.menu-label')].map((n) => n.textContent);
+    expect(labels).toEqual([
+      strings.common.rename,
+      strings.devices.retryUpdate,
+      strings.common.revoke,
+    ]);
+  });
+
   it('confirms with the version it installs, then asks the device for that build', async () => {
+    setDevices({ ci: failed });
     renderPage();
     await openMenuFor('ci-runner-01');
-    await userEvent.click(updateItem());
+    await userEvent.click(retryItem());
 
     expect(
       screen.getByText(strings.devices.updateBody('ci-runner-01', '0.1.0')),
@@ -148,9 +174,10 @@ describe('the Update item', () => {
     useAuth.setState({
       config: { ...config, client: { build: CLIENT_BUILD, url: '/dist/rc_client-latest.whl' } },
     });
+    setDevices({ ci: failed });
     renderPage();
     await openMenuFor('ci-runner-01');
-    await userEvent.click(updateItem());
+    await userEvent.click(retryItem());
 
     expect(
       screen.getByText(strings.devices.updateBody('ci-runner-01', undefined)),
@@ -158,45 +185,29 @@ describe('the Update item', () => {
     expect(screen.queryByText(/to 0\.1\.0\?/)).not.toBeInTheDocument();
   });
 
-  it('sits between Rename and Remove', async () => {
-    renderPage();
-    const menu = await openMenuFor('ci-runner-01');
-    const labels = [...menu.querySelectorAll('.menu-label')].map((n) => n.textContent);
-    expect(labels).toEqual([strings.common.rename, strings.devices.update, strings.common.revoke]);
-  });
-
-  it('is disabled on a device already running that build', async () => {
-    renderPage();
-    await openMenuFor('mac-studio-office');
-    expect(updateItem()).toBeDisabled();
-    expect(updateItem()).toHaveAttribute('title', strings.devices.updateCurrent);
-  });
-
   it('is disabled while the device is offline, and says why', async () => {
-    setDevices({ ci: { online: false } });
+    setDevices({ ci: { ...failed, online: false } });
     renderPage();
     await openMenuFor('ci-runner-01');
-    expect(updateItem()).toBeDisabled();
-    expect(updateItem()).toHaveAttribute('title', strings.devices.updateOffline);
+    expect(retryItem()).toBeDisabled();
+    expect(retryItem()).toHaveAttribute('title', strings.devices.updateOffline);
   });
 
-  it('is disabled while an update is in flight and enabled again once it failed', async () => {
-    setDevices({ ci: { update_state: 'updating' } });
+  it('is disabled while the gateway serves no wheel, and says why', async () => {
+    useAuth.setState({ config: { ...config, client: undefined } });
+    setDevices({ ci: failed });
     renderPage();
     await openMenuFor('ci-runner-01');
-    expect(updateItem()).toBeDisabled();
-
-    await userEvent.keyboard('{Escape}');
-    setDevices({ ci: { update_state: 'failed', update_message: 'no' } });
-    await openMenuFor('ci-runner-01');
-    expect(updateItem()).toBeEnabled();
+    expect(retryItem()).toBeDisabled();
+    expect(retryItem()).toHaveAttribute('title', strings.devices.updateNoBuild);
   });
 
-  it('shows the device’s own words when the request is refused', async () => {
+  it('shows the device’s own words when the retry is refused', async () => {
     request.mockRejectedValue(new RequestError({ code: 'conflict', message: '2 sessions running' }));
+    setDevices({ ci: failed });
     renderPage();
     await openMenuFor('ci-runner-01');
-    await userEvent.click(updateItem());
+    await userEvent.click(retryItem());
     await userEvent.click(screen.getByRole('button', { name: strings.devices.updateConfirm }));
 
     await waitFor(() =>
@@ -204,5 +215,8 @@ describe('the Update item', () => {
         screen.getByText(strings.devices.updateFailed('2 sessions running')),
       ).toBeInTheDocument(),
     );
+    // The row still offers the retry: the gateway never accepted this one.
+    await openMenuFor('ci-runner-01');
+    expect(retryItem()).toBeEnabled();
   });
 });
