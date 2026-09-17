@@ -336,7 +336,8 @@ public enum DemoFixtures {
     ]
 
     /// Amendment A22: the build this demo gateway serves, and the older one the
-    /// laptop is still on so a row with an update available can be looked at.
+    /// laptop is still on so a machine the gateway could not bring forward can
+    /// be looked at (A36).
     public static let servedBuild = "3f2b4a9c1d8e7f60a5b4c3d2e1f0918273645a5b6c7d8e9f0a1b2c3d4e5f6a7b"
     public static let outdatedBuild = "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d"
     /// The versions those two builds are, so the demo's rows and its Update
@@ -345,6 +346,10 @@ public enum DemoFixtures {
     /// whatever this app is: the demo cannot fall a round behind.
     public static let servedClientVersion = AppBuild.version
     public static let outdatedClientVersion = "1.3.0"
+    /// Why the gateway's own attempt on the laptop did not finish (A36). It is
+    /// the message the gateway keeps when a device never comes back, and it is
+    /// what puts Retry update on that one row.
+    public static let updateFailure = "the device did not come back"
 
     public static var devices: [Device] {
         [
@@ -358,6 +363,9 @@ public enum DemoFixtures {
             Device(deviceID: laptopDeviceID, name: "macbook-air", platform: .macos,
                    hostname: "macbook-air.local", arch: "arm64",
                    clientVersion: outdatedClientVersion, clientBuild: outdatedBuild,
+                   // The one machine the gateway could not bring to its wheel,
+                   // so the notice and Retry update have somewhere to be seen.
+                   updateState: .failed, updateMessage: updateFailure,
                    online: true, lastSeen: now, createdAt: now - 4_320_000, latencyMS: 41,
                    // Amendment A28: the machine that is prepared for neither
                    // attachment, so both hints can be read on a real session.

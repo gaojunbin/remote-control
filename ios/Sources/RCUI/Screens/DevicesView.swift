@@ -3,16 +3,17 @@ import RCCore
 
 /// The machines this gateway knows about, and how to add another one.
 ///
-/// Every row offers the same three actions the web offers — Rename, Update and
-/// Revoke — from one trailing swipe and from the context menu, so nothing is
-/// reachable on one app and not the other (`docs/DESIGN.md` § "Devices").
+/// Every row offers the same actions the web offers — Rename and Revoke, and
+/// Retry update on a machine whose update failed — from one trailing swipe and
+/// from the context menu, so nothing is reachable on one app and not the other
+/// (`docs/DESIGN.md` § "Devices").
 struct DevicesView: View {
     @Environment(AppModel.self) private var model
     @State private var isAdding = false
     @State private var renaming: Device?
     @State private var newName = ""
     @State private var revoking: Device?
-    @State private var updating: Device?
+    @State private var retrying: Device?
     @State private var error: String?
     /// The platform the list is narrowed to; a view of the list, not a setting.
     @State private var platformFilter: DevicePlatform?
@@ -28,21 +29,18 @@ struct DevicesView: View {
                 // opens the machine; its menu and its swipe still act on it
                 // without going anywhere.
                 NavigationLink(value: device.deviceID) {
-                    DeviceRow(device: device,
-                              servedBuild: model.connection.config.servedBuild,
-                              servedVersion: model.connection.config.servedVersion,
-                              localError: model.deviceUpdateError(device.deviceID))
+                    DeviceRow(device: device, localError: model.deviceUpdateError(device.deviceID))
                 }
                     .sessionRowLayout()
                     .accessibilityIdentifier("device.\(device.deviceID)")
                     .contextMenu { actions(for: device) }
-                    // One swipe carries all three. SwiftUI lays a trailing
-                    // swipe out from the edge inwards, so the first listed is
-                    // the one nearest the edge and the row reads
-                    // Rename · Update · Revoke from left to right.
+                    // One swipe carries them all. SwiftUI lays a trailing swipe
+                    // out from the edge inwards, so the first listed is the one
+                    // nearest the edge and the row reads Rename · Retry update
+                    // · Revoke from left to right.
                     .swipeActions(edge: .trailing) {
                         revokeAction(for: device)
-                        updateAction(for: device)
+                        retryAction(for: device)
                         renameAction(for: device)
                     }
             }
@@ -102,12 +100,12 @@ struct DevicesView: View {
             Button("Cancel", role: .cancel) { renaming = nil }
             Button("Save") { rename() }
         }
-        .alert("Update device", isPresented: Binding(get: { updating != nil },
-                                                     set: { if !$0 { updating = nil } })) {
-            Button("Cancel", role: .cancel) { updating = nil }
-            Button("Update") { update() }
+        .alert("Update device", isPresented: Binding(get: { retrying != nil },
+                                                     set: { if !$0 { retrying = nil } })) {
+            Button("Cancel", role: .cancel) { retrying = nil }
+            Button("Update") { retry() }
         } message: {
-            Text(DeviceUpdateText.confirmation(name: updating?.name ?? L10n.string("This device"),
+            Text(DeviceUpdateText.confirmation(name: retrying?.name ?? L10n.string("This device"),
                                                servedVersion: model.connection.config.servedVersion))
         }
         .alert("Revoke device", isPresented: Binding(get: { revoking != nil },
@@ -163,11 +161,12 @@ struct DevicesView: View {
         .accessibilityIdentifier("devices.platformFilter.\(platform?.rawValue ?? "all")")
     }
 
-    /// The context menu: the same three, in the order the web menu uses.
+    /// The context menu: the same actions the swipe holds, in the order the web
+    /// menu uses.
     @ViewBuilder
     private func actions(for device: Device) -> some View {
         renameAction(for: device)
-        updateAction(for: device)
+        retryAction(for: device)
         revokeAction(for: device)
     }
 
@@ -187,24 +186,22 @@ struct DevicesView: View {
         .accessibilityIdentifier("device.revoke")
     }
 
-    /// Amendment A22. The action stays on the row whatever state the device is
-    /// in and says why it cannot act, rather than disappearing and leaving the
-    /// swipe with nothing under it.
-    private func updateAction(for device: Device) -> some View {
-        let blocked = DeviceUpdate.block(for: device, servedBuild: model.connection.config.servedBuild)
-        return Button { updating = device } label: { Label("Update", systemImage: "arrow.down.circle") }
+    /// Amendment A36. The gateway keeps every device on the wheel it serves, so
+    /// there is nothing to offer until one of those updates fails: only then is
+    /// the action on the row, and it says why it cannot act rather than
+    /// disappearing again.
+    @ViewBuilder
+    private func retryAction(for device: Device) -> some View {
+        if DeviceUpdate.canRetry(device) {
+            let blocked = DeviceUpdate.block(for: device,
+                                             servedBuild: model.connection.config.servedBuild)
+            Button { retrying = device } label: {
+                Label("Retry update", systemImage: "arrow.clockwise")
+            }
             .tint(Theme.accent)
             .disabled(blocked != nil)
-            .accessibilityHint(blocked.map(Self.reason) ?? "")
-            .accessibilityIdentifier("device.update")
-    }
-
-    private static func reason(_ block: DeviceUpdate.Block) -> String {
-        switch block {
-        case .offline: L10n.string("This device is offline.")
-        case .inFlight: L10n.string("This device is already updating.")
-        case .noServedBuild: L10n.string("This gateway is not serving a client build.")
-        case .current: L10n.string("This device runs the build the gateway serves.")
+            .accessibilityHint(blocked.map(DeviceUpdateText.reason) ?? "")
+            .accessibilityIdentifier("device.retryUpdate")
         }
     }
 
@@ -237,21 +234,21 @@ struct DevicesView: View {
 
     /// A refused update is the row's own news, not the gateway's: nothing
     /// started, so no `device.updated` will ever carry it.
-    private func update() {
-        guard let device = updating else { return }
-        updating = nil
+    private func retry() {
+        guard let device = retrying else { return }
+        retrying = nil
         Task { await model.updateDevice(device) }
     }
 }
 
 /// One machine, behind one glyph. `docs/DESIGN.md` § "The device row": the name
 /// and one number on the first line, the dot with its state and platform on the
-/// second, the agents as their logos, then the client line. No status column,
-/// no rules, and nothing that repeats the name.
+/// second, the agents as their logos. No status column, no rules, and nothing
+/// that repeats the name. A fourth line is drawn only where an update is
+/// running or has failed — the version the machine runs is never on the row
+/// (A36).
 struct DeviceRow: View {
     let device: Device
-    var servedBuild: String?
-    var servedVersion: String?
     var localError: String?
 
     var body: some View {
@@ -273,7 +270,9 @@ struct DeviceRow: View {
                 if !device.availableAgents.isEmpty {
                     DeviceAgentsLine(agents: device.availableAgents)
                 }
-                DeviceRowClientLine(device: device, servedBuild: servedBuild, localError: localError)
+                if let notice = DeviceUpdate.notice(for: device, localError: localError) {
+                    DeviceUpdateLine(notice: notice)
+                }
             }
         }
         .accessibilityElement(children: .combine)

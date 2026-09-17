@@ -2,9 +2,10 @@ import Testing
 import Foundation
 @testable import RCCore
 
-/// Amendment A22: what a device row says about its client build, and when
-/// Update can be asked for at all.
-@Suite("Amendment A22, updating a device from the app")
+/// Amendment A36: what a device says about its client now that the gateway
+/// keeps every machine on the wheel it serves, and when a person may ask for an
+/// update at all.
+@Suite("Amendment A36, a device keeps itself current")
 struct DeviceUpdateTests {
     private let served = String(repeating: "a", count: 64)
     private let old = String(repeating: "b", count: 64)
@@ -17,29 +18,21 @@ struct DeviceUpdateTests {
                online: online, lastSeen: 0, createdAt: 0)
     }
 
-    @Test("A device on the served build says nothing and offers no update")
+    @Test("A device on the served build says nothing and offers nothing")
     func current() {
         let device = device(build: served)
-        #expect(DeviceUpdate.notice(for: device, servedBuild: served) == nil)
-        #expect(DeviceUpdate.block(for: device, servedBuild: served) == .current)
+        #expect(DeviceUpdate.notice(for: device) == nil)
+        #expect(!DeviceUpdate.canRetry(device))
     }
 
-    @Test("A device on another build, or on none, has an update available")
+    @Test("A device on another build, or on none, is the gateway's to bring forward")
     func behind() {
-        #expect(DeviceUpdate.notice(for: device(build: old), servedBuild: served) == .available)
-        #expect(DeviceUpdate.notice(for: device(build: nil), servedBuild: served) == .available)
-        #expect(DeviceUpdate.block(for: device(build: old), servedBuild: served) == nil)
+        #expect(DeviceUpdate.notice(for: device(build: old)) == nil)
+        #expect(DeviceUpdate.notice(for: device(build: nil)) == nil)
+        #expect(!DeviceUpdate.canRetry(device(build: old)))
     }
 
-    @Test("A gateway serving no wheel never calls a device out of date")
-    func noServedBuild() {
-        let device = device(build: old)
-        #expect(DeviceUpdate.notice(for: device, servedBuild: nil) == nil)
-        #expect(DeviceUpdate.block(for: device, servedBuild: nil) == .noServedBuild)
-        #expect(GatewayConfig.empty.servedBuild == nil)
-    }
-
-    @Test("The config names the version an update would install, or nothing at all")
+    @Test("The config names the version a retry would install, or nothing at all")
     func servedVersion() throws {
         // The gateway's own version and the client's differ here on purpose:
         // `servedVersion` is the wheel's, and a decoder that read the outer
@@ -64,37 +57,35 @@ struct DeviceUpdateTests {
         #expect(decoded.servedVersion == nil)
     }
 
-    @Test("An update in flight outranks everything else the row could say")
+    @Test("An update in flight is said, and is not something to retry")
     func updating() {
         let device = device(build: old, state: .updating)
-        #expect(DeviceUpdate.notice(for: device, servedBuild: served) == .updating)
-        #expect(DeviceUpdate.block(for: device, servedBuild: served) == .inFlight)
+        #expect(DeviceUpdate.notice(for: device) == .updating)
+        #expect(!DeviceUpdate.canRetry(device))
     }
 
-    @Test("A failed update shows the device's own reason, and lets it be tried again")
+    @Test("A failed update shows the device's own reason, and only then offers a retry")
     func failed() {
         let device = device(build: old, state: .failed, message: "2 sessions are running")
-        #expect(DeviceUpdate.notice(for: device, servedBuild: served)
-                == .failed("2 sessions are running"))
+        #expect(DeviceUpdate.notice(for: device) == .failed("2 sessions are running"))
+        #expect(DeviceUpdate.canRetry(device))
         #expect(DeviceUpdate.block(for: device, servedBuild: served) == nil)
     }
 
     @Test("A refusal the app holds is shown the same way as one the gateway kept")
     func localRefusal() {
-        let device = device(build: old)
-        #expect(DeviceUpdate.notice(for: device, servedBuild: served, localError: "already on this build")
+        let device = device(build: old, state: .failed, message: "2 sessions are running")
+        #expect(DeviceUpdate.notice(for: device, localError: "already on this build")
                 == .failed("already on this build"))
     }
 
-    @Test("An offline device is never asked to update itself")
-    func offline() {
+    @Test("An offline device, and a gateway with no wheel, cannot be retried")
+    func blocked() {
+        let stranded = device(build: old, state: .failed, message: "the device did not come back")
+        #expect(DeviceUpdate.block(for: stranded, servedBuild: nil) == .noServedBuild)
+        #expect(GatewayConfig.empty.servedBuild == nil)
         #expect(DeviceUpdate.block(for: device(build: old, online: false), servedBuild: served)
                 == .offline)
-    }
-
-    @Test("The build is named by its first eight characters")
-    func shortBuild() {
-        #expect(DeviceUpdate.shortBuild(served) == "aaaaaaaa")
     }
 
     @Test("A device record carries the build, the state and the reason")
@@ -131,10 +122,14 @@ struct DeviceUpdateTests {
         #expect(request.body["build"] == .string(served))
     }
 
-    @Test("The demo device takes the update, then comes back on the new build")
-    func demoUpdate() async throws {
+    @Test("The demo's failed device takes a retry, then comes back on the new build")
+    func demoRetry() async throws {
         let gateway = DemoGateway(resumeDelay: nil)
         let laptop = DemoFixtures.laptopDeviceID
+        let stranded = try await gateway.devices().first { $0.deviceID == laptop }
+        #expect(stranded?.updateState == .failed)
+        #expect(stranded?.updateMessage == DemoFixtures.updateFailure)
+
         let result = try await gateway.request(
             .updateDevice(deviceID: laptop, build: DemoFixtures.servedBuild))
             .decode(DeviceUpdateResult.self)
@@ -143,6 +138,7 @@ struct DeviceUpdateTests {
 
         let before = try await gateway.devices().first { $0.deviceID == laptop }
         #expect(before?.updateState == .updating)
+        #expect(before?.updateMessage == nil)
 
         var settled: Device?
         let deadline = Date().addingTimeInterval(15)
@@ -153,6 +149,7 @@ struct DeviceUpdateTests {
         }
         #expect(settled?.clientBuild == DemoFixtures.servedBuild)
         #expect(settled?.clientVersion == DemoFixtures.servedClientVersion)
+        #expect(settled.map { DeviceUpdate.notice(for: $0) == nil } == true)
         await gateway.disconnect()
     }
 

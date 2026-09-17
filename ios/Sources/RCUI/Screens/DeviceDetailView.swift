@@ -11,8 +11,9 @@ import RCCore
 /// here: the stored device keeps its accounts without windows, so the list
 /// behind this page never redraws because a percentage moved.
 ///
-/// The three actions the row offers — Rename, Update, Revoke — are not repeated
-/// here.
+/// The row's Rename and Revoke are not repeated here. Retry update is, because
+/// it belongs to the notice it stands beside (`docs/DESIGN.md` § "A device
+/// keeps itself current").
 struct DeviceDetailView: View {
     let deviceID: String
 
@@ -20,6 +21,7 @@ struct DeviceDetailView: View {
     @State private var fresh: [String: [AgentAccount]] = [:]
     @State private var phase: QuotaPhase = .checking
     @State private var failure: String?
+    @State private var isRetrying = false
 
     private var device: Device? { model.connection.device(deviceID) }
 
@@ -44,6 +46,13 @@ struct DeviceDetailView: View {
         .refreshable { await read() }
         .task(id: deviceID) { await read() }
         .accessibilityIdentifier("device.page")
+        .alert("Update device", isPresented: $isRetrying) {
+            Button("Cancel", role: .cancel) { isRetrying = false }
+            Button("Update") { retry() }
+        } message: {
+            Text(DeviceUpdateText.confirmation(name: device?.name ?? L10n.string("This device"),
+                                               servedVersion: model.connection.config.servedVersion))
+        }
     }
 
     /// The machine as its row words it, minus the name the navigation bar is
@@ -59,10 +68,7 @@ struct DeviceDetailView: View {
                     .foregroundStyle(Theme.inkSecondary)
             }
             DeviceFactsLine(device: device)
-            DeviceClientLine(device: device,
-                             servedBuild: model.connection.config.servedBuild,
-                             servedVersion: model.connection.config.servedVersion,
-                             localError: model.deviceUpdateError(device.deviceID))
+            updateLine(device)
             if let failure {
                 Text(failure)
                     .font(Theme.Text.caption)
@@ -71,6 +77,33 @@ struct DeviceDetailView: View {
                     .accessibilityIdentifier("device.quota.failure")
             }
         }
+    }
+
+    /// The page says no more about the client than the row does (A36): what is
+    /// happening to it, and — where the gateway gave up — a way to ask again.
+    /// A machine being kept current draws no line here at all.
+    @ViewBuilder
+    private func updateLine(_ device: Device) -> some View {
+        if let notice = DeviceUpdate.notice(for: device,
+                                            localError: model.deviceUpdateError(device.deviceID)) {
+            HStack(spacing: Theme.Space.small) {
+                DeviceUpdateLine(notice: notice)
+                if DeviceUpdate.canRetry(device) { retryButton(device) }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private func retryButton(_ device: Device) -> some View {
+        let blocked = DeviceUpdate.block(for: device, servedBuild: model.connection.config.servedBuild)
+        return Button("Retry update") { isRetrying = true }
+            .font(Theme.Text.caption.weight(.medium))
+            .buttonStyle(.plain)
+            .foregroundStyle(Theme.accent)
+            .disabled(blocked != nil)
+            .opacity(blocked == nil ? 1 : 0.4)
+            .accessibilityHint(blocked.map(DeviceUpdateText.reason) ?? "")
+            .accessibilityIdentifier("device.retryUpdate")
     }
 
     @ViewBuilder
@@ -98,6 +131,14 @@ struct DeviceDetailView: View {
     private func trailing(_ device: Device) -> String {
         if device.online { return device.latencyMS.map { "\($0) ms" } ?? "" }
         return RelativeTime.short(since: device.lastSeen)
+    }
+
+    /// A refused retry is the page's own news, not the gateway's: nothing
+    /// started, so no `device.updated` will ever carry it.
+    private func retry() {
+        guard let device else { return }
+        isRetrying = false
+        Task { await model.updateDevice(device) }
     }
 
     /// Ask the device what its agents are signed in with and what they have

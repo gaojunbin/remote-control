@@ -4319,6 +4319,23 @@
         }
       }
     },
+    "Retry update": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry update"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试更新"
+          }
+        }
+      }
+    },
     "Revoke": {
       "extractionState": "manual",
       "localizations": {
@@ -5883,23 +5900,6 @@
         }
       }
     },
-    "This device is already updating.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This device is already updating."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此设备正在更新。"
-          }
-        }
-      }
-    },
     "This device is offline.": {
       "extractionState": "manual",
       "localizations": {
@@ -5913,23 +5913,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "此设备当前离线。"
-          }
-        }
-      }
-    },
-    "This device runs the build the gateway serves.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This device runs the build the gateway serves."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此设备已在运行网关提供的版本。"
           }
         }
       }
@@ -6580,40 +6563,6 @@
         }
       }
     },
-    "Update available": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Update available"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "有可用更新"
-          }
-        }
-      }
-    },
-    "Update available · %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Update available · %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "有可用更新 · %@"
-          }
-        }
-      }
-    },
     "Update device": {
       "extractionState": "manual",
       "localizations": {
@@ -7137,40 +7086,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "干净"
-          }
-        }
-      }
-    },
-    "client %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "client %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "客户端 %@"
-          }
-        }
-      }
-    },
-    "client %@ · %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "client %@ · %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "客户端 %@ · %@"
           }
         }
       }
