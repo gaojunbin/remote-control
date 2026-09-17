@@ -1337,11 +1337,78 @@ level draws. The status line never switched on `trigger`, so an `agent`-triggere
 as a terminal one; the demo's shared Claude session carries one such message and turn, which is what
 the checks and both screenshots are driven from.
 
+## Paused by the usage limit (A35)
+
+A Claude Code or Codex turn that ran into the five-hour or weekly window ends as an `error` stop
+carrying `limit {window_minutes, resets_at}`, and the device schedules a resume when the account
+asked for one. Three surfaces read it.
+
+**One switch, on the account.** The Sessions group of Settings holds "Resume after the limit
+resets" (`SessionPreferences.swift`, identifier `settings.resumeAfterLimit`). It is not a
+`SettingsStore` key: `PreferencesStore` (RCCore) is seeded from `hello.preferences`, replaced by
+the `preferences.updated` frame whenever another app or device of the account changes it, and
+written with `PATCH /api/preferences` through `GatewayAPI`. The write is applied before the round
+trip and put back with the gateway's own reason if it is refused. `AppModel` owns the store and
+feeds it every frame through one long-lived handler, so the value is right before Settings is ever
+opened, and `attach(api: nil)` on sign-out forgets the previous account's. A gateway older than the
+amendment sends no `preferences` at all, which is `nil`, and the switch is disabled under "Your
+gateway does not offer this yet." (`ResumeText.settingsFooter(offered:)`).
+
+**The notice, where the session is.** `ChatView` draws `ResumeNotice` between the subtitle bar and
+the transcript while `Session.resume` is set, and it goes when the resume does. `NoticeBanner` grew
+a second action rather than being forked, so the bar reads "Paused by the usage limit · resumes
+3:50 PM" with **Change** and **Cancel** and nothing else (`notice.action`, `notice.secondaryAction`).
+Change opens `ResumeTimeSheet`, one compact `DatePicker` for date and time prefilled with `at` and
+bounded to `ResumeBounds` — at least a minute ahead, at most eight days out, the device's own rule
+checked here so a time it would refuse never leaves the picker. Cancel sends
+`session.resume_cancel` at once, with no confirmation. The status dot is untouched: the session is
+idle and says so, and the notice carries the pause.
+
+**The words are in one place.** `ResumeText` (RCCore) writes every sentence — the notice, "about"
+for an estimated time, "second try" / "third try" from `attempts`, the turn's "Ended at the usage
+limit · resets 3:50 PM", and the device's rows ("Resume scheduled for …", "Resume moved to …",
+"Resume cancelled · …", "Not resumed · …", the app's word followed by the device's own one-line
+reason). Every time is formatted with `Date.FormatStyle` in the viewer's zone, with the day in
+front of it when the time is not today; the device sends a timestamp and nothing else. `RCCoreTests`
+pins the composition and the today/other-day rule rather than one release's locale pattern.
+
+**The timeline.** `TimelineEntry` knows the `resume` kind, and `isRenderable` returns false for
+`fired`: the moment of resuming is the prompt in the person's bubble and the turn it starts, not a
+row of its own. Simple keeps the limit end, the device's rows and the captioned prompt, as it keeps
+notices and errors. A `source: "resume"` message is the person's own — `EventSource.resume` is not
+`isElsewhere` — so it stays in their bubble, captioned "Sent for you after the limit reset", and a
+`trigger: "resume"` turn already reads in the status line as a remote one because that line never
+switched on the trigger.
+
+**Alerts.** `PushKind` gained `limit_reached`, `resumed` and `resume_dropped`, whose words are
+"Paused by the usage limit", "Resumed after the limit reset" and "Not resumed" — the gateway's own
+three sentences, with no time in any of them. `TurnAlerts.kind(resume:)` maps the three statuses the
+gateway pushes for and nothing else: a rescheduled resume is a detail of a pause already told, and a
+cancelled one is usually the person's own doing. `AppModel` raises the banner from the `resume`
+event under the same three gates as a finished turn, and the remote push for it is suppressed while
+the app is in the foreground exactly as before.
+
+**The demo.** `DemoFixtures.pausedSessionID` is an attached Claude session the five-hour window
+stopped, with a resume three quarters of an hour out: its transcript carries the vendor's sentence
+as an `error`, the turn's `limit` end and a `resume {scheduled}` row. The demo gateway keeps the
+account's preferences, answers `GET`/`PATCH /api/preferences`, emits `preferences.updated`, takes
+both resume requests with the real refusals, and cancels every pending resume when the switch goes
+off.
+
+Two UI tests drive it on the simulator: `testSessionsGroupOffersTheResumeSwitch` reads the group,
+its sentence and the live switch in both directions, and `testPausedSessionShowsItsResumeAndCancelsIt`
+opens the paused session, reads the notice and the two timeline rows, opens the picker from Change
+and removes the resume with Cancel. Their screenshots are `ios-round33-resume-settings.png` and
+`ios-round33-resume-banner.png`. A toggle in a settings row is wider than its control, so both the
+`turnOn` and the new `turnOff` helper fall back to a tap on the trailing edge; and an accessibility
+identifier on a `NoticeBanner` is inherited by the buttons inside it, so the identifier names the
+banner's text and the actions keep `notice.action` and `notice.secondaryAction`.
+
 ## Update required (A31)
 
 `AppsInfo` is decoded from `GET /api/health`, `GET /api/config` and `hello` alike — the health call
 answers before sign-in, so a too-old app is stopped at the login screen — and `AppVersion` compares
-`CFBundleShortVersionString` (`AppBuild.version`, falling back to "1.3.4" without a bundle, which
+`CFBundleShortVersionString` (`AppBuild.version`, falling back to "1.4.0" without a bundle, which
 must match `MARKETING_VERSION` in `project.yml`) with `apps.ios.minimum_version` as
 `major.minor.patch`. The first source to say "below" sets `ConnectionStore.updateRequired`, and
 `UpdateRequiredView` then covers everything: "Update required", the app's version and the gateway's
