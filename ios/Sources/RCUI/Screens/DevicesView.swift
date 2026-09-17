@@ -196,14 +196,11 @@ struct DeviceRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.small) {
-            // The same glyph for every machine whatever its platform: the app
-            // cannot tell a laptop from a desktop, and one honest mark beats a
-            // wrong guess. It is what keeps two rows apart now that no
-            // separator is drawn between them.
-            Image(systemName: "desktopcomputer")
-                .font(Theme.Text.title)
-                .foregroundStyle(Theme.inkSecondary)
-                .accessibilityHidden(true)
+            // The same glyph for every machine whatever its platform: a minimal
+            // outline laptop. The app cannot tell a laptop from a desktop, and
+            // one honest mark beats a wrong guess. It is what keeps two rows
+            // apart now that no separator is drawn between them.
+            LaptopGlyph()
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: Theme.Space.small) {
                     Text(device.name).font(Theme.Text.title).foregroundStyle(Theme.ink).lineLimit(1)

@@ -1,6 +1,7 @@
 import Foundation
 import RCCore
 import RCUI
+import SwiftUI
 
 /// Checks that need SwiftUI or the main actor. Everything that can live without
 /// them is in `RCVerify`, which runs with plain Command Line Tools.
@@ -842,6 +843,21 @@ func run() async -> (passed: Int, failures: [String]) {
         expect(page.contains(device.arch), "and the chip it is built on")
     }
 
+    // The glyph before the row is a minimal outline laptop on lucide's 24-unit
+    // grid, the drawing the web app uses, so both apps show one mark: the
+    // screen is a rounded rectangle, the base one line under it, the stroke
+    // 1.5 units with round caps and joins, and the whole scales with its box.
+    let laptop = LaptopShape().path(in: CGRect(x: 0, y: 0, width: 24, height: 24)).boundingRect
+    equal(laptop, CGRect(x: 2, y: 4, width: 20, height: 16),
+          "the laptop spans the grid from the base line's ends to the screen's top")
+    let screenBottom = LaptopShape.screen.maxY
+    expect(LaptopShape.baseY > screenBottom, "the base is a line under the screen, not touching it")
+    expect(LaptopShape.screenCorner > 0, "and the screen's corners are rounded")
+    let doubled = LaptopShape().path(in: CGRect(x: 0, y: 0, width: 48, height: 48)).boundingRect
+    equal(doubled, CGRect(x: 4, y: 8, width: 40, height: 32), "twice the box draws twice the laptop")
+    equal(LaptopGlyph.strokeWidth(for: 24), 1.5, "at grid size the stroke is lucide's 1.5 units")
+    equal(LaptopGlyph.strokeWidth(for: 20), 1.25, "and it thins with the box")
+
     // The agents on the row are logos alone, so their names reach a reader who
     // cannot see them only as the labels the row hands each logo.
     if let studio = model.connection.device(DemoFixtures.macDeviceID) {
@@ -1607,7 +1623,7 @@ func run() async -> (passed: Int, failures: [String]) {
         }
         expect(project.contains("MARKETING_VERSION: '\(AppBuild.shipped)'"),
                "the project ships the version this source tree carries")
-        expect(project.contains("CURRENT_PROJECT_VERSION: 7"),
+        expect(project.contains("CURRENT_PROJECT_VERSION: 8"),
                "and a build number TestFlight can tell apart")
     } else {
         expect(false, "the check can read project.yml")
