@@ -32,7 +32,7 @@ from ...models import UNSET, Command, SpeedSetting, now_ms
 from ...sessions.channel import SessionChannel
 from ...sessions.limits import LimitStop, claude_transcript_limit
 from ..base import Emit
-from . import transcripts
+from . import subagents, transcripts
 from .questions import QUESTION_TOOL, answers_by_prompt, normalise_questions
 from .translate import ClaudeTranslator
 
@@ -41,6 +41,8 @@ log = logger("rc_client.claude")
 APPROVAL_TIMEOUT = 30 * 60.0
 DRAIN_TIMEOUT = 15.0
 DEFAULT_MODEL_ID = "default"
+# How often a turn held open for its subagents asks whether they are done.
+SUBAGENT_POLL_S = 5.0
 
 TurnEndCallback = Callable[[], Awaitable[None]]
 
@@ -96,6 +98,12 @@ class ClaudeRunner:
         self._turn_done.set()
         self._turn_started_at = 0
         self._interrupting = False
+        # A turn whose result has arrived while the subagents it started are
+        # still running: the completion waiting to be published, and the task
+        # watching for the last of them (owner's ruling, 2026-09-18).
+        self._held: dict[str, Any] | None = None
+        self._hold: asyncio.Task[None] | None = None
+        self._subagents: subagents.SubagentWatch | None = None
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._reported_session_id: str | None = None
         self._resolved_locally = False
@@ -145,6 +153,8 @@ class ClaudeRunner:
 
     async def close(self) -> None:
         self._closed = True
+        await self._stop_hold()
+        self._held = None
         for future in self._pending.values():
             if not future.done():
                 future.cancel()
@@ -217,11 +227,61 @@ class ClaudeRunner:
         await self.channel.emit(emit.kind, **emit.fields)
 
     async def _finish_turn(self, completion: dict[str, Any]) -> None:
+        """End the turn, unless work this session started is still running.
+
+        Working means all of it (owner's ruling, 2026-09-18): a parent that
+        hands its work to background subagents and ends its own turn is still
+        working, so the turn — and everything hanging off its end, the
+        `turn_completed` event, the gateway's "Turn finished" push, the drain of
+        the held queue — waits for the last of them. The waiting runs off the
+        message pump so the continuation the CLI streams when a subagent's
+        result comes back still arrives, and it belongs to this same turn: a
+        second result while one is held replaces the stop reason rather than
+        starting anything. A turn the person interrupted is never held, because
+        they said stop, and because `interrupt` is already waiting on it.
+        """
+        self._held = completion
+        if self._hold is not None:
+            return
+        if self._interrupting or not await self._subagents_working():
+            await self._close_turn(int(completion.get("duration_ms") or 0))
+            return
+        self._hold = asyncio.create_task(self._hold_for_subagents())
+
+    async def _hold_for_subagents(self) -> None:
+        """Poll the subagent transcripts until the last of them has finished."""
+        try:
+            while await self._subagents_working():
+                await asyncio.sleep(SUBAGENT_POLL_S)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("subagent watch failed; ending the turn")
+        self._hold = None
+        await self._close_turn(0)
+
+    async def _stop_hold(self) -> None:
+        """Drop the task watching the subagents; the turn ends without them."""
+        hold, self._hold = self._hold, None
+        if hold is None or hold is asyncio.current_task():
+            return
+        hold.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await hold
+
+    async def _close_turn(self, duration_ms: int) -> None:
+        """Publish the completion that has been waiting, and let the queue drain.
+
+        `duration_ms` of zero means measure it here, which is what a turn held
+        open for its subagents reports: the result's own figure covers the CLI's
+        turn alone, and the person watched all of it.
+        """
+        completion, self._held = self._held, None
+        if completion is None:
+            return
         usage = dict(completion.get("usage") or {})
         usage.update(await self._context_usage())
-        duration = int(completion.get("duration_ms") or 0) or max(
-            0, now_ms() - self._turn_started_at
-        )
+        duration = duration_ms or max(0, now_ms() - self._turn_started_at)
         self._interrupting = False
         self._translator.clear_interrupt()
         limit = completion.get("limit")
@@ -235,6 +295,17 @@ class ClaudeRunner:
         self._turn_done.set()
         if self._on_turn_end is not None:
             await self._on_turn_end()
+
+    async def _subagents_working(self) -> bool:
+        """Whether any subagent of this session has not finished yet."""
+        watch = self._subagents
+        if watch is None:
+            session_id = self._translator.session_id or self.channel.session.session_id
+            path = await asyncio.to_thread(transcripts.find_transcript, session_id)
+            if path is None:
+                return False
+            watch = self._subagents = subagents.SubagentWatch.for_transcript(path)
+        return await asyncio.to_thread(watch.working)
 
     async def _limit_reset(self, limit: LimitStop) -> LimitStop:
         """Fill in when the window resets, which only the transcript records (A35).
@@ -325,6 +396,19 @@ class ClaudeRunner:
         client = self._client
         if client is None or not self.busy:
             return False
+        if self._hold is not None:
+            # The CLI's own turn is long over; what is still running are the
+            # subagents it started, which it no longer reports on. There is
+            # nothing on the SDK to interrupt, so the turn the device held open
+            # ends here, as interrupted. The translator is left alone: no
+            # further result is coming for a turn the CLI has already ended.
+            await self._stop_hold()
+            if self._held is not None:
+                self._held["stop_reason"] = "interrupted"
+                # A limit is only ever published beside an `error` stop (A35).
+                self._held.pop("limit", None)
+            await self._close_turn(0)
+            return True
         self._interrupting = True
         self._translator.mark_interrupted()
         await self.channel.set_state("running", "interrupting")
