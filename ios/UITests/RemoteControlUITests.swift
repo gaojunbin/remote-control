@@ -1258,6 +1258,17 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertFalse(app.segmentedControls["pairing.platform"].exists,
                        "and no platform is asked for")
         attach(name: "05-add-device")
+
+        // Cancel leaves at once. The code is given back behind the closed
+        // sheet, so the "Requesting a code" placeholder is never drawn on the
+        // way out (owner's report, 2026-09-18).
+        app.buttons["Cancel"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["pairing.command"].waitForNonExistence(timeout: 5),
+                      "the sheet is gone")
+        XCTAssertFalse(app.staticTexts["Requesting a code"].exists,
+                       "and nothing about requesting a code was left on screen")
+        XCTAssertTrue(app.buttons["devices.add"].waitForExistence(timeout: 5),
+                      "the Devices screen is back")
     }
 
     /// `docs/DESIGN.md` § "Surfaces, rows and controls": nothing is re-cased.

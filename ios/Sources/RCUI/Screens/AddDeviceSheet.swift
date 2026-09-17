@@ -38,8 +38,11 @@ struct AddDeviceSheet: View {
             .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
+                    // Cancel leaves at once; the code is given back behind the
+                    // closed sheet, so nothing is drawn while the gateway answers.
                     Button("Cancel") {
-                        Task { await flow?.cancel(); dismiss() }
+                        dismiss()
+                        Task { await flow?.cancel() }
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {

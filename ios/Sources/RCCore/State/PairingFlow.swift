@@ -98,12 +98,17 @@ public final class PairingFlow {
         errorMessage = nil
     }
 
+    /// Give the code back. The screen keeps showing it until the gateway has
+    /// taken it: blanking first put the "Requesting a code" placeholder on a
+    /// sheet that was about to close (owner's report, 2026-09-18), and a
+    /// scan's claim swaps codes without a gap for the same reason.
     public func cancel() async {
         guard let code = pairing?.code else { return }
+        try? await api.cancelPairing(code: code)
+        guard pairing?.code == code else { return }
         pairing = nil
         reached = .waiting
         pairedDevice = nil
-        try? await api.cancelPairing(code: code)
     }
 
     public func receive(_ frame: AppFrame) {
