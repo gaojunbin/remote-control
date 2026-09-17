@@ -1,11 +1,17 @@
-import { MoreHorizontal } from 'lucide-react';
+/**
+ * One registered device, as `docs/DESIGN.md` § "The device row" rules it: a
+ * computer glyph at the leading edge, the name once, a status line of dot,
+ * online word and platform word, and the agents as logos alone. The hostname
+ * and the architecture live on the device's own page, not here.
+ */
+import { Monitor, MoreHorizontal } from 'lucide-react';
 import { Link } from 'react-router';
 import { AgentLogo } from '../../components/AgentLogo';
 import { Popover } from '../../components/Popover';
 import { OnlineDot } from '../../components/StatusDot';
 import { cx } from '../../lib/cx';
 import { latency, relativeTime } from '../../lib/format';
-import { agentLabel, strings } from '../../strings';
+import { agentLabel, platformLabel, strings } from '../../strings';
 import { updateNotice } from '../../stores/devices';
 import type { ClientBuildInfo } from '../../lib/api';
 import type { Device } from '../../protocol/types';
@@ -59,9 +65,13 @@ export function DeviceRow({
 
   return (
     <li className="device-row">
+      {/* The same glyph on every device, whatever its platform: the app cannot
+          tell a laptop from a desktop, and it is what keeps two rows apart now
+          that nothing is drawn between them. */}
+      <Monitor className="device-glyph" strokeWidth={1.5} aria-hidden />
+
       <div className="device-main">
         <div className="device-name">
-          <OnlineDot online={device.online} pulse={updating} />
           {/* A33: the row itself opens the device. The link is stretched over
               the whole row in CSS, and the menu is lifted above it, so the
               three actions keep working and none of them navigates. */}
@@ -70,8 +80,10 @@ export function DeviceRow({
           </Link>
         </div>
         <div className="device-meta">
-          <span className="mono">
-            {device.hostname} · {device.platform} · {device.arch}
+          <span className="device-status">
+            <OnlineDot online={device.online} pulse={updating} />
+            {device.online ? strings.devices.online : strings.devices.offline} ·{' '}
+            {platformLabel(device.platform)}
           </span>
           <span className="device-reach">
             {sessionCount > 0
@@ -91,9 +103,16 @@ export function DeviceRow({
           <span className="hint">{strings.devices.noAgents}</span>
         ) : (
           agents.map((agent) => (
-            <span className="badge" key={agent.agent}>
+            // The logo alone; its name is what a screen reader and a hover get,
+            // and the version lives on the device page's agent card.
+            <span
+              className="device-agent"
+              key={agent.agent}
+              role="img"
+              aria-label={agentLabel(agent.agent)}
+              title={agentLabel(agent.agent)}
+            >
               <AgentLogo agent={agent.agent} />
-              {agent.version ? `${agentLabel(agent.agent)} ${agent.version}` : agentLabel(agent.agent)}
             </span>
           ))
         )}

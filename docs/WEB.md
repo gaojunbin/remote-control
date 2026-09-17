@@ -10,8 +10,8 @@ hand-written CSS with no framework. It talks only to the gateway and follows
 | --- | --- |
 | `/` | Decides where an open lands and goes there; the `*` fallback does the same |
 | `/login` | Username and password sign-in against the gateway, and **Create an account** when the gateway takes registrations (A24) |
-| `/devices` | Device list with online state, agents, session counts and the client build; Rename, Update and Revoke on every row; **Add device** with the copyable one-liner, the pairing code, its expiry, live handshake steps, and the scan flow beside them. The row itself opens the device |
-| `/devices/:deviceId` | One device: the machine as the row words it, then a card per agent it found, how each is signed in, and a meter per rate-limit window (A33) |
+| `/devices` | Device list: a computer glyph, the name, a status line of online state, platform, session count and reach, the client build, and the agents as logos; Rename, Update and Revoke on every row; **Add device** with the copyable one-liner, the pairing code, its expiry, live handshake steps, and the scan flow beside them. The row itself opens the device |
+| `/devices/:deviceId` | One device: the machine's own facts, including the hostname and the architecture the row drops, then a card per agent it found, how each is signed in, and a meter per rate-limit window (A33) |
 | `/pair` | Claims the token a host printed as a QR code and shows the same handshake (A23) |
 | `/sessions` | Every session across every device: one collapsible group per device, its active rows and then its own collapsed **Archive**, a search, an agent filter and a device filter, and **New session** in a right-hand drawer |
 | `/sessions/:deviceId/:sessionId` | The chat: sidebar, timeline, composer, status line |
@@ -514,7 +514,7 @@ Nothing of this reaches the gateway.
   the update can carry the same value.
 - **Devices offer three actions and one of them is Update** (A22). Every row carries Rename, Update
   and Revoke, in that order, and shows the client version with the first eight characters of
-  `client_build` under the hostname. `updateNotice` in `src/stores/devices.ts` is the one rule for
+  `client_build` under the status line. `updateNotice` in `src/stores/devices.ts` is the one rule for
   what replaces that build: "Updating…" while `update_state` is `updating`, "Update failed ·
   <message>" for `failed`, and "Update available · <version>" when the device's build differs from
   `config.client.build` — the wheel the gateway serves, read once on boot with the rest of
@@ -749,6 +749,27 @@ waits for output.
 block for Codex's read-only commands, a short turn for the rest, and nothing but the echo for
 Grok's `/context`, which renders in its own pager.
 
+## The device row
+
+`features/devices/DeviceRow.tsx` draws what `docs/DESIGN.md` § "The device row" rules. A lucide
+`Monitor` outline sits at the leading edge in the secondary ink, the same glyph on every device
+whatever its platform, because the app cannot tell a laptop from a desktop and one honest glyph
+beats a wrong guess; it is what keeps two devices apart now that no rule is drawn between them, and
+`--device-glyph` on `.device-row` is what the lines under the name and the agents on a narrow screen
+indent past. The name is the title and nothing repeats it: the hostname and the architecture left
+the row for the device's page. The status line carries the online dot, which moved off the name to
+sit with the word it belongs to, then "online" or "offline", then the platform as a word from
+`platformLabels` in `src/strings.ts` — `macos` → macOS, `linux` → Linux, and a platform that table
+does not know printed as the device sent it — and then the session count and the latency or last
+seen. The client line and the update notice (A22) are unchanged.
+
+The agents are their logos alone, evenly spaced and with no name and no version beside them; each
+logo is wrapped in a `role="img"` span whose `aria-label` and `title` are the agent's name, so the
+row still reads aloud and a hover still names the mark. Versions live on the device page's agent
+cards. `tests/DevicesPage.test.tsx` holds the row to all of it — one glyph per row, the name once,
+no hostname and no architecture, the dot inside `.device-status`, and an agent strip whose text is
+empty.
+
 ## A device's page (A33)
 
 `/devices/:deviceId` is `features/devices/DevicePage.tsx` with its own `device-page.css`. The row
@@ -756,10 +777,11 @@ opens it: `DeviceRow` wraps the device's name in a `Link` whose `::after` is str
 whole row, and the row's menu is lifted above that box, so Rename, Update and Revoke keep working
 and none of them navigates. The page repeats none of those three actions.
 
-The header words the machine exactly as the row does — the online dot, the name, `hostname ·
-platform · arch`, and the client version with the first eight characters of its build. Then one card
-per agent with `available` true, in the device's own order: the agent's logo, its name and version,
-and under it one sign-in line per account. A device with no agents says so in one line.
+The header is the online dot, the name, `hostname · platform · arch`, and the client version with
+the first eight characters of its build. The hostname and the architecture are here alone — the row
+dropped both, and this is where someone goes to check them. Then one card per agent with
+`available` true, in the device's own order: the agent's logo, its name and version, and under it
+one sign-in line per account. A device with no agents says so in one line.
 
 **The words on an account** are `features/devices/accounts.ts`, pure functions the tests drive
 directly. The vendor comes from `vendorLabels` in `src/strings.ts` — `anthropic` → Anthropic,

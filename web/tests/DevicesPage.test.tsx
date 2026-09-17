@@ -4,13 +4,13 @@
  * a portal on `document.body` and placed in viewport coordinates.
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { DevicesPage } from '../src/features/devices/DevicesPage';
 import { useDevices } from '../src/stores/devices';
 import { useSessions } from '../src/stores/sessions';
-import { strings } from '../src/strings';
+import { agentLabel, platformLabel, strings } from '../src/strings';
 import { devices } from '../mock/fixtures';
 
 beforeEach(() => {
@@ -96,5 +96,87 @@ describe('a row opens the device', () => {
 
     expect(window.location.pathname).toBe('/');
     expect(screen.getByRole('menuitem', { name: strings.common.rename })).toBeInTheDocument();
+  });
+});
+
+/**
+ * `docs/DESIGN.md` § "The device row": a computer glyph at the leading edge,
+ * the name once, a status line of dot, word and platform word, and the agents
+ * as logos alone. The hostname and the architecture are the device page's.
+ */
+describe('the platform as a word', () => {
+  it('writes the two platforms the way their makers do', () => {
+    expect(platformLabel('macos')).toBe('macOS');
+    expect(platformLabel('linux')).toBe('Linux');
+  });
+
+  it('prints a platform nobody knows as the device sent it', () => {
+    expect(platformLabel('freebsd')).toBe('freebsd');
+  });
+});
+
+describe('what a device row says', () => {
+  const rowOf = (name: string): HTMLElement => {
+    const row = screen.getByText(name).closest('.device-row');
+    if (!row) throw new Error(`no row for ${name}`);
+    return row as HTMLElement;
+  };
+
+  it('draws one computer glyph on every row, whatever the platform', () => {
+    const { container } = renderPage();
+
+    expect(container.querySelectorAll('.device-glyph')).toHaveLength(devices.length);
+    for (const device of devices) {
+      expect(rowOf(device.name).querySelector('.device-glyph')).not.toBeNull();
+    }
+  });
+
+  it('says the name once and drops the hostname and the architecture', () => {
+    renderPage();
+
+    for (const device of devices) {
+      const row = rowOf(device.name);
+      expect(row.textContent).not.toContain(device.arch);
+      // On a machine `install.sh` set up the hostname *is* the name, so what
+      // has to hold is that the row says it once, as the title and nowhere else.
+      if (device.hostname !== device.name) {
+        expect(row.textContent).not.toContain(device.hostname);
+      }
+      expect(within(row).getAllByText(device.name)).toHaveLength(1);
+    }
+  });
+
+  it('puts the dot on the status line, with the word and the platform as a word', () => {
+    renderPage();
+
+    for (const device of devices) {
+      const status = rowOf(device.name).querySelector('.device-status');
+      expect(status).not.toBeNull();
+      const word = device.online ? strings.devices.online : strings.devices.offline;
+      expect(status?.textContent).toBe(`${word} · ${platformLabel(device.platform)}`);
+      expect(within(status as HTMLElement).getByRole('img', { name: word })).toBeInTheDocument();
+      expect(status?.textContent).not.toContain(device.platform);
+    }
+  });
+
+  it('shows each agent as its logo alone, named for a reader and a hover', () => {
+    renderPage();
+
+    for (const device of devices) {
+      const row = rowOf(device.name);
+      const agents = device.agents.filter((agent) => agent.available);
+      const logos = row.querySelectorAll('.device-agent');
+      expect(logos).toHaveLength(agents.length);
+      // No name and no version anywhere in the strip — only the marks.
+      expect(row.querySelector('.device-agents')?.textContent).toBe('');
+
+      for (const [index, agent] of agents.entries()) {
+        const label = agentLabel(agent.agent);
+        const logo = logos[index] as HTMLElement;
+        expect(logo).toHaveAttribute('aria-label', label);
+        expect(logo).toHaveAttribute('title', label);
+        expect(within(row).getByRole('img', { name: label })).toBe(logo);
+      }
+    }
   });
 });

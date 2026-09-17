@@ -143,6 +143,7 @@ export const en = {
       `Revoke ${name}? Its token stops working and its sessions leave this gateway. The machine keeps its agents and transcripts.`,
     revokeConfirm: 'Revoke device',
     noAgents: 'No agents detected',
+    online: 'online',
   },
 
   /**
@@ -608,6 +609,20 @@ export const agentLabels: Record<string, string> = {
 
 export function agentLabel(agent: string): string {
   return agentLabels[agent] ?? agent;
+}
+
+/**
+ * The platforms a device reports, written the way their makers write them. The
+ * device row says the word, never the raw id (`docs/DESIGN.md` § "The device
+ * row"); a platform this table does not know is printed as the device sent it.
+ */
+export const platformLabels: Record<string, string> = {
+  macos: 'macOS',
+  linux: 'Linux',
+};
+
+export function platformLabel(platform: string): string {
+  return platformLabels[platform] ?? platform;
 }
 
 /**

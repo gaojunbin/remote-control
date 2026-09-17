@@ -60,7 +60,9 @@ beforeEach(() => {
 afterEach(() => vi.mocked(rpc).mockReset());
 
 describe('the header and the agent list', () => {
-  it('words the machine the way the row does', async () => {
+  // `docs/DESIGN.md` § "The device row": the row dropped both of these, and
+  // this line under the title is the only place left that carries them.
+  it('keeps the hostname and the architecture the row no longer shows', async () => {
     renderPage('dev-mac');
     const device = deviceNamed('dev-mac');
 
