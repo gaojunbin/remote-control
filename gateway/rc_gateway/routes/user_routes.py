@@ -159,6 +159,7 @@ async def delete_user(
         await remove_device(state, record.device_id, account.username)
     await state.devices.drop_pairings_for_user(account.username)
     await state.push_store.remove_for_user(account.username)
+    await state.preference_store.remove_for_user(account.username)
     await state.sessions.revoke_for_user(account.username)
     await state.users.delete(account.username)
     log.info("account deleted", username=account.username)

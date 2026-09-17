@@ -14,7 +14,7 @@ import asyncio
 import contextlib
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
@@ -148,6 +148,26 @@ class SessionTransition:
 TransitionHook = Callable[[SessionTransition], Awaitable[None]]
 
 
+@dataclass(frozen=True)
+class SessionResumeNotice:
+    """A ``resume`` event a device published, as the push trigger receives it (A35, §5.15).
+
+    This one is not a state change: the session stays idle while a resume waits, so the device's
+    decision is the only thing that says a person should be told. Which statuses are worth a
+    notification is push's to decide; the hub reports every one of them.
+    """
+
+    status: str
+    session_id: str
+    device_id: str
+    #: The account that owns the device: only its registrations are notified (A24).
+    owner: str
+    has_active_subscriber: bool
+
+
+ResumeHook = Callable[[SessionResumeNotice], Awaitable[None]]
+
+
 @dataclass
 class _Pending:
     device_id: str
@@ -184,6 +204,7 @@ class Hub:
         device_store: DeviceStore,
         *,
         on_session_transition: TransitionHook | None = None,
+        on_session_resume: ResumeHook | None = None,
         request_timeout: float = REQUEST_TIMEOUT_SECONDS,
         offline_grace: float = OFFLINE_GRACE_SECONDS,
         update_timeout: float = UPDATE_TIMEOUT_SECONDS,
@@ -194,6 +215,7 @@ class Hub:
         self.offline_grace = offline_grace
         self.update_timeout = update_timeout
         self._on_session_transition = on_session_transition
+        self._on_session_resume = on_session_resume
         self._devices: dict[str, DeviceConnection] = {}
         self._apps: dict[str, AppConnection] = {}
         self._buffers: dict[str, ReplayBuffer] = {}
@@ -204,7 +226,7 @@ class Hub:
         self._pending: dict[tuple[str, str], _Pending] = {}
         self._gateway_pending: dict[str, asyncio.Future[Frame]] = {}
         self._backfills: set[asyncio.Task[None]] = set()
-        self._transitions: set[asyncio.Task[None]] = set()
+        self._notifications: set[asyncio.Task[None]] = set()
         self._grace: dict[str, _Grace] = {}
         self._updates: dict[str, asyncio.Task[None]] = {}
         self._pairings: dict[str, _Pairing] = {}
@@ -232,7 +254,7 @@ class Hub:
             self._end_grace(device_id)
         for device_id in list(self._updates):
             self._cancel_update_timer(device_id)
-        await self._drain_transitions()
+        await self._drain_notifications()
         for waiting in self._gateway_pending.values():
             waiting.cancel()
         self._gateway_pending.clear()
@@ -245,18 +267,18 @@ class Hub:
         self._devices.clear()
         self._apps.clear()
 
-    async def _drain_transitions(self) -> None:
+    async def _drain_notifications(self) -> None:
         """Let the pushes already in flight finish, rather than dropping a notification.
 
         A vendor that has stopped answering must not hold the shutdown open, so whatever is still
         running when the grace period ends is cancelled.
         """
-        pending = list(self._transitions)
+        pending = list(self._notifications)
         if pending:
             _, unfinished = await asyncio.wait(pending, timeout=TRANSITION_DRAIN_SECONDS)
             for task in unfinished:
                 task.cancel()
-        self._transitions.clear()
+        self._notifications.clear()
 
     def device_online(self, device_id: str) -> bool:
         """True while the device holds its slot, and through the A13 grace period after it drops."""
@@ -614,7 +636,14 @@ class Hub:
                 pending.timer.cancel()
 
     async def app_hello_payload(
-        self, account: UserRecord, gateway_version: str, stt: Frame, polish: Frame, apps: Frame
+        self,
+        account: UserRecord,
+        gateway_version: str,
+        *,
+        stt: Frame,
+        polish: Frame,
+        apps: Frame,
+        preferences: Frame,
     ) -> Frame:
         """The first frame of `/ws/app`: this account's devices and their sessions, nothing else."""
         records = await self.device_store.list_for_user(account.username)
@@ -642,6 +671,9 @@ class Hub:
             # A31: repeated here so a gateway upgraded under a connected app is caught at the
             # next connection, not only before sign-in.
             "apps": apps,
+            # A35: the account's switches, so an app draws them without a second round trip and
+            # an app on a gateway that predates them sees none and says so.
+            "preferences": preferences,
             "server_time": _now_ms(),
         }
 
@@ -676,6 +708,31 @@ class Hub:
             connections = [item for item in self._apps.values() if item.username == username]
         for connection in connections:
             await self._send_app(connection, frame)
+
+    async def send_to_devices(self, username: str, frame: Frame) -> None:
+        """Publish to every connected device of one account (A35's `preferences` frame).
+
+        Not taken through the send lock: that lock exists to linearise large forwarded payloads
+        against slot changes, and holding it for a frame of two fields would put an account's
+        switch behind somebody else's attachment upload.
+        """
+        if not username:
+            return
+        async with self._lock:
+            connections = list(self._devices.values())
+        for connection in connections:
+            if await self.device_owner(connection.device_id) != username:
+                continue
+            try:
+                await connection.send(frame)
+            except (SlowClientError, ConnectionError) as exc:
+                log.warning(
+                    "frame to device failed",
+                    device_id=connection.device_id,
+                    kind=frame_type(frame),
+                    error=str(exc),
+                )
+                await self._drop_device(connection)
 
     # ---- pairing progress ----
 
@@ -1066,6 +1123,10 @@ class Hub:
         for subscriber in subscribers:
             subscriber.subscribe(session_id, seq)
             await self._send_app(subscriber, outgoing)
+        if text_field(event, "kind") == "resume":
+            # A35: a pending resume changes no session state, so this event is the only thing
+            # that can tell someone their session was paused, resumed or given up on.
+            await self._notify_resume(device, session_id, event)
         return True
 
     # ---- session index ----
@@ -1109,9 +1170,7 @@ class Hub:
             owner=owner,
             has_active_subscriber=self._has_active_subscriber(indexed.session_id),
         )
-        task = asyncio.create_task(self._run_transition(hook, transition))
-        self._transitions.add(task)
-        task.add_done_callback(self._transitions.discard)
+        self._spawn_notification(self._run_transition(hook, transition))
 
     async def _run_transition(self, hook: TransitionHook, transition: SessionTransition) -> None:
         try:
@@ -1123,6 +1182,38 @@ class Hub:
                 "session transition hook failed",
                 session_id=text_field(transition.session, "session_id"),
             )
+
+    async def _notify_resume(self, device: DeviceConnection, session_id: str, event: Frame) -> None:
+        """Cue a push from a ``resume`` event (A35, §3.7).
+
+        The device decided; the gateway only announces. Run off the read loop for the reason
+        `_notify_transition` gives, and with the same rule about an app that is already watching.
+        """
+        hook = self._on_session_resume
+        if hook is None:
+            return
+        notice = SessionResumeNotice(
+            status=text_field(event, "status"),
+            session_id=session_id,
+            device_id=device.device_id,
+            owner=await self.device_owner(device.device_id),
+            has_active_subscriber=self._has_active_subscriber(session_id),
+        )
+        self._spawn_notification(self._run_resume(hook, notice))
+
+    async def _run_resume(self, hook: ResumeHook, notice: SessionResumeNotice) -> None:
+        try:
+            await hook(notice)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("session resume hook failed", session_id=notice.session_id)
+
+    def _spawn_notification(self, work: Coroutine[Any, Any, None]) -> None:
+        """Run a push trigger as a task the shutdown drains."""
+        task = asyncio.create_task(work)
+        self._notifications.add(task)
+        task.add_done_callback(self._notifications.discard)
 
     async def _forget_session(self, device_id: str, session_id: str) -> None:
         if not await self._claim_session(device_id, session_id):

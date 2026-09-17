@@ -18,7 +18,7 @@ from rc_gateway.push import build_payload
 from rc_gateway.replay import ReplayBuffer
 from rc_gateway.state import GatewayState
 
-from .conftest import FIXTURE_DIR, drain_until, enroll_device, write_wheel
+from .conftest import FIXTURE_DIR, drain_until, enroll_device, session_summary, write_wheel
 
 pytestmark = pytest.mark.skipif(
     not FIXTURE_DIR.is_dir(), reason="protocol/fixtures has not been produced yet"
@@ -101,6 +101,7 @@ def test_every_forwarded_fixture_round_trips(
     enrolled = enroll_device(client, auth)
     hello = fixture("device", "hello.json")
     headers = {"Authorization": f"Bearer {enrolled['device_token']}"}
+    known = {item["session_id"] for item in hello["sessions"]}
     with client.websocket_connect("/ws/device", headers=headers) as device:
         device.send_json(hello)
         device.receive_json()
@@ -108,6 +109,17 @@ def test_every_forwarded_fixture_round_trips(
             drain_until(app, "hello")
             if "device_id" in forwarded and "session_id" not in forwarded:
                 request["device_id"] = enrolled["device_id"]
+            session_id = forwarded.get("session_id")
+            if session_id is not None and session_id not in known:
+                # A35's two requests name a session of their own, so the index has to know it
+                # before the gateway can route them to the device that owns it.
+                device.send_json(
+                    {
+                        "type": "session.updated",
+                        "session": session_summary(session_id, enrolled["device_id"]),
+                    }
+                )
+                drain_until(app, "session.updated")
             app.send_json(request)
             seen = drain_until(device, forwarded["type"])
             assert seen["id"] == forwarded["id"]

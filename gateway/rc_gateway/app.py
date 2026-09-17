@@ -26,12 +26,14 @@ from .hub import Hub
 from .index import SessionIndex
 from .logging import logger
 from .polish import PolishClient, Polisher
+from .preference_store import PreferenceStore
 from .push import PushService
 from .push_store import PushStore
 from .ratelimit import MAX_PER_IP, RateLimiter
 from .routes import (
     device_routes,
     polish_routes,
+    preference_routes,
     push_routes,
     session_routes,
     static_routes,
@@ -86,6 +88,7 @@ def build_state(
         devices=DeviceStore(config.db_path("devices.sqlite3")),
         index=SessionIndex(config.db_path("sessions.sqlite3")),
         push_store=PushStore(config.db_path("push.sqlite3")),
+        preference_store=PreferenceStore(config.db_path("preferences.sqlite3")),
         auth_store=auth_store,
         users=UserStore(config.db_path("users.sqlite3")),
         sessions=SessionRegistry(auth_store),
@@ -105,7 +108,10 @@ def build_state(
         apns=state.apns,
     )
     state.hub = Hub(
-        state.index, state.devices, on_session_transition=state.push.on_session_transition
+        state.index,
+        state.devices,
+        on_session_transition=state.push.on_session_transition,
+        on_session_resume=state.push.on_session_resume,
     )
     state.transcriber = transcriber if transcriber is not None else _build_transcriber(config)
     state.polisher = polisher if polisher is not None else _build_polisher(config)
@@ -157,6 +163,7 @@ def create_app(state: GatewayState | None = None) -> FastAPI:
     app.include_router(session_routes.router)
     app.include_router(user_routes.router)
     app.include_router(device_routes.router)
+    app.include_router(preference_routes.router)
     app.include_router(push_routes.router)
     app.include_router(stt_routes.router)
     app.include_router(polish_routes.router)

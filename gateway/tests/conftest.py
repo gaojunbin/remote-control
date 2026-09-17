@@ -21,6 +21,7 @@ from rc_gateway.hub import (
     OFFLINE_GRACE_SECONDS,
     UPDATE_TIMEOUT_SECONDS,
     Hub,
+    ResumeHook,
     TransitionHook,
 )
 from rc_gateway.index import SessionIndex
@@ -175,6 +176,7 @@ def state(
         built.index,
         built.devices,
         on_session_transition=built.push.on_session_transition,
+        on_session_resume=built.push.on_session_resume,
         request_timeout=0.4,
         # Short enough to drive the A13 grace period in a test, and well inside the request
         # timeout above so a parked request is still answered `device_offline` rather than
@@ -383,6 +385,7 @@ async def hub_rig(
     tmp_path: Path,
     *,
     on_session_transition: TransitionHook | None = None,
+    on_session_resume: ResumeHook | None = None,
     request_timeout: float = REQUEST_TIMEOUT_SECONDS,
     offline_grace: float = OFFLINE_GRACE_SECONDS,
     update_timeout: float = UPDATE_TIMEOUT_SECONDS,
@@ -408,6 +411,7 @@ async def hub_rig(
         index,
         devices,
         on_session_transition=on_session_transition,
+        on_session_resume=on_session_resume,
         request_timeout=request_timeout,
         offline_grace=offline_grace,
         update_timeout=update_timeout,

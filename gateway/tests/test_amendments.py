@@ -379,7 +379,9 @@ def test_no_backfill_when_the_buffer_is_empty_or_current(
                 drain_until(revived, "hello_ack")
                 app.send_json({"type": "session.stop", "id": "marker", "session_id": SESSION_ID})
                 seen = collect_until(revived, "session.stop")
-    assert [frame["type"] for frame in seen] == ["session.stop"]
+    # A35 sends the account's switches after the ack, on every connect, so that one frame may
+    # land here too; what must not appear is a `session.history` request.
+    assert [frame["type"] for frame in seen if frame["type"] != "preferences"] == ["session.stop"]
 
 
 def test_a_backfill_is_requested_only_for_sessions_that_fell_behind(

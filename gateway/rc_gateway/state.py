@@ -21,6 +21,7 @@ from .hub import Hub
 from .index import SessionIndex
 from .pairing_requests import PairingRequests
 from .polish import Polisher
+from .preference_store import Preferences, PreferenceStore
 from .push import PushService
 from .push_store import PushStore
 from .ratelimit import RateLimiter
@@ -38,6 +39,7 @@ class GatewayState:
     devices: DeviceStore
     index: SessionIndex
     push_store: PushStore
+    preference_store: PreferenceStore
     auth_store: AuthSessionStore
     users: UserStore
     sessions: SessionRegistry
@@ -74,6 +76,22 @@ class GatewayState:
     def apps_view(self) -> dict[str, Any]:
         """A31: the oldest separately installed app this gateway works with."""
         return apps_view(self.config)
+
+    async def preferences_view(self, username: str) -> dict[str, Any]:
+        """A35: the switches one account reads, whether it has ever set one or not."""
+        return (await self.preference_store.get(username)).view()
+
+    async def publish_preferences(self, username: str, preferences: Preferences) -> None:
+        """Announce a change to everything the account has connected (A35).
+
+        The apps need it to redraw the switch they did not flip; the devices need it to act on,
+        which is the whole point of storing it here rather than in an app.
+        """
+        view = preferences.view()
+        await self.hub.broadcast_user(
+            username, {"type": "preferences.updated", "preferences": view}
+        )
+        await self.hub.send_to_devices(username, {"type": "preferences", "preferences": view})
 
     def client_view(self) -> dict[str, Any] | None:
         """The served wheel (A22), or None in a checkout where none has been built."""

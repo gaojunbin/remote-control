@@ -45,7 +45,12 @@ async def app_socket(ws: WebSocket) -> None:
     try:
         await connection.send(
             await state.hub.app_hello_payload(
-                account, VERSION, state.stt_view(), state.polish_view(), state.apps_view()
+                account,
+                VERSION,
+                stt=state.stt_view(),
+                polish=state.polish_view(),
+                apps=state.apps_view(),
+                preferences=await state.preferences_view(credential.username),
             )
         )
         while True:

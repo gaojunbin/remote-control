@@ -40,6 +40,9 @@ FORWARDED_BY_SESSION = frozenset(
         "session.commands",
         "session.command",
         "session.queue_remove",
+        # A35: the device owns the schedule, so both of these are questions only it can answer.
+        "session.resume_set",
+        "session.resume_cancel",
         "session.takeover",
         "session.archive",
         "session.delete",

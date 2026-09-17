@@ -1,8 +1,9 @@
 """Notification triggers and delivery.
 
-The gateway pushes on four observed session transitions and never on the content of a turn: the
+The gateway pushes on four observed session transitions, and on three of the things a device does
+about a session the vendor's usage limit stopped (A35), and never on the content of a turn: the
 payload carries identifiers and one generic sentence, so a notification on a lock screen tells the
-user which device wants attention and nothing about the code being written. A transition is
+user which device wants attention and nothing about the code being written. Either cue is
 delivered to the registrations of the account that owns the device and to nobody else (A24).
 """
 
@@ -17,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol
 
 from .apns import ApnsProvider, ApnsResponse
-from .hub import SessionTransition
+from .hub import SessionResumeNotice, SessionTransition
 from .logging import logger
 from .push_store import PushStore, WebPushSubscription
 
@@ -27,6 +28,10 @@ KIND_NEEDS_APPROVAL = "needs_approval"
 KIND_NEEDS_INPUT = "needs_input"
 KIND_TURN_COMPLETED = "turn_completed"
 KIND_ERROR = "error"
+#: A35: what a device did about a session the vendor's usage limit stopped (§3.7, §7.2).
+KIND_LIMIT_REACHED = "limit_reached"
+KIND_RESUMED = "resumed"
+KIND_RESUME_DROPPED = "resume_dropped"
 
 ACTIVE_STATES = frozenset({"running", "needs_approval", "needs_input"})
 _TEXTS = {
@@ -34,6 +39,16 @@ _TEXTS = {
     KIND_NEEDS_INPUT: "waiting for your answer",
     KIND_TURN_COMPLETED: "turn finished",
     KIND_ERROR: "session error",
+    KIND_LIMIT_REACHED: "paused by the usage limit",
+    KIND_RESUMED: "resumed after the limit reset",
+    KIND_RESUME_DROPPED: "not resumed",
+}
+#: The `resume` statuses worth interrupting someone about (A35). `rescheduled` is a time moving
+#: and `cancelled` is something the person just did, so neither is announced.
+_RESUME_KINDS = {
+    "scheduled": KIND_LIMIT_REACHED,
+    "fired": KIND_RESUMED,
+    "dropped": KIND_RESUME_DROPPED,
 }
 RETRY_BACKOFF_SECONDS = (30.0, 120.0, 600.0)
 MAX_ATTEMPTS = 4
@@ -68,6 +83,11 @@ def transition_kind(previous_state: str, state: str) -> str | None:
     if state == "idle" and previous_state in ACTIVE_STATES:
         return KIND_TURN_COMPLETED
     return None
+
+
+def resume_kind(status: str) -> str | None:
+    """Map a ``resume`` event's status to a notification kind, or ``None`` for a silent one."""
+    return _RESUME_KINDS.get(status)
 
 
 def build_payload(kind: str, session: dict[str, Any], device_name: str) -> dict[str, Any]:
@@ -144,6 +164,20 @@ class PushService:
         await self.notify(
             kind, transition.session, await self._device_name(device_id), transition.owner
         )
+
+    async def on_session_resume(self, notice: SessionResumeNotice) -> None:
+        """A35: the device said what it did about a paused session, and the phone is told."""
+        kind = resume_kind(notice.status)
+        if kind is None:
+            return
+        if notice.has_active_subscriber:
+            log.debug("push suppressed: an app is watching this session", kind=kind)
+            return
+        if not notice.owner:
+            log.debug("push skipped: the device has no owner", kind=kind)
+            return
+        session = {"session_id": notice.session_id, "device_id": notice.device_id}
+        await self.notify(kind, session, await self._device_name(notice.device_id), notice.owner)
 
     async def notify(
         self, kind: str, session: dict[str, Any], device_name: str, owner: str

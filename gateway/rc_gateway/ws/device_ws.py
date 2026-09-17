@@ -94,6 +94,14 @@ async def device_socket(ws: WebSocket) -> None:
                 },
             }
         )
+        # A35: right after the ack, before any request, so a device that has just come back knows
+        # whether to resume a session the usage limit stopped without asking for the value.
+        await connection.send(
+            {
+                "type": "preferences",
+                "preferences": await state.preferences_view(record.username),
+            }
+        )
         while True:
             frame = await _receive(reader)
             if frame is None:
