@@ -713,8 +713,12 @@ until the last row of its transcript is an assistant message that ended its turn
 for thirty minutes counts as abandoned, so a subagent killed mid-tool cannot hold a session green
 for good. The rule is the same whether the device drives the session or is attached to a terminal.
 Codex announces the thread a subagent runs in as it announces any other (`thread/started`, the
-thread naming its `parentThreadId`) and that thread's turns; a parent is working while any child
-thread of its own is active, and a child is never a session of its own (A18 stands).
+thread naming its `parentThreadId`) and that thread's turns, and the parent's own timeline names
+its agents and their states; a parent is working while any child thread of its own is active, a
+child silent for thirty minutes is let go as an unwritten Claude transcript is, and a child is
+never a session of its own (A18 stands). Stopping a session whose own turn is over but whose
+subagents hold it open ends the turn as interrupted: the subagents run where the person cannot
+see them, and the stop button means "I am done waiting".
 
 **A session that speaks is alive** (A15, restated for Codex). A Codex thread the device archived
 and a terminal then resumed leaves the Archive on the first thing the thread says — a turn

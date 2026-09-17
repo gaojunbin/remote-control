@@ -386,6 +386,78 @@ it, `shared` when a terminal attached — so it never comes back still claiming 
 Archiving closes a running agent, so archiving and then sending again is a restart of the CLI, not a
 handover to a process that was still there.
 
+### Working means all of it
+
+`docs/DESIGN.md` § "Working means all of it" (owner's ruling, 2026-09-18): a session is `running`
+while any work it started is still under way — its own turn, or a subagent it spawned that has not
+finished — and its turn does not end, so no `turn_completed`, no "Turn finished" push and no drain
+of the held queue, until the last of it has. `needs_approval` and `needs_input` still mean exactly
+that, whoever asked — the agent or a subagent working for it — and `idle` means everything has
+finished. A held message therefore waits for the subagents as it waits for any turn.
+
+**Claude Code.** The CLI writes each subagent's transcript under the session's own directory,
+`<project>/<session id>/subagents/agent-<id>.jsonl`, beside an `agent-<id>.meta.json` that names the
+agent and what it was asked and never says how it is doing. `agents/claude/subagents.py` is the one
+rule: a subagent is working until the last row of its transcript is an assistant message that ended
+its turn (`end_turn`, `stop_sequence`, `max_tokens`) or the API error that stopped it — a pending
+`tool_use`, a tool result, a streamed block whose message never completed all mean it is still at
+work — and a transcript nothing has written to for thirty minutes (`SUBAGENT_STALE_S`) counts as
+abandoned, because nothing marks a subagent that was killed. `SubagentWatch` reads only each file's
+tail, remembers the finished ones by `(mtime, size)`, and costs a `stat` per file per tail interval;
+on the owner's machine it picked the two running subagents out of 153 in two milliseconds. The rule
+is deliberately not the parent's: the parent transcript is read row by row as it grows and a missing
+`stop_reason` ends its turn (A34), while 58 of 151 subagent files on the same machine end on an
+assistant row whose message never completed, and reading those as finished was the defect.
+
+Where it applies. A mirrored or attached terminal session (`sessions/mirror.py`) is busy while its
+transcript's turn is open **or** its subagents are working; the subagents are asked on every tail
+interval even when the parent transcript has not grown, because the last one finishing writes
+nothing to the parent the mirror could wait for, and only a change of answer is published. When the
+terminal process is gone, so is everything it was running, and the flag is cleared with the turn. A
+session this device drives (`agents/claude/adapter.py`) treats the SDK's `ResultMessage` the same
+way: while subagents are working the completion is held and the turn stays open, polled every five
+seconds (`SUBAGENT_POLL_S`); whatever the CLI streams meanwhile — the continuation when a subagent's
+result comes back (A34) — belongs to that same turn, a later result replaces the held stop reason,
+and the turn ends once with the whole duration. A turn the person interrupted is never held, and an
+`interrupt` while one is held ends it as `interrupted` at once: the CLI's own turn is long over and
+there is nothing on the SDK to stop. The `<task-notification>` row a finishing subagent lands in the
+parent transcript starts no second turn while the first is still open.
+
+**Codex.** A subagent runs in a thread of its own on the shared daemon. The thread object names its
+parent — `parentThreadId` at the top level, and again as `parent_thread_id` inside the `source`
+object a subagent carries (`SubAgentSource`: `thread_spawn`, `review`, `compact`,
+`memory_consolidation`) — and `daemon/threads.py::parent_of` reads either. A thread whose parent is
+a session of ours is remembered as that session's child (`daemon/children.py`, `ChildIndex`) the
+moment `thread/started` or a `thread/read` describes it, and is never a session and never foreign
+(A18 stands); everything it then says — `turn/started`, its items, `turn/completed`,
+`thread/status/changed`, `thread/closed` — reaches the apps as one fact about the parent: whether
+work the session started is still running (`ChildWatch`). The parent's own timeline is the second
+source, for a daemon that never sends us a child's notifications: a `collabAgentToolCall` item
+names the agents it addressed (`receiverThreadIds`) and carries the daemon's own `agentsStates`
+(`in_progress`, `completed`, `failed`, … — anything but a finished word is work), and a
+`subAgentActivity` item names the thread whose work it reports. A child that has said nothing for
+thirty minutes (`CHILD_STALE_S`, checked on the scan interval) is let go, as an unwritten Claude
+transcript is.
+
+`CodexDaemonSession` holds the turn: when its own `turn/completed` arrives while children are
+working, the completion's stop reason, usage and limit are kept (`HeldTurn`) and nothing is
+published — the session stays `running` and `busy`, so held messages wait — until the last child
+finishes, when the turn ends once with the whole duration. A parent `turn/started` or a status
+going active while a turn is held is that same turn carrying on. An `interrupt` while held ends the
+turn as `interrupted` at once: the parent has no turn for `turn/interrupt` to stop, and the children
+are let go. A permission a child asks for still reaches only the terminal: the device is not
+subscribed to child threads, and the daemon's routing of a subagent's approval is unverified.
+
+**A session that speaks is alive.** A Codex thread the device holds a session for but no runner —
+archived, or read back after a restart — that sends any notification is attached on that word:
+`_retry_attach` revives the session (A15), resumes the thread, records a terminal in it
+(`claim_terminal`, since the client that spoke is not this one) and publishes `shared`, and the
+notification that triggered it is delivered to the new runner. Speaking is also proof the daemon has
+the thread loaded, so the index being a scan behind no longer matters. Waiting for `thread/started`
+— which a TUI's `codex resume <id>` may never produce for other clients (unverified) — is what left
+a resumed session in the Archive while it worked. A thread that is merely in the loaded list, and
+says nothing, stays where it was.
+
 ### Titles
 
 A session has three possible names, in order of precedence:

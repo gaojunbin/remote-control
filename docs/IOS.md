@@ -460,6 +460,13 @@ app reads one of them through `InstallCommands.command`, which says in a comment
 does. `PairingFlow` holds no platform, and `Verification/StoreChecks.swift` checks the two keys
 carry the same command.
 
+**Cancel leaves at once.** The sheet's Cancel dismisses first and gives the code back behind the
+closed sheet, and `PairingFlow.cancel()` keeps the code on screen until the gateway has taken it —
+it used to blank the flow and then wait for the answer, which drew the "Requesting a code"
+placeholder on a sheet that was already closing (owner's report, 2026-09-18). A scan's claim swaps
+codes the same way, without a gap. `Tests/RCCoreTests/PairingFlowTests.swift` holds `cancel()` to
+that with a gateway whose answer the test releases, and the pairing UI test ends by cancelling.
+
 **Scan a code (A23).** The Add device sheet keeps the code flow first and adds **Scan a code**
 beside it. The scanner is a full-screen camera with the two steps on a card over it — the one-liner
 `curl -fsSL <origin>/install.sh | sh` with a Copy button, then "Point this camera at the QR code it

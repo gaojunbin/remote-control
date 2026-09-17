@@ -1896,6 +1896,69 @@ row was not exercised on either app (the demo and mock paths fit); neither app w
 phone or in a browser beyond the screenshots; the chat sidebar's compact rows are unchanged and
 were not looked at.
 
+## 37. Working means all of it; a resumed Codex thread is alive; Cancel leaves at once (2026-09-18, 1.4.4)
+
+Three owner's reports from the phone. (1) A Codex session started from Remote Control, archived,
+then resumed in a terminal with `codex resume <id>` kept working but never came back to the Active
+list. (2) When Claude Code or Codex hands work to subagents, the session read "Idle" or "Turn
+finished" (amber) instead of working (green); the rule wanted: waiting only when everything is
+finished or the agent has an explicit question, working while any task — a subagent's included —
+still runs. (3) On iOS, Add device then Cancel flashed the "Requesting a code" screen. Ruled in
+`docs/DESIGN.md` § "Working means all of it" and § "A session that speaks is alive" (11a9835, frozen
+before implementation); built by two subagents in worktrees (`state-claude`, `state-codex`) on
+non-overlapping files and merged (93d10a7, fa8e3e0); the iOS fix by the orchestrator (723d1ce).
+
+**Client, Claude Code.** `agents/claude/subagents.py`: a subagent is working until its transcript's
+last row is an assistant message that ended its turn or the API error that stopped it; thirty
+minutes unwritten means abandoned. Mirrored and attached terminal sessions are busy while the
+parent's turn is open or any subagent works, asked every tail interval; an SDK-driven session holds
+its `ResultMessage` and ends the turn once when the last subagent has finished. Verified read-only
+against the owner's live session (153 subagent transcripts): the watcher named exactly the two
+running — the round's own two subagents — in 2 ms cold, 1 ms warm; tail shapes as the brief said
+(88 `end_turn`, 58 `stop_reason: null` of which 56 older than thirty minutes, 5 usage-limit rows, 1
+`tool_use`, 1 attachment). 29 tests in `tests/test_claude_subagents.py`. Judgements: an interrupted
+turn is never held; an `interrupt` while held ends the turn as `interrupted`; a held message waits
+for the subagents as it waits for any turn.
+
+**Client, Codex.** `_retry_attach` no longer requires the thread in the loaded index and revives an
+archived or restored session on the thread's first notification, attaches it, records the terminal
+that spoke and publishes `shared`; the notification is delivered to the new runner. Two tests stage
+the owner's case (`origin: "remote"`, archived, no `thread/started`, then `turn/started`; then
+`thread/status/changed` `active`); a thread only in the loaded list stays archived. Children:
+`daemon/children.py` + `threads.parent_of`; a thread naming one of our sessions as parent is that
+session's child, never a session, never foreign; its notifications and the parent's
+`collabAgentToolCall` (`receiverThreadIds`, `agentsStates`) and `subAgentActivity` items feed one
+flag; `CodexDaemonSession` holds a completed turn while children work and ends it once; a child
+silent for thirty minutes is let go on the scan interval. Shapes confirmed by read-only string
+search of the installed binary: `parentThreadId` on the Thread object, `SubAgentSource` variants
+with `parent_thread_id/depth/agent_path`, `collabAgentToolCall` with
+`receiverThreadIds/agentsStates/status`, agent states `in_progress|completed|failed`,
+`ThreadStatus` `notLoaded|idle|systemError|active{activeFlags}`. The fake daemon exercised both
+signals (a child's own `thread/started`/`turn/completed`/`thread/closed`, and `agents_states` on a
+parent item, snake-cased to prove `normalise` leaves UUID keys alone); `subAgentActivity` has unit
+tests only. 13 new tests.
+
+**iOS.** `PairingFlow.cancel()` keeps the code until the gateway has taken it back and the sheet's
+Cancel dismisses first; `Tests/RCCoreTests/PairingFlowTests.swift` (3, with a gateway whose answer
+the test releases) and the pairing UI test now ends by cancelling.
+
+**Counts.** Client 1071 → 1113 (+3 skipped), ruff/format/mypy clean; gateway 397; web 661 with tsc,
+lint and build clean; iOS RCVerify 1357, RCUIVerify 467, unit tests 365 → 368; UI tests on simulator
+32BBA636: the pairing sheet (before and after the bump) and the About version row, 0 failures. All
+four components 1.4.4, iOS build 11, tag v1.4.4.
+
+**Not verified.** No live run against the real daemon or a real SDK-driven Claude session with
+background subagents: the Claude adapter path was exercised with a faked result, the Codex paths
+with the fake daemon; whether the real daemon sends a bystander client a child thread's
+`thread/started`, and whether a TUI's `codex resume` produces one at all, remain unobserved (the
+fix for (1) does not depend on it). A permission a Codex child asks for still reaches only the
+terminal; the device is not subscribed to child threads. A `subAgentActivity` row completing marks
+its thread inactive until a later row or notification says otherwise, which could end a held turn
+early where that row is the only evidence. One load-time flake
+(`test_a_thread_a_terminal_opens_is_no_session_until_it_speaks`, a 2 s settle) passed alone five
+times and on four later full runs. The iOS flash itself was not reproduced on a device; the
+ordering that caused it is what the unit test pins.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
