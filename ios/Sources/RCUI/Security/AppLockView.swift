@@ -42,7 +42,9 @@ struct AppPrivacyCover: View {
     var body: some View {
         VStack(spacing: 16) {
             AppMark(size: 64)
-            Text("Remote Control").font(.title2.weight(.medium)).foregroundStyle(Theme.ink)
+            // The product's own name, never translated — and no longer a
+            // catalogue key, which the session row now spends on the origin.
+            Text(verbatim: "Remote Control").font(.title2.weight(.medium)).foregroundStyle(Theme.ink)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.canvas)

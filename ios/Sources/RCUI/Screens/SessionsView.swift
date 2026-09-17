@@ -11,6 +11,12 @@ struct SessionsView: View {
         @Bindable var sessions = model.sessions
         let groups = model.sessions.groups(model.connection.sessions, devices: model.connection.devices)
         List {
+            // What the colours mean, above the first machine. An empty list
+            // draws no dots, so it gets no key to them either.
+            if !groups.isEmpty {
+                legend
+            }
+
             ForEach(groups) { group in
                 Section {
                     if !group.collapsed {
@@ -80,6 +86,35 @@ struct SessionsView: View {
         .sheet(isPresented: $isCreating) {
             NewSessionSheet().environment(model)
         }
+    }
+
+    /// The key to the dots, once per screen and in a caption's voice
+    /// (`docs/DESIGN.md` § "A legend, once, and quiet"): four colours with their
+    /// words, no box, no border, no title. The Devices screen and the chat never
+    /// draw it, because nothing is explained twice.
+    private var legend: some View {
+        HStack(spacing: Theme.Space.tight) {
+            ForEach(DotLegend.entries) { entry in
+                HStack(spacing: 5) {
+                    // The size the rows use, so the key reads as the same mark.
+                    StatusDot(tone: entry.tone)
+                    Text(entry.text)
+                        .font(Theme.Text.caption)
+                        .foregroundStyle(Theme.inkSecondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 0, leading: Theme.Space.medium,
+                                  bottom: Theme.Space.tight, trailing: Theme.Space.medium))
+        // One element rather than eight: a reader hears the key as a sentence
+        // and moves on, instead of stepping through four dots and four words.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(DotLegend.entries.map(\.text).joined(separator: ", "))
+        .accessibilityIdentifier("sessions.legend")
     }
 
     /// All, then the agents the list actually contains. The choice is a view of
@@ -236,9 +271,10 @@ struct SessionsView: View {
 }
 
 /// Three lines (`docs/DESIGN.md` § "The session row"): the title with the time
-/// at the trailing edge; the agent chip with the status — dot and word — at the
-/// trailing edge; and the working directory alone, after a folder glyph, so the
-/// path has the whole width and the second line says two things, not three.
+/// at the trailing edge; the agent chip with the dot and where the session came
+/// from at the trailing edge; and the working directory alone, after a folder
+/// glyph, so the path has the whole width and the second line says two things,
+/// not three.
 struct SessionRow: View {
     let session: Session
     /// A session on a machine that is not reachable shows a grey dot whatever
@@ -266,7 +302,8 @@ struct SessionRow: View {
                         .foregroundStyle(Theme.inkSecondary)
                     separator
                 }
-                StatusLabel(tone: session.dotTone(online: online), text: session.statusLabel)
+                SessionOriginLabel(tone: session.dotTone(online: online),
+                                   origin: session.originLabel)
             }
             HStack(spacing: 5) {
                 // The path has the line to itself and truncates from the head,
@@ -287,7 +324,7 @@ struct SessionRow: View {
 
     private var label: String {
         let title = session.title.isEmpty ? "Untitled session" : session.title
-        var parts = [title, session.agentLabel, session.statusLabel]
+        var parts = [title, session.agentLabel, session.originLabel]
         if session.archived { parts.append("archived") }
         parts.append(session.cwd)
         return parts.joined(separator: ", ")

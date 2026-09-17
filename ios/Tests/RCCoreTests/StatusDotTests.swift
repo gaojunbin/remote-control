@@ -67,3 +67,24 @@ struct StatusDotTests {
         #expect(session.dotTone(online: false) == .off)
     }
 }
+
+/// The key to the colours the Sessions screen draws above its list.
+@Suite("Dot legend: four colours, four words")
+struct DotLegendTests {
+    @Test("Four entries, in the order they are read")
+    func order() {
+        #expect(DotLegend.entries.map(\.text) == ["Working", "For you", "Not running", "Error"])
+    }
+
+    @Test("One entry per colour, and the amber one is the still one")
+    func tones() {
+        #expect(DotLegend.entries.map(\.tone) == [.working, .live, .off, .failed])
+        #expect(!DotLegend.entries.contains { $0.tone == .waiting })
+    }
+
+    @Test("Every tone the dot can take is spoken for")
+    func everyToneIsCovered() {
+        let spoken = Set(DotLegend.entries.map(\.tone)).union([DotTone.waiting])
+        #expect(spoken == Set(DotTone.allCases))
+    }
+}

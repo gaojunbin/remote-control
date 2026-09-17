@@ -72,7 +72,9 @@ struct LoginView: View {
     private var heading: some View {
         VStack(alignment: .leading, spacing: Theme.Space.small) {
             AppMark(size: 52)
-            Text("Remote Control")
+            // The product's own name, never translated — and no longer a
+            // catalogue key, which the session row now spends on the origin.
+            Text(verbatim: "Remote Control")
                 .font(.largeTitle.weight(.semibold))
                 .foregroundStyle(Theme.ink)
             Text(isRegistering

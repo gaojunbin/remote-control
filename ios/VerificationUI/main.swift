@@ -169,7 +169,8 @@ func run() async -> (passed: Int, failures: [String]) {
         expect(!chat.allowsAttachments, "attachments cannot reach a live CLI")
         expect(!chat.allowsSettingsChanges, "model, permission mode and effort stay in the terminal")
         equal(chat.statusLine, nil, "and the composer repeats none of it")
-        equal(shared.statusLabel, "terminal · attached", "the session list names the terminal")
+        equal(shared.statusLabel, "terminal · attached", "the chat header names the terminal")
+        equal(shared.originLabel, "Terminal", "and its row says only where it came from")
         equal(shared.dotTone(online: true), DotTone.live,
               "with the amber of a session that is alive and quiet, not the grey of an exited one")
 
@@ -252,6 +253,37 @@ func run() async -> (passed: Int, failures: [String]) {
     }
     expect(!StatusDot.pulses(tone: .waiting, reduceMotion: true),
            "Reduce Motion holds even that one still, where the amber alone says it")
+
+    // MARK: - The session row says where it came from
+    //
+    // `docs/DESIGN.md` § "The session row says where it came from": the word
+    // beside the dot is the origin and never the state, whatever the session is
+    // doing, so the row and the dot cannot contradict each other.
+    let everyState: [SessionState] = [.starting, .running, .needsApproval, .needsInput,
+                                      .idle, .readonly, .stopped, .error]
+    func sample(_ origin: EventSource, _ state: SessionState) -> Session {
+        Session(sessionID: "s", deviceID: "d", agent: "claude", title: "Work", cwd: "/src",
+                state: state, origin: origin, control: .remote)
+    }
+    expect(everyState.allSatisfy { sample(.terminal, $0).originLabel == "Terminal" },
+           "a session a terminal started reads Terminal in every state it can be in")
+    expect(everyState.allSatisfy { sample(.remote, $0).originLabel == "Remote Control" },
+           "and one started from a phone or a browser reads Remote Control in every state")
+
+    // The demo list, which holds both origins and every tone at once.
+    let originWords = Set(helloSessions.map(\.originLabel))
+    equal(originWords, ["Terminal", "Remote Control"], "the demo list carries both origins")
+    let stateWords = Set(everyState.map(\.label)).union(["terminal · attached"])
+    expect(originWords.isDisjoint(with: stateWords), "and no row says what the session is doing")
+
+    // MARK: - A legend, once, and quiet
+
+    equal(DotLegend.entries.map(\.text), ["Working", "For you", "Not running", "Error"],
+          "the key to the colours reads in the order the dots are met")
+    equal(DotLegend.entries.map(\.tone), [.working, .live, .off, .failed],
+          "four entries, not five: one amber covers a question waiting and a turn finished")
+    expect(DotLegend.entries.allSatisfy { !StatusDot.pulses(tone: $0.tone, reduceMotion: false) },
+           "and nothing in a key to the colours moves")
 
     // MARK: - Amendment A12: the message is on screen before the device says so
     //

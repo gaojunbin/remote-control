@@ -101,10 +101,19 @@ extension SessionState {
 }
 
 extension Session {
-    /// What the session list and the chat header say beside the dot.
+    /// What the chat header says beside the dot.
     /// Amendment A10: an attached session names the terminal that owns it.
     public var statusLabel: String {
         isAttached ? L10n.string("terminal · attached") : state.label
+    }
+
+    /// What a session row says beside the dot: where the session came from, not
+    /// what it is doing (`docs/DESIGN.md` § "The session row says where it came
+    /// from"). A terminal started it, or this app or the browser did — and which
+    /// of the two pressed New session is nobody's business afterwards, so both
+    /// read the same word. The state is the dot's alone.
+    public var originLabel: String {
+        L10n.string(origin == .terminal ? "Terminal" : "Remote Control")
     }
 }
 
@@ -195,6 +204,31 @@ public struct StatusLabel: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(text)
+    }
+}
+
+/// A session row's dot and the word beside it: the state in colour, the origin
+/// in words. The word keeps the secondary ink whatever the dot says, so the two
+/// never say the same thing twice and never say two different things.
+public struct SessionOriginLabel: View {
+    let tone: DotTone
+    let origin: String
+
+    public init(tone: DotTone, origin: String) {
+        self.tone = tone
+        self.origin = origin
+    }
+
+    public var body: some View {
+        HStack(spacing: 5) {
+            StatusDot(tone: tone)
+            Text(origin)
+                .font(Theme.Text.meta)
+                .foregroundStyle(Theme.inkSecondary)
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(origin)
     }
 }
 

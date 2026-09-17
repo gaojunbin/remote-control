@@ -7,8 +7,9 @@ import Foundation
 /// the agent is doing, who still owns the session, and whether the machine is
 /// reachable at all. `state` alone is not enough — a finished turn on a live
 /// session and a session whose CLI exited both report `idle`, and they must not
-/// look the same. The words beside the dot stay the state's own label, so
-/// colour is never the only signal.
+/// look the same. On a session row the colour is the whole of the state, and
+/// `DotLegend` is what says so in words; the chat header still spells the state
+/// out beside its dot.
 ///
 /// The colour carries the meaning on its own: green means working — leave it;
 /// amber means there is something for you, a finished turn to read or a
