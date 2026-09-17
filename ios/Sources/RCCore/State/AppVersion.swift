@@ -40,7 +40,7 @@ public enum AppBuild {
     /// with no app bundle to ask reads it: the check suites, the UI test
     /// runner, and the demo gateway, whose served client is this app's own
     /// version because a round ships all four components together.
-    public static let shipped = "1.4.3"
+    public static let shipped = "1.4.4"
 
     /// `CFBundleShortVersionString`, which the Xcode project fills from
     /// `MARKETING_VERSION`, and `shipped` wherever there is no app bundle.
