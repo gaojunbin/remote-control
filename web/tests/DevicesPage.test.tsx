@@ -131,6 +131,27 @@ describe('what a device row says', () => {
     }
   });
 
+  it('draws the glyph as a minimal outline laptop: a rounded screen over one base line', () => {
+    const { container } = renderPage();
+
+    const glyph = container.querySelector('.device-glyph');
+    if (!glyph) throw new Error('no glyph');
+    expect(glyph.tagName.toLowerCase()).toBe('svg');
+    expect(glyph.getAttribute('fill')).toBe('none');
+    expect(glyph.getAttribute('stroke-linecap')).toBe('round');
+    expect(glyph.getAttribute('stroke-linejoin')).toBe('round');
+    expect(glyph.getAttribute('aria-hidden')).toBe('true');
+    const screen_ = glyph.querySelector('rect');
+    expect(screen_).not.toBeNull();
+    expect(Number(screen_?.getAttribute('rx'))).toBeGreaterThan(0);
+    const base = glyph.querySelector('line');
+    expect(base).not.toBeNull();
+    expect(base?.getAttribute('y1')).toBe(base?.getAttribute('y2'));
+    expect(Number(base?.getAttribute('y1'))).toBeGreaterThan(
+      Number(screen_?.getAttribute('y')) + Number(screen_?.getAttribute('height')),
+    );
+  });
+
   it('says the name once and drops the hostname and the architecture', () => {
     renderPage();
 

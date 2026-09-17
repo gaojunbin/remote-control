@@ -27,11 +27,13 @@
 
 /* One computer glyph per device, the same for every platform, in the secondary
    ink and sized to the title. `docs/DESIGN.md` § "The device row". */
+/* The laptop is drawn in the ink, as an outline: no fill, round caps and joins
+   (lucide's defaults), so it reads as a line drawing beside the name. */
 .device-glyph {
   flex: none;
   width: var(--device-glyph);
   height: var(--device-glyph);
-  color: var(--ink-secondary);
+  color: var(--ink);
 }
 
 /* A33: the whole row opens the device, and the menu still opens the menu. The

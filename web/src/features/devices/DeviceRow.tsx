@@ -4,7 +4,7 @@
  * online word and platform word, and the agents as logos alone. The hostname
  * and the architecture live on the device's own page, not here.
  */
-import { Monitor, MoreHorizontal } from 'lucide-react';
+import { LaptopMinimal, MoreHorizontal } from 'lucide-react';
 import { Link } from 'react-router';
 import { AgentLogo } from '../../components/AgentLogo';
 import { Popover } from '../../components/Popover';
@@ -65,10 +65,11 @@ export function DeviceRow({
 
   return (
     <li className="device-row">
-      {/* The same glyph on every device, whatever its platform: the app cannot
-          tell a laptop from a desktop, and it is what keeps two rows apart now
-          that nothing is drawn between them. */}
-      <Monitor className="device-glyph" strokeWidth={1.5} aria-hidden />
+      {/* The same glyph on every device, whatever its platform: a minimal
+          outline laptop, a rounded screen over one base line. The app cannot
+          tell a laptop from a desktop, and the mark is what keeps two rows
+          apart now that nothing is drawn between them. */}
+      <LaptopMinimal className="device-glyph" strokeWidth={1.5} aria-hidden />
 
       <div className="device-main">
         <div className="device-name">
