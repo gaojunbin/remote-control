@@ -28,7 +28,8 @@ export function DevicesPage() {
   const [renaming, setRenaming] = useState<Device | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [revoking, setRevoking] = useState<Device | null>(null);
-  const [updating, setUpdating] = useState<Device | null>(null);
+  // A36: the only update an app asks for is a retry of one that failed.
+  const [retrying, setRetrying] = useState<Device | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -77,7 +78,7 @@ export function DevicesPage() {
                 setRenaming(device);
                 setRenameValue(device.name);
               }}
-              onUpdate={() => setUpdating(device)}
+              onRetryUpdate={() => setRetrying(device)}
               onRevoke={() => setRevoking(device)}
             />
           ))}
@@ -126,18 +127,18 @@ export function DevicesPage() {
       </Modal>
 
       <ConfirmDialog
-        open={updating !== null}
+        open={retrying !== null}
         title={strings.devices.updateTitle}
-        body={updating ? strings.devices.updateBody(updating.name, served?.version) : ''}
+        body={retrying ? strings.devices.updateBody(retrying.name, served?.version) : ''}
         confirmLabel={strings.devices.updateConfirm}
         busy={busy}
-        onClose={() => setUpdating(null)}
+        onClose={() => setRetrying(null)}
         onConfirm={async () => {
-          if (!updating || served === undefined) return;
+          if (!retrying || served === undefined) return;
           setBusy(true);
           try {
-            await requestUpdate(updating.device_id, served.build);
-            setUpdating(null);
+            await requestUpdate(retrying.device_id, served.build);
+            setRetrying(null);
           } finally {
             setBusy(false);
           }

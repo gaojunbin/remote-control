@@ -5,9 +5,9 @@
 }
 
 /* Rows are parted by their own height, never by a rule between them. It is a
-   floor rather than a fixed height: the client line (A22) and the agent chips
-   both wrap on a narrow screen, and a clipped row would be worse than a tall
-   one. Nothing moves at the widths where they do not wrap. */
+   floor rather than a fixed height: an update notice (A36) and the agent chips
+   both take room on a narrow screen, and a clipped row would be worse than a
+   tall one. Nothing moves at the widths where they do not wrap. */
 .device-row {
   /* What the glyph takes at the leading edge: its own size, and what the agents
      on a narrow screen indent past to line up with the name. */
@@ -104,24 +104,17 @@
   color: var(--line-strong);
 }
 
-/* A22: the client build, and whatever the update has to say about it. */
+/* A36: the row's third line, drawn only while an update runs or has failed.
+   Nothing precedes it, so it needs no separator; the row's min-height is a
+   floor, so a row without it keeps the height of every other row. */
 .device-client {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 2px var(--sp-2);
   margin-top: 1px;
   font-size: var(--fs-12);
   line-height: 1.45;
-  color: var(--ink-tertiary);
-}
-
-/* The notice stands alone on the line: nothing precedes it, so no separator. */
-.device-update {
   color: var(--ink-secondary);
 }
 
-.device-update.failed {
+.device-client.failed {
   color: var(--danger);
 }
 

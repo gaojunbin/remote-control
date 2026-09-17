@@ -1,10 +1,11 @@
 /**
  * One registered device, as `docs/DESIGN.md` § "The device row" rules it: a
  * computer glyph at the leading edge, the name once, a status line of dot,
- * online word and platform word, a client line that says one thing — the
- * version the device runs, or that an update is there to take — and the agents
- * as logos alone. The hostname, the architecture, the build hash and the version
- * an update would install live on the device's own page, not here.
+ * online word and platform word, and the agents as logos alone. A third line
+ * appears only when an update is running or has failed (A36): the client
+ * version is nobody's to watch, because the gateway keeps every device on the
+ * wheel it serves without being asked. The hostname, the architecture and the
+ * build hash live on the device's own page.
  */
 import { LaptopMinimal, MoreHorizontal } from 'lucide-react';
 import { Link } from 'react-router';
@@ -26,7 +27,7 @@ interface Props {
   /** A22: why this device's last `device.update` was refused outright. */
   updateError: string | undefined;
   onRename: () => void;
-  onUpdate: () => void;
+  onRetryUpdate: () => void;
   onRevoke: () => void;
 }
 
@@ -36,7 +37,7 @@ export function DeviceRow({
   served,
   updateError,
   onRename,
-  onUpdate,
+  onRetryUpdate,
   onRevoke,
 }: Props) {
   const agents = device.agents.filter((a) => a.available);
@@ -44,26 +45,17 @@ export function DeviceRow({
     ? latency(device.latency_ms)
     : strings.devices.lastSeen(relativeTime(device.last_seen));
 
-  const notice = updateNotice(device, updateError, served);
+  const notice = updateNotice(device, updateError);
   const updating = device.update_state === 'updating';
-  // The row never names the version an update would install: the confirmation
-  // and the device page do. "Update available" is the whole of what it says.
-  const noticeText =
-    notice === null
-      ? null
-      : notice.tone === 'available'
-        ? strings.devices.updateAvailable
-        : notice.text;
 
+  // A36: nobody asks for an update; a person only tries a failed one again. The
+  // item is there while the failure is, and says why it cannot be pressed.
+  const failed = notice?.tone === 'failed';
   const blocked = !device.online
     ? strings.devices.updateOffline
-    : updating
-      ? strings.devices.updateInFlight
-      : served === undefined
-        ? strings.devices.updateNoBuild
-        : device.client_build === served.build
-          ? strings.devices.updateCurrent
-          : null;
+    : served === undefined
+      ? strings.devices.updateNoBuild
+      : null;
 
   return (
     <li className="device-row">
@@ -76,8 +68,8 @@ export function DeviceRow({
       <div className="device-main">
         <div className="device-name">
           {/* A33: the row itself opens the device. The link is stretched over
-              the whole row in CSS, and the menu is lifted above it, so the
-              three actions keep working and none of them navigates. */}
+              the whole row in CSS, and the menu is lifted above it, so its
+              actions keep working and none of them navigates. */}
           <Link className="device-open" to={`/devices/${device.device_id}`}>
             {device.name}
           </Link>
@@ -95,13 +87,9 @@ export function DeviceRow({
             · {reach}
           </span>
         </div>
-        <div className="device-client">
-          {notice && noticeText ? (
-            <span className={cx('device-update', notice.tone)}>{noticeText}</span>
-          ) : (
-            <span className="mono">{device.client_version}</span>
-          )}
-        </div>
+        {notice ? (
+          <div className={cx('device-client', notice.tone)}>{notice.text}</div>
+        ) : null}
       </div>
 
       <div className="device-agents">
@@ -146,21 +134,23 @@ export function DeviceRow({
                 <span className="menu-label">{strings.common.rename}</span>
               </button>
             </li>
-            <li>
-              <button
-                type="button"
-                role="menuitem"
-                className="menu-item"
-                disabled={blocked !== null}
-                title={blocked ?? undefined}
-                onClick={() => {
-                  close();
-                  onUpdate();
-                }}
-              >
-                <span className="menu-label">{strings.devices.update}</span>
-              </button>
-            </li>
+            {failed ? (
+              <li>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="menu-item"
+                  disabled={blocked !== null}
+                  title={blocked ?? undefined}
+                  onClick={() => {
+                    close();
+                    onRetryUpdate();
+                  }}
+                >
+                  <span className="menu-label">{strings.devices.retryUpdate}</span>
+                </button>
+              </li>
+            ) : null}
             <li>
               <button
                 type="button"

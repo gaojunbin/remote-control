@@ -376,8 +376,9 @@ export function commandsFor(agent: AgentId): Command[] {
 
 /**
  * A22: the build the mock gateway serves as `/api/config` `client.build`.
- * `dev-mac` runs it and `dev-ci` runs the one before, so the device list shows
- * both a row with nothing to do and a row offering Update.
+ * `dev-mac` runs it and `dev-ci` runs the one before, on an update the gateway
+ * already tried and gave up on (A36), so the device list shows both a row with
+ * nothing to say and a row whose failure can be retried.
  */
 export const CLIENT_VERSION = '0.1.0';
 export const CLIENT_BUILD = '3f2b4a9c1d8e7f60a5b4c3d2e1f0918273645a5b6c7d8e9f0a1b2c3d4e5f6a7b';
@@ -440,6 +441,10 @@ export const devices: Device[] = [
     arch: 'x86_64',
     client_version: '0.0.9',
     client_build: OLD_CLIENT_BUILD,
+    // A36: the gateway's own attempt did not come back, so the row says so and
+    // offers Retry update until a person takes it or a newer build arrives.
+    update_state: 'failed',
+    update_message: 'the device did not come back',
     online: true,
     last_seen: minutes(2),
     created_at: minutes(60 * 24 * 30),

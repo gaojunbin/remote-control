@@ -3,11 +3,12 @@
  * agent it found, how each is signed in and what is left of its quota.
  * `docs/DESIGN.md` § "A device has a page".
  *
- * The hostname and the architecture live here alone: the row dropped both, and
- * this line under the title is where someone goes to check them.
+ * The hostname, the architecture and the client version live here alone: the
+ * row dropped all three — a device keeps itself current (A36) — and this line
+ * under the title is where someone goes to check them.
  *
- * The three actions the row offers — Rename, Update, Revoke — are deliberately
- * not repeated here.
+ * The actions the row offers — Rename, Revoke, and Retry update on a device
+ * whose update failed — are deliberately not repeated here.
  */
 import { useEffect } from 'react';
 import { ChevronLeft, RefreshCw } from 'lucide-react';

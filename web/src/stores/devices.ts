@@ -3,7 +3,6 @@ import { api } from '../lib/api';
 import { rpc } from '../lib/gateway';
 import { RequestError } from '../lib/ws';
 import { strings } from '../strings';
-import type { ClientBuildInfo } from '../lib/api';
 import type { Device } from '../protocol/types';
 
 interface DevicesState {
@@ -13,8 +12,8 @@ interface DevicesState {
   /**
    * A22: why a `device.update` was refused outright, per device. The gateway
    * only records `update_state: "failed"` for an update it accepted, so a
-   * refusal (a running session, a client installed from source) lives here
-   * until the gateway sends that device again.
+   * refusal of a retry (a running session, a client installed from source)
+   * lives here until the gateway sends that device again.
    */
   updateErrors: Record<string, string>;
   load: () => Promise<void>;
@@ -91,26 +90,18 @@ export const useDevices = create<DevicesState>((set, get) => ({
 }));
 
 /**
- * A22: the sentence under the hostname, or null when there is nothing to say.
- *
- * An update names what it would install, so the available notice carries the
- * served version ("Update available · 1.3.1"); a gateway too old to say which
- * version its wheel is keeps today's bare wording.
+ * A36: the third line of a device row, or null when there is nothing to say —
+ * which is the ordinary case, because the gateway brings every device to the
+ * wheel it serves on its own. A device only speaks while its update runs and
+ * once it has failed; the version it runs is nobody's to watch.
  */
 export const updateNotice = (
   device: Device,
   localError: string | undefined,
-  served: ClientBuildInfo | undefined,
-): { tone: 'available' | 'updating' | 'failed'; text: string } | null => {
+): { tone: 'updating' | 'failed'; text: string } | null => {
   if (device.update_state === 'updating') return { tone: 'updating', text: strings.devices.updating };
   const failure = localError ?? (device.update_state === 'failed' ? device.update_message : null);
   if (failure) return { tone: 'failed', text: strings.devices.updateFailed(failure) };
-  if (served && device.client_build !== served.build) {
-    const text = served.version
-      ? strings.devices.updateAvailableTo(served.version)
-      : strings.devices.updateAvailable;
-    return { tone: 'available', text };
-  }
   return null;
 };
 
