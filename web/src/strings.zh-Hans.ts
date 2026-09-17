@@ -137,6 +137,7 @@ export const zhHans: StringTable = {
       `吊销 ${name}？它的令牌会失效，它的会话也会离开本网关。机器上的 agent 和记录都会保留。`,
     revokeConfirm: '吊销设备',
     noAgents: '未检测到 agent',
+    online: '在线',
   },
 
   devicePage: {

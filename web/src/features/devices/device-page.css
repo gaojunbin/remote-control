@@ -27,7 +27,8 @@
   gap: var(--sp-3);
 }
 
-/* The two lines the row words the same way, under the name. */
+/* The machine's own facts, under the name: the hostname and the architecture
+   the row no longer carries, and the client build. */
 .device-page-head .hint {
   margin-top: 2px;
   word-break: break-word;

@@ -1,7 +1,10 @@
 /**
- * A33 — a device has a page: what the row says about the machine, then one card
- * per coding agent it found, how each is signed in and what is left of its
- * quota. `docs/DESIGN.md` § "A device has a page".
+ * A33 — a device has a page: the machine's own facts, then one card per coding
+ * agent it found, how each is signed in and what is left of its quota.
+ * `docs/DESIGN.md` § "A device has a page".
+ *
+ * The hostname and the architecture live here alone: the row dropped both, and
+ * this line under the title is where someone goes to check them.
  *
  * The three actions the row offers — Rename, Update, Revoke — are deliberately
  * not repeated here.

@@ -9,6 +9,9 @@
    both wrap on a narrow screen, and a clipped row would be worse than a tall
    one. Nothing moves at the widths where they do not wrap. */
 .device-row {
+  /* What the glyph takes at the leading edge: its own size, and what the agents
+     on a narrow screen indent past to line up with the name. */
+  --device-glyph: 20px;
   position: relative;
   display: flex;
   align-items: center;
@@ -20,6 +23,15 @@
 
 .device-row:hover {
   background: var(--hover);
+}
+
+/* One computer glyph per device, the same for every platform, in the secondary
+   ink and sized to the title. `docs/DESIGN.md` § "The device row". */
+.device-glyph {
+  flex: none;
+  width: var(--device-glyph);
+  height: var(--device-glyph);
+  color: var(--ink-secondary);
 }
 
 /* A33: the whole row opens the device, and the menu still opens the menu. The
@@ -47,13 +59,13 @@
 }
 
 .device-name {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
   font-size: var(--fs-15);
   font-weight: 600;
   line-height: 1.4;
   letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .device-meta {
@@ -61,7 +73,6 @@
   flex-wrap: wrap;
   gap: 2px var(--sp-2);
   margin-top: 1px;
-  padding-left: 15px;
   font-size: var(--fs-12);
   line-height: 1.45;
   color: var(--ink-secondary);
@@ -71,6 +82,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The dot left the name to sit with the word it belongs to. */
+.device-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
 
 .device-reach {
@@ -91,7 +109,6 @@
   align-items: baseline;
   gap: 2px var(--sp-2);
   margin-top: 1px;
-  padding-left: 15px;
   font-size: var(--fs-12);
   line-height: 1.45;
   color: var(--ink-tertiary);
@@ -112,16 +129,20 @@
   color: var(--danger);
 }
 
+/* The agents a device found, as their logos alone and evenly spaced. The logo
+   is one em square, so the font size is what sizes it. */
 .device-agents {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: var(--sp-3);
+  font-size: var(--fs-16);
+  color: var(--ink-secondary);
 }
 
-/* A26: each agent is its logo and then its name and version. */
-.device-agents .badge {
-  gap: 5px;
+.device-agent {
+  display: inline-flex;
 }
 
 .device-menu-trigger {
@@ -393,15 +414,16 @@
     margin-top: -2px;
   }
 
+  /* A line of their own, indented past the glyph so they line up with the name. */
   .device-agents {
     order: 3;
     flex-basis: 100%;
     justify-content: flex-start;
-    padding-left: 15px;
+    padding-left: calc(var(--device-glyph) + var(--sp-3));
   }
 }
 
-/* On a phone the hostname and the session count part as well. */
+/* On a phone the status line and the session count part as well. */
 @media (max-width: 480px) {
   .device-row {
     min-height: var(--row-h-stacked-tall);
