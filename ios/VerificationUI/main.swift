@@ -927,39 +927,20 @@ func run() async -> (passed: Int, failures: [String]) {
               "every logo on the row is labelled with the agent it stands for")
     }
 
-    // MARK: - Amendment A22: a device is updated from the app
+    // MARK: - Amendment A36: a device keeps itself current
 
     equal(model.connection.config.servedBuild, DemoFixtures.servedBuild,
           "the app reads the build the gateway serves from /api/config")
 
-    // `docs/DESIGN.md` § "An update names its version": the row and the
-    // confirmation both say what an update would install, and both have words
-    // for a gateway that does not say.
+    // `docs/DESIGN.md` § "An update names its version": the confirmation says
+    // what a retry would install, and has words for a gateway that does not say.
     equal(model.connection.config.servedVersion, DemoFixtures.servedClientVersion,
           "and the version that build is")
-    equal(DeviceUpdateText.notice(.available, servedVersion: model.connection.config.servedVersion),
-          "Update available · \(DemoFixtures.servedClientVersion)",
-          "the notice names the version it would install")
-    // The row's third line never names a version beside its notice, and says
-    // the version alone when there is no notice (owner's ruling, 2026-09-18).
-    equal(DeviceUpdateText.rowLine(version: "1.3.0", notice: nil), "1.3.0",
-          "a device on the gateway's build shows its version, bare")
-    equal(DeviceUpdateText.rowLine(version: "1.3.0", notice: .available), "Update available",
-          "one with an update shows the notice alone, without the version it would install")
-    equal(DeviceUpdateText.rowLine(version: "1.3.0", notice: .updating), "Updating…",
-          "and follows the update while it runs")
-    expect(DeviceUpdateText.rowLine(version: "1.3.0", notice: .failed("no wheel")).contains("no wheel"),
+    // The only two things an app says about a client (A36). There is no wording
+    // for a device being kept current, because its row draws no line at all.
+    equal(DeviceUpdateText.line(.updating), "Updating…", "the line follows an update while it runs")
+    expect(DeviceUpdateText.line(.failed("no wheel")).contains("no wheel"),
            "and says why one failed")
-    if let studio = model.connection.device(DemoFixtures.macDeviceID) {
-        let line = DeviceUpdateText.rowLine(version: studio.clientVersion,
-                                            notice: DeviceUpdate.notice(for: studio,
-                                                                        servedBuild: model.connection.config.servedBuild,
-                                                                        localError: nil))
-        equal(line, DemoFixtures.servedClientVersion, "the demo's up-to-date machine shows just its version")
-        expect(!line.contains(DeviceUpdate.shortBuild(DemoFixtures.servedBuild)), "and no build hash")
-    }
-    equal(DeviceUpdateText.notice(.available, servedVersion: nil), "Update available",
-          "and says only that there is one when the gateway names no version")
     equal(DeviceUpdateText.confirmation(name: "macbook-air",
                                         servedVersion: model.connection.config.servedVersion),
           """
@@ -970,34 +951,67 @@ func run() async -> (passed: Int, failures: [String]) {
     equal(DeviceUpdateText.confirmation(name: "macbook-air", servedVersion: nil),
           "Update macbook-air to the gateway's client? Its service restarts; sessions it drives are stopped.",
           "and falls back to the gateway's client where there is no version")
+    equal(DeviceUpdateText.reason(.offline), "This device is offline.",
+          "a retry that cannot act says why")
+    equal(DeviceUpdateText.reason(.noServedBuild), "This gateway is not serving a client build.",
+          "and so does one with no wheel to install")
+
+    // No row in the demo's list states a client version or a build hash: the
+    // machines are the gateway's to keep current, so the numbers are nobody's
+    // to watch.
+    for device in model.connection.devices {
+        let line = DeviceUpdate.notice(for: device).map(DeviceUpdateText.line) ?? ""
+        expect(!line.contains(device.clientVersion),
+               "\(device.name)'s row never states the client version it runs")
+        expect(!line.contains(String(DemoFixtures.servedBuild.prefix(8))),
+               "nor any part of a build hash")
+    }
+    if let studio = model.connection.device(DemoFixtures.macDeviceID) {
+        expect(DeviceUpdate.notice(for: studio) == nil,
+               "the machine the gateway is keeping current says nothing at all")
+        expect(!DeviceUpdate.canRetry(studio), "and has nothing to retry")
+    }
+    if let runner = model.connection.device(DemoFixtures.ciDeviceID) {
+        expect(runner.clientBuild != DemoFixtures.servedBuild, "the runner is on an older build")
+        expect(DeviceUpdate.notice(for: runner) == nil,
+               "and still says nothing: no version, and never an update available")
+        equal(DeviceUpdate.block(for: runner, servedBuild: model.connection.config.servedBuild),
+              .offline, "an offline machine could not be retried anyway")
+    }
 
     if let laptop = model.connection.device(DemoFixtures.laptopDeviceID) {
-        equal(DeviceUpdate.notice(for: laptop, servedBuild: model.connection.config.servedBuild),
-              .available, "a device on an older build says so on its row")
+        equal(DeviceUpdate.notice(for: laptop), .failed(DemoFixtures.updateFailure),
+              "the machine the gateway gave up on says so, in the words it failed with")
+        expect(DeviceUpdate.canRetry(laptop), "and is the one row that offers Retry update")
+        expect(DeviceUpdate.block(for: laptop, servedBuild: model.connection.config.servedBuild) == nil,
+               "which nothing is stopping")
         await model.updateDevice(laptop)
         await settle { model.connection.device(DemoFixtures.laptopDeviceID)?.updateState == .updating }
         equal(model.connection.device(DemoFixtures.laptopDeviceID)?.updateState, .updating,
-              "asking for the update puts the row in its updating state")
+              "retrying puts the row in its updating state")
         expect(model.deviceUpdateError(DemoFixtures.laptopDeviceID) == nil,
-               "and an accepted update is not an error")
+               "and an accepted retry is not an error")
         await settle(timeout: 15) {
             model.connection.device(DemoFixtures.laptopDeviceID)?.updateState == .idle
         }
         equal(model.connection.device(DemoFixtures.laptopDeviceID)?.clientBuild,
               DemoFixtures.servedBuild, "and the device comes back on the build it was sent to")
-        equal(model.connection.device(DemoFixtures.laptopDeviceID)?.clientVersion,
-              DemoFixtures.servedClientVersion, "under the version the row promised it")
+        if let back = model.connection.device(DemoFixtures.laptopDeviceID) {
+            expect(DeviceUpdate.notice(for: back) == nil, "after which its row is quiet again")
+            expect(!DeviceUpdate.canRetry(back), "with nothing left to retry")
+        }
     } else {
-        expect(false, "the demo lists a device on an older build")
+        expect(false, "the demo lists a device whose update failed")
     }
     if let studio = model.connection.device(DemoFixtures.macDeviceID) {
-        // A device already on the served build is refused by the device, and a
-        // refusal is the app's own news: no update ever started.
+        // A retry the device refuses — it came current while the alert was up —
+        // is the app's own news: no update ever started, so no `device.updated`
+        // will ever carry it.
         await model.updateDevice(studio)
-        expect(model.deviceUpdateError(DemoFixtures.macDeviceID) != nil,
-               "a refused update is held against the row that asked for it")
-        equal(DeviceUpdate.block(for: studio, servedBuild: model.connection.config.servedBuild),
-              .current, "and the action says why it could not act")
+        let refusal = model.deviceUpdateError(DemoFixtures.macDeviceID)
+        expect(refusal != nil, "a refused retry is held against the row that asked for it")
+        equal(DeviceUpdate.notice(for: studio, localError: refusal), .failed(refusal ?? ""),
+              "and reads on that row exactly as the gateway's own failure does")
     }
 
     // MARK: - Amendment A34: another agent's words sit on the agent's side

@@ -31,94 +31,42 @@ struct DeviceFactsLine: View {
     }
 }
 
-/// `docs/DESIGN.md` § "The device row": the row's third line says one thing.
-/// A device on the gateway's build shows the version it runs, alone — no
-/// "client", no build hash. A device with something to do about an update
-/// shows the notice alone, and for an available update just "Update available":
-/// the confirmation and the machine's page name the version it would install.
-struct DeviceRowClientLine: View {
-    let device: Device
-    var servedBuild: String?
-    var localError: String?
+/// `docs/DESIGN.md` § "A device keeps itself current": the one thing an app
+/// says about a machine's client, on its row and on its page alike. A device
+/// the gateway is keeping current says nothing, so this line is drawn only
+/// where there is a notice to draw (A36).
+struct DeviceUpdateLine: View {
+    let notice: DeviceUpdate.Notice
 
     var body: some View {
-        HStack(spacing: 5) {
-            if let notice {
-                Text(DeviceUpdateText.rowLine(version: device.clientVersion, notice: notice))
-                    .font(Theme.Text.caption)
-                    .foregroundStyle(notice.isFailure ? Theme.danger : Theme.inkSecondary)
-                    .accessibilityIdentifier("device.updateNotice")
-            } else {
-                CodeText(DeviceUpdateText.rowLine(version: device.clientVersion, notice: nil),
-                         font: Theme.Text.metaMono)
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var notice: DeviceUpdate.Notice? {
-        DeviceUpdate.notice(for: device, servedBuild: servedBuild, localError: localError)
+        Text(DeviceUpdateText.line(notice))
+            .font(Theme.Text.caption)
+            .foregroundStyle(notice.isFailure ? Theme.danger : Theme.inkSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("device.updateNotice")
     }
 }
 
-/// Amendment A22, on the machine's page: the build this machine runs, and the
-/// one line that replaces it whenever there is something to say about an update.
-struct DeviceClientLine: View {
-    let device: Device
-    var servedBuild: String?
-    var servedVersion: String?
-    var localError: String?
-
-    var body: some View {
-        HStack(spacing: 5) {
-            CodeText(clientText, font: Theme.Text.metaMono)
-            if let notice {
-                Text("·").font(Theme.Text.caption).foregroundStyle(Theme.inkSecondary)
-                Text(DeviceUpdateText.notice(notice, servedVersion: servedVersion))
-                    .font(Theme.Text.caption)
-                    .foregroundStyle(notice.isFailure ? Theme.danger : Theme.inkSecondary)
-                    .accessibilityIdentifier("device.updateNotice")
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var notice: DeviceUpdate.Notice? {
-        DeviceUpdate.notice(for: device, servedBuild: servedBuild, localError: localError)
-    }
-
-    /// The build is worth showing only while nothing louder replaces it.
-    private var clientText: String {
-        guard notice == nil, let build = device.clientBuild else {
-            return L10n.string("client %@", device.clientVersion)
-        }
-        return L10n.string("client %@ · %@", device.clientVersion, DeviceUpdate.shortBuild(build))
-    }
-}
-
-/// `docs/DESIGN.md` § "An update names its version": what the row and the
-/// confirmation say about an update, written once so the two can never name
-/// different versions of the same wheel.
+/// `docs/DESIGN.md` § "An update names its version": what a device says about
+/// an update, written once so the row, the page and the confirmation can never
+/// tell three different stories about the same wheel.
 public enum DeviceUpdateText {
-    /// The notice that replaces the build on the client line. A gateway that
-    /// serves no version — an older one, or one running from a checkout — can
-    /// only say that there is something newer.
-    public static func notice(_ notice: DeviceUpdate.Notice, servedVersion: String?) -> String {
+    /// The notice itself. There is no wording for a current device: the gateway
+    /// keeps it current and the app says nothing (A36).
+    public static func line(_ notice: DeviceUpdate.Notice) -> String {
         switch notice {
-        case .available:
-            guard let servedVersion else { return L10n.string("Update available") }
-            return L10n.string("Update available · %@", servedVersion)
         case .updating: return L10n.string("Updating…")
         case .failed(let message): return L10n.string("Update failed · %@", message)
         }
     }
 
-    /// The device row's third line (`docs/DESIGN.md` § "The device row"): the
-    /// notice when there is one — an available update said as "Update available"
-    /// and nothing more — or else the version the machine runs, bare.
-    public static func rowLine(version: String, notice: DeviceUpdate.Notice?) -> String {
-        guard let notice else { return version }
-        return Self.notice(notice, servedVersion: nil)
+    /// Why Retry update cannot act, said the same way wherever the action is
+    /// drawn disabled.
+    public static func reason(_ block: DeviceUpdate.Block) -> String {
+        switch block {
+        case .offline: L10n.string("This device is offline.")
+        case .noServedBuild: L10n.string("This gateway is not serving a client build.")
+        }
     }
 
     /// The confirmation, which names the machine and what it would land on.

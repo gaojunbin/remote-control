@@ -1513,14 +1513,24 @@ final class RemoteControlUITests: XCTestCase {
         for agent in ["Claude Code", "Codex", "Grok Build"] {
             XCTAssertTrue(label.contains(agent), "\(agent)'s logo is read out under its own name")
         }
-        XCTAssertTrue(label.contains(AppBuild.shipped), "the third line is the version it runs")
-        XCTAssertFalse(label.contains("client"), "said bare, without the word client")
-        XCTAssertFalse(label.contains("3f2b4a9c"), "and without the build hash")
+        // Amendment A36: the gateway keeps every machine on the wheel it
+        // serves, so the row states no client version and no build, and never
+        // offers one.
+        XCTAssertFalse(label.contains(AppBuild.shipped), "the row states no client version")
+        XCTAssertFalse(label.contains("client"), "nor the word client")
+        XCTAssertFalse(label.contains("3f2b4a9c"), "nor the build hash")
+        XCTAssertFalse(label.contains("Update available"), "and never that an update is available")
 
         let runner = deviceRow(DemoDevices.ci)
         XCTAssertTrue(runner.waitForExistence(timeout: 10), "the Linux machine is listed too")
         XCTAssertTrue(runner.label.contains("offline · Linux"), "which says Linux, not linux")
         XCTAssertFalse(runner.label.contains("x86_64"), "and carries no architecture either")
+        // The runner is on an older build, and still says nothing: bringing it
+        // forward is the gateway's job, not a reader's.
+        XCTAssertFalse(runner.label.contains("1.3.0"), "an outdated machine names no version either")
+        XCTAssertFalse(runner.label.contains("Update available"), "and is not called out of date")
+        XCTAssertFalse(app.staticTexts["Update available"].exists,
+                       "no row on the screen says an update is available")
         attach(name: "59-device-rows")
     }
 
@@ -1550,28 +1560,41 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(studio.waitForExistence(timeout: 10), "All brings the Macs back")
     }
 
-    func testDeviceRowSwipeHoldsRenameUpdateAndRevoke() {
+    func testDeviceRowSwipeHoldsRenameAndRevoke() {
         openDevices()
-        let row = deviceRow(DemoDevices.laptop)
-        XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
+        let studio = deviceRow(DemoDevices.studio)
+        XCTAssertTrue(studio.waitForExistence(timeout: 15), "the machines are listed")
 
-        row.swipeLeft()
+        // Amendment A36: a machine the gateway is keeping current has nothing
+        // to update, so the swipe holds the two actions that are always there.
+        studio.swipeLeft()
         let rename = app.buttons["device.rename"]
-        let update = app.buttons["device.update"]
         let revoke = app.buttons["device.revoke"]
         XCTAssertTrue(rename.waitForExistence(timeout: 10), "one swipe offers Rename")
-        XCTAssertTrue(update.exists, "Update")
         XCTAssertTrue(revoke.exists, "and Revoke")
-        XCTAssertLessThan(rename.frame.minX, update.frame.minX,
-                          "read left to right the row says Rename, then Update")
-        XCTAssertLessThan(update.frame.minX, revoke.frame.minX,
-                          "and Revoke last, nearest the edge")
+        XCTAssertFalse(app.buttons["device.retryUpdate"].exists,
+                       "with nothing to retry on a machine whose update never failed")
+        XCTAssertLessThan(rename.frame.minX, revoke.frame.minX,
+                          "read left to right the row says Rename, then Revoke nearest the edge")
         attach(name: "60-device-swipe-actions")
 
         rename.tap()
         XCTAssertTrue(app.alerts["Rename device"].waitForExistence(timeout: 10),
                       "and Rename opens the same sheet the menu opens")
         app.alerts["Rename device"].buttons["Cancel"].tap()
+
+        // The one machine the gateway gave up on carries Retry update between
+        // the two, and it is the only row that does.
+        let laptop = deviceRow(DemoDevices.laptop)
+        laptop.swipeLeft()
+        let retry = app.buttons["device.retryUpdate"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10),
+                      "the failed machine's swipe offers Retry update")
+        XCTAssertLessThan(app.buttons["device.rename"].frame.minX, retry.frame.minX,
+                          "after Rename")
+        XCTAssertLessThan(retry.frame.minX, app.buttons["device.revoke"].frame.minX,
+                          "and before Revoke")
+        attach(name: "60b-device-swipe-retry")
     }
 
     /// The word for taking a machine's token away is Revoke on both apps, and
@@ -1596,23 +1619,24 @@ final class RemoteControlUITests: XCTestCase {
         alert.buttons["Cancel"].tap()
     }
 
-    /// Amendment A22: the row says an update is available, the action confirms
-    /// what it costs, and the row follows the device through it.
-    func testDeviceUpdateConfirmsAndRunsToCompletion() {
+    /// Amendment A36: the gateway updates every machine by itself, so the only
+    /// row that says anything is the one whose update failed — and the only
+    /// action offered there is Retry update, which confirms what it costs and
+    /// then carries the row through the update.
+    func testFailedUpdateIsRetriedFromTheRowAndRunsToCompletion() {
         openDevices()
         let row = deviceRow(DemoDevices.laptop)
         XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
-        XCTAssertTrue(app.staticTexts["Update available"].waitForExistence(timeout: 15),
-                      "a device on an older build says there is an update, and no more")
-        XCTAssertFalse(row.label.contains("Update available · "),
-                       "the row does not name the version; the confirmation does")
-        XCTAssertFalse(row.label.contains("1.3.0"), "nor the version it runs while the notice is up")
-        attach(name: "61-device-update-available")
+        XCTAssertTrue(anyElement(containing: "Update failed · the device did not come back"),
+                      "the machine the gateway gave up on says so, in its own words")
+        XCTAssertFalse(row.label.contains("1.3.0"),
+                       "without the version it is stuck on")
+        attach(name: "61-device-update-failed")
 
         row.swipeLeft()
-        let update = app.buttons["device.update"]
-        XCTAssertTrue(update.waitForExistence(timeout: 10), "the one swipe offers Update")
-        update.tap()
+        let retry = app.buttons["device.retryUpdate"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10), "the one swipe offers Retry update")
+        retry.tap()
 
         let alert = app.alerts["Update device"]
         XCTAssertTrue(alert.waitForExistence(timeout: 10), "which confirms before it acts")
@@ -1629,15 +1653,46 @@ final class RemoteControlUITests: XCTestCase {
                       "the row reports the update it asked for")
         attach(name: "63-device-updating")
 
-        // The offline machine is on the same old build, so the end state is
-        // read off this row rather than off the screen.
         XCTAssertTrue(waitFor(timeout: 30) {
             let label = deviceRow(DemoDevices.laptop).label
-            return label.contains(AppBuild.shipped) && !label.contains("Update available")
-        }, "and the row shows the version the device came back on, with nothing left to offer it")
-        XCTAssertFalse(deviceRow(DemoDevices.laptop).label.contains("3f2b4a9c"),
-                       "and never the build hash")
+            return !label.contains("Updating…") && !label.contains("Update failed")
+        }, "and falls silent once the device is back: a current machine says nothing at all")
+        let settled = deviceRow(DemoDevices.laptop).label
+        XCTAssertFalse(settled.contains(AppBuild.shipped), "no version on the row it came back to")
+        XCTAssertFalse(settled.contains("3f2b4a9c"), "and never the build hash")
+        XCTAssertFalse(app.buttons["device.retryUpdate"].exists, "with nothing left to retry")
         attach(name: "64-device-updated")
+    }
+
+    /// The machine's own page says no more about its client than its row does
+    /// (`docs/DESIGN.md` § "A device keeps itself current"): no version, no
+    /// build, and the same notice with a retry beside it where one failed.
+    func testDevicePageStatesNoClientVersionAndCarriesTheRetry() {
+        openDevices()
+        let row = deviceRow(DemoDevices.laptop)
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
+        row.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["device.page"].waitForExistence(timeout: 15))
+        XCTAssertTrue(anyText(containing: "macbook-air.local · arm64"),
+                      "the page's facts are the hostname and the architecture")
+        let notice = app.staticTexts["device.updateNotice"].firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 10),
+                      "and it carries the same notice the row carries")
+        XCTAssertTrue(notice.label.contains("the device did not come back"), "in the same words")
+        XCTAssertTrue(app.buttons["device.retryUpdate"].exists, "with Retry update beside it")
+        XCTAssertFalse(onScreen(containing: "client "), "the page states no client version")
+        XCTAssertFalse(onScreen(containing: "1.3.0"), "not even the one the machine is stuck on")
+        XCTAssertFalse(onScreen(containing: "3f2b4a9c"), "and no build hash")
+        attach(name: "65-device-page-update-failed")
+
+        app.buttons["device.retryUpdate"].tap()
+        let alert = app.alerts["Update device"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), "which confirms, naming the version")
+        XCTAssertTrue(alert.staticTexts.containing(
+            NSPredicate(format: "label CONTAINS %@", "to \(AppBuild.shipped)?")).firstMatch.exists,
+                      "the same confirmation the row shows")
+        alert.buttons["Cancel"].tap()
     }
 
     /// Amendment A33: tapping a device opens its page — the agents on it, how
@@ -1663,6 +1718,12 @@ final class RemoteControlUITests: XCTestCase {
         // here, in one line under the name the navigation bar carries.
         XCTAssertTrue(anyText(containing: "mac-studio.local · arm64"),
                       "the page keeps the hostname and the architecture the row no longer shows")
+        // Amendment A36: and says nothing about the client of a machine the
+        // gateway is keeping current.
+        XCTAssertFalse(app.staticTexts["device.updateNotice"].exists,
+                       "a machine being kept current says nothing about its client")
+        XCTAssertFalse(onScreen(containing: "client "), "no version on the page either")
+        XCTAssertFalse(onScreen(containing: "3f2b4a9c"), "and no build hash")
         for agent in ["claude", "codex", "grok", "pi"] {
             XCTAssertTrue(app.descendants(matching: .any)["device.agent.\(agent)"].exists,
                           "every agent the machine found has a card")
@@ -2058,6 +2119,14 @@ final class RemoteControlUITests: XCTestCase {
     private func anyText(containing text: String) -> Bool {
         app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", text))
             .firstMatch.waitForExistence(timeout: 10)
+    }
+
+    /// Whether anything on screen says this, asked once. A word that must not
+    /// be there is looked for without waiting for it to turn up.
+    private func onScreen(containing text: String) -> Bool {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", text))
+            .firstMatch.exists
     }
 
     /// The same, for a row that combines its children into one element and so

@@ -771,8 +771,9 @@ enum ProtocolChecks {
         }
     }
 
-    /// Amendment A22: the build a gateway serves, the build a device runs, and
-    /// the rule the row draws from the two of them.
+    /// Amendments A22 and A36: the build a gateway serves, the build a device
+    /// runs, and how little an app makes of the two of them now that the
+    /// gateway keeps every device current by itself.
     private static func deviceUpdates(checks: CheckRunner) {
         guard let config = FixtureSource.json("http/config.response.json"),
               let served = try? config.decode(GatewayConfig.self).servedBuild else {
@@ -788,22 +789,31 @@ enum ProtocolChecks {
         checks.equal(devices[0].clientBuild, served, "the first device runs the served build")
         checks.equal(devices[0].updateState, .idle, "and reports no update in flight")
         checks.expect(devices[0].updateMessage == nil, "and carries no update message")
-        checks.expect(!DeviceUpdate.isBehind(devices[0], servedBuild: served),
-                      "so it is not offered an update")
-        checks.equal(DeviceUpdate.block(for: devices[0], servedBuild: served), .current,
-                     "and Update says why it cannot act")
-        checks.equal(DeviceUpdate.block(for: devices[1], servedBuild: served), .offline,
-                     "an offline device is not asked to update")
+        checks.expect(DeviceUpdate.notice(for: devices[0]) == nil,
+                      "so its row says nothing at all about the client")
+        checks.expect(!DeviceUpdate.canRetry(devices[0]), "and offers no update to retry")
 
-        // A device the gateway has not heard a build from is behind whatever
-        // the gateway serves: an unknown build is not the served one.
-        var unknown = devices[0]
-        unknown.clientBuild = nil
-        checks.expect(DeviceUpdate.isBehind(unknown, servedBuild: served), "an unknown build is behind")
-        checks.equal(DeviceUpdate.notice(for: unknown, servedBuild: served), .available,
-                     "and the row says an update is available")
-        checks.expect(DeviceUpdate.notice(for: devices[0], servedBuild: nil) == nil,
-                      "a gateway with no wheel puts nothing on the row")
+        // A machine on an older build is the gateway's business, not a
+        // person's: nothing is said and nothing is offered until an update of
+        // its own fails (A36).
+        var behind = devices[0]
+        behind.clientBuild = nil
+        checks.expect(DeviceUpdate.notice(for: behind) == nil,
+                      "a device on another build, or on none, is still the gateway's to update")
+        checks.expect(!DeviceUpdate.canRetry(behind), "and is offered nothing either")
+
+        var stranded = devices[0]
+        stranded.updateState = .failed
+        stranded.updateMessage = "the device did not come back"
+        checks.equal(DeviceUpdate.notice(for: stranded), .failed("the device did not come back"),
+                     "an update the gateway gave up on is said in the device's own words")
+        checks.expect(DeviceUpdate.canRetry(stranded), "and is the one state Retry is offered in")
+        checks.expect(DeviceUpdate.block(for: stranded, servedBuild: served) == nil,
+                      "which a served wheel and a live socket allow")
+        checks.equal(DeviceUpdate.block(for: stranded, servedBuild: nil), .noServedBuild,
+                     "a gateway serving no wheel has nothing to retry with")
+        checks.equal(DeviceUpdate.block(for: devices[1], servedBuild: served), .offline,
+                     "and an offline device is not asked to update")
 
         guard let updated = FixtureSource.json("app/device.updated.json"),
               let frame = try? AppFrame(json: updated), case .deviceUpdated(let device) = frame else {
