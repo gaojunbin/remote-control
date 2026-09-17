@@ -2241,6 +2241,69 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "ios-status-follows-language")
     }
 
+    // MARK: - A35, a session the usage limit stopped
+
+    /// Settings, Sessions group: the one switch the account owns, with the
+    /// sentence that says what it does. The demo gateway carries preferences,
+    /// so the switch is live rather than shown disabled.
+    func testSessionsGroupOffersTheResumeSwitch() {
+        app.launch()
+        openSettingsTab()
+
+        let toggle = app.switches["settings.resumeAfterLimit"]
+        XCTAssertTrue(scrollDown(to: toggle), "the Sessions group holds the resume switch")
+        XCTAssertTrue(app.staticTexts["Sessions"].exists, "under a group named for what it is")
+        XCTAssertTrue(anyText(containing: "a minute after the limit resets"),
+                      "and the sentence under it says what the device will do")
+
+        XCTAssertEqual(toggle.value as? String, "1",
+                       "the demo account has it on, so the live switch can be read")
+        attach(name: "ios-round33-resume-settings")
+
+        // It is the account's, not this phone's: the switch writes through the
+        // gateway, and what comes back is what it draws.
+        turnOff(toggle)
+        turnOn(toggle)
+    }
+
+    /// A session the five-hour window stopped: the notice above the transcript
+    /// names the time it comes back, Change opens a picker with the bounds, and
+    /// Cancel takes the resume away at once.
+    func testPausedSessionShowsItsResumeAndCancelsIt() {
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
+
+        let row = app.buttons["session.\(DemoFixtures.pausedSessionID)"]
+        XCTAssertTrue(scrollDown(to: row), "the paused session is listed")
+        row.tap()
+
+        let notice = app.staticTexts["chat.resumeNotice"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 15), "it carries a notice above the transcript")
+        XCTAssertTrue(notice.label.hasPrefix("Paused by the usage limit"),
+                      "naming what happened and when it comes back")
+        XCTAssertTrue(anyText(containing: "Paused by the usage limit"),
+                      "which says what happened and when it resumes")
+        // The timeline says the same thing in the past tense.
+        XCTAssertTrue(anyText(containing: "Ended at the usage limit"),
+                      "and the turn that ran into the limit ends with it")
+        XCTAssertTrue(anyText(containing: "Resume scheduled for"),
+                      "with the device's own row under it")
+        attach(name: "ios-round33-resume-banner")
+
+        // Change opens the smallest time picker the platform has.
+        app.buttons["notice.action"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["resume.picker"].waitForExistence(timeout: 10),
+                      "Change opens a date-and-time picker")
+        XCTAssertTrue(anyText(containing: "eight days away"), "with the bounds under it")
+        app.buttons["Close"].tap()
+        XCTAssertTrue(notice.waitForExistence(timeout: 10), "closing it leaves the resume alone")
+
+        // Cancel removes it at once, with no confirmation.
+        app.buttons["notice.secondaryAction"].tap()
+        XCTAssertTrue(waitForAbsence(notice, timeout: 10), "Cancel takes the notice away with it")
+        XCTAssertTrue(anyText(containing: "Resume cancelled"), "and the timeline records it")
+    }
+
     /// Every round that changes the app bumps its version, and the About group
     /// is where the reader sees which build they are on.
     func testAboutGroupNamesThisBuild() {
@@ -2278,6 +2341,15 @@ final class RemoteControlUITests: XCTestCase {
         if (toggle.value as? String) == "1" { return }
         toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
         XCTAssertTrue(waitFor { (toggle.value as? String) == "1" }, "the switch turns on")
+    }
+
+    /// The other direction, for a switch a gateway or an account starts on. The
+    /// row is wider than the control, so the tap lands on the control itself.
+    private func turnOff(_ toggle: XCUIElement) {
+        toggle.tap()
+        if (toggle.value as? String) == "0" { return }
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        XCTAssertTrue(waitFor { (toggle.value as? String) == "0" }, "the switch turns off")
     }
 
     private func attach(name: String, screenshot: XCUIScreenshot? = nil) {

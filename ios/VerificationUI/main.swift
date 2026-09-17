@@ -342,7 +342,7 @@ func run() async -> (passed: Int, failures: [String]) {
     let sessions = SessionStore(defaults: UserDefaults(suiteName: "rc-ui-verify-\(UUID().uuidString)")!)
     let groups = sessions.groups(helloSessions, devices: model.connection.devices)
     equal(groups.count, 3, "the list is grouped by device")
-    equal(groups.flatMap { $0.active + $0.archive }.count, 12, "every demo session is placed")
+    equal(groups.flatMap { $0.active + $0.archive }.count, 13, "every demo session is placed")
     equal(groups.first?.active.first?.state, .needsApproval,
           "a session waiting on the user sorts first")
     equal(groups.first?.name, "mac-studio-office", "the machine with live work leads the list")
@@ -904,6 +904,182 @@ func run() async -> (passed: Int, failures: [String]) {
         expect(false, "the demo lists the attached session the agent message lives in")
     }
 
+    // MARK: - Amendment A35: a session the usage limit stopped
+    //
+    // `docs/DESIGN.md` § "Paused by the usage limit". One switch on the
+    // account, one notice above the transcript with two actions, and rows that
+    // say what the device did.
+
+    // The running demo's own hello reaches the store, so the switch in Settings
+    // is live before anybody opens the screen.
+    expect(model.preferences.isOffered, "the demo's hello seeds the preferences store")
+    expect(model.preferences.resumeAfterLimit, "with the value the demo gateway holds")
+
+    // The switch reads and writes the account's preferences, so a gateway that
+    // offers none leaves it disabled and a write goes out over HTTP.
+    let preferenceGateway = DemoGateway()
+    let preferences = PreferencesStore()
+    expect(!preferences.isOffered, "a store with no gateway offers nothing")
+    expect(!preferences.resumeAfterLimit, "and reads off")
+    preferences.attach(api: preferenceGateway)
+    preferences.receive(.hello(HelloFrame(
+        protocolVersion: RemoteProtocol.version, gatewayVersion: "0.1.0-demo",
+        user: UserIdentity(username: "admin"), devices: [], sessions: [], stt: .disabled,
+        preferences: Preferences(resumeAfterLimit: false), serverTime: DemoFixtures.now)))
+    expect(preferences.isOffered, "a hello that carries preferences offers the switch")
+    expect(!preferences.resumeAfterLimit, "off until the person turns it on")
+    await preferences.setResumeAfterLimit(true)
+    expect(preferences.resumeAfterLimit, "turning it on writes it and keeps it on")
+    expect(preferences.errorMessage == nil, "with nothing to report")
+    // Another app of the same account turning it off reaches this one.
+    preferences.receive(.preferencesUpdated(Preferences(resumeAfterLimit: false)))
+    expect(!preferences.resumeAfterLimit, "and preferences.updated moves it back")
+    // A gateway older than the amendment sends none at all.
+    preferences.receive(.hello(HelloFrame(
+        protocolVersion: RemoteProtocol.version, gatewayVersion: "0.1.0-old",
+        user: UserIdentity(username: "admin"), devices: [], sessions: [], stt: .disabled,
+        serverTime: DemoFixtures.now)))
+    expect(!preferences.isOffered, "a gateway that predates the switch offers it disabled")
+    equal(ResumeText.settingsFooter(offered: preferences.isOffered),
+          L10n.string("Your gateway does not offer this yet."),
+          "and says so under the group")
+    preferences.receive(.preferencesUpdated(Preferences(resumeAfterLimit: true)))
+    expect(ResumeText.settingsFooter(offered: preferences.isOffered)
+            .contains("a minute after the limit resets"),
+           "a gateway that does offer it explains what it does instead")
+    preferences.attach(api: nil)
+    expect(!preferences.isOffered, "signing out forgets the account's value")
+
+    // The paused demo session: the notice, both actions, and the rows.
+    if let paused = helloSessions.first(where: { $0.sessionID == DemoFixtures.pausedSessionID }) {
+        let gateway = DemoGateway()
+        let detail = SettingsStore(defaults: UserDefaults(suiteName: "rc-a35-\(UUID().uuidString)")!)
+        let chat = ChatStore(session: paused, channel: gateway)
+        chat.detailSource = { detail.timelineDetail }
+        for event in DemoFixtures.history(for: DemoFixtures.pausedSessionID) {
+            chat.receive(.sessionEvent(sessionID: paused.sessionID, deviceID: paused.deviceID,
+                                       event: event))
+        }
+        expect(chat.resume != nil, "the demo's paused session carries a resume")
+        equal(chat.session.state, .idle,
+              "and is idle, so the dot is unchanged and the notice carries the pause")
+        if let resume = chat.resume {
+            let words = ResumeText.notice(resume)
+            expect(words.hasPrefix("Paused by the usage limit"),
+                   "the notice opens with what happened")
+            expect(words.contains(ResumeText.clock(resume.at)),
+                   "and names the time in the viewer's own clock")
+            expect(!words.contains("about"), "the vendor's own time is not called a guess")
+            let guessed = SessionResume(at: resume.at, estimated: true)
+            expect(ResumeText.notice(guessed).contains("about"),
+                   "an estimated time is said to be one")
+            let again = SessionResume(at: resume.at, attempts: 1)
+            expect(ResumeText.notice(again).hasSuffix(L10n.string("second try")),
+                   "and a resumed turn that hit the limit again says which try this is")
+        }
+
+        // The transcript says what happened: the turn's end, the device's row,
+        // and nothing at all for the moment of resuming.
+        expect(chat.rows.contains { $0.turnCompleted?.limit != nil },
+               "the turn that ran into the limit ends with it")
+        expect(chat.rows.contains { $0.resume?.status == .scheduled },
+               "and the device's row says what it scheduled")
+        equal(detail.timelineDetail, .simple, "at the level the reader starts on")
+        if let footer = chat.rows.first(where: { $0.turnCompleted?.limit != nil })?.turnCompleted,
+           let limit = footer.limit {
+            expect(ResumeText.turnEnd(limit).hasPrefix("Ended at the usage limit"),
+                   "the end of the turn names the limit rather than a duration")
+        }
+
+        // Change sends `session.resume_set` with the time it was given.
+        let moved = Date().addingTimeInterval(3 * 3_600)
+        await chat.setResume(at: moved)
+        equal(chat.resume?.at, Int64((moved.timeIntervalSince1970 * 1000).rounded()),
+              "Change moves the resume to the time the picker returned")
+        expect(chat.errorMessage == nil, "and says nothing about it")
+        // The row for it comes from the device, as every row does.
+        chat.receive(.sessionEvent(
+            sessionID: paused.sessionID, deviceID: paused.deviceID,
+            event: SessionEvent(seq: 800, ts: DemoFixtures.now, kind: SessionEvent.resumeKind,
+                                body: .resume(ResumePayload(status: .rescheduled,
+                                                            at: chat.resume?.at ?? 0)))))
+        expect(chat.rows.contains { $0.resume?.status == .rescheduled },
+               "the device's row records the move")
+
+        // A time the device would refuse never leaves the app.
+        await chat.setResume(at: Date().addingTimeInterval(10))
+        expect(chat.errorMessage != nil, "a resume less than a minute out is refused here")
+        chat.clearError()
+        await chat.setResume(at: Date().addingTimeInterval(9 * 86_400))
+        expect(chat.errorMessage != nil, "and so is one further out than eight days")
+        chat.clearError()
+
+        // Cancel takes it away at once, and asking twice is not an error.
+        await chat.cancelResume()
+        expect(chat.resume == nil, "Cancel removes the resume")
+        chat.receive(.sessionEvent(
+            sessionID: paused.sessionID, deviceID: paused.deviceID,
+            event: SessionEvent(seq: 801, ts: DemoFixtures.now, kind: SessionEvent.resumeKind,
+                                body: .resume(ResumePayload(status: .cancelled,
+                                                            reason: "you changed your mind")))))
+        expect(chat.rows.contains { $0.resume?.status == .cancelled }, "and the row says so")
+        await chat.cancelResume()
+        expect(chat.errorMessage == nil, "a second cancel is idempotent, not a failure")
+
+        // The prompt the device sends for the person is the person's own row.
+        chat.receive(.sessionEvent(
+            sessionID: paused.sessionID, deviceID: paused.deviceID,
+            event: SessionEvent(seq: 900, ts: DemoFixtures.now,
+                                kind: SessionEvent.userMessageKind, blockID: "resume-1",
+                                body: .userMessage(UserMessagePayload(
+                                    text: "The usage limit has reset.", source: .resume)))))
+        chat.receive(.sessionEvent(
+            sessionID: paused.sessionID, deviceID: paused.deviceID,
+            event: SessionEvent(seq: 901, ts: DemoFixtures.now, kind: SessionEvent.resumeKind,
+                                body: .resume(ResumePayload(status: .fired)))))
+        expect(chat.rows.contains { $0.userMessage?.source == .resume },
+               "the prompt is drawn at Simple, in the person's bubble")
+        expect(!chat.rows.contains { $0.resume?.status == .fired },
+               "and the moment of resuming draws no row of its own")
+        equal(ResumeText.sentForYou, L10n.string("Sent for you after the limit reset"),
+              "the caption says who sent it and why")
+    } else {
+        expect(false, "the demo lists the session the usage limit paused")
+    }
+
+    // The banner the app raises for itself, on the three statuses the gateway
+    // pushes for and on no others.
+    if let paused = helloSessions.first(where: { $0.sessionID == DemoFixtures.pausedSessionID }) {
+        let notifier = TurnNotifier(platform: FakeTurnAlertPlatform())
+        for (status, kind) in [(ResumeStatus.scheduled, PushKind.limitReached),
+                               (.fired, .resumed), (.dropped, .resumeDropped)] {
+            guard let announced = TurnAlerts.kind(resume: status) else {
+                expect(false, "\(status.rawValue) is announced")
+                continue
+            }
+            equal(announced, kind, "\(status.rawValue) raises the kind the gateway pushes")
+            let alert = notifier.announce(kind: announced, session: paused,
+                                          deviceName: "mac-studio-office",
+                                          identifier: "resume/\(paused.id)/\(status.rawValue)",
+                                          sceneActive: true, enabled: true,
+                                          authorization: .authorized)
+            expect(alert != nil, "and the app raises its own banner for it")
+            expect(alert?.body.isEmpty == false, "with one of the three sentences")
+            expect(alert?.route.title.contains("mac-studio-office") == true,
+                   "titled with the machine and no time")
+        }
+        expect(TurnAlerts.kind(resume: .rescheduled) == nil, "a moved resume is not news")
+        expect(TurnAlerts.kind(resume: .cancelled) == nil, "and neither is one you cancelled")
+        expect(notifier.announce(kind: .limitReached, session: paused, deviceName: "mac",
+                                 sceneActive: false, enabled: true,
+                                 authorization: .authorized) == nil,
+               "nothing is raised while the app is in the background")
+        expect(notifier.announce(kind: .limitReached, session: paused, deviceName: "mac",
+                                 sceneActive: true, enabled: false,
+                                 authorization: .authorized) == nil,
+               "nor with the Notifications switch off")
+    }
+
     // MARK: - Amendment A33: how an agent is signed in, and what is left of it
     //
     // `docs/DESIGN.md` § "A device has a page" and § "Quota is a meter, drawn
@@ -1397,7 +1573,7 @@ func run() async -> (passed: Int, failures: [String]) {
         }
         expect(project.contains("MARKETING_VERSION: '\(AppBuild.shipped)'"),
                "the project ships the version this source tree carries")
-        expect(project.contains("CURRENT_PROJECT_VERSION: 6"),
+        expect(project.contains("CURRENT_PROJECT_VERSION: 7"),
                "and a build number TestFlight can tell apart")
     } else {
         expect(false, "the check can read project.yml")
@@ -1526,6 +1702,10 @@ actor StoredAccountGateway: GatewayAPI, GatewayChannel {
         throw TransportError.notConnected
     }
     func polishModels() async throws -> PolishModelsResponse { throw TransportError.notConnected }
+    func preferences() async throws -> PreferencesResponse { throw TransportError.notConnected }
+    func patchPreferences(resumeAfterLimit: Bool?) async throws -> PreferencesResponse {
+        throw TransportError.notConnected
+    }
     func polish(_ request: PolishRequest) async throws -> PolishResponse {
         throw TransportError.notConnected
     }

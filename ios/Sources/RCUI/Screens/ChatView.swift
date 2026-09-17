@@ -74,6 +74,12 @@ struct ChatView: View {
                              actionEnabled: !retry.isBusy,
                              dismiss: { chat.dismiss(pending) })
             }
+            // Amendment A35: a session paused by the usage limit says so where
+            // the session is, with a way to move the time and a way to end it.
+            // The row goes when `resume` does.
+            if let resume = chat.resume {
+                ResumeNotice(chat: chat, resume: resume)
+            }
             if let error = chat.errorMessage {
                 NoticeBanner(text: error, dismiss: { chat.clearError() })
             }

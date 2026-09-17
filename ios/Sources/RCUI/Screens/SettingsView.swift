@@ -117,6 +117,17 @@ struct SettingsView: View {
                 FieldLabel("Language")
             }
 
+            // Amendment A35: the account's switch, not this phone's — which is
+            // why it sits in its own group rather than among the app's own
+            // preferences above.
+            Section {
+                SessionPreferenceRows()
+            } header: {
+                FieldLabel("Sessions")
+            } footer: {
+                SettingsFooter(ResumeText.settingsFooter(offered: model.preferences.isOffered))
+            }
+
             Section {
                 Picker("Detail", selection: $settings.timelineDetail) {
                     ForEach(TimelineDetail.allCases, id: \.self) { level in

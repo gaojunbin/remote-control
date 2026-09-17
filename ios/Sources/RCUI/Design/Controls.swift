@@ -325,7 +325,9 @@ public struct AppMark: View {
     }
 }
 
-/// A one-line banner used for errors and for unconfirmed delivery.
+/// A one-line banner used for errors, for unconfirmed delivery and for a
+/// session waiting on a resume (A35). It offers at most two actions, because a
+/// bar above the transcript that offers three is a toolbar.
 public struct NoticeBanner: View {
     let text: String
     var tint: Color = Theme.danger
@@ -334,17 +336,29 @@ public struct NoticeBanner: View {
     /// False while the action this banner offers is still out, so a second tap
     /// cannot start a second one.
     var actionEnabled = true
+    /// Amendment A35: the resume notice carries Change and Cancel, in that
+    /// order, so the banner takes a second action rather than being forked.
+    var secondaryActionTitle: String?
+    var secondaryAction: (() -> Void)?
     var dismiss: (() -> Void)?
+    /// Names the banner's own line. It goes on the text rather than on the bar,
+    /// because an identifier on the bar is inherited by every control inside it
+    /// and the two actions would stop being reachable by name.
+    var identifier = "notice.text"
 
     public init(text: String, tint: Color = Theme.danger, actionTitle: String? = nil,
                 action: (() -> Void)? = nil, actionEnabled: Bool = true,
-                dismiss: (() -> Void)? = nil) {
+                secondaryActionTitle: String? = nil, secondaryAction: (() -> Void)? = nil,
+                dismiss: (() -> Void)? = nil, identifier: String = "notice.text") {
         self.text = text
         self.tint = tint
         self.actionTitle = actionTitle
         self.action = action
         self.actionEnabled = actionEnabled
+        self.secondaryActionTitle = secondaryActionTitle
+        self.secondaryAction = secondaryAction
         self.dismiss = dismiss
+        self.identifier = identifier
     }
 
     public var body: some View {
@@ -354,6 +368,7 @@ public struct NoticeBanner: View {
                 .font(.footnote)
                 .foregroundStyle(Theme.ink)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier(identifier)
             Spacer(minLength: Theme.Space.tight)
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
@@ -364,6 +379,16 @@ public struct NoticeBanner: View {
                     .disabled(!actionEnabled)
                     .opacity(actionEnabled ? 1 : 0.4)
                     .accessibilityIdentifier("notice.action")
+            }
+            if let secondaryActionTitle, let secondaryAction {
+                Button(secondaryActionTitle, action: secondaryAction)
+                    .font(.footnote.weight(.medium))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.ink)
+                    .frame(minHeight: Theme.Touch.minimum)
+                    .disabled(!actionEnabled)
+                    .opacity(actionEnabled ? 1 : 0.4)
+                    .accessibilityIdentifier("notice.secondaryAction")
             }
             if let dismiss {
                 Button(action: dismiss) {

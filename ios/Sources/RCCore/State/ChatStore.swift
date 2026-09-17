@@ -968,6 +968,41 @@ public final class ChatStore {
         onSessionChange(session)
     }
 
+    // MARK: - Resuming after a usage limit (A35)
+
+    /// The resume this session has pending, or nil. The notice above the
+    /// transcript is drawn from it and goes when it does.
+    public var resume: SessionResume? { session.resume }
+
+    /// Move the resume, or ask for one on a session that has none. The bounds
+    /// are the device's (protocol 6.3) and are checked here too, so a time it
+    /// would refuse never leaves the picker.
+    public func setResume(at date: Date, now: Date = Date()) async {
+        guard ResumeBounds.allows(date, now: now) else {
+            errorMessage = L10n.string("Pick a time between a minute from now and eight days away.")
+            return
+        }
+        do {
+            let result = try await channel.request(.resumeSet(sessionID: sessionID, at: date),
+                                                   as: SessionResult.self)
+            update(session: result.session)
+        } catch {
+            errorMessage = describe(error)
+        }
+    }
+
+    /// Take the resume away, at once and with no confirmation: nothing is lost
+    /// but a timer, and Change on the timeline row is how it comes back.
+    public func cancelResume() async {
+        do {
+            let result = try await channel.request(.resumeCancel(sessionID: sessionID),
+                                                   as: SessionResult.self)
+            update(session: result.session)
+        } catch {
+            errorMessage = describe(error)
+        }
+    }
+
     public func takeover() async {
         do {
             let result = try await channel.request(.takeover(sessionID: sessionID), as: SessionResult.self)

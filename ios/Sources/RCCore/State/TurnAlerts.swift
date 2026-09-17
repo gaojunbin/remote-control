@@ -31,4 +31,17 @@ public enum TurnAlerts {
         guard let previous, previous.id == current.id else { return nil }
         return kind(previous: previous.state, current: current.state)
     }
+
+    /// Amendment A35: the three `resume` statuses the gateway pushes for, and
+    /// which this app therefore announces for itself while it is open. A
+    /// rescheduled resume is a detail of a pause already told, and a cancelled
+    /// one is the person's own doing; neither is news.
+    public static func kind(resume status: ResumeStatus) -> PushKind? {
+        switch status {
+        case .scheduled: return .limitReached
+        case .fired: return .resumed
+        case .dropped: return .resumeDropped
+        default: return nil
+        }
+    }
 }

@@ -81,11 +81,15 @@ public struct HelloFrame: Codable, Sendable, Hashable {
     public let polish: PolishInfo
     /// Amendment A31. Absent on an older gateway, which means no minimum.
     public let apps: AppsInfo?
+    /// Amendment A35: the account's preferences. Absent on an older gateway,
+    /// which means the switches this object holds are not offered at all.
+    public let preferences: Preferences?
     public let serverTime: Int64
 
     public init(protocolVersion: Int, gatewayVersion: String, user: UserIdentity,
                 devices: [Device], sessions: [Session], stt: STTConfig,
-                polish: PolishInfo = .disabled, apps: AppsInfo? = nil, serverTime: Int64) {
+                polish: PolishInfo = .disabled, apps: AppsInfo? = nil,
+                preferences: Preferences? = nil, serverTime: Int64) {
         self.protocolVersion = protocolVersion
         self.gatewayVersion = gatewayVersion
         self.user = user
@@ -94,11 +98,12 @@ public struct HelloFrame: Codable, Sendable, Hashable {
         self.stt = stt
         self.polish = polish
         self.apps = apps
+        self.preferences = preferences
         self.serverTime = serverTime
     }
 
     enum CodingKeys: String, CodingKey {
-        case user, devices, sessions, stt, polish, apps
+        case user, devices, sessions, stt, polish, apps, preferences
         case protocolVersion = "protocol"
         case gatewayVersion = "gateway_version"
         case serverTime = "server_time"
@@ -114,6 +119,7 @@ public struct HelloFrame: Codable, Sendable, Hashable {
         stt = try values.decodeIfPresent(STTConfig.self, forKey: .stt) ?? .disabled
         polish = try values.decodeIfPresent(PolishInfo.self, forKey: .polish) ?? .disabled
         apps = try values.decodeIfPresent(AppsInfo.self, forKey: .apps)
+        preferences = try values.decodeIfPresent(Preferences.self, forKey: .preferences)
         serverTime = try values.decodeIfPresent(Int64.self, forKey: .serverTime) ?? 0
     }
 }
@@ -159,6 +165,8 @@ public enum AppFrame: Sendable {
     case sessionRemoved(sessionID: String, deviceID: String?)
     case sessionEvent(sessionID: String, deviceID: String?, event: SessionEvent)
     case pairingProgress(PairingProgress)
+    /// Amendment A35: the account's preferences changed, here or in another app.
+    case preferencesUpdated(Preferences)
     case ping
     case reply(id: String, result: Result<JSONValue, GatewayErrorBody>)
     case unknown(type: String, raw: JSONValue)
@@ -192,6 +200,11 @@ public enum AppFrame: Sendable {
                                  event: try event.decode(SessionEvent.self))
         case "pairing.progress":
             self = .pairingProgress(try json.decode(PairingProgress.self))
+        case "preferences.updated":
+            guard let preferences = object["preferences"] else {
+                throw ProtocolFailure.malformed("preferences.updated")
+            }
+            self = .preferencesUpdated(try preferences.decode(Preferences.self))
         case "ping":
             self = .ping
         case "reply":

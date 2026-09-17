@@ -40,6 +40,10 @@ public enum DemoFixtures {
     /// enforced by the extension it loads, so the composer row carries the
     /// permission chip exactly as Codex's does.
     public static let piSessionID = "demo-session-parser"
+    /// Amendment A35: a session the five-hour window stopped, with a resume the
+    /// device scheduled for a minute after the window resets. It is attached,
+    /// which is the case that can be resumed and the case that can be dropped.
+    public static let pausedSessionID = "demo-session-indexer"
 
     public static var now: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
@@ -482,6 +486,20 @@ public enum DemoFixtures {
                     model: "anthropic/claude-sonnet-4-5", permissionMode: "on-request",
                     effort: "medium",
                     createdAt: now - 1_200_000, updatedAt: now - 150_000, lastSeq: 0),
+            // Amendment A35: stopped at the five-hour window with a resume
+            // pending. The dot stays amber — the session is idle and the notice
+            // above the transcript is what carries the pause.
+            Session(sessionID: pausedSessionID, deviceID: macDeviceID, agent: "claude",
+                    title: "Reindex the search corpus",
+                    cwd: "/Users/me/dev/remote-control/gateway",
+                    git: GitInfo(branch: "search-index", dirty: true),
+                    state: .idle, origin: .terminal, control: .shared,
+                    model: "claude-sonnet-4-5", permissionMode: "acceptEdits", effort: "high",
+                    createdAt: now - 21_600_000, updatedAt: now - 1_800_000, lastSeq: 0,
+                    usage: SessionUsage(inputTokens: 128_400, outputTokens: 9_600,
+                                        totalTokens: 138_000, contextUsed: 151_000,
+                                        contextWindow: 200_000, costUSD: 1.84),
+                    resume: pendingResume),
             Session(sessionID: doneSessionID, deviceID: ciDeviceID, agent: "codex",
                     title: "Add OTLP traces", cwd: "/work/api",
                     git: nil, state: .idle, origin: .remote, control: .none,
@@ -813,6 +831,40 @@ public enum DemoFixtures {
         ]
     }
 
+    /// Amendment A35: the resume this demo's paused session is waiting on —
+    /// three quarters of an hour out, from a five-hour window the vendor named
+    /// a reset time for, so the notice reads a time rather than "about" one.
+    public static var pendingResume: SessionResume {
+        SessionResume(at: now + 2_700_000, estimated: false, attempts: 0, windowMinutes: 300)
+    }
+
+    /// The transcript of a turn the usage limit ended: the turn closes with
+    /// `limit`, the vendor's own sentence goes out as an error rather than as
+    /// the agent's words, and the device says what it scheduled.
+    public static func pausedHistory(base: Int64 = now - 1_800_000) -> [SessionEvent] {
+        let resume = pendingResume
+        return [
+            SessionEvent(seq: 1, ts: base, kind: SessionEvent.userMessageKind, blockID: "u-1",
+                         body: .userMessage(UserMessagePayload(
+                            text: "Reindex the corpus and report what changed."))),
+            SessionEvent(seq: 2, ts: base + 1_800, kind: SessionEvent.assistantTextKind, blockID: "a-1",
+                         body: .assistantText(StreamTextPayload(
+                            text: "Walking the corpus now. I have three subagents on the shards.",
+                            done: true))),
+            SessionEvent(seq: 3, ts: base + 61_000, kind: SessionEvent.errorKind,
+                         body: .error(ErrorPayload(
+                            message: "You've hit your session limit · resets 10:20pm (Asia/Singapore)",
+                            code: "rate_limit"))),
+            SessionEvent(seq: 4, ts: base + 61_100, kind: SessionEvent.turnCompletedKind,
+                         body: .turnCompleted(TurnCompletedPayload(
+                            turnID: "demo-turn-indexer", stopReason: .error, durationMS: 61_000,
+                            limit: LimitStop(windowMinutes: 300, resetsAt: resume.at - 60_000)))),
+            SessionEvent(seq: 5, ts: base + 61_200, kind: SessionEvent.resumeKind,
+                         body: .resume(ResumePayload(status: .scheduled, at: resume.at,
+                                                     estimated: false)))
+        ]
+    }
+
     public static func history(for sessionID: String) -> [SessionEvent] {
         switch sessionID {
         case liveSessionID: liveHistory()
@@ -825,6 +877,7 @@ public enum DemoFixtures {
         case grokSessionID: grokHistory()
         case grokSharedSessionID: grokSharedHistory()
         case piSessionID: piHistory()
+        case pausedSessionID: pausedHistory()
         default: [
             SessionEvent(seq: 1, ts: now - 3_600_000, kind: SessionEvent.userMessageKind, blockID: "u-1",
                          body: .userMessage(UserMessagePayload(text: "Add OTLP traces to the API."))),

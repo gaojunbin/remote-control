@@ -35,6 +35,8 @@ struct TimelineRow: View {
             ErrorRow(payload: payload)
         case .turnCompleted(let payload):
             TurnFooter(payload: payload)
+        case .resume(let payload):
+            ResumeRow(payload: payload)
         case .turnStarted, .todos, .status, .meta, .queue:
             EmptyView()
         case .unknown(let kind, _):
@@ -105,6 +107,13 @@ private struct UserMessageRow: View {
                 Text(Self.pendingLabel(pending, isUnconfirmed: isUnconfirmed))
                     .font(.caption)
                     .foregroundStyle(isUnconfirmed ? Theme.attention : Theme.inkSecondary)
+            } else if payload.source == .resume {
+                // Amendment A35: the one message the device writes for the
+                // person. The transcript says who continued the work and why.
+                Text(ResumeText.sentForYou)
+                    .font(.caption)
+                    .foregroundStyle(Theme.inkSecondary)
+                    .accessibilityIdentifier("chat.message.resumeCaption")
             } else if payload.source == .terminal {
                 Text("sent from the terminal").font(.caption).foregroundStyle(Theme.inkSecondary)
             } else if payload.source == .queue {
@@ -131,6 +140,9 @@ private struct UserMessageRow: View {
     /// VoiceOver through the bubble's own label.
     private var spokenLabel: Text {
         let said = Text(L10n.string("You said: %@", payload.text))
+        if payload.source == .resume, payload.delivery == nil, pending == nil {
+            return said + Text(L10n.string(", sent for you after the limit reset"))
+        }
         switch payload.delivery {
         case .some(.absorbed): return said + Text(L10n.string(", will be re-sent"))
         default:
@@ -394,7 +406,10 @@ private struct ErrorRow: View {
 private struct TurnFooter: View {
     let payload: TurnCompletedPayload
 
+    /// Amendment A35: a turn the vendor's window ended says so and says when it
+    /// comes back. How long it ran before it was refused tells nobody anything.
     private var text: String {
+        if let limit = payload.limit { return ResumeText.turnEnd(limit) }
         let duration = RelativeTime.duration(milliseconds: payload.durationMS)
         return switch payload.stopReason {
         case .interrupted: L10n.string("Stopped after %@", duration)
@@ -410,5 +425,29 @@ private struct TurnFooter: View {
             Rectangle().fill(Theme.border).frame(height: 0.5)
         }
         .padding(.vertical, Theme.Space.tight)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(payload.limit == nil ? "chat.turnFooter" : "chat.turnFooter.limit")
+    }
+}
+
+/// Amendment A35: what the device did about a resume, in the notice voice. The
+/// moment of resuming draws nothing — the prompt in the person's bubble and the
+/// turn it starts say it — so this row is absent for `fired`.
+private struct ResumeRow: View {
+    let payload: ResumePayload
+
+    var body: some View {
+        if let text = ResumeText.row(payload) {
+            HStack(alignment: .top, spacing: Theme.Space.tight) {
+                Circle().fill(Theme.inkSecondary).frame(width: 5, height: 5).padding(.top, 6)
+                Text(text)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("chat.resumeRow")
+        }
     }
 }

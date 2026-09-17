@@ -121,6 +121,10 @@ public struct Session: Codable, Sendable, Hashable, Identifiable {
     public var todos: TodoCounts?
     public var usage: SessionUsage?
     public var queued: Int
+    /// Amendment A35: the resume the device has scheduled for this session
+    /// after a usage limit (7.2), or nil when there is none. It is what the
+    /// notice above the transcript is drawn from.
+    public var resume: SessionResume?
 
     /// Unique across devices, unlike `sessionID`.
     public var id: String { "\(deviceID)/\(sessionID)" }
@@ -147,7 +151,7 @@ public struct Session: Codable, Sendable, Hashable, Identifiable {
                 speed: String? = nil, createdAt: Int64 = 0, updatedAt: Int64 = 0,
                 lastSeq: Int = 0, archived: Bool = false,
                 turn: TurnMarker? = nil, todos: TodoCounts? = nil, usage: SessionUsage? = nil,
-                queued: Int = 0) {
+                queued: Int = 0, resume: SessionResume? = nil) {
         self.sessionID = sessionID
         self.deviceID = deviceID
         self.agent = agent
@@ -170,10 +174,12 @@ public struct Session: Codable, Sendable, Hashable, Identifiable {
         self.todos = todos
         self.usage = usage
         self.queued = queued
+        self.resume = resume
     }
 
     enum CodingKeys: String, CodingKey {
-        case agent, title, cwd, git, state, origin, control, model, effort, speed, archived, turn, todos, usage, queued
+        case agent, title, cwd, git, state, origin, control, model, effort, speed, archived, turn
+        case todos, usage, queued, resume
         case sessionID = "session_id"
         case deviceID = "device_id"
         case stateDetail = "state_detail"
@@ -207,5 +213,6 @@ public struct Session: Codable, Sendable, Hashable, Identifiable {
         todos = try values.decodeIfPresent(TodoCounts.self, forKey: .todos)
         usage = try values.decodeIfPresent(SessionUsage.self, forKey: .usage)
         queued = try values.decodeIfPresent(Int.self, forKey: .queued) ?? 0
+        resume = try values.decodeIfPresent(SessionResume.self, forKey: .resume)
     }
 }

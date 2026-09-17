@@ -153,6 +153,10 @@ public struct TimelineEntry: Identifiable, Sendable, Equatable {
     public var turnCompleted: TurnCompletedPayload? {
         if case .turnCompleted(let payload) = body { payload } else { nil }
     }
+    /// Amendment A35: what the device did about a resume after a usage limit.
+    public var resume: ResumePayload? {
+        if case .resume(let payload) = body { payload } else { nil }
+    }
 
     /// Rows a sub-agent produced hang under their parent tool call.
     public var isNested: Bool { parentID != nil }
@@ -181,7 +185,10 @@ public struct TimelineEntry: Identifiable, Sendable, Equatable {
         switch body {
         case .userMessage(let payload):
             return payload.source != .agent
-        case .assistantText, .approval, .question, .notice, .error:
+        // Amendment A35: a resume row is the device saying what it did about a
+        // session the limit stopped, which is written to the reader exactly as
+        // a notice is.
+        case .assistantText, .approval, .question, .notice, .error, .resume:
             return true
         case .turnCompleted(let payload):
             return payload.stopReason == .interrupted || payload.stopReason == .error
@@ -200,6 +207,9 @@ public struct TimelineEntry: Identifiable, Sendable, Equatable {
         switch body {
         case .todos, .status, .meta, .queue: false
         case .assistantText, .thinking: !text.isEmpty || !isStreaming
+        // Amendment A35: the moment of resuming is the prompt in the person's
+        // bubble and the turn it starts; `fired` adds nothing to either.
+        case .resume(let payload): payload.status.isDrawn
         default: true
         }
     }

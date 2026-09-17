@@ -19,12 +19,16 @@ public struct TurnAlert: Equatable {
     public let identifier: String
     public let route: PushRoute
 
-    public init(kind: PushKind, deviceName: String, session: Session) {
+    /// `identifier` is what the system deduplicates on. A turn's is the
+    /// session and the moment it changed; amendment A35's resume rows pass the
+    /// event's own seq instead, because two resumes of one session are two
+    /// pieces of news.
+    public init(kind: PushKind, deviceName: String, session: Session, identifier: String? = nil) {
         let word = kind.alertWord
         title = deviceName
         body = word
         threadIdentifier = session.id
-        identifier = "turn/\(session.id)/\(kind.rawValue)/\(session.updatedAt)"
+        self.identifier = identifier ?? "turn/\(session.id)/\(kind.rawValue)/\(session.updatedAt)"
         route = PushRoute(kind: kind, deviceID: session.deviceID, sessionID: session.sessionID,
                           deviceName: deviceName, title: "\(deviceName): \(word)")
     }
@@ -68,9 +72,21 @@ public final class TurnNotifier {
     public func announce(previous: Session, current: Session, deviceName: String,
                          sceneActive: Bool, enabled: Bool,
                          authorization: PushAuthorization) -> TurnAlert? {
-        guard sceneActive, enabled, authorization.raisesBanners,
-              let kind = TurnAlerts.kind(previous: previous, current: current) else { return nil }
-        let alert = TurnAlert(kind: kind, deviceName: deviceName, session: current)
+        guard let kind = TurnAlerts.kind(previous: previous, current: current) else { return nil }
+        return announce(kind: kind, session: current, deviceName: deviceName,
+                        sceneActive: sceneActive, enabled: enabled, authorization: authorization)
+    }
+
+    /// The same three gates for news the state table does not produce:
+    /// amendment A35's pause, resume and drop, which are `resume` events rather
+    /// than transitions.
+    @discardableResult
+    public func announce(kind: PushKind, session: Session, deviceName: String,
+                         identifier: String? = nil, sceneActive: Bool, enabled: Bool,
+                         authorization: PushAuthorization) -> TurnAlert? {
+        guard sceneActive, enabled, authorization.raisesBanners else { return nil }
+        let alert = TurnAlert(kind: kind, deviceName: deviceName, session: session,
+                              identifier: identifier)
         lastAlert = alert
         platform.post(alert)
         return alert
@@ -91,6 +107,12 @@ extension PushKind {
         case .needsApproval: L10n.string("Needs your approval")
         case .needsInput: L10n.string("Waiting for your answer")
         case .error: L10n.string("Errored")
+        // Amendment A35: the same three sentences the gateway pushes, so a
+        // banner this app raises and one that arrives from the gateway read
+        // alike. The time is never in either; it is read in the session.
+        case .limitReached: L10n.string("Paused by the usage limit")
+        case .resumed: L10n.string("Resumed after the limit reset")
+        case .resumeDropped: L10n.string("Not resumed")
         default: rawValue
         }
     }

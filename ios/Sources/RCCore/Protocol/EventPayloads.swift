@@ -430,16 +430,21 @@ public struct TurnCompletedPayload: Codable, Sendable, Hashable {
     public let stopReason: StopReason
     public let durationMS: Int
     public let usage: SessionUsage?
+    /// Amendment A35: present when the turn ended because the vendor's usage
+    /// limit was reached, in which case `stopReason` is `error`.
+    public let limit: LimitStop?
 
-    public init(turnID: String, stopReason: StopReason, durationMS: Int, usage: SessionUsage? = nil) {
+    public init(turnID: String, stopReason: StopReason, durationMS: Int,
+                usage: SessionUsage? = nil, limit: LimitStop? = nil) {
         self.turnID = turnID
         self.stopReason = stopReason
         self.durationMS = durationMS
         self.usage = usage
+        self.limit = limit
     }
 
     enum CodingKeys: String, CodingKey {
-        case usage
+        case usage, limit
         case turnID = "turn_id"
         case stopReason = "stop_reason"
         case durationMS = "duration_ms"
@@ -451,6 +456,7 @@ public struct TurnCompletedPayload: Codable, Sendable, Hashable {
         stopReason = try values.decodeIfPresent(StopReason.self, forKey: .stopReason) ?? .completed
         durationMS = try values.decodeIfPresent(Int.self, forKey: .durationMS) ?? 0
         usage = try values.decodeIfPresent(SessionUsage.self, forKey: .usage)
+        limit = try values.decodeIfPresent(LimitStop.self, forKey: .limit)
     }
 }
 

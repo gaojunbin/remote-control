@@ -129,6 +129,21 @@ public actor GatewayHTTPClient {
         try await send(.get, "/api/config").decode(GatewayConfig.self)
     }
 
+    /// Amendment A35: the caller's own account preferences, which the gateway
+    /// keeps so every app and device of the account reads the same value.
+    public func preferences() async throws -> PreferencesResponse {
+        try await send(.get, "/api/preferences").decode(PreferencesResponse.self)
+    }
+
+    /// Amendment A35: set the fields that are present and leave the rest. The
+    /// change goes out to the account's other apps and to its devices.
+    public func patchPreferences(resumeAfterLimit: Bool? = nil) async throws -> PreferencesResponse {
+        var body: [String: JSONValue] = [:]
+        if let resumeAfterLimit { body["resume_after_limit"] = .bool(resumeAfterLimit) }
+        return try await send(.patch, "/api/preferences", body: .object(body))
+            .decode(PreferencesResponse.self)
+    }
+
     /// Amendment A29: the models the gateway's polish provider offers. `503`
     /// with code `unsupported` when the operator configured none.
     public func polishModels() async throws -> PolishModelsResponse {

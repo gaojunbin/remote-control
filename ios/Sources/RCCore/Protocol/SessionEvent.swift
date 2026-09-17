@@ -20,6 +20,8 @@ public enum SessionEventBody: Sendable, Equatable {
     case queue(QueuePayload)
     case notice(NoticePayload)
     case error(ErrorPayload)
+    /// Amendment A35: what the device did about a resume after a usage limit.
+    case resume(ResumePayload)
     case unknown(kind: String, raw: JSONValue)
 }
 
@@ -42,6 +44,7 @@ public struct SessionEvent: Sendable, Equatable, Identifiable {
     public static let queueKind = "queue"
     public static let noticeKind = "notice"
     public static let errorKind = "error"
+    public static let resumeKind = "resume"
 
     public let seq: Int
     /// Amendment A8: the seq at which this block first appeared. A block that
@@ -121,6 +124,7 @@ extension SessionEvent: Codable {
         case Self.queueKind: body = .queue(try QueuePayload(from: decoder))
         case Self.noticeKind: body = .notice(try NoticePayload(from: decoder))
         case Self.errorKind: body = .error(try ErrorPayload(from: decoder))
+        case Self.resumeKind: body = .resume(try ResumePayload(from: decoder))
         default: body = .unknown(kind: kind, raw: raw)
         }
     }
@@ -154,6 +158,7 @@ extension SessionEvent: Codable {
         case .queue(let payload): try .encode(payload)
         case .notice(let payload): try .encode(payload)
         case .error(let payload): try .encode(payload)
+        case .resume(let payload): try .encode(payload)
         case .unknown(_, let raw): raw
         }
         return value.objectValue ?? [:]
@@ -184,5 +189,8 @@ extension SessionEvent {
     }
     public var meta: MetaPayload? {
         if case .meta(let payload) = body { payload } else { nil }
+    }
+    public var resume: ResumePayload? {
+        if case .resume(let payload) = body { payload } else { nil }
     }
 }

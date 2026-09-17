@@ -586,7 +586,7 @@ enum StoreChecks {
         checks.expect(store.hasSnapshot, "the demo hello arrives")
         checks.equal(store.phase, .connected, "the store reports a connected phase")
         checks.equal(store.devices.count, 3, "hello populates the device list")
-        checks.equal(store.sessions.count, 12, "hello populates the session list")
+        checks.equal(store.sessions.count, 13, "hello populates the session list")
         checks.equal(store.inventorySummary, "3 devices · 1 waiting", "the inventory summary counts waiting sessions")
         checks.equal(store.onlineDevices.count, 2, "only the online devices are offered for a new session")
         checks.expect(store.device(DemoFixtures.macDeviceID)?.agent("claude")?.supports(.takeover) == true,
@@ -910,7 +910,7 @@ enum StoreChecks {
         let groups = store.groups(sessions, devices: devices)
         checks.equal(groups.map(\.name), ["mac-studio-office", "macbook-air", "ci-runner-01"],
                      "a machine with live work comes first, then the rest by activity")
-        checks.equal(groups.first?.active.count, 8, "the busy machine holds eight live sessions")
+        checks.equal(groups.first?.active.count, 9, "the busy machine holds nine live sessions")
         checks.equal(groups.first?.active.first?.state, .needsApproval,
                      "a session waiting on the user sorts first inside its device")
         checks.expect(groups.allSatisfy { !$0.collapsed }, "every group starts expanded")
@@ -979,7 +979,7 @@ enum StoreChecks {
         let withArchived = store.groups(sessions + [archivedByHand], devices: devices)
         checks.equal(withArchived.first?.archive.map(\.sessionID), ["s", DemoFixtures.revivedSessionID],
                      "it joins that machine's Archive rather than a global one")
-        checks.equal(withArchived.first?.active.count, 8,
+        checks.equal(withArchived.first?.active.count, 9,
                      "and never counts as live, whatever still owns it")
 
         checks.equal(SessionListLayout.urgency(.needsInput), 0, "waiting on the user comes first")

@@ -227,6 +227,22 @@ extension GatewayRequest {
                        body: ["session_id": .string(sessionID), "queued_id": .string(queuedID)])
     }
 
+    /// Amendment A35: schedule the resume of protocol 7.2 for `at`, or move the
+    /// pending one there. The device refuses a time less than a minute ahead or
+    /// more than eight days out, and one asked for while a turn runs or while
+    /// the terminal controls the session.
+    public static func resumeSet(sessionID: String, at date: Date) -> GatewayRequest {
+        GatewayRequest(type: "session.resume_set",
+                       body: ["session_id": .string(sessionID),
+                              "at": .integer(Int64((date.timeIntervalSince1970 * 1000).rounded()))])
+    }
+
+    /// Amendment A35: remove the pending resume. Idempotent, so a second tap
+    /// while the first is in flight is not an error.
+    public static func resumeCancel(sessionID: String) -> GatewayRequest {
+        GatewayRequest(type: "session.resume_cancel", body: ["session_id": .string(sessionID)])
+    }
+
     public static func takeover(sessionID: String) -> GatewayRequest {
         GatewayRequest(type: "session.takeover", body: ["session_id": .string(sessionID)])
     }

@@ -116,6 +116,11 @@ public struct EventSource: WireEnum {
     /// typed — a teammate's message, a background task's notification. They are
     /// neither the person nor the assistant, and the transcript says so.
     public static let agent = EventSource(rawValue: "agent")
+    /// Amendment A35: the prompt the device sent for the person once a usage
+    /// limit reset (7.2). It is the person's own message, sent on their
+    /// standing instruction, so the transcript draws it in their bubble and the
+    /// status line reads the turn it starts as a remote one.
+    public static let resume = EventSource(rawValue: "resume")
 
     /// Amendment A30: a turn another agent's message started is not this app's
     /// doing, so everything that asks "did I start this?" reads it as it reads
@@ -238,6 +243,12 @@ public struct PushKind: WireEnum {
     public static let needsInput = PushKind(rawValue: "needs_input")
     public static let turnCompleted = PushKind(rawValue: "turn_completed")
     public static let error = PushKind(rawValue: "error")
+    /// Amendment A35: the three kinds that follow a `resume` event — the
+    /// session was paused and a resume scheduled, the resume ran, or it could
+    /// not. The time is never in the push; the app reads it from `Session`.
+    public static let limitReached = PushKind(rawValue: "limit_reached")
+    public static let resumed = PushKind(rawValue: "resumed")
+    public static let resumeDropped = PushKind(rawValue: "resume_dropped")
 }
 
 extension ToolKind {

@@ -12,6 +12,9 @@ public final class AppModel {
     public let connection: ConnectionStore
     public let sessions = SessionStore()
     public let settings: SettingsStore
+    /// Amendment A35: the account's preferences, which live on the gateway and
+    /// not on this phone. Seeded from `hello` and kept in step by the socket.
+    public let preferences = PreferencesStore()
 
     public var tab: Tab = .sessions
     /// Session keys, not sessions. A `Session` changes on every status, meta
@@ -94,6 +97,12 @@ public final class AppModel {
         self.connection.onSessionTransition = { [weak self] previous, current in
             self?.announceTurn(previous: previous, current: current)
         }
+        // Amendment A35: the account's preferences and the resume banners both
+        // ride on frames no single screen owns, so the model reads them for the
+        // life of the app rather than for the life of a view.
+        self.connection.addFrameHandler("preferences") { [weak self] frame in
+            self?.receive(frame)
+        }
         // Drafts are the one piece of state an actor holds, so the reset of
         // them is the first thing the launch task does, ahead of the demo that
         // would otherwise open a session with a previous run's words in it.
@@ -145,7 +154,17 @@ public final class AppModel {
 
     /// Reconcile notifications as soon as the app has an account, so a token is
     /// registered without the user visiting Settings first.
+    /// Frames the app itself reads: the account's preferences, and the `resume`
+    /// events a banner is raised for.
+    private func receive(_ frame: AppFrame) {
+        preferences.receive(frame)
+        guard case .sessionEvent(let sessionID, let deviceID, let event) = frame,
+              let payload = event.resume else { return }
+        announceResume(payload, event: event, sessionID: sessionID, deviceID: deviceID)
+    }
+
     public func attachPush() {
+        preferences.attach(api: connection.api)
         push.attach(api: connection.isDemo ? nil : connection.api,
                     enabled: settings.notificationsEnabled) { [weak self] route in
             self?.handle(SessionLink(deviceID: route.deviceID, sessionID: route.sessionID))
@@ -175,6 +194,7 @@ public final class AppModel {
 
     public func signOut() async {
         push.detach()
+        preferences.attach(api: nil)
         await closeChat()
         path.removeAll()
         hasChosenLandingTab = false
@@ -336,6 +356,26 @@ public final class AppModel {
     /// A session the app already knew has been replaced by a newer version of
     /// itself. The three gates live in `TurnNotifier`; the name does not, so it
     /// is resolved here where the device list is.
+    /// Amendment A35: a session pausing, resuming or being dropped is news of
+    /// exactly the kind a finished turn is, so it raises the same banner under
+    /// the same three gates and is deduplicated against the gateway's push the
+    /// same way. `rescheduled` and `cancelled` say nothing: the first is a
+    /// detail of a pause already announced, the second is usually the person's
+    /// own doing.
+    private func announceResume(_ payload: ResumePayload, event: SessionEvent,
+                                sessionID: String, deviceID: String?) {
+        guard let kind = TurnAlerts.kind(resume: payload.status),
+              let session = connection.sessions.first(where: {
+                  $0.sessionID == sessionID && (deviceID == nil || $0.deviceID == deviceID)
+              }) else { return }
+        turns.announce(kind: kind, session: session,
+                       deviceName: device(for: session)?.name ?? session.deviceID,
+                       identifier: "resume/\(session.id)/\(event.seq)",
+                       sceneActive: isSceneActive,
+                       enabled: settings.notificationsEnabled,
+                       authorization: push.authorization)
+    }
+
     private func announceTurn(previous: Session, current: Session) {
         turns.announce(previous: previous, current: current,
                        deviceName: device(for: current)?.name ?? current.deviceID,
@@ -426,6 +466,7 @@ extension TimelineEntry {
         case .queue: SessionEvent.queueKind
         case .notice: SessionEvent.noticeKind
         case .error: SessionEvent.errorKind
+        case .resume: SessionEvent.resumeKind
         case .unknown(let kind, _): kind
         }
     }

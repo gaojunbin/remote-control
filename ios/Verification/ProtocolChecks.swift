@@ -24,6 +24,7 @@ enum ProtocolChecks {
         requests(checks: checks)
         firstSeq(checks: checks)
         toolKinds(checks: checks)
+        usageLimit(checks: checks)
         return checks.result()
     }
 
@@ -74,8 +75,147 @@ enum ProtocolChecks {
 
     private static let inboundTypes: Set<String> = [
         "hello", "device.updated", "device.removed", "session.updated", "session.removed",
-        "session.event", "pairing.progress", "ping", "reply"
+        "session.event", "pairing.progress", "preferences.updated", "ping", "reply"
     ]
+
+    /// Amendment A35: a session the usage limit stopped, the resume it is
+    /// waiting on, and every fixture that carries one.
+    private static func usageLimit(checks: CheckRunner) {
+        if let json = FixtureSource.json("objects/session.resume-pending.json"),
+           let session = try? json.decode(Session.self) {
+            checks.equal(session.resume?.at, 1_788_966_060_000, "a pending resume carries its time")
+            checks.equal(session.resume?.estimated, false, "and says the vendor named the time")
+            checks.equal(session.resume?.attempts, 0, "and that no resume has run into the limit yet")
+            checks.equal(session.resume?.windowMinutes, 300, "and which window was hit")
+            checks.equal(session.control, .shared, "on the one kind of session that can be dropped")
+        } else {
+            checks.expect(false, "objects/session.resume-pending.json decodes as a Session")
+        }
+        // A session with no `resume` key at all is a session with no resume.
+        if let json = FixtureSource.json("objects/session.shared-idle.json"),
+           let session = try? json.decode(Session.self) {
+            checks.expect(session.resume == nil, "a session without the field has no resume pending")
+        }
+
+        if let json = FixtureSource.json("events/turn_completed.limit.json"),
+           let event = try? json.decode(SessionEvent.self),
+           case .turnCompleted(let payload) = event.body {
+            checks.equal(payload.stopReason, .error, "a limit stop is an error stop")
+            checks.equal(payload.limit?.windowMinutes, 300, "and names the window that was hit")
+            checks.equal(payload.limit?.resetsAt, 1_788_966_000_000, "and when it resets")
+        } else {
+            checks.expect(false, "events/turn_completed.limit.json decodes")
+        }
+        // A turn that ended for any other reason carries no limit at all.
+        if let json = FixtureSource.json("events/turn_completed.json"),
+           let event = try? json.decode(SessionEvent.self),
+           case .turnCompleted(let payload) = event.body {
+            checks.expect(payload.limit == nil, "an ordinary turn carries no limit")
+        }
+
+        if let json = FixtureSource.json("events/resume.json"),
+           let event = try? json.decode(SessionEvent.self), let payload = event.resume {
+            checks.equal(payload.status, .scheduled, "a resume event says what the device did")
+            checks.equal(payload.at, 1_788_966_060_000, "and when the prompt will go")
+            checks.expect(payload.status.isDrawn, "and a scheduled resume is a row")
+        } else {
+            checks.expect(false, "events/resume.json decodes as a resume event")
+        }
+        if let json = FixtureSource.json("events/resume.dropped.json"),
+           let event = try? json.decode(SessionEvent.self), let payload = event.resume {
+            checks.equal(payload.status, .dropped, "a dropped resume says so")
+            checks.expect(payload.reason?.isEmpty == false, "in the device's own words")
+        }
+        checks.expect(!ResumeStatus.fired.isDrawn,
+                      "the moment of resuming is not a row of its own")
+
+        if let json = FixtureSource.json("events/user_message.resume.json"),
+           let event = try? json.decode(SessionEvent.self), let message = event.userMessage {
+            checks.equal(message.source, .resume, "the prompt is the one message the device writes")
+            checks.expect(!message.source.isElsewhere,
+                          "and it is the person's own, so nothing reads it as somebody else's")
+        }
+        if let json = FixtureSource.json("events/turn_started.resume.json"),
+           let event = try? json.decode(SessionEvent.self),
+           case .turnStarted(let payload) = event.body {
+            checks.equal(payload.trigger, .resume, "the turn it starts says a resume started it")
+            checks.expect(!payload.trigger.isElsewhere, "which the status line reads as a remote turn")
+        }
+
+        if let json = FixtureSource.json("http/preferences.response.json"),
+           let response = try? json.decode(PreferencesResponse.self) {
+            checks.expect(response.preferences.resumeAfterLimit, "the account's switch decodes")
+        } else {
+            checks.expect(false, "http/preferences.response.json decodes")
+        }
+        if let json = FixtureSource.json("http/push.payload.limit.json"),
+           let route = try? (json["rc"] ?? .object([:])).decode(PushRoute.self) {
+            checks.equal(route.kind, .limitReached, "the pause push carries its own kind")
+            checks.expect(route.title.contains("paused by the usage limit"),
+                          "and a title that names no time")
+        }
+        if let json = FixtureSource.json("app/preferences.updated.json"),
+           case .preferencesUpdated(let preferences)? = try? AppFrame(json: json) {
+            checks.expect(preferences.resumeAfterLimit, "preferences.updated carries the new value")
+        } else {
+            checks.expect(false, "app/preferences.updated.json decodes as an app frame")
+        }
+        if let json = FixtureSource.json("device/preferences.json"),
+           let preferences = try? (json["preferences"] ?? .object([:])).decode(Preferences.self) {
+            checks.expect(preferences.resumeAfterLimit, "and so does the device's own frame")
+        }
+        if let hello = FixtureSource.json("app/hello.json"), let frame = try? AppFrame(json: hello),
+           case .hello(let payload) = frame {
+            checks.expect(payload.preferences != nil, "hello carries the account's preferences")
+            checks.equal(payload.preferences?.resumeAfterLimit, false,
+                         "and the switch is off until the person turns it on")
+        }
+        // A gateway older than the amendment sends none, which is what the
+        // app shows the switch disabled for.
+        if let hello = FixtureSource.json("app/hello.json")?.objectValue {
+            var older = hello
+            older.removeValue(forKey: "preferences")
+            if case .hello(let payload)? = try? AppFrame(json: .object(older)) {
+                checks.expect(payload.preferences == nil, "and a gateway that sends none offers none")
+            }
+        }
+
+        if let json = FixtureSource.json("app/session.resume_set.json"),
+           let at = json["at"]?.intValue {
+            let built = GatewayRequest.resumeSet(
+                sessionID: json["session_id"]?.stringValue ?? "",
+                at: Date(timeIntervalSince1970: Double(at) / 1000))
+            checks.equal(built.type, "session.resume_set", "session.resume_set is built as the fixture")
+            checks.equal(built.body["at"], .integer(Int64(at)), "with the time in milliseconds")
+            checks.equal(built.body["session_id"], json["session_id"], "and the session it is for")
+        }
+        if let json = FixtureSource.json("app/session.resume_cancel.json") {
+            let built = GatewayRequest.resumeCancel(sessionID: json["session_id"]?.stringValue ?? "")
+            checks.equal(built.type, "session.resume_cancel", "and so is session.resume_cancel")
+            checks.equal(built.body["session_id"], json["session_id"], "for the same session")
+        }
+        if let reply = FixtureSource.json("app/reply.session.resume_set.json"),
+           let result = reply["result"] {
+            checks.noThrow("the reply carries the session with its resume") {
+                let session = try result.decode(SessionResult.self).session
+                guard session.resume?.at == 1_788_967_860_000 else {
+                    throw ProtocolFailure.malformed("reply.session.resume_set")
+                }
+            }
+        }
+
+        // The bounds the device enforces, checked here so a time it would
+        // refuse never leaves the picker.
+        let now = Date(timeIntervalSince1970: 1_788_966_000)
+        checks.expect(!ResumeBounds.allows(now.addingTimeInterval(30), now: now),
+                      "a resume less than a minute ahead is refused")
+        checks.expect(ResumeBounds.allows(now.addingTimeInterval(61), now: now),
+                      "a minute and a second ahead is allowed")
+        checks.expect(ResumeBounds.allows(now.addingTimeInterval(8 * 86_400), now: now),
+                      "and so is eight days exactly")
+        checks.expect(!ResumeBounds.allows(now.addingTimeInterval(8 * 86_400 + 60), now: now),
+                      "further out than eight days is refused")
+    }
 
     private static func objects(checks: CheckRunner) {
         guard let hello = FixtureSource.json("app/hello.json"),

@@ -35,6 +35,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     private var accounts = DemoFixtures.users
     private var signedIn = DemoFixtures.users[0]
     private var registrationOpen: Bool
+    /// Amendment A35: the account's preferences, which this gateway keeps the
+    /// way a real one does — one value for every app and device of the account.
+    private var preferences = Preferences(resumeAfterLimit: true)
     private var transcripts: [String: [SessionEvent]] = [:]
     private var cursors: [String: Int] = [:]
     private var scripted: Task<Void, Never>?
@@ -129,7 +132,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
                                user: signedIn.identity, devices: devices,
                                sessions: sessionList, stt: configuration.stt,
                                polish: configuration.polish, apps: configuration.apps,
-                               serverTime: DemoFixtures.now)
+                               preferences: preferences, serverTime: DemoFixtures.now)
         continuation.yield(.state(.connected))
         continuation.yield(.frame(.hello(hello)))
         reviving?.cancel()
@@ -178,6 +181,10 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             return try listCommands(request)
         case "session.command":
             return try runCommand(request)
+        case "session.resume_set":
+            return try setResume(request)
+        case "session.resume_cancel":
+            return try cancelResume(request)
         case "device.dirs":
             return try JSONValue.encode(DemoFixtures.directoryListing)
         case "device.git":
@@ -256,6 +263,23 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     }
     public func logout() async throws {}
     public func config() async throws -> GatewayConfig { configuration }
+
+    /// Amendment A35: the account's preferences, and a write that reaches every
+    /// other app of the account as `preferences.updated` — which is how the
+    /// switch on one screen moves the switch on another.
+    public func preferences() async throws -> PreferencesResponse {
+        PreferencesResponse(preferences: preferences)
+    }
+
+    public func patchPreferences(resumeAfterLimit: Bool?) async throws -> PreferencesResponse {
+        if let resumeAfterLimit {
+            preferences = Preferences(resumeAfterLimit: resumeAfterLimit)
+        }
+        continuation.yield(.frame(.preferencesUpdated(preferences)))
+        // Turning it off cancels every pending resume, on every device.
+        if preferences.resumeAfterLimit == false { cancelEveryResume() }
+        return PreferencesResponse(preferences: preferences)
+    }
 
     /// Amendment A29: two models, and a stand-in that cleans the words rather
     /// than reaching a provider. The delay is what makes "Polishing…" visible.
@@ -483,6 +507,64 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             throw GatewayErrorBody(code: .notFound, message: "No such block")
         }
         return try JSONValue.encode(BlockResult(event: event))
+    }
+
+    // MARK: - Resuming after a usage limit (A35)
+
+    /// Schedule or move the resume. The bounds are the protocol's, and the
+    /// refusals are the ones a real device gives, so the picker is exercised
+    /// against them rather than against nothing.
+    private func setResume(_ request: GatewayRequest) throws -> JSONValue {
+        let id = try requireSessionID(request)
+        let paused = try session(id)
+        guard !paused.state.isWorking else {
+            throw GatewayErrorBody(code: .conflict, message: "Wait for the turn to finish.")
+        }
+        guard !paused.isControlledByTerminal else {
+            throw GatewayErrorBody(code: .conflict,
+                                   message: "Controlled by the terminal; take over first.")
+        }
+        guard let at = request.body["at"]?.intValue.map(Int64.init) else {
+            throw GatewayErrorBody(code: .badRequest, message: "That resume has no time.")
+        }
+        let date = Date(timeIntervalSince1970: Double(at) / 1000)
+        guard ResumeBounds.allows(date) else {
+            throw GatewayErrorBody(code: .badRequest,
+                                   message: "Pick a time between a minute from now and eight days away.")
+        }
+        let previous = paused.resume
+        let resume = SessionResume(at: at, estimated: false,
+                                   attempts: previous?.attempts ?? 0,
+                                   windowMinutes: previous?.windowMinutes)
+        update(sessionID: id) { $0.resume = resume }
+        emit(sessionID: id, body: .resume(ResumePayload(
+            status: previous == nil ? .scheduled : .rescheduled, at: at, estimated: false,
+            attempts: previous?.attempts)))
+        return try JSONValue.encode(SessionResult(session: try session(id)))
+    }
+
+    /// Idempotent: a session with nothing pending answers with itself and says
+    /// nothing in the transcript.
+    private func cancelResume(_ request: GatewayRequest) throws -> JSONValue {
+        let id = try requireSessionID(request)
+        guard try session(id).resume != nil else {
+            return try JSONValue.encode(SessionResult(session: try session(id)))
+        }
+        update(sessionID: id) { $0.resume = nil }
+        emit(sessionID: id, body: .resume(ResumePayload(status: .cancelled,
+                                                        reason: "you changed your mind")))
+        return try JSONValue.encode(SessionResult(session: try session(id)))
+    }
+
+    /// Turning the switch off ends every pending resume of the account, each
+    /// with its own row, exactly as protocol 7.2 says.
+    private func cancelEveryResume() {
+        for pending in sessionList where pending.resume != nil {
+            let id = pending.sessionID
+            update(sessionID: id) { $0.resume = nil }
+            emit(sessionID: id, body: .resume(ResumePayload(
+                status: .cancelled, reason: "the switch was turned off")))
+        }
     }
 
     // MARK: - Slash commands (A27)
@@ -1105,6 +1187,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         case .queue: SessionEvent.queueKind
         case .notice: SessionEvent.noticeKind
         case .error: SessionEvent.errorKind
+        case .resume: SessionEvent.resumeKind
         case .unknown(let kind, _): kind
         }
     }
