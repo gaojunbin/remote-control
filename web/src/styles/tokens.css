@@ -33,6 +33,8 @@
   --row-h: 64px;
   --row-h-stacked: 96px;
   --row-h-stacked-tall: 108px;
+  /* Three lines of text — a title and two meta lines — with the same breathing room. */
+  --row-h-three: 84px;
 
   /* ink */
   --ink: #111111;

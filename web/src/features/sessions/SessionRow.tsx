@@ -1,4 +1,4 @@
-import { Archive } from 'lucide-react';
+import { Archive, Folder } from 'lucide-react';
 import { AgentLogo } from '../../components/AgentLogo';
 import { StatusDot } from '../../components/StatusDot';
 import { relativeTime, tildePath } from '../../lib/format';
@@ -26,21 +26,32 @@ export function SessionRow({ session, online, onOpen }: Props) {
 
   return (
     <li className="session-row">
+      {/* Three lines (docs/DESIGN.md § "The session row"): title and time,
+          agent and status, then the working directory alone after a folder,
+          so the path has the whole width and no line says three things. */}
       <button type="button" className="session-open" onClick={onOpen} aria-label={strings.sessions.open}>
-        <StatusDot state={session.state} control={session.control} online={online} />
-        <span className="session-text">
+        <span className="session-line">
           <span className="session-title">{sessionTitle(session)}</span>
-          <span className="session-meta">
-            <span className="agent-chip">
-              <AgentLogo agent={session.agent} />
-              {agentLabel(session.agent)}
-            </span>
-            <span className="session-sub mono">{tildePath(session.cwd)}</span>
+          <span className="session-time">{relativeTime(session.updated_at)}</span>
+        </span>
+        <span className="session-line">
+          <span className="agent-chip">
+            <AgentLogo agent={session.agent} />
+            {agentLabel(session.agent)}
+          </span>
+          <span className={`session-state${attention ? ' attention' : ''}`}>
+            <StatusDot state={session.state} control={session.control} online={online} />
+            {state}
           </span>
         </span>
-        <span className={`session-state${attention ? ' attention' : ''}`}>
-          {state}
-          <span className="session-time"> · {relativeTime(session.updated_at)}</span>
+        <span className="session-cwd">
+          <Folder className="session-folder" strokeWidth={1.5} aria-hidden />
+          {/* Right-to-left on the outside and an isolated left-to-right run
+              inside: the text reads as written and the ellipsis lands at the
+              head, so the folder the path ends in is what survives. */}
+          <span className="session-path mono">
+            <bdi>{tildePath(session.cwd)}</bdi>
+          </span>
         </span>
       </button>
       {offersArchive ? (

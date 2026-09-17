@@ -261,6 +261,44 @@ describe('SessionsPage grouping', () => {
 });
 
 /**
+ * `docs/DESIGN.md` § "The session row": three lines — title and time, agent and
+ * status, then the working directory alone after a folder glyph.
+ */
+describe('the session row', () => {
+  const rowFor = (title: string): HTMLElement => {
+    const row = screen.getByText(title).closest('.session-row');
+    if (!row) throw new Error(`no row for ${title}`);
+    return row as HTMLElement;
+  };
+
+  it('puts the agent at the leading edge and the status at the trailing edge of the second line', () => {
+    renderPage();
+    const [first, second, ...rest] = rowFor('Fix flaky auth test').querySelectorAll('.session-line');
+    if (!first || !second) throw new Error('the row has fewer than two lines');
+    expect(rest).toHaveLength(0);
+    expect(first.querySelector('.session-title')?.textContent).toBe('Fix flaky auth test');
+    expect(first.querySelector('.session-time')).not.toBeNull();
+    expect(second.firstElementChild?.classList.contains('agent-chip')).toBe(true);
+    expect(second.lastElementChild?.classList.contains('session-state')).toBe(true);
+    expect(second.querySelector('.session-state .dot')).not.toBeNull();
+    expect(second.textContent).not.toContain('~/');
+  });
+
+  it('gives the working directory the third line, after an unfilled outline folder', () => {
+    renderPage();
+    const cwd = rowFor('Fix flaky auth test').querySelector('.session-cwd');
+    if (!cwd) throw new Error('no cwd line');
+    const folder = cwd.querySelector('svg.session-folder');
+    if (!folder) throw new Error('no folder');
+    expect(folder.getAttribute('fill')).toBe('none');
+    expect(folder.getAttribute('stroke-linecap')).toBe('round');
+    expect(folder.getAttribute('stroke-linejoin')).toBe('round');
+    expect(folder.getAttribute('aria-hidden')).toBe('true');
+    expect(cwd.querySelector('.session-path bdi')?.textContent).toBe('~/dev/remote-control/gateway');
+  });
+});
+
+/**
  * `docs/DESIGN.md` § "Session lists": the archive action is offered on exactly
  * one kind of row, and there is no unarchive anywhere.
  */
