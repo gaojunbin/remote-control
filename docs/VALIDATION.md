@@ -2033,6 +2033,61 @@ four components 1.4.6, iOS build 13, tag v1.4.6.
 legend's fit on the narrowest phone width was checked at 400 px on the web and on the iPhone 17
 simulator only.
 
+## 40. A device keeps itself current (A36) (2026-09-18, 1.4.7)
+
+The owner's thought, from the phone: a person should update the app on their phone and never know
+which client a machine runs; the gateway should update devices itself, and someone steps in only
+when that failed. Later the same day: the device page must not show the client version or its
+commit hash either. Frozen as **A36** (`protocol/` dda5ed7 and 11c41c6 — the gateway sends
+`device.update` on its own account, apps drop the version everywhere and offer Retry only on a
+failed device; nothing changes on the wire) and `docs/DESIGN.md` § "A device keeps itself current"
+(211a837, 2ed560b); built by three subagents in worktrees — `auto-gateway` 0757a08, `auto-web`
+53f8ca5 + 9afbfdc, `auto-ios` — and merged.
+
+**Gateway.** `rc_gateway/auto_update.py` is the whole policy: a `hello` whose `client_build` is
+neither null nor the served build earns one `device.update {build}` with `from: "gateway"`;
+`conflict` for a running session → asked again when the device's sessions go quiet or after ten
+minutes; `conflict` "already on this build" and `unsupported` → left alone for the connection;
+`update.failed` or the five-minute timeout → `failed`, and the served build that failed is kept in
+the new `devices.update_failed_build` column (an additive migration, no new `.env` entry) so a
+device that re-hellos still behind is shown `failed` with its reason instead of being asked again;
+an app's Retry clears it on acceptance, a newer wheel clears it too. An accepted gateway request
+moves the device to `updating` on the same `_route_reply` path an app's does — a race the agent
+found, where a following `update.failed` could have been overwritten, went with it. 18 tests in
+`tests/test_auto_update.py`; the A22 end-to-end test now greets with the served build so the
+automatic attempt does not race the app's. Gateway 397 → 415.
+
+**Web.** The row's third line exists only for `updating` / `failed`; the menu is Rename · Revoke,
+with **Retry update** inserted only while `failed`, disabled with a reason while offline or with no
+served wheel; the confirmation names the version; the device page keeps hostname · platform ·
+arch, no client line, and shows the same notice with a Retry beside it; `updateNotice` lost its
+`available` branch and `served` argument; `clientBuild` / `clientVersion` / `updateAvailable*` /
+`updateCurrent` / `updateInFlight` strings deleted (en and zh); the mock stages `ci-runner-01` as
+`failed`. Web 671 → 677. Screenshots `web-round40-devices-{1280,400}.png` (the menu open on the
+failed row) and `auto-web/device-page-{failed,idle}.png`.
+
+**iOS.** `DeviceUpdate.Notice` is `updating` | `failed`; `DeviceUpdateLine` replaces both the row's
+and the page's client lines and is drawn only with a notice; **Retry update** (`device.retryUpdate`)
+in the swipe and context menu and beside the page's notice only while `failed`; `Block` reduced to
+`.offline` / `.noServedBuild`; the demo's `macbook-air` is a failed device; strings "Update
+available", "Update available · %@", "client %@", "client %@ · %@" and two unreachable reasons
+deleted, "Retry update" / 重试更新 added. RCVerify 1357 → 1360, RCUIVerify 479 → 489, unit tests
+373 → 371 (the A36 suite 15 → 13 as the `available` cases went; one timed test failed once under load and passed on the rerun); six UI tests on the agent's
+simulator (473CA51C), then the device-row, update and About tests on 32BBA636 after the bump.
+Screenshot `ios-round40-devices.png`.
+
+**Counts.** Client 1116 (+3 skipped) unchanged; all four components 1.4.7, iOS build 14, tag
+v1.4.7. Round 39's tag was cut with two client load flakes in the run (four toolchains and an
+xcodebuild at once); the rerun on an idle machine passed 1116 — the count is gated on the result
+from now on.
+
+**Not verified.** No live gateway asked a real device to update: the policy is exercised against the
+fake device in the gateway tests, and the apps against the mock and the demo. The first real run
+will be the VPS deploy of 1.4.7: every connected device on 1.4.6 or older should go `Updating…` and
+come back; the three Linux hosts still on the pre-1.4.5 updater will fail that one time and need
+one manual `systemctl --user restart rc-client`, after which they update themselves. A device
+installed from source is never asked and shows nothing.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

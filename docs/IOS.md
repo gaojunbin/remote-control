@@ -435,41 +435,36 @@ task it starts: dismissing an alert clears the `@State` that holds the device, a
 a task started from the button's action gets to run. Update was written the other way first and did
 nothing at all.
 
-**Update (A22).** `GET /api/config` names the wheel the gateway serves (`client.version`,
-`client.build`, `client.url`) and every device reports the build it runs. The row's client line
-(`DeviceRowClientLine`) reads the bare version — `1.4.1` — while there is nothing to say, and the
-version gives way to the one notice there is; the page's line (`DeviceClientLine`) reads
-`client <version> · 3f2b4a9c` and carries the versioned notice:
+**Devices keep themselves current (A22, A36).** `GET /api/config` names the wheel the gateway
+serves (`client.version`, `client.build`, `client.url`) and every device reports the build it runs;
+the gateway asks a device that is behind to update by itself, so this app shows no client version
+and no build hash anywhere — not on the row, not on the machine's page (owner's rulings,
+2026-09-18; `docs/DESIGN.md` § "A device keeps itself current"). `DeviceUpdate.Notice` in
+`Sources/RCCore/State/DeviceUpdate.swift` has two cases, and `DeviceUpdateLine`
+(`Screens/DeviceLines.swift`) draws one line, on the row and on the page alike, only when there is
+one:
 
-| `Device` says | The row reads | The page reads | Update is |
-| --- | --- | --- | --- |
-| `update_state: "updating"` | "Updating…", with the row's dot pulsing | the same | disabled |
-| a refusal this app is holding, or `update_state: "failed"` | "Update failed · &lt;message&gt;" | the same | offered again |
-| a `client_build` other than the gateway's, or none | "Update available" | "Update available · &lt;served version&gt;" | offered |
-| the gateway's own build | the version, bare | `client <version> · <build>` | disabled, "This device runs the build the gateway serves." |
+| `Device` says | The row and the page read | Actions |
+| --- | --- | --- |
+| `update_state: "updating"` | "Updating…", with the row's dot pulsing | Rename, Revoke |
+| a refusal this app is holding, or `update_state: "failed"` | "Update failed · &lt;message&gt;" | Rename, **Retry update**, Revoke |
+| anything else | nothing | Rename, Revoke |
 
-**An update names its version** (`docs/DESIGN.md` § "The three screens"), on the page and in the
-confirmation, not on the row (§ "The device row", owner's ruling 2026-09-18): "Update available ·
-&lt;version&gt;" on the machine's page, "Update macbook-air to &lt;version&gt;? Its service restarts;
-sessions it drives are stopped." in the alert, and "Update available" alone on the row, whose third
-line is `DeviceUpdateText.rowLine(version:notice:)` — the notice without a version, or the version
-without a notice. The
-version is `GatewayConfig.servedVersion`, `client.version` from the same object `servedBuild` is
-read from, and it is nil on a gateway that serves no wheel and on an older one whose config carries
-no version — where the wording falls back to "Update available" and "…to the gateway's client?".
-Both sentences are written once, in `DeviceUpdateText` in `Sources/RCUI/Screens/DeviceLines.swift`,
-so the row and the alert can never name different versions; `RCUIVerify` reads the four strings off
-it. The demo gateway serves this app's own version over two machines on 1.3.0, which is what the
-screenshots show.
-
-An offline device and a gateway serving no wheel disable the action too, each with its own reason on
-the accessibility hint. The rule itself is `DeviceUpdate` in `Sources/RCCore/State/DeviceUpdate.swift`,
-which is the same rule the web's `updateNotice` applies; `Tests/RCCoreTests/DeviceUpdateTests.swift`
-covers it on hand-built devices and `Verification/ProtocolChecks.swift` against the fixtures.
-Confirming sends `device.update {device_id, build}` and says nothing on success — `device.updated`
-carries the state the row draws from then on. A refusal (`conflict`, `unsupported`) never reaches
-the gateway's record, because no update started, so `AppModel.deviceUpdateErrors` holds it against
-the row that asked.
+**Retry update** (`device.retryUpdate`, zh 重试更新) sits in the trailing swipe and the context menu
+only while the device is `failed`, and beside the notice on the machine's page; it is disabled, with
+its reason on the accessibility hint, while the device is offline or the gateway serves no wheel
+(`DeviceUpdate.Block`: `.offline`, `.noServedBuild`). Its alert still names what it would install —
+"Update macbook-air to &lt;version&gt;? Its service restarts; sessions it drives are stopped.", from
+`DeviceUpdateText.confirmation(name:servedVersion:)` in `Screens/DeviceLines.swift`, falling back to
+"…to the gateway's client?" on a gateway whose config carries no version. Confirming sends
+`device.update {device_id, build}` and says nothing on success — `device.updated` carries the state
+the row draws from then on; a refusal (`conflict`, `unsupported`) never reaches the gateway's
+record, so `AppModel.deviceUpdateErrors` holds it against the row that asked. The demo's `macbook-air`
+is a device whose automatic update failed ("the device did not come back"), which is the Retry
+story the UI tests drive and the screenshots show; the other two machines say nothing about their
+client. `Tests/RCCoreTests/DeviceUpdateTests.swift` covers the rule on hand-built devices,
+`Verification/ProtocolChecks.swift` against the fixtures, and `RCUIVerify` reads the row and page
+lines off the demo.
 
 **Add device asks nothing.** The sheet is one sentence, the one-liner with a Copy button, the code
 with its countdown, the checklist and a Manual install link. There is no platform control: the

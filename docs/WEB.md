@@ -10,7 +10,7 @@ hand-written CSS with no framework. It talks only to the gateway and follows
 | --- | --- |
 | `/` | Decides where an open lands and goes there; the `*` fallback does the same |
 | `/login` | Username and password sign-in against the gateway, and **Create an account** when the gateway takes registrations (A24) |
-| `/devices` | Device list: a computer glyph, the name, a status line of online state, platform, session count and reach, the client build, and the agents as logos; Rename, Update and Revoke on every row; **Add device** with the copyable one-liner, the pairing code, its expiry, live handshake steps, and the scan flow beside them. The row itself opens the device |
+| `/devices` | Device list: a computer glyph, the name, a status line of online state, platform, session count and reach, the agents as logos, and — only while an update runs or has failed — "Updating…" or "Update failed · <reason>"; Rename and Revoke on every row, **Retry update** on a failed one; **Add device** with the copyable one-liner, the pairing code, its expiry, live handshake steps, and the scan flow beside them. The row itself opens the device |
 | `/devices/:deviceId` | One device: the machine's own facts, including the hostname and the architecture the row drops, then a card per agent it found, how each is signed in, and a meter per rate-limit window (A33) |
 | `/pair` | Claims the token a host printed as a QR code and shows the same handshake (A23) |
 | `/sessions` | Every session across every device: one collapsible group per device, its active rows and then its own collapsed **Archive**, a search, an agent filter and a device filter, and **New session** in a right-hand drawer |
@@ -512,20 +512,16 @@ Nothing of this reaches the gateway.
   `session.updated` that arrived in between or the reply itself. The check compares the store's
   current object identity against the one that was written, not its fields, because the patch and
   the update can carry the same value.
-- **Devices offer three actions and one of them is Update** (A22). Every row carries Rename, Update
-  and Revoke, in that order, and its client line says one thing (`docs/DESIGN.md` § "The device
-  row"): the bare `client_version` while there is nothing to do, or else the notice. `updateNotice`
-  in `src/stores/devices.ts` is the one rule for the notice: "Updating…" while `update_state` is
-  `updating`, "Update failed · <message>" for `failed`, and `available` when the device's build
-  differs from `config.client.build` — the wheel the gateway serves, read once on boot with the rest
-  of `/api/config`. The row says an available update as "Update available" and no more; the device
-  page shows the full line — `client <version> · <eight characters of the build>`, and "Update
-  available · <version>" — because **an update names what it would install** there and in the
-  confirmation: the page reads the whole `config.client` object and hands it to the row as
-  `served`, and the confirmation says "Update <name> to <version>? Its service restarts; sessions
-  it drives are stopped." A gateway too old to name the version of its wheel leaves `client.version`
-  out, and the page and the confirmation fall back to the bare "Update available" and "…to the
-  gateway's client?". Update confirms first,
+- **Devices update themselves; a person only retries** (A22, A36). Every row carries Rename and
+  Revoke, and **Retry update** only while `update_state` is `failed`. `updateNotice` in
+  `src/stores/devices.ts` is the one rule for what the row says about the client: "Updating…" while
+  `update_state` is `updating`, "Update failed · <message>" for `failed`, nothing otherwise — the
+  gateway asks devices to update on its own, so the app never says "Update available" and never
+  shows a version. The confirmation still names what Retry would install ("Update <name> to
+  <version>? Its service restarts; sessions it drives are stopped."), from `config.client.version`
+  read once on boot with the rest of `/api/config`; a gateway too old to name the version of its
+  wheel leaves `client.version` out and the confirmation falls back to "…to the gateway's client?".
+  Retry confirms first,
   then sends `device.update {device_id, build}` with the gateway's build, never the row's. It is
   disabled with a title saying why while the device is offline, while an update is in flight, when
   the builds already match and when the gateway serves no wheel at all. A refusal the device sends
@@ -792,10 +788,17 @@ the row for the device's page. The status line carries the online dot, which mov
 sit with the word it belongs to, then "online" or "offline", then the platform as a word from
 `platformLabels` in `src/strings.ts` — `macos` → macOS, `linux` → Linux, and a platform that table
 does not know printed as the device sent it — and then the session count and the latency or last
-seen. The client line is the bare `client_version` in mono, or in its place the update notice
-alone — "Update available" without the version, "Updating…", "Update failed · <reason>" — never
-the word "client" and never the build hash; `tests/DeviceUpdate.test.tsx` holds the row to that and
-`tests/DevicePage.test.tsx` holds the page to the full line. The row menu (A22) is unchanged.
+seen. There is no client line (A36, `docs/DESIGN.md` § "A device keeps itself current"): the
+gateway keeps every device on the wheel it serves, so the row shows no version and no "Update
+available", ever; a third line, `.device-client`, appears only while `update_state` is `updating`
+("Updating…", the dot pulsing) or `failed` ("Update failed · <reason>"), from `updateNotice` in
+`src/stores/devices.ts`. The menu offers Rename and Revoke, and **Retry update** only while the
+device is `failed` — disabled with a reason while the device is offline or the gateway serves no
+wheel — which confirms with the version it would install and sends `device.update` exactly as A22's
+Update did. The device page states no client version or build either: its facts are the hostname,
+the platform and the architecture, and it shows the same notice and Retry. `tests/DeviceUpdate.test.tsx`
+holds the row and its menu to that, `tests/DevicePage.test.tsx` the page; the mock stages one device
+whose automatic update failed so the Retry path is on screen in development.
 
 The agents are their logos alone, evenly spaced and with no name and no version beside them; each
 logo is wrapped in a `role="img"` span whose `aria-label` and `title` are the agent's name, so the

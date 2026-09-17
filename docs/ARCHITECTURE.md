@@ -487,6 +487,24 @@ instruction. `hello` and `GET /api/config` carry `polish.enabled`, which is what
 the setting or disable it with a note. Without the two variables everything about dictation is as
 it was.
 
+## Devices keep themselves current
+
+The gateway serves one client wheel and knows the build every device runs from its `hello`; when
+the two differ it asks the device to update itself, on its own account, and nobody presses anything
+(A36). `rc_gateway/auto_update.py` is the whole policy, so the hub keeps routing frames and one
+place decides who is asked and when: one `device.update {build}` per hello that is behind; a device
+that answers `conflict` because a session is running is asked again when its sessions go quiet or
+after ten minutes, whichever comes first, for as long as it stays connected; `unsupported` (a client
+installed from source) is left alone for the life of the connection; and a failure — `update.failed`
+or a device that never comes back within five minutes — is remembered on the device row
+(`update_failed_build`, an additive column) so the gateway never hammers a machine: it tries that
+build again only when an app retries or a newer wheel arrives, and a device that reconnects still
+behind is shown `failed` with its reason rather than cleared. An accepted gateway request moves the
+device to `updating` on the same path an app's does, so the timer, the announcement and the failure
+handling are one code path whoever asked. A gateway restart needs no state of its own: every device
+re-says `hello`, and the policy runs again from there. The apps show no client version anywhere;
+they draw "Updating…", "Update failed · <reason>" and a Retry, and nothing else about the client.
+
 ## Account preferences
 
 Some choices cannot live in an app. Whether a session the vendor's usage limit stopped resumes

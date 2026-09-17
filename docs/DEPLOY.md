@@ -239,7 +239,11 @@ docker compose up -d
 Each of the six databases applies its own additive migrations when it is opened, so an existing
 `DATA_DIR` is brought up to the new schema in place and an upgrade needs no manual step. A release
 that adds a database — `preferences.sqlite3` in 1.4.0 — creates it on the first start and needs no
-manual step either, and brings no new environment variable with it. Signed-in apps stay signed in:
+manual step either, and brings no new environment variable with it; a release that adds a column —
+`devices.update_failed_build` in 1.4.7 (A36) — is applied the same way. From 1.4.7 the gateway also
+brings every connected device to the wheel it serves by itself (A36), so an image update is followed
+by the devices updating themselves, one `Updating…` at a time on the device rows; a device whose
+update fails stays on its old client and says so until someone retries. Signed-in apps stay signed in:
 login sessions are recorded in `auth.sqlite3` rather than in memory, so a restart or an image update
 no longer signs everyone out. Expired and revoked rows are pruned at startup, which is logged as
 `pruned expired login sessions`.

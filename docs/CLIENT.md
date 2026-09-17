@@ -172,16 +172,19 @@ loginctl enable-linger $USER
 The Linux path has not been exercised: neither `rc-client service install` nor the systemd unit has
 been run on a real machine.
 
-## Updating from an app
+## Updating a device
 
-Bringing a host to a newer client used to mean going to that machine and re-running the installer.
-An app can now do it instead (A22).
+Bringing a host to a newer client used to mean going to that machine and re-running the installer,
+then pressing Update on a row (A22). The gateway now does it itself (A36): the device is asked the
+moment it says `hello` with a build that is not the one the gateway serves, and a person is only
+involved when that failed.
 
 The installer writes the SHA-256 of the wheel it installed to `state/client-build`, and the daemon
 reports it as `client_build` in every `hello`. The gateway reports the wheel *it* serves the same
-way in `GET /api/config`, so an app can see at a glance which devices are behind and offer them an
-**Update**. A client installed from a source checkout has no build file, reports `null`, and is
-never offered one.
+way in `GET /api/config`. A client installed from a source checkout has no build file, reports
+`null`, and is left alone. The device does not know or care who asked: a `device.update` from the
+gateway (`from: "gateway"`) and one an app sends to retry a failure are answered and carried out the
+same way.
 
 `device.update {build}` is answered before anything is installed:
 
