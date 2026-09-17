@@ -1959,6 +1959,46 @@ early where that row is the only evidence. One load-time flake
 times and on four later full runs. The iOS flash itself was not reproduced on a device; the
 ordering that caused it is what the unit test pins.
 
+## 38. Linux updates never came back; the Devices screen filters by platform (2026-09-18, 1.4.5)
+
+**Why an update of a Linux host always ended in "the device did not come back".** The owner
+reported that updating the client on a Linux server from the web page "often times out" while Macs
+update fine. Reading the updater: `self_update` installs the wheel, then runs `service install`,
+`shim install` and the pi refresh, and never restarts anything itself; the module's docstring and
+`docs/CLIENT.md` both said `service install` "restarts the daemon on the new code". That is true of
+launchd, whose `install` boots the job out and back in, and false of systemd, whose `install` only
+rewrites and enables the unit. Evidence, read-only over SSH on three Linux hosts running rc-client:
+each `logs/update.log` ends with `$ … service install` → `shim install` → "updated to ce1c0cf0…"
+(the 1.4.4 wheel), each venv reports 1.4.4, and each `systemctl --user status rc-client` shows the
+service **active since 2026-09-15**, two days before the update — the old process was still the one
+connected, so the gateway's five-minute timer (`UPDATE_TIMEOUT_SECONDS`) expired and marked the
+device failed. A fourth Linux host has no user bus in a non-login shell and no running client, and
+is not this story.
+
+**Fix.** `service/manager.py::install_restarts()` says which backend's install is a restart (launchd
+yes, systemd no); `systemd.restart(block:)` adds a `--no-block` form; the CLI gains
+`service restart` (`manager.restart()`, non-blocking on systemd); and `self_update` ends, where
+`install_restarts()` is false, with `rc-client service restart` **after** the shim, the pi refresh and
+its "updated to" line — last because the updater runs inside the unit's cgroup and the restart
+takes it with it, queued so the updater exits cleanly first. Tests: the launchd case pinned
+explicitly, the systemd case asserting the command order and that "updated to" precedes the restart,
+`systemctl --user --no-block restart rc-client.service` for the queued form, the manager's predicate
+under both flags, and `service restart` in the parser (client 1113 → 1116). Not verified live: no
+Linux host was updated with the new updater in this round — the running clients there are still
+1.4.4 code from before the fix (their next update, to 1.4.5, is the first that carries it, and it is
+the *old* updater on those hosts that will run; they will need one manual `systemctl --user restart
+rc-client` or `install.sh` after that update lands, and every update after that is automatic).
+
+**Devices filter by platform (iOS).** `DeviceFilter` in RCCore (platforms present, first seen first;
+apply), a toolbar menu drawn like the Sessions screen's agent filter, "All devices" / "macOS" /
+"Linux", `No <platform> devices` when the choice empties the list; three new strings with zh-Hans.
+Unit tests (368 → 370), RCUIVerify over the demo's machines (467 → 471), UI test
+`testPlatformFilterNarrowsTheDevicesToOnePlatform`. The web device list has no filter (not asked).
+
+**Counts.** Client 1116 (+3 skipped), ruff/format/mypy clean; gateway 397; web 661; iOS RCVerify
+1357, RCUIVerify 471, unit tests 370; UI tests on simulator 32BBA636: the platform filter, the device
+row and the About version row. All four components 1.4.5, iOS build 12, tag v1.4.5.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

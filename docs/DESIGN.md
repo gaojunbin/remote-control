@@ -160,6 +160,13 @@ devices ran into each other. The row now reads, top to bottom:
   hash and the versioned notice, as it keeps the hostname and the architecture.
 - The row menu is unchanged.
 
+**Devices can be filtered by platform** (owner's ruling, 2026-09-18). The Devices screen carries the
+same filter control the Sessions screen has for agents, top right: a menu of "All devices" and the
+platforms actually present — "macOS", "Linux", as § "The device row" words them — defaulting to All
+and not remembered. The chosen platform's word stands beside the glyph so the narrowed list says
+what it is narrowed to, and a platform that leaves the list empty says so in one line ("No Linux
+devices") rather than showing a blank. On the web the device list has no filter yet.
+
 ### The session row
 
 A session's row said three things on one line — the agent, the status and the working directory —

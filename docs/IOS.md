@@ -367,7 +367,14 @@ headers use `FieldLabel`, the one label every form section in the app is headed 
 ## Devices
 
 One row per enrolled machine: name and latency, the dot with `online`/`offline` and the platform,
-the agents it detected, and the client line. Every row offers the same three actions the web menu
+the agents it detected, and the client line. The toolbar's trailing button filters the list by
+platform (`docs/DESIGN.md` § "Devices can be filtered by platform"): `DeviceFilter` in
+`Sources/RCCore/State/DeviceFilter.swift` names the platforms present, first seen first, and narrows
+the list to one; the menu is drawn like the Sessions screen's agent filter, identifiers
+`devices.platformFilter` and `devices.platformFilter.<platform id|all>`, and an emptied list reads
+"No Linux devices" (`devices.platformFilter.empty`). The choice is `@State` on the screen, not a
+setting. `Tests/RCCoreTests/DeviceFilterTests.swift`, `RCUIVerify` over the demo's three machines,
+and the UI test `testPlatformFilterNarrowsTheDevicesToOnePlatform` cover it. Every row offers the same three actions the web menu
 offers, with the same words in the same order — **Rename**, **Update**, **Revoke** — from one
 trailing swipe holding all three and from the context menu. Identifiers `device.rename`,
 `device.update`, `device.revoke`. Each action opens the same alert whichever way it was reached.

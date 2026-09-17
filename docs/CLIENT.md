@@ -197,9 +197,21 @@ the service restart it performs at the end. The updater downloads
 `<gateway>/dist/rc_client-latest.whl` into `state/`, never `/tmp` — the file is about to run as a
 service — and **installs nothing unless its SHA-256 is exactly the build that was asked for**; a
 mismatch exits 3 and leaves the old client in place. On success it installs the wheel with the same
-`uv` the installer used, rewrites `state/client-build`, re-runs `service install` (which restarts
-the daemon on the new code) and `shim install`, keeping whatever `--no-shell-rc` choice your shell
-startup file already reflects.
+`uv` the installer used, rewrites `state/client-build`, re-runs `service install` and `shim install`,
+keeping whatever `--no-shell-rc` choice your shell startup file already reflects.
+
+**The restart is the updater's own last step wherever `service install` does not restart the
+service itself.** On launchd, `install` boots the job out and back in, so the new code is what runs
+the moment it returns. On systemd, `install` only rewrites and enables the unit, and the running
+process keeps the code it started with — which is why every update of a Linux host used to end in
+"the device did not come back": the wheel was installed, the log said "updated to …", and the same
+old process was still connected five minutes later (found on three Linux hosts on 2026-09-18, each
+with a 1.4.4 wheel in its venv and a service running since the 15th). `manager.install_restarts()`
+says which kind this platform is, and where it is false the updater ends with
+`rc-client service restart`, after the shim and the pi refresh and after its "updated to" line,
+because the updater runs inside the unit's own cgroup and the restart takes it with it. The
+restart is queued with `systemctl --user --no-block restart`, so the updater exits cleanly first;
+the job is systemd's once queued, and the new process comes up on the installed wheel.
 
 Then it refreshes everything else the wheel ships into the person's tools, so an update leaves the
 device where a fresh install would: `pi setup`, but **only when a pi extension is already
