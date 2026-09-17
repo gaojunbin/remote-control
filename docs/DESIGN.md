@@ -88,20 +88,23 @@ device and on Devices when it has none: a new account's first job is enrolling a
 else's is the conversation. The choice is made once per open, from the first device list that
 arrives, and is not remembered.
 
-**Update is the app's job, not the terminal's.** The gateway serves one client build and says which
-(`GET /api/config` `client.build`); a device reports the build it runs. A row whose build differs
-reads "Update available" under the version, and **Update** asks the device to fetch that exact
-build from the gateway, install it and restart its service (A22). The row reads "Updating…" until
-the device comes back with the new build, "Update failed · <reason>" if it does not, and the
-action is disabled while the device is offline or a session it drives is running. A device on the
-gateway's build offers no Update.
+**A device keeps itself current** (owner's ruling, 2026-09-18, A36). Nobody should know or care
+which client a machine runs: they update the app on their phone, and the machines follow. The
+gateway serves one client build and says which (`GET /api/config` `client.build`); a device reports
+the build it runs in every `hello`; and when the two differ the **gateway** asks the device to
+update, on its own, the moment the device is not busy — no row to notice, no button to press. The
+device row therefore shows no client version and never "Update available". It says "Updating…"
+while the update runs and "Update failed · <reason>" when it did not come back, and only then offers
+**Retry update**, which asks once more exactly as the automatic attempt did; a device that cannot
+update itself (installed from source) is left alone and shows nothing. The gateway tries once per
+build it serves, waits while a session on the device is running, gives up after a failure until a
+person retries or a newer build arrives, so a machine that keeps failing is shown, not hammered.
+The device's own page keeps the client version among its facts, with the hostname and the
+architecture, for whoever comes to check.
 
-**An update names its version, and leaves the device as a fresh install would.** The device page
-says what it would install — "Update available · 1.3.1" under the version the device runs — and the
-confirmation says the same ("Update <name> to 1.3.1?"), because "Update available" alone told
-nobody whether the click was worth it while every build was called 0.1.0. The row itself says only
-"Update available" since 2026-09-18 (§ "The device row"): the version is one tap away in the
-confirmation, and the row is for telling machines apart. After the wheel, the
+**An update leaves the device as a fresh install would.** The Retry confirmation names what it
+would install ("Update <name> to 1.4.6?") because a person about to retry deserves to know; the
+device page says the same under the version the device runs. After the wheel, the
 updater refreshes what the wheel ships into the person's tools, exactly as the installer would: the
 claude shim, and the pi extension when one is installed. It touches nothing it did not put there —
 it never installs Codex, and never turns Grok's leader mode on or off, both of which are the
@@ -151,13 +154,12 @@ devices ran into each other. The row now reads, top to bottom:
 - **The agents as logos alone**, evenly spaced, no names and no versions; each logo carries the
   agent's name as its accessible label — `accessibilityLabel` on iOS, `aria-label` and a tooltip
   on the web — so the row still reads aloud. Versions live on the device page's agent cards.
-- **The client line says one thing** (owner's ruling, 2026-09-18). A device on the gateway's
-  build shows the version it runs, bare — "1.4.1" — with no "client" before it and no build hash
-  after it; a hash names nothing a person chooses a machine by. A device with something to do about
-  an update shows the notice alone: "Update available", and not the version it would install —
-  the confirmation ("Update <name> to 1.4.1?") and the device page name that. "Updating…" and
-  "Update failed · <reason>" stay as they are. The device page keeps the full line, version and
-  hash and the versioned notice, as it keeps the hostname and the architecture.
+- **The client line only speaks when something is happening** (owner's rulings, 2026-09-18,
+  A36). The row shows no client version at all — a device keeps itself current, so the number is
+  nobody's to watch — and no "Update available". It carries a third line only while an update
+  runs ("Updating…") or has failed ("Update failed · <reason>"); otherwise the agents follow the
+  status line directly. The device page keeps the full line, version and hash, as it keeps the
+  hostname and the architecture.
 - The row menu is unchanged.
 
 **Devices can be filtered by platform** (owner's ruling, 2026-09-18). The Devices screen carries the
