@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rc_gateway.app import build_state, create_app
+from rc_gateway.auto_update import UPDATE_RETRY_SECONDS
 from rc_gateway.config import ApnsConfig, Config, PolishConfig, SttConfig
 from rc_gateway.connections import AppConnection, Connection, DeviceConnection
 from rc_gateway.devices import DeviceStore
@@ -182,6 +183,10 @@ def state(
         # timeout above so a parked request is still answered `device_offline` rather than
         # `timeout` when the period ends without a reconnect.
         offline_grace=0.2,
+        # A36: the automatic update is live over the sockets, and a test that writes a wheel with
+        # `write_wheel` gets the same behaviour a deployed gateway has.
+        served_build=built.served_build,
+        update_retry=0.2,
     )
     return built
 
@@ -389,6 +394,8 @@ async def hub_rig(
     request_timeout: float = REQUEST_TIMEOUT_SECONDS,
     offline_grace: float = OFFLINE_GRACE_SECONDS,
     update_timeout: float = UPDATE_TIMEOUT_SECONDS,
+    update_retry: float = UPDATE_RETRY_SECONDS,
+    served_build: Callable[[], str | None] | None = None,
 ) -> HubRig:
     """Build a hub whose connections never drain their queues.
 
@@ -415,6 +422,8 @@ async def hub_rig(
         request_timeout=request_timeout,
         offline_grace=offline_grace,
         update_timeout=update_timeout,
+        update_retry=update_retry,
+        served_build=served_build,
     )
     device = fake_device(enrolled.device_id)
     app = fake_app()

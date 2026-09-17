@@ -30,6 +30,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     ("devices", "client_build", "TEXT"),
     ("devices", "update_state", "TEXT NOT NULL DEFAULT 'idle'"),
     ("devices", "update_message", "TEXT"),
+    ("devices", "update_failed_build", "TEXT"),
 )
 
 PAIR_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
@@ -77,6 +78,9 @@ class DeviceRecord:
     client_build: str | None = None
     update_state: str = UPDATE_IDLE
     update_message: str | None = None
+    #: A36, gateway-internal and never part of the `Device` an app sees: the served build that
+    #: failed on this machine, so the gateway does not try that same wheel again by itself.
+    update_failed_build: str | None = None
 
 
 @dataclass(frozen=True)
@@ -126,7 +130,8 @@ class DeviceStore:
                     agents TEXT NOT NULL DEFAULT '[]',
                     client_build TEXT,
                     update_state TEXT NOT NULL DEFAULT 'idle',
-                    update_message TEXT
+                    update_message TEXT,
+                    update_failed_build TEXT
                 )
                 """
             )
@@ -371,30 +376,59 @@ class DeviceStore:
             )
 
     async def record_build(self, device_id: str, client_build: str | None) -> None:
-        """Store the build a ``hello`` reported and clear whatever update it ended (A22).
+        """Store the build a ``hello`` reported and end whatever update it concluded (A22, A36).
 
-        Every ``hello`` clears the update: the device that comes back is the outcome, whether it
-        carries the new build or the old one after a failed install.
+        A ``hello`` is an update's outcome, and A22 read every one of them as the end of it. Under
+        A36 that would hide a failure the moment the old client reconnected, which it does within
+        seconds, so a device that comes back running exactly what it ran before keeps its
+        ``failed`` state and its message: it did not move, and a person still has to look at it. A
+        device on any other build did move, and takes the whole failure with it.
         """
         await asyncio.to_thread(self._record_build, device_id, client_build)
 
     def _record_build(self, device_id: str, client_build: str | None) -> None:
+        build = client_build or None
         with self._connect() as connection:
+            row = connection.execute(
+                "SELECT client_build, update_failed_build FROM devices WHERE device_id=?",
+                (device_id,),
+            ).fetchone()
+            if (
+                row is not None
+                and row["update_failed_build"] is not None
+                and build == row["client_build"]
+            ):
+                return
             connection.execute(
-                "UPDATE devices SET client_build=?, update_state=?, update_message=NULL "
-                "WHERE device_id=?",
-                (client_build or None, UPDATE_IDLE, device_id),
+                "UPDATE devices SET client_build=?, update_state=?, update_message=NULL, "
+                "update_failed_build=NULL WHERE device_id=?",
+                (build, UPDATE_IDLE, device_id),
             )
 
-    async def set_update(self, device_id: str, state: str, message: str | None = None) -> None:
-        """Record that an app-requested update is running or has failed (A22)."""
-        await asyncio.to_thread(self._set_update, device_id, state, message)
+    async def set_update(
+        self,
+        device_id: str,
+        state: str,
+        message: str | None = None,
+        *,
+        failed_build: str | None = None,
+    ) -> None:
+        """Record that an update is running or has failed (A22), and on which wheel (A36).
 
-    def _set_update(self, device_id: str, state: str, message: str | None) -> None:
+        ``failed_build`` follows the state rather than accumulating: an update that starts clears
+        the memory of the last one that did not, which is how an app's Retry and a newer wheel
+        both let the gateway try again.
+        """
+        await asyncio.to_thread(self._set_update, device_id, state, message, failed_build)
+
+    def _set_update(
+        self, device_id: str, state: str, message: str | None, failed_build: str | None
+    ) -> None:
         with self._connect() as connection:
             connection.execute(
-                "UPDATE devices SET update_state=?, update_message=? WHERE device_id=?",
-                (state, message, device_id),
+                "UPDATE devices SET update_state=?, update_message=?, update_failed_build=? "
+                "WHERE device_id=?",
+                (state, message, failed_build, device_id),
             )
 
     async def rename(self, device_id: str, username: str, name: str) -> bool:
@@ -430,7 +464,7 @@ class DeviceStore:
 
 _COLUMNS = (
     "device_id, username, name, platform, hostname, arch, client_version, created_at, last_seen, "
-    "agents, client_build, update_state, update_message"
+    "agents, client_build, update_state, update_message, update_failed_build"
 )
 
 
@@ -449,6 +483,9 @@ def _record(row: Any) -> DeviceRecord:
         client_build=None if row["client_build"] is None else str(row["client_build"]),
         update_state=str(row["update_state"] or UPDATE_IDLE),
         update_message=None if row["update_message"] is None else str(row["update_message"]),
+        update_failed_build=(
+            None if row["update_failed_build"] is None else str(row["update_failed_build"])
+        ),
     )
 
 
