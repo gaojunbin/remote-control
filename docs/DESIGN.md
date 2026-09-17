@@ -129,12 +129,16 @@ A device's row on the Devices screen said too much and separated too little (own
 chooses a device by, each agent's logo came with its name, and with the separators gone two
 devices ran into each other. The row now reads, top to bottom:
 
-- **One computer glyph at the leading edge**, the same for every device whatever its platform —
-  `desktopcomputer` on iOS, the matching thin-line outline on the web — in the secondary ink and
-  sized to the title. The app cannot tell a laptop from a desktop, and one honest glyph beats a
-  wrong guess. It is the anchor the eye finds first, and what keeps two devices apart now that
-  nothing is drawn between them. The online dot leaves the name and sits with the word it belongs
-  to, on the status line.
+- **One computer glyph at the leading edge**, the same for every device whatever its platform: a
+  minimal outline laptop (owner's ruling, 2026-09-18) — a rounded rectangle for the screen over one
+  horizontal line for the base, no fill, round caps and joins, a 1.5-unit stroke on lucide's
+  24-unit grid. It is lucide's `LaptopMinimal` on the web and the same path drawn in SwiftUI on iOS
+  (`LaptopGlyph`), so both apps show one mark; SF Symbols' laptop, with its trapezoid base, is not
+  it. Drawn in the ink, as a line drawing beside the name, and sized to the title. The app cannot
+  tell a laptop from a desktop, and one honest glyph beats a wrong guess; the mark stands for "a
+  computer", not for the shape of this one. It is the anchor the eye finds first, and what keeps
+  two devices apart now that nothing is drawn between them. The online dot leaves the name and sits
+  with the word it belongs to, on the status line.
 - **The name, once.** The title is the device's name exactly as it reported it; nothing below
   repeats it. The hostname — which on a machine set up by `install.sh` is the name — and the
   architecture are gone from the row. They stay on the device's own page, in one line under its

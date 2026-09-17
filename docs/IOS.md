@@ -367,10 +367,16 @@ trailing swipe holding all three and from the context menu. Identifiers `device.
 `device.update`, `device.revoke`. Each action opens the same alert whichever way it was reached.
 
 **The row says less** (`docs/DESIGN.md` § "The device row", owner's ruling 2026-09-17). One
-`desktopcomputer` glyph sits at the leading edge in the secondary ink, sized to the title, with the
-four lines indented past it: it is the anchor that keeps two machines apart now that no separator is
-drawn between them, and it is the same glyph for every platform because the app cannot tell a laptop
-from a desktop. The online dot left the name and sits on the status line with the word it belongs
+`LaptopGlyph` sits at the leading edge in the ink, sized to the title, with the four lines indented
+past it: it is the anchor that keeps two machines apart now that no separator is drawn between
+them, and it is the same glyph for every platform because the app cannot tell a laptop from a
+desktop. The glyph is `Design/LaptopGlyph.swift`: `LaptopShape` places a rounded screen and one
+base line on lucide's 24-unit grid and scales them to its rect, and the view strokes it in
+`Theme.ink` at 1.5 grid units with round caps and joins, 20 pt scaled with the callout title, its
+base line on the title's first baseline — the same drawing the web app gets from lucide's
+`LaptopMinimal`, chosen over SF Symbols' `laptopcomputer` whose base is a trapezoid. `RCUIVerify`
+checks the path's bounds on the grid and at twice the grid, the base below the screen, the rounded
+corner and the stroke ratio. The online dot left the name and sits on the status line with the word it belongs
 to, which now reads `online · macOS` — the platform as a word, never the raw id. The hostname, which
 on a machine `install.sh` set up is the name, and the architecture are off the row entirely and are
 drawn on the machine's page instead, in `DeviceFactsLine` under the navigation title. The agents are

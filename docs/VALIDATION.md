@@ -1793,6 +1793,36 @@ does not state. Full iOS UI suite on the merged tree: 66 tests, 4 skipped, 0 fai
 simulator English and the Mac's load under twenty. All four components 1.4.0 (iOS build 7), tag v1.4.0. The round itself met its subject: four of the six subagents hit the five-hour limit
 at 05:45 and were resumed by hand after 08:50, which is the case A35 automates.
 
+## 34. The device glyph is an outline laptop (2026-09-18, 1.4.1)
+
+The owner changed the mark before every device row: a minimal black outline laptop — a rounded
+rectangular screen, one horizontal base line under it, no fill, round caps and joins — and asked
+that lucide's laptop be checked first. lucide 1.43.0 has two: `Laptop`, whose base is a trapezoid,
+and `LaptopMinimal` (alias `laptop-2`), which is exactly the drawing asked for — `rect` 18×12 at
+(3, 4) with `rx` 2 over a `line` from (2, 20) to (22, 20) on the 24-unit grid, `fill="none"`,
+`stroke-linecap` and `stroke-linejoin` round. The web row uses it in place of `Monitor`, in the
+ink rather than the secondary ink. iOS draws the same path itself (`LaptopGlyph` /
+`LaptopShape` in `Sources/RCUI/Design/`), because SF Symbols' `laptopcomputer` has a trapezoid
+base and a heavier weight; the stroke is 1.5 grid units on both apps, 20 pt beside the callout
+title following Dynamic Type, the base line on the title's first baseline. Ruled in
+`docs/DESIGN.md` § "The device row". The Devices tab item and the empty state keep SF's
+`desktopcomputer`: the ruling is about the row.
+
+**Verified.** Web: `tests/DevicesPage.test.tsx` gains a test that the glyph is an unfilled `svg`
+with round caps and joins holding a rounded `rect` and a horizontal `line` below it (652 → 659
+tests, tsc, lint and build clean). iOS: `RCUIVerify` checks the path's bounds on the grid
+(2, 4, 20, 16) and at twice the grid, the base under the screen, the rounded corner and the stroke
+ratio at 24 and 20 (447 → 453); RCVerify 1357 and 365 unit tests unchanged; the two UI tests that
+touch the row and the About version row passed on simulator 32BBA636 (English), 34 s. Playwright
+read the rendered `svg` as `lucide-laptop-minimal` with children `rect,line`, colour
+rgb(17, 17, 17), 20 px box, at 1280 and 400 px. Gateway 397 and client 1071 (+3 skipped) after the
+version bump. Screenshots `web-round34-devices-{1280,400}.png` and `ios-round34-devices.png` in
+the session scratchpad. All four components 1.4.1, iOS build 8, tag v1.4.1.
+
+**Not verified.** The full iOS UI suite was not rerun for this change (two tests were); neither
+app was checked on a phone or in a browser beyond the screenshots; the glyph in dark mode (the
+ink is near-white there) was not looked at by eye.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

@@ -752,11 +752,12 @@ Grok's `/context`, which renders in its own pager.
 ## The device row
 
 `features/devices/DeviceRow.tsx` draws what `docs/DESIGN.md` § "The device row" rules. A lucide
-`Monitor` outline sits at the leading edge in the secondary ink, the same glyph on every device
-whatever its platform, because the app cannot tell a laptop from a desktop and one honest glyph
-beats a wrong guess; it is what keeps two devices apart now that no rule is drawn between them, and
-`--device-glyph` on `.device-row` is what the lines under the name and the agents on a narrow screen
-indent past. The name is the title and nothing repeats it: the hostname and the architecture left
+`LaptopMinimal` — a rounded screen over one base line, no fill, round caps and joins, stroke 1.5 —
+sits at the leading edge in the ink, the same glyph on every device whatever its platform, because
+the app cannot tell a laptop from a desktop and one honest glyph beats a wrong guess; it is what
+keeps two devices apart now that no rule is drawn between them, and `--device-glyph` on
+`.device-row` is what the lines under the name and the agents on a narrow screen indent past. The
+iOS app draws the same path itself, so the two rows carry one mark. The name is the title and nothing repeats it: the hostname and the architecture left
 the row for the device's page. The status line carries the online dot, which moved off the name to
 sit with the word it belongs to, then "online" or "offline", then the platform as a word from
 `platformLabels` in `src/strings.ts` — `macos` → macOS, `linux` → Linux, and a platform that table
@@ -766,9 +767,10 @@ seen. The client line and the update notice (A22) are unchanged.
 The agents are their logos alone, evenly spaced and with no name and no version beside them; each
 logo is wrapped in a `role="img"` span whose `aria-label` and `title` are the agent's name, so the
 row still reads aloud and a hover still names the mark. Versions live on the device page's agent
-cards. `tests/DevicesPage.test.tsx` holds the row to all of it — one glyph per row, the name once,
-no hostname and no architecture, the dot inside `.device-status`, and an agent strip whose text is
-empty.
+cards. `tests/DevicesPage.test.tsx` holds the row to all of it — one glyph per row, drawn as an
+unfilled `rect` with rounded corners over a horizontal `line` with round caps and joins, the name
+once, no hostname and no architecture, the dot inside `.device-status`, and an agent strip whose
+text is empty.
 
 ## A device's page (A33)
 
