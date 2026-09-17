@@ -31,8 +31,38 @@ struct DeviceFactsLine: View {
     }
 }
 
-/// Amendment A22: the build this machine runs, and the one line that replaces
-/// it whenever there is something to say about an update.
+/// `docs/DESIGN.md` § "The device row": the row's third line says one thing.
+/// A device on the gateway's build shows the version it runs, alone — no
+/// "client", no build hash. A device with something to do about an update
+/// shows the notice alone, and for an available update just "Update available":
+/// the confirmation and the machine's page name the version it would install.
+struct DeviceRowClientLine: View {
+    let device: Device
+    var servedBuild: String?
+    var localError: String?
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if let notice {
+                Text(DeviceUpdateText.rowLine(version: device.clientVersion, notice: notice))
+                    .font(Theme.Text.caption)
+                    .foregroundStyle(notice.isFailure ? Theme.danger : Theme.inkSecondary)
+                    .accessibilityIdentifier("device.updateNotice")
+            } else {
+                CodeText(DeviceUpdateText.rowLine(version: device.clientVersion, notice: nil),
+                         font: Theme.Text.metaMono)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var notice: DeviceUpdate.Notice? {
+        DeviceUpdate.notice(for: device, servedBuild: servedBuild, localError: localError)
+    }
+}
+
+/// Amendment A22, on the machine's page: the build this machine runs, and the
+/// one line that replaces it whenever there is something to say about an update.
 struct DeviceClientLine: View {
     let device: Device
     var servedBuild: String?
@@ -81,6 +111,14 @@ public enum DeviceUpdateText {
         case .updating: return L10n.string("Updating…")
         case .failed(let message): return L10n.string("Update failed · %@", message)
         }
+    }
+
+    /// The device row's third line (`docs/DESIGN.md` § "The device row"): the
+    /// notice when there is one — an available update said as "Update available"
+    /// and nothing more — or else the version the machine runs, bare.
+    public static func rowLine(version: String, notice: DeviceUpdate.Notice?) -> String {
+        guard let notice else { return version }
+        return Self.notice(notice, servedVersion: nil)
     }
 
     /// The confirmation, which names the machine and what it would land on.

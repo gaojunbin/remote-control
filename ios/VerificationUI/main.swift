@@ -879,6 +879,24 @@ func run() async -> (passed: Int, failures: [String]) {
     equal(DeviceUpdateText.notice(.available, servedVersion: model.connection.config.servedVersion),
           "Update available · \(DemoFixtures.servedClientVersion)",
           "the notice names the version it would install")
+    // The row's third line never names a version beside its notice, and says
+    // the version alone when there is no notice (owner's ruling, 2026-09-18).
+    equal(DeviceUpdateText.rowLine(version: "1.3.0", notice: nil), "1.3.0",
+          "a device on the gateway's build shows its version, bare")
+    equal(DeviceUpdateText.rowLine(version: "1.3.0", notice: .available), "Update available",
+          "one with an update shows the notice alone, without the version it would install")
+    equal(DeviceUpdateText.rowLine(version: "1.3.0", notice: .updating), "Updating…",
+          "and follows the update while it runs")
+    expect(DeviceUpdateText.rowLine(version: "1.3.0", notice: .failed("no wheel")).contains("no wheel"),
+           "and says why one failed")
+    if let studio = model.connection.device(DemoFixtures.macDeviceID) {
+        let line = DeviceUpdateText.rowLine(version: studio.clientVersion,
+                                            notice: DeviceUpdate.notice(for: studio,
+                                                                        servedBuild: model.connection.config.servedBuild,
+                                                                        localError: nil))
+        equal(line, DemoFixtures.servedClientVersion, "the demo's up-to-date machine shows just its version")
+        expect(!line.contains(DeviceUpdate.shortBuild(DemoFixtures.servedBuild)), "and no build hash")
+    }
     equal(DeviceUpdateText.notice(.available, servedVersion: nil), "Update available",
           "and says only that there is one when the gateway names no version")
     equal(DeviceUpdateText.confirmation(name: "macbook-air",
@@ -1623,7 +1641,7 @@ func run() async -> (passed: Int, failures: [String]) {
         }
         expect(project.contains("MARKETING_VERSION: '\(AppBuild.shipped)'"),
                "the project ships the version this source tree carries")
-        expect(project.contains("CURRENT_PROJECT_VERSION: 8"),
+        expect(project.contains("CURRENT_PROJECT_VERSION: 9"),
                "and a build number TestFlight can tell apart")
     } else {
         expect(false, "the check can read project.yml")

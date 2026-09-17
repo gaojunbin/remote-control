@@ -213,8 +213,7 @@ struct DeviceRow: View {
                 if !device.availableAgents.isEmpty {
                     DeviceAgentsLine(agents: device.availableAgents)
                 }
-                DeviceClientLine(device: device, servedBuild: servedBuild,
-                                 servedVersion: servedVersion, localError: localError)
+                DeviceRowClientLine(device: device, servedBuild: servedBuild, localError: localError)
             }
         }
         .accessibilityElement(children: .combine)

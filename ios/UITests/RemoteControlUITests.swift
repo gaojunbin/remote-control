@@ -1468,6 +1468,9 @@ final class RemoteControlUITests: XCTestCase {
         for agent in ["Claude Code", "Codex", "Grok Build"] {
             XCTAssertTrue(label.contains(agent), "\(agent)'s logo is read out under its own name")
         }
+        XCTAssertTrue(label.contains(AppBuild.shipped), "the third line is the version it runs")
+        XCTAssertFalse(label.contains("client"), "said bare, without the word client")
+        XCTAssertFalse(label.contains("3f2b4a9c"), "and without the build hash")
 
         let runner = deviceRow(DemoDevices.ci)
         XCTAssertTrue(runner.waitForExistence(timeout: 10), "the Linux machine is listed too")
@@ -1528,8 +1531,11 @@ final class RemoteControlUITests: XCTestCase {
         openDevices()
         let row = deviceRow(DemoDevices.laptop)
         XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
-        XCTAssertTrue(app.staticTexts["Update available · \(AppBuild.shipped)"].waitForExistence(timeout: 15),
-                      "a device on an older build says what it would install")
+        XCTAssertTrue(app.staticTexts["Update available"].waitForExistence(timeout: 15),
+                      "a device on an older build says there is an update, and no more")
+        XCTAssertFalse(row.label.contains("Update available · "),
+                       "the row does not name the version; the confirmation does")
+        XCTAssertFalse(row.label.contains("1.3.0"), "nor the version it runs while the notice is up")
         attach(name: "61-device-update-available")
 
         row.swipeLeft()
@@ -1555,10 +1561,11 @@ final class RemoteControlUITests: XCTestCase {
         // The offline machine is on the same old build, so the end state is
         // read off this row rather than off the screen.
         XCTAssertTrue(waitFor(timeout: 30) {
-            deviceRow(DemoDevices.laptop).label.contains("3f2b4a9c")
-        }, "and the row shows the build the device came back on")
-        XCTAssertFalse(deviceRow(DemoDevices.laptop).label.contains("Update available"),
-                       "with nothing left to offer it")
+            let label = deviceRow(DemoDevices.laptop).label
+            return label.contains(AppBuild.shipped) && !label.contains("Update available")
+        }, "and the row shows the version the device came back on, with nothing left to offer it")
+        XCTAssertFalse(deviceRow(DemoDevices.laptop).label.contains("3f2b4a9c"),
+                       "and never the build hash")
         attach(name: "64-device-updated")
     }
 
