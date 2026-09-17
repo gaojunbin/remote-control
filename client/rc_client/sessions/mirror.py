@@ -9,10 +9,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
-from ..agents.claude import transcripts
+from ..agents.claude import subagents, transcripts
 from ..agents.claude.holders import SessionRef, scan_holders
 from ..agents.codex import rollouts
 from ..agents.codex.daemon.service import CodexDaemonService
@@ -64,7 +64,24 @@ def _turn_end(tailer: Tailer) -> TurnEnd:
 
 @dataclass(slots=True)
 class ClaudeMirror:
+    """One mirrored Claude session: its transcript, and the subagents it started.
+
+    `working` is the last answer the watch gave. The last subagent finishing
+    writes nothing to the parent's transcript that the mirror can count on, so
+    the flag is what turns that into an edge worth publishing.
+    """
+
     tailer: transcripts.TranscriptTailer
+    working: bool = False
+    subagents: subagents.SubagentWatch = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.subagents = subagents.SubagentWatch.for_transcript(self.tailer.path)
+
+    @property
+    def busy(self) -> bool:
+        """Working means all of it: this session's own turn, or a subagent's."""
+        return self.tailer.awaiting_reply or self.working
 
 
 @dataclass(slots=True)
@@ -466,7 +483,7 @@ class MirrorService:
             ]
         )
         for session_id, entry, mirror in tracked:
-            running = mirror.tailer.awaiting_reply if mirror is not None else False
+            running = mirror.busy if mirror is not None else False
             if entry.shared is not None:
                 tailer = mirror.tailer if mirror is not None else None
                 trigger = tailer.turn_trigger if tailer is not None else "terminal"
@@ -484,7 +501,9 @@ class MirrorService:
                 entry.holder_pid = None
                 entry.holder_identity = None
                 if mirror is not None:
+                    # The CLI is gone, and so is everything it was running.
                     mirror.tailer.awaiting_reply = False
+                    mirror.working = False
                 await self._set_control(entry, "none", False)
 
     async def _refresh_codex_control(self) -> None:
@@ -534,7 +553,7 @@ class MirrorService:
             entry = self._live_entry(session_id, self._claude)
             if entry is None:
                 continue
-            await self._tail_one(session_id, entry, claude_mirror.tailer)
+            await self._tail_claude(session_id, entry, claude_mirror)
         for session_id, codex_mirror in list(self._codex.items()):
             if self._codex_is_daemons(session_id):
                 self._codex.pop(session_id, None)
@@ -562,6 +581,35 @@ class MirrorService:
         rows = await asyncio.to_thread(tailer.read_new)
         if not rows:
             return
+        await self._apply_rows(session_id, entry, tailer, rows)
+        await self._after_rows(entry, tailer.busy, _turn_trigger(tailer), _turn_end(tailer))
+
+    async def _tail_claude(
+        self, session_id: str, entry: SessionEntry, mirror: ClaudeMirror
+    ) -> None:
+        """The same, plus the subagents the session started (working means all of it).
+
+        The subagents are asked even when the transcript has not grown: the last
+        one finishing is what ends the turn, and nothing the parent writes says
+        so. Asking them is a `stat` per file, which is why it runs every tail
+        interval; only a change of answer is published, so a session with work
+        under way is not a summary every two seconds.
+        """
+        rows = await asyncio.to_thread(mirror.tailer.read_new)
+        working = await asyncio.to_thread(mirror.subagents.working)
+        changed = working != mirror.working
+        mirror.working = working
+        if not rows and not changed:
+            return
+        if rows:
+            await self._apply_rows(session_id, entry, mirror.tailer, rows)
+        await self._after_rows(
+            entry, mirror.busy, _turn_trigger(mirror.tailer), _turn_end(mirror.tailer)
+        )
+
+    async def _apply_rows(
+        self, session_id: str, entry: SessionEntry, tailer: Tailer, rows: list[dict[str, Any]]
+    ) -> None:
         for row in rows:
             for emit in tailer.translate(row):
                 await self._apply(entry, emit)
@@ -570,7 +618,6 @@ class MirrorService:
             # Grok's `eventId` counter resumes a tail even when the file moved,
             # and is the same mark the leader reads when it joins (A28).
             grok_cursor.write(self.hub.registry, session_id, tailer.cursor)
-        await self._after_rows(entry, tailer.busy, _turn_trigger(tailer), _turn_end(tailer))
 
     async def _after_rows(
         self, entry: SessionEntry, running: bool, trigger: str, end: TurnEnd | None = None
