@@ -27,6 +27,32 @@ def is_active(status: Any) -> bool:
     return isinstance(status, dict) and status.get("type") == "active"
 
 
+def parent_of(thread: dict[str, Any]) -> str | None:
+    """The thread that spawned this one, when a subagent runs in it.
+
+    Codex names the parent on the thread itself (`parentThreadId`, beside
+    `forkedFromId`) and again inside the `source` object it gives a subagent,
+    whose variants spell it `parent_thread_id`. Either one is the parent;
+    everything else is a thread somebody opened for themselves.
+    """
+    direct = _text(thread.get("parentThreadId")) or _text(thread.get("parent_thread_id"))
+    return direct or _nested_parent(thread.get("source"), 3)
+
+
+def _nested_parent(value: Any, depth: int) -> str | None:
+    """Find the parent thread id in the variant object a `source` may be."""
+    if depth <= 0 or not isinstance(value, dict):
+        return None
+    named = _text(value.get("parentThreadId")) or _text(value.get("parent_thread_id"))
+    if named:
+        return named
+    for nested in value.values():
+        found = _nested_parent(nested, depth - 1)
+        if found:
+            return found
+    return None
+
+
 def resolve(
     created_here: bool,
     loaded: bool,

@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from rc_client.agents.codex import provenance
-from rc_client.agents.codex.daemon import approvals, terminals, threads
+from rc_client.agents.codex.daemon import approvals, children, terminals, threads
 from rc_client.agents.codex.daemon.repair import DaemonRepair, SafetyCheck
 from rc_client.agents.codex.daemon.service import CodexDaemonService, thread_config
 from rc_client.agents.codex.daemon.session import CodexDaemonSession
@@ -1525,3 +1525,269 @@ async def test_a_scan_that_could_not_finish_is_never_permission_to_restart(
     harness.terminals.cwds = set()
     harness.terminals.complete = False
     assert await harness.service._restart_safe() is False
+
+
+# ------------------------------------- round 37: a thread that speaks is alive
+
+
+CHILD = "01a08c41-77e2-7d10-9f34-2b5c8ae61d02"
+
+
+def child_row(parent: str = THREAD, thread_id: str = CHILD, **extra: Any) -> dict[str, Any]:
+    """A thread Codex opened for a subagent, as the index describes one.
+
+    The parent is named twice: on the thread itself and inside the `source`
+    object every subagent carries instead of a plain string.
+    """
+    row = thread_row(
+        thread_id,
+        preview="Review the diff",
+        parentThreadId=parent,
+        source={"subAgent": {"thread_spawn": {"parent_thread_id": parent, "depth": 1}}},
+    )
+    row.update(extra)
+    return row
+
+
+async def archived_here(harness: Harness) -> None:
+    """The owner's case: a session started here, archived, then resumed in a terminal."""
+    harness.registry.upsert_session(
+        Session(
+            session_id=THREAD,
+            device_id="dev-1",
+            agent="codex",
+            cwd="/repo",
+            state="idle",
+            origin="remote",
+            control="none",
+            archived=True,
+        )
+    )
+    harness.hub.load()
+    assert harness.hub.entry(THREAD).session.state == "stopped"
+    await started(harness, loaded=[])
+    assert harness.hub.entry(THREAD).session.archived is True
+
+
+async def test_a_turn_starting_takes_a_resumed_thread_out_of_the_archive(
+    harness: Harness,
+) -> None:
+    """`codex resume <id>` on an archived thread, with no `thread/started` for it."""
+    await archived_here(harness)
+    await harness.daemon.notify(
+        "turn/started", {"threadId": THREAD, "turn": {"id": "turn-5", "status": "inProgress"}}
+    )
+    await settle(lambda: harness.hub.entry(THREAD).session.archived is False)
+    session = harness.hub.entry(THREAD).session
+    assert session.state == "running"
+    # Whoever spoke is not this device, which has no runner on the thread.
+    assert session.control == "shared"
+
+    await harness.daemon.notify(
+        "item/completed",
+        {"threadId": THREAD, "item": {"id": "a1", "type": "agentMessage", "text": "on it"}},
+    )
+    await settle(lambda: bool(harness.events("assistant_text")))
+
+
+async def test_a_status_turning_active_takes_a_resumed_thread_out_of_the_archive(
+    harness: Harness,
+) -> None:
+    await archived_here(harness)
+    await harness.daemon.notify(
+        "thread/status/changed", {"threadId": THREAD, "status": {"type": "active"}}
+    )
+    await settle(lambda: harness.hub.entry(THREAD).session.archived is False)
+    assert harness.hub.entry(THREAD).session.state == "running"
+    assert harness.hub.entry(THREAD).session.control == "shared"
+
+
+async def test_a_thread_that_is_only_loaded_stays_archived(harness: Harness) -> None:
+    """Being in the daemon's loaded list is not speaking: the daemon never unloads."""
+    await archived_here(harness)
+    harness.daemon.replies["thread/loaded/list"] = {"data": [THREAD]}
+    await harness.service.refresh()
+    assert harness.hub.entry(THREAD).session.archived is True
+    assert harness.hub.entry(THREAD).session.state == "stopped"
+
+
+# ------------------------------------------- round 37: working means all of it
+
+
+def test_a_subagents_thread_names_the_thread_that_spawned_it() -> None:
+    assert threads.parent_of(child_row()) == THREAD
+    # Either spelling alone is enough, and the `source` object is searched.
+    assert threads.parent_of({"id": "x", "parentThreadId": THREAD}) == THREAD
+    spawned = {"id": "x", "source": {"subagent": {"thread_spawn": {"parent_thread_id": THREAD}}}}
+    assert threads.parent_of(spawned) == THREAD
+    assert threads.parent_of(thread_row()) is None
+    assert threads.parent_of({"id": "x", "source": "cli"}) is None
+
+
+def test_the_items_that_name_a_subagent_say_whether_it_is_working() -> None:
+    spawn = {
+        "type": "collabAgentToolCall",
+        "tool": "spawn_agent",
+        "senderThreadId": THREAD,
+        "receiverThreadIds": [CHILD],
+        "agentsStates": {CHILD: "in_progress"},
+    }
+    assert children.child_states(spawn, completed=False) == {CHILD: True}
+    done = dict(spawn, agentsStates={CHILD: "completed"})
+    assert children.child_states(done, completed=True) == {CHILD: False}
+    # A `close_agent` call ends every agent it addresses, states or no states.
+    closing = {"type": "collabAgentToolCall", "tool": "close_agent", "receiverThreadIds": [CHILD]}
+    assert children.child_states(closing, completed=True) == {CHILD: False}
+    # An activity row is work under way until the row itself completes.
+    activity = {"type": "subAgentActivity", "agentThreadId": CHILD, "agentPath": "reviewer"}
+    assert children.child_states(activity, completed=False) == {CHILD: True}
+    assert children.child_states(activity, completed=True) == {CHILD: False}
+    assert children.child_states({"type": "agentMessage", "text": "hi"}, completed=True) == {}
+
+
+def test_a_subagent_that_has_gone_silent_stops_holding_its_parent() -> None:
+    watch = children.ChildWatch(stale_after=0.0)
+    watch.note(CHILD, True)
+    assert watch.working is False
+    kept = children.ChildWatch(stale_after=60.0)
+    kept.note(CHILD, True)
+    assert kept.working is True and kept.count == 1
+    assert kept.note(CHILD, False) is True
+    assert kept.working is False
+
+
+async def working_parent(harness: Harness) -> None:
+    """A turn this device started, with one subagent thread running under it."""
+    await started(harness, loaded=[THREAD])
+    await harness.hub.send({"id": SEND_REQUEST, "session_id": THREAD, "text": "review it"})
+    await settle(lambda: harness.hub.entry(THREAD).session.state == "running")
+    await harness.daemon.notify("thread/started", {"thread": child_row()})
+    await settle(lambda: harness.service.child_parent(CHILD) == THREAD)
+
+
+async def test_a_subagents_thread_never_becomes_a_session(harness: Harness) -> None:
+    await working_parent(harness)
+    assert CHILD not in harness.hub.entries
+    assert harness.service.knows(CHILD) is False
+
+
+async def test_a_turn_does_not_end_while_a_subagent_is_still_working(
+    harness: Harness,
+) -> None:
+    await working_parent(harness)
+    await harness.daemon.notify(
+        "turn/completed", {"threadId": THREAD, "turn": {"id": "turn-1", "status": "completed"}}
+    )
+    await asyncio.sleep(0.15)
+    assert harness.events("turn_completed") == []
+    assert harness.hub.entry(THREAD).session.state == "running"
+
+    # What the parent does next belongs to the same turn, not to a second one.
+    await harness.daemon.notify(
+        "turn/started", {"threadId": THREAD, "turn": {"id": "turn-2", "status": "inProgress"}}
+    )
+    await asyncio.sleep(0.1)
+    assert len(harness.events("turn_started")) == 1
+
+    await harness.daemon.notify(
+        "turn/completed", {"threadId": THREAD, "turn": {"id": "turn-2", "status": "completed"}}
+    )
+    await harness.daemon.notify(
+        "turn/completed", {"threadId": CHILD, "turn": {"id": "c-1", "status": "completed"}}
+    )
+    await settle(lambda: bool(harness.events("turn_completed")))
+    assert len(harness.events("turn_completed")) == 1
+    assert harness.events("turn_completed")[-1]["stop_reason"] == "completed"
+    assert harness.hub.entry(THREAD).session.state == "idle"
+
+
+async def test_a_message_sent_while_subagents_work_waits_for_them(harness: Harness) -> None:
+    await working_parent(harness)
+    await harness.daemon.notify(
+        "turn/completed", {"threadId": THREAD, "turn": {"id": "turn-1", "status": "completed"}}
+    )
+    await asyncio.sleep(0.1)
+    result = await harness.hub.send(
+        {"id": STEER_REQUEST, "session_id": THREAD, "text": "and this too", "mode": "queue"}
+    )
+    assert result["accepted"] == "queued"
+
+    await harness.daemon.notify(
+        "thread/closed", {"threadId": CHILD, "turn": {"id": "c-1", "status": "completed"}}
+    )
+    await settle(lambda: bool(harness.events("turn_completed")))
+    assert harness.service.child_parent(CHILD) is None
+
+
+async def test_a_subagent_the_parents_own_items_name_holds_the_turn_open(
+    harness: Harness,
+) -> None:
+    """The daemon may send us nothing of the child; the parent's timeline names it."""
+    await started(harness, loaded=[THREAD])
+    await harness.hub.send({"id": SEND_REQUEST, "session_id": THREAD, "text": "review it"})
+    await settle(lambda: harness.hub.entry(THREAD).session.state == "running")
+    spawn = {
+        "id": "tool-1",
+        "type": "collabAgentToolCall",
+        "tool": "spawn_agent",
+        "senderThreadId": THREAD,
+        "receiverThreadIds": [CHILD],
+        "agents_states": {CHILD: "in_progress"},
+        "status": "inProgress",
+    }
+    await harness.daemon.notify("item/started", {"threadId": THREAD, "item": spawn})
+    await settle(lambda: bool(harness.events("tool_call")))
+
+    await harness.daemon.notify(
+        "turn/completed", {"threadId": THREAD, "turn": {"id": "turn-1", "status": "completed"}}
+    )
+    await asyncio.sleep(0.15)
+    assert harness.events("turn_completed") == []
+    assert harness.hub.entry(THREAD).session.state == "running"
+
+    finished = dict(spawn, agents_states={CHILD: "completed"}, status="completed")
+    await harness.daemon.notify("item/completed", {"threadId": THREAD, "item": finished})
+    await settle(lambda: bool(harness.events("turn_completed")))
+    assert len(harness.events("turn_completed")) == 1
+
+
+async def test_a_subagent_of_a_thread_that_is_not_ours_is_ignored(harness: Harness) -> None:
+    await started(harness, loaded=[THREAD])
+    stranger = child_row(parent="t-somebody-else", thread_id="t-their-child")
+    await harness.daemon.notify("thread/started", {"thread": stranger})
+    await asyncio.sleep(0.15)
+    assert "t-their-child" not in harness.hub.entries
+    assert harness.service.child_parent("t-their-child") is None
+
+
+async def test_stopping_a_turn_its_subagents_hold_open_ends_it(harness: Harness) -> None:
+    await working_parent(harness)
+    await harness.daemon.notify(
+        "turn/completed", {"threadId": THREAD, "turn": {"id": "turn-1", "status": "completed"}}
+    )
+    await asyncio.sleep(0.1)
+    assert harness.events("turn_completed") == []
+
+    runner = harness.hub.entry(THREAD).runner
+    assert isinstance(runner, CodexDaemonSession)
+    assert await runner.interrupt() is True
+    assert harness.events("turn_completed")[-1]["stop_reason"] == "interrupted"
+    assert harness.hub.entry(THREAD).session.state == "idle"
+    # There is no turn on this thread to stop: the parent's own turn is over.
+    assert harness.daemon.sent("turn/interrupt") == []
+
+
+async def test_a_subagent_that_says_nothing_for_long_enough_lets_the_turn_end(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing in Codex marks a killed subagent, so silence has to have a bound."""
+    monkeypatch.setattr(children, "CHILD_STALE_S", 0.3)
+    await working_parent(harness)
+    await harness.daemon.notify(
+        "turn/completed", {"threadId": THREAD, "turn": {"id": "turn-1", "status": "completed"}}
+    )
+    await asyncio.sleep(0.4)
+    assert harness.events("turn_completed") == []
+    await harness.service.refresh()
+    await settle(lambda: bool(harness.events("turn_completed")))
+    assert harness.hub.entry(THREAD).session.state == "idle"
