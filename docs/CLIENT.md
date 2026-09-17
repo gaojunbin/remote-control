@@ -96,7 +96,7 @@ directory to your `PATH` to call it by name.
 ~/.rc-client/
   config.toml               gateway_origin, device_id, device_token, name, proxy   (0600)
   venv/                     the private Python environment the installer creates
-  state/rc-client.sqlite3   sessions, events, request idempotency, tail offsets
+  state/rc-client.sqlite3   sessions, events, request idempotency, tail offsets, pending resumes
   state/client-build        the SHA-256 of the wheel this client was installed from   (0600)
   state/attachments/        files received with a message
   state/claude-mcp.json     the channel server definition the shim passes to Claude Code
@@ -422,6 +422,50 @@ remembers the request id so a retry is not run twice. The runner echoes the comm
 no live process answers `session.commands` from the plugin's `commands(session)` — what the agent's
 files say without starting anything — or with an empty list when the plugin has none. The commands
 each agent offers, and how its runner carries them out, are in that agent's section below.
+
+## Usage limits, and resuming after one
+
+Claude Code and Codex stop a turn when the vendor's five-hour or weekly window is used up. The
+device reads that stop from the agent's own signal, never from its words, ends the turn with
+`stop_reason: "error"` and a `limit {window_minutes, resets_at}` (PROTOCOL 5.9), and publishes the
+vendor's sentence as an `error` rather than as the agent's text (amendment A35).
+
+Every reader lives in `rc_client/sessions/limits.py`, one per agent, so an agent that gains a signal
+joins without a change to the wire:
+
+| Agent | What is read | Where the window and the reset come from |
+| --- | --- | --- |
+| Claude Code, mirrored or shared | The transcript's assistant row with `isApiErrorMessage` and `apiErrorStatus: 429` (or `error: "rate_limit"`) | `quotaLimits.rateLimitType` (`five_hour` → 300, `seven_day` → 10080) and `quotaLimits.resetsAt`, in seconds |
+| Claude Code, driven by the device | `ResultMessage.api_error_status == 429` | The same row, read from the end of the session's own transcript |
+| Codex | `turn/completed` whose `turn.error.codexErrorInfo` is `usageLimitExceeded` | `account/rateLimits/read`, the window with the highest `used_percent` |
+| Grok Build, pi | Nothing: neither reports a limit the device can read | — |
+
+### The resume scheduler
+
+`rc_client/sessions/resume.py` implements PROTOCOL 7.2. The account's `resume_after_limit`
+preference arrives as the gateway's `preferences` frame, after `hello_ack` and on every change, and
+is kept in the registry's `kv` table so a device that is offline at a limit stop still knows the
+last value; absent means off. The pending resumes themselves live in the registry's `resumes` table
+— `session_id, at, estimated, attempts, window_minutes, control` — so a restart keeps them, and one
+loop looks at them every 30 seconds and once right after start, so a machine that slept through the
+time fires on waking.
+
+| When | What happens |
+| --- | --- |
+| A limit stop on a `remote` or `shared` session, switch on | `resume {status: "scheduled"}` at `resets_at` + 60 s, or now + the window (five hours when unknown) with `estimated: true`. A `terminal` session gets none: the device has no way in |
+| The time passes, session idle | `resume {status: "fired"}`, then the prompt through the ordinary send path: `user_message {source: "resume"}` and `turn_started {trigger: "resume"}` |
+| The time passes, a turn is running | `cancelled` — somebody took the session further |
+| The time passes, scheduled as `shared` and the CLI is gone | `dropped` ("The terminal that owned this session was closed.") |
+| The resumed turn hits the limit again | `rescheduled` with `attempts + 1`; after the third such turn, `dropped` |
+| The person sends a message or runs a command | `cancelled` ("you sent a message") |
+| The switch goes off | every pending resume `cancelled`, on every session |
+
+The prompt is one constant, `RESUME_PROMPT`, verbatim from PROTOCOL 7.2 and never edited per
+session; it is the one message the device writes for the person, so it never names the session
+either. `session.resume_set` (at least a minute ahead, within eight days, `conflict` while a turn
+runs or while the terminal controls the session) and `session.resume_cancel` (idempotent) answer
+with the session. Every step is also a `resume` event, which `session.history` replays like a
+`notice`, and the pending record travels as `Session.resume`.
 
 ## Terminal sessions
 
