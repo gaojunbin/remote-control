@@ -756,9 +756,21 @@ Grok's `/context`, which renders in its own pager.
 
 `features/sessions/SessionRow.tsx` draws what `docs/DESIGN.md` § "The session row" rules: three
 lines, each a `.session-line` that puts one thing at the leading edge and one at the trailing edge.
-The first is the title and the relative time. The second is the agent chip and the status — the
-`StatusDot` moved off the title to sit with its word, "Archived" or the state label or "device
-offline" — so the line says two things, not three. The third, `.session-cwd`, is the working
+The first is the title and the relative time. The second is the agent chip and, at the trailing
+edge, the `StatusDot` with the session's **origin** — `sessionOriginLabel` in `src/strings.ts`:
+"Terminal" for `origin: terminal`, "Remote Control" for `origin: remote`, `strings.labels.origin` —
+in the secondary ink whatever the state (`docs/DESIGN.md` § "The session row says where it came
+from"). The state is the dot's colour alone; "running", "idle", "terminal · attached" and "device
+offline" are gone from the row, and a hand-archived row reads "Archived · <origin>". The chat
+sidebar's rows follow the same rule: `Sidebar.tsx` prints `basename · time` under every title and
+leaves the state to the dot. Above the list, `SessionLegend.tsx` draws the legend once — under the
+toolbar, `.session-legend`, `role="list"`, the four dots at the rows' size with `legendEntries()`
+from `legend.ts`: Working (green), For you (still amber; the pulsing amber is the same colour),
+Not running (grey), Error (red) — caption type, secondary ink, no box, no border, and not when the
+list is empty. The dot's tooltip (`labels.dotTone`) uses the same words for grey and red and says
+"Waiting for you" / "Done" for the two ambers. `tests/SessionsPage.test.tsx` holds the row's word,
+the archived prefix, the offline row and the legend; `tests/Sidebar.test.tsx` the sidebar's
+sub-line. The third, `.session-cwd`, is the working
 directory alone: a lucide `Folder` drawn to the same rule as the device row's laptop (ink, no fill,
 stroke 1.5, round caps and joins, 14 px), then the path in mono from `tildePath`. The path truncates
 from the head — `direction: rtl` on the span and a `<bdi>` around the text keep the characters in

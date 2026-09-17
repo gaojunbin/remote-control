@@ -294,9 +294,22 @@ All on every launch and is never written to defaults. The device filter is a par
 same function, for the callers that narrow to one machine.
 
 A row is three lines (`docs/DESIGN.md` § "The session row"): the title and the relative time on
-the first; the agent chip at the leading edge and the status — `StatusLabel`, dot and word, with
-"Archived ·" before it on a hand-archived row — at the trailing edge of the second; and the working
-directory alone on the third, after a `FolderGlyph` (`Design/FolderGlyph.swift`: lucide's `Folder`
+the first; the agent chip at the leading edge and, at the trailing edge of the second, the dot with
+the session's **origin** — `SessionOriginLabel` (`Design/Controls.swift`) drawing `StatusDot` and
+`Session.originLabel`, "Terminal" for `origin: terminal` and "Remote Control" for `origin: remote`,
+in the secondary ink whatever the tone (`docs/DESIGN.md` § "The session row says where it came
+from"); "Archived ·" still precedes it on a hand-archived row, and the chat header alone keeps
+`Session.statusLabel` and the state vocabulary. Because "Remote Control" is now a catalogue key
+with a zh-Hans value (远程启动), the sign-in and lock screens print the product's name with
+`Text(verbatim:)` so it is never translated there. Above the first device section the list's first
+row is the legend (`docs/DESIGN.md` § "A legend, once, and quiet"): `DotLegend.entries` in
+`Sources/RCCore/State/DotLegend.swift` — Working (green), For you (still amber), Not running (grey),
+Error (red) — drawn as four `StatusDot`s with caption words, `sessions.legend`, one accessibility
+element, absent when the list is empty and never on the chat or Devices screens. `RCUIVerify`
+checks the origin words for both origins and every demo row, and the legend's words and order;
+`Tests/RCCoreTests/StatusDotTests.swift` covers the legend's tones; the UI test
+`testSessionRowsNameTheirOriginAndTheDotsAreExplainedOnce` reads a remote and a terminal row and the
+legend. The third line is the working directory alone, after a `FolderGlyph` (`Design/FolderGlyph.swift`: lucide's `Folder`
 as a `FolderShape` of six rounded corners on `OutlineGlyph`'s 24-unit grid, stroked in the ink at
 1.5 units with round caps and joins, 14 pt scaled with the footnote). The path truncates from the
 head so the folder it ends in survives a tight row. `OutlineGlyph` (`Design/OutlineGlyph.swift`) is

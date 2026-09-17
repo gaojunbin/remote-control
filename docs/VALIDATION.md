@@ -1999,6 +1999,40 @@ Unit tests (368 → 370), RCUIVerify over the demo's machines (467 → 471), UI 
 1357, RCUIVerify 471, unit tests 370; UI tests on simulator 32BBA636: the platform filter, the device
 row and the About version row. All four components 1.4.5, iOS build 12, tag v1.4.5.
 
+## 39. The session row says where it came from; the dots get a legend (2026-09-18, 1.4.6)
+
+The owner's report, from the phone: the word beside a session's dot ("running", "terminal ·
+attached") mixed the session's state with its origin and said the same thing as the colour or a
+different one; and nothing on the screen said what the colours meant. Ruled in `docs/DESIGN.md`
+§ "The session row says where it came from" and § "A legend, once, and quiet" (b4232e8), built by
+two subagents in worktrees (`origin-web` 7390961, `origin-ios` ee4f925), merged (5eab931).
+
+**Both apps.** The word beside the dot is the origin — "Terminal" / "Remote Control" (终端 / 远程
+启动) by `Session.origin` — in the secondary ink whatever the state; "running", "idle", "terminal ·
+attached" and "device offline" are gone from the row, "Archived ·" still precedes the word on a
+hand-archived row, and the chat header alone keeps the state vocabulary. One caption line above the
+list reads ● Working ● For you ● Not running ● Error (运行中 / 等你处理 / 未运行 / 出错): under the
+toolbar on the web (`SessionLegend.tsx`, `legend.ts`), the list's first row on iOS
+(`DotLegend.entries`, `sessions.legend`); four entries, the amber drawn still; not on the chat
+sidebar or the Devices screen, not when the list is empty. The web chat sidebar's sub-line is the
+folder and the time always; the web dot tooltip says Not running / Error for grey and red (aligned
+by the orchestrator). iOS prints the product's name on the sign-in and lock screens with
+`Text(verbatim:)`, since "Remote Control" is now a catalogue key with a Chinese value.
+
+**Verified.** Web 661 → 671 tests (`SessionsPage.test.tsx`: origin word for both origins, no
+state word, the archived prefix, the offline row, the legend once and in order; new
+`Sidebar.test.tsx`; the two old "terminal · attached" assertions rewritten), tsc, lint and build
+clean; screenshots `web-round39-sessions-{1280,400}.png`. iOS RCUIVerify 471 → 479, unit tests 370 →
+373 (`StatusDotTests` cover the legend's tones), RCVerify 1357; the UI test
+`testSessionRowsNameTheirOriginAndTheDotsAreExplainedOnce` passed on the agent's simulator
+(473CA51C) and, with the About version row, on 32BBA636 after the bump; screenshot
+`ios-round39-sessions.png`. Gateway 397 and client 1116 (+3 skipped) unchanged after the bump. All
+four components 1.4.6, iOS build 13, tag v1.4.6.
+
+**Not verified.** Neither app was looked at on a device or in a browser beyond the screenshots; the
+legend's fit on the narrowest phone width was checked at 400 px on the web and on the iPhone 17
+simulator only.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
