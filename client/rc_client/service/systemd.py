@@ -74,7 +74,19 @@ def uninstall() -> None:
 
 
 def start() -> None:
-    result = _run("restart", UNIT)
+    restart()
+
+
+def restart(block: bool = True) -> None:
+    """Restart the unit, waiting for it unless the caller is inside it.
+
+    `install` only rewrites and enables the unit; the process that is running
+    keeps the code it started with until the unit is restarted. The updater
+    runs inside the unit's own cgroup, so a restart it asks for kills it too:
+    it queues the job with `--no-block` and exits before systemd gets to it.
+    """
+    arguments = ["restart", UNIT] if block else ["--no-block", "restart", UNIT]
+    result = _run(*arguments)
     if result.returncode != 0:
         raise RcError("internal", f"systemctl restart failed: {result.stderr.strip()[:200]}")
 

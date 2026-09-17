@@ -18,7 +18,7 @@ from rc_client.config import Config, config_path, load_config, save_config
 from rc_client.enroll import ENROLL_TIMEOUT, device_facts, enroll
 from rc_client.errors import RcError
 from rc_client.proxy import DIRECT
-from rc_client.service import launchd, systemd
+from rc_client.service import launchd, manager, systemd
 
 PROXY_WITH_PASSWORD = "http://user:pw@proxy.example:3128"
 
@@ -31,6 +31,7 @@ def test_the_parser_exposes_every_documented_command() -> None:
         ["status"],
         ["agents"],
         ["service", "install"],
+        ["service", "restart"],
         ["service", "status"],
         ["grok", "setup"],
         ["grok", "status"],
@@ -459,6 +460,39 @@ def test_launchd_install_gives_up_after_repeated_bootstrap_failures(
         launchd.install()
     assert "Input/output error" in raised.value.message
     assert launchd.RECOVERY_HINT in raised.value.message
+
+
+def test_systemd_restart_from_inside_the_unit_is_queued_not_awaited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The updater lives in the unit's cgroup: a restart it waits for kills it."""
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    systemd.restart(block=False)
+    systemd.restart()
+    systemd.start()
+    assert calls == [
+        ["systemctl", "--user", "--no-block", "restart", "rc-client.service"],
+        ["systemctl", "--user", "restart", "rc-client.service"],
+        ["systemctl", "--user", "restart", "rc-client.service"],
+    ]
+
+
+def test_the_manager_knows_which_install_restarts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """launchd's install is a restart; systemd's is not, so the updater asks for one."""
+    monkeypatch.setattr(manager, "IS_MACOS", True)
+    assert manager.install_restarts() is True
+    monkeypatch.setattr(manager, "IS_MACOS", False)
+    assert manager.install_restarts() is False
+    queued: list[bool] = []
+    monkeypatch.setattr(systemd, "restart", lambda block=True: queued.append(block))
+    manager.restart()
+    assert queued == [False]
 
 
 def test_systemd_unit_restarts_and_names_the_client_home(client_home: Path) -> None:

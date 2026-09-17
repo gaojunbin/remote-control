@@ -40,6 +40,26 @@ def start() -> None:
         systemd.start()
 
 
+def install_restarts() -> bool:
+    """Whether `install` also puts a running service onto the code it just installed.
+
+    launchd has no way to reload a plist but to boot the job out and back in,
+    so its `install` is a restart. systemd's `install` rewrites and enables the
+    unit and leaves the running process alone, which is why an update on Linux
+    has to ask for the restart itself — the cause of every "did not come back"
+    the owner saw on Linux hosts (2026-09-18).
+    """
+    return IS_MACOS
+
+
+def restart() -> None:
+    """Restart a running service, from inside it if need be."""
+    if IS_MACOS:
+        launchd.start()
+    else:
+        systemd.restart(block=False)
+
+
 def stop() -> None:
     if IS_MACOS:
         launchd.stop()

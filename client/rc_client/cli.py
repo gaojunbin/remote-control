@@ -110,7 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     service_parser = sub.add_parser("service", help="manage the background service")
     service_parser.add_argument(
-        "action", choices=["install", "uninstall", "start", "stop", "status"]
+        "action", choices=["install", "uninstall", "start", "restart", "stop", "status"]
     )
 
     uninstall_parser = sub.add_parser("uninstall", help="remove the service and its data")
@@ -238,6 +238,9 @@ def _cmd_service(args: argparse.Namespace) -> int:
     elif action == "start":
         manager.start()
         print("service started")
+    elif action == "restart":
+        manager.restart()
+        print("service restart requested")
     elif action == "stop":
         manager.stop()
         print("service stopped")

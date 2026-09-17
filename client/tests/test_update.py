@@ -17,6 +17,7 @@ from rc_client.build import as_digest, build_path, digest_of, read_build, write_
 from rc_client.channel import shellrc
 from rc_client.config import Config, ensure_dirs, save_config
 from rc_client.errors import RcError
+from rc_client.service import manager
 from rc_client.update import log_tail, self_update, update_log_path
 
 WHEEL_BYTES = b"PK\x03\x04 pretend this is a wheel"
@@ -154,6 +155,8 @@ async def test_a_wheel_that_is_not_the_requested_build_installs_nothing(
 async def test_the_update_installs_the_wheel_and_restarts_the_service(
     enrolled: list[list[str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # launchd: `service install` boots the job out and back in, so it is the restart.
+    monkeypatch.setattr(manager, "install_restarts", lambda: True)
     monkeypatch.setattr(httpx.AsyncClient, "stream", serve())
     assert await self_update(WHEEL_DIGEST) is True
 
@@ -163,6 +166,29 @@ async def test_the_update_installs_the_wheel_and_restarts_the_service(
     assert service[1:] == ["service", "install"]
     assert shim[1:] == ["shim", "install", "--no-shell-rc"]
     assert read_build() == WHEEL_DIGEST
+
+
+async def test_where_install_does_not_restart_the_update_restarts_last(
+    enrolled: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """systemd: `install` only rewrites the unit, and the old process kept running.
+
+    The restart is the last step, after the shim and the pi refresh, because on
+    systemd it takes the updater with it; and it comes after the log's
+    "updated to" line for the same reason.
+    """
+    monkeypatch.setattr(manager, "install_restarts", lambda: False)
+    monkeypatch.setattr(httpx.AsyncClient, "stream", serve())
+    assert await self_update(WHEEL_DIGEST) is True
+
+    assert [command[1:] for command in enrolled[1:]] == [
+        ["service", "install"],
+        ["shim", "install", "--no-shell-rc"],
+        ["service", "restart"],
+    ]
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert lines[-2].startswith("updated to ")
+    assert lines[-1].endswith("service restart")
 
 
 async def test_the_update_keeps_the_shell_startup_file_the_installer_wrote(

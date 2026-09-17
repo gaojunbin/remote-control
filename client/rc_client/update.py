@@ -4,6 +4,11 @@ An app asks for this with `device.update` (A22). The daemon answers the request
 and then spawns this command in its own session, so the update outlives the
 service restart it performs at the end. Nothing is installed unless the wheel's
 SHA-256 is exactly the build that was asked for.
+
+The restart is the updater's own last step wherever `service install` does not
+restart the service itself: on systemd, `install` only rewrites and enables the
+unit, and a Linux device that was updated without this step kept running the
+old code until the gateway gave up on it five minutes later.
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ from .channel import shellrc
 from .config import ensure_dirs, load_config, log_dir, state_dir
 from .errors import RcError
 from .proxy import httpx_options
+from .service import manager
 
 WHEEL_PATH = "/dist/rc_client-latest.whl"
 WHEEL_NAME = re.compile(r"[A-Za-z0-9._+-]{1,128}\.whl")
@@ -162,6 +168,11 @@ async def self_update(build: str) -> bool:
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
     print(f"updated to {served}", flush=True)
+    if not manager.install_restarts():
+        # Last, because on systemd the restart takes this process with it: the
+        # updater is in the unit's cgroup, and the job is queued rather than
+        # awaited so this line is the log's last and the exit code is ours.
+        await _step("the service restart", executable, "service", "restart")
     return True
 
 
