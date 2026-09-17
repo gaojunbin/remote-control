@@ -1823,6 +1823,43 @@ the session scratchpad. All four components 1.4.1, iOS build 8, tag v1.4.1.
 app was checked on a phone or in a browser beyond the screenshots; the glyph in dark mode (the
 ink is near-white there) was not looked at by eye.
 
+## 35. The device row's client line says one thing (2026-09-18, 1.4.2)
+
+The owner's ruling, from the phone: the third line of a registered device's row shows no build
+hash after the version (the eight characters such as `3f2b4a9c`); when an update is available it
+reads "Update available" (有可用更新), and otherwise only the version the device runs, such as
+"1.4.0". Ruled in `docs/DESIGN.md` § "The device row" and reconciled with § "An update names its
+version": the row says "Update available" alone, the confirmation and the device page name the
+version it would install, and the page keeps the full line (`client <version> · <build>`, hostname,
+architecture) as the place one goes to check facts. "Updating…" and "Update failed · <reason>" are
+unchanged on the row. The word "client" left the row with the hash.
+
+Web: `DeviceRow.tsx` renders either the notice (`available` mapped to the bare
+`strings.devices.updateAvailable`) or the bare `client_version` in mono; the `::before` separator
+that parted the notice from the version is gone with the version. iOS: `DeviceRowClientLine`
+(`Screens/DeviceLines.swift`) for the row and `DeviceUpdateText.rowLine(version:notice:)` as the
+one rule; `DeviceClientLine` stays the page's. No new strings on either app.
+
+**Verified.** Web: four tests in `tests/DeviceUpdate.test.tsx` rewritten — the up-to-date row says
+"0.1.0" and neither "client" nor the hash, the outdated row says "Update available" and neither
+version nor hash, the same on a gateway that names no version, and each row's bare version when the
+gateway serves no build; 659 tests, tsc, lint and build clean; Playwright read the two rows' client
+lines as `["Update available", "0.1.0"]` at 1280 and 400 px. iOS: RCUIVerify 453 → 459 (the rule for
+none / available / updating / failed, and the demo's up-to-date machine reading just its version
+with no hash); unit tests 365 and RCVerify 1357 unchanged; three UI tests on simulator 32BBA636 —
+the device row (now also asserting the bare version, no "client", no hash), the update flow ("Update
+available" without a version or the running version while the notice is up; after the update the
+row reads the new version with nothing left to offer and no hash) and the About version row — 3
+passed, 0 failures, 54 s. Gateway 397 and client 1071 (+3 skipped) after the bump. Screenshots
+`web-round35-devices-{1280,400}.png`, `ios-round35-devices.png`, `ios-round35-update-available.png`,
+`ios-round35-updated.png` in the session scratchpad. All four components 1.4.2, iOS build 9, tag
+v1.4.2.
+
+**Not verified.** The full iOS UI suite was not rerun (three tests were); neither app was looked at
+on a phone or in a browser beyond the screenshots; the first web screenshot of this round showed a
+stray "·" before "Update available" from the old separator rule, which is what the CSS change fixed
+and the second screenshot confirmed.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

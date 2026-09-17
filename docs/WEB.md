@@ -513,16 +513,19 @@ Nothing of this reaches the gateway.
   current object identity against the one that was written, not its fields, because the patch and
   the update can carry the same value.
 - **Devices offer three actions and one of them is Update** (A22). Every row carries Rename, Update
-  and Revoke, in that order, and shows the client version with the first eight characters of
-  `client_build` under the status line. `updateNotice` in `src/stores/devices.ts` is the one rule for
-  what replaces that build: "Updating…" while `update_state` is `updating`, "Update failed ·
-  <message>" for `failed`, and "Update available · <version>" when the device's build differs from
-  `config.client.build` — the wheel the gateway serves, read once on boot with the rest of
-  `/api/config`. **An update names what it would install**: the page reads the whole `config.client`
-  object and hands it to the row as `served`, so the notice carries `client.version` and the
-  confirmation says "Update <name> to <version>? Its service restarts; sessions it drives are
-  stopped." A gateway too old to name the version of its wheel leaves `client.version` out, and both
-  fall back to the bare "Update available" and "…to the gateway's client?". Update confirms first,
+  and Revoke, in that order, and its client line says one thing (`docs/DESIGN.md` § "The device
+  row"): the bare `client_version` while there is nothing to do, or else the notice. `updateNotice`
+  in `src/stores/devices.ts` is the one rule for the notice: "Updating…" while `update_state` is
+  `updating`, "Update failed · <message>" for `failed`, and `available` when the device's build
+  differs from `config.client.build` — the wheel the gateway serves, read once on boot with the rest
+  of `/api/config`. The row says an available update as "Update available" and no more; the device
+  page shows the full line — `client <version> · <eight characters of the build>`, and "Update
+  available · <version>" — because **an update names what it would install** there and in the
+  confirmation: the page reads the whole `config.client` object and hands it to the row as
+  `served`, and the confirmation says "Update <name> to <version>? Its service restarts; sessions
+  it drives are stopped." A gateway too old to name the version of its wheel leaves `client.version`
+  out, and the page and the confirmation fall back to the bare "Update available" and "…to the
+  gateway's client?". Update confirms first,
   then sends `device.update {device_id, build}` with the gateway's build, never the row's. It is
   disabled with a title saying why while the device is offline, while an update is in flight, when
   the builds already match and when the gateway serves no wheel at all. A refusal the device sends
@@ -762,7 +765,10 @@ the row for the device's page. The status line carries the online dot, which mov
 sit with the word it belongs to, then "online" or "offline", then the platform as a word from
 `platformLabels` in `src/strings.ts` — `macos` → macOS, `linux` → Linux, and a platform that table
 does not know printed as the device sent it — and then the session count and the latency or last
-seen. The client line and the update notice (A22) are unchanged.
+seen. The client line is the bare `client_version` in mono, or in its place the update notice
+alone — "Update available" without the version, "Updating…", "Update failed · <reason>" — never
+the word "client" and never the build hash; `tests/DeviceUpdate.test.tsx` holds the row to that and
+`tests/DevicePage.test.tsx` holds the page to the full line. The row menu (A22) is unchanged.
 
 The agents are their logos alone, evenly spaced and with no name and no version beside them; each
 logo is wrapped in a `role="img"` span whose `aria-label` and `title` are the agent's name, so the

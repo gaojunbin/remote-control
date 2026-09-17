@@ -96,10 +96,12 @@ the device comes back with the new build, "Update failed · <reason>" if it does
 action is disabled while the device is offline or a session it drives is running. A device on the
 gateway's build offers no Update.
 
-**An update names its version, and leaves the device as a fresh install would.** The row says what
-it would install — "Update available · 1.3.1" under the version the device runs — and the
+**An update names its version, and leaves the device as a fresh install would.** The device page
+says what it would install — "Update available · 1.3.1" under the version the device runs — and the
 confirmation says the same ("Update <name> to 1.3.1?"), because "Update available" alone told
-nobody whether the click was worth it while every build was called 0.1.0. After the wheel, the
+nobody whether the click was worth it while every build was called 0.1.0. The row itself says only
+"Update available" since 2026-09-18 (§ "The device row"): the version is one tap away in the
+confirmation, and the row is for telling machines apart. After the wheel, the
 updater refreshes what the wheel ships into the person's tools, exactly as the installer would: the
 claude shim, and the pi extension when one is installed. It touches nothing it did not put there —
 it never installs Codex, and never turns Grok's leader mode on or off, both of which are the
@@ -149,7 +151,14 @@ devices ran into each other. The row now reads, top to bottom:
 - **The agents as logos alone**, evenly spaced, no names and no versions; each logo carries the
   agent's name as its accessible label — `accessibilityLabel` on iOS, `aria-label` and a tooltip
   on the web — so the row still reads aloud. Versions live on the device page's agent cards.
-- The client line, the update notice and the row menu are unchanged.
+- **The client line says one thing** (owner's ruling, 2026-09-18). A device on the gateway's
+  build shows the version it runs, bare — "1.4.1" — with no "client" before it and no build hash
+  after it; a hash names nothing a person chooses a machine by. A device with something to do about
+  an update shows the notice alone: "Update available", and not the version it would install —
+  the confirmation ("Update <name> to 1.4.1?") and the device page name that. "Updating…" and
+  "Update failed · <reason>" stay as they are. The device page keeps the full line, version and
+  hash and the versioned notice, as it keeps the hostname and the architecture.
+- The row menu is unchanged.
 
 ## Accounts
 
