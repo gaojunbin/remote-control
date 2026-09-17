@@ -875,6 +875,18 @@ func run() async -> (passed: Int, failures: [String]) {
     let folderDoubled = FolderShape().path(in: CGRect(x: 0, y: 0, width: 48, height: 48)).boundingRect
     equal(folderDoubled, CGRect(x: 4, y: 6, width: 40, height: 34), "twice the box draws twice the folder")
 
+    // The Devices screen's filter offers the platforms the list holds, in the
+    // order it first shows them, and narrows the list to one of them (owner's
+    // ruling, 2026-09-18). The demo has two Macs and one Linux runner.
+    let demoDevices = model.connection.devices
+    equal(DeviceFilter.platforms(in: demoDevices), [.macos, .linux],
+          "the filter offers macOS then Linux, once each, for the demo's three machines")
+    equal(DeviceFilter.apply(demoDevices, platform: .linux).map(\.deviceID), [DemoFixtures.ciDeviceID],
+          "narrowing to Linux leaves the runner alone")
+    equal(DeviceFilter.apply(demoDevices, platform: nil).count, 3, "and All keeps the three")
+    equal(L10n.string("No %@ devices", DeviceLine.platformName(.linux)), "No Linux devices",
+          "an emptied list says which platform it was narrowed to")
+
     // The agents on the row are logos alone, so their names reach a reader who
     // cannot see them only as the labels the row hands each logo.
     if let studio = model.connection.device(DemoFixtures.macDeviceID) {
@@ -1658,7 +1670,7 @@ func run() async -> (passed: Int, failures: [String]) {
         }
         expect(project.contains("MARKETING_VERSION: '\(AppBuild.shipped)'"),
                "the project ships the version this source tree carries")
-        expect(project.contains("CURRENT_PROJECT_VERSION: 11"),
+        expect(project.contains("CURRENT_PROJECT_VERSION: 12"),
                "and a build number TestFlight can tell apart")
     } else {
         expect(false, "the check can read project.yml")

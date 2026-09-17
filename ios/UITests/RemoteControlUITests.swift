@@ -1490,6 +1490,32 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "59-device-rows")
     }
 
+    /// The Devices screen filters by platform the way Sessions filters by agent
+    /// (owner's ruling, 2026-09-18): the same control, top right.
+    func testPlatformFilterNarrowsTheDevicesToOnePlatform() {
+        openDevices()
+        let studio = deviceRow(DemoDevices.studio)
+        let runner = deviceRow(DemoDevices.ci)
+        XCTAssertTrue(studio.waitForExistence(timeout: 15), "the Macs are listed to start with")
+        XCTAssertTrue(runner.exists, "and so is the Linux runner")
+
+        app.buttons["devices.platformFilter"].tap()
+        let linux = app.buttons["devices.platformFilter.linux"]
+        XCTAssertTrue(linux.waitForExistence(timeout: 10), "the filter names the platforms present")
+        XCTAssertTrue(app.buttons["devices.platformFilter.macos"].exists, "both of them")
+        linux.tap()
+
+        XCTAssertTrue(studio.waitForNonExistence(timeout: 10), "the Macs go")
+        XCTAssertTrue(runner.exists, "the Linux runner stays")
+        XCTAssertEqual(app.buttons["devices.platformFilter"].value as? String, "Linux",
+                       "and the button says what the list is narrowed to")
+        attach(name: "58-device-platform-filter")
+
+        app.buttons["devices.platformFilter"].tap()
+        app.buttons["devices.platformFilter.all"].tap()
+        XCTAssertTrue(studio.waitForExistence(timeout: 10), "All brings the Macs back")
+    }
+
     func testDeviceRowSwipeHoldsRenameUpdateAndRevoke() {
         openDevices()
         let row = deviceRow(DemoDevices.laptop)

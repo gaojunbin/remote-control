@@ -766,6 +766,23 @@
         }
       }
     },
+    "All devices": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All devices"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部设备"
+          }
+        }
+      }
+    },
     "Allow camera access in Settings, or attach a photo instead.": {
       "extractionState": "manual",
       "localizations": {
@@ -2364,6 +2381,23 @@
         }
       }
     },
+    "Filter by platform": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter by platform"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按平台筛选"
+          }
+        }
+      }
+    },
     "Finished in %@": {
       "extractionState": "manual",
       "localizations": {
@@ -2938,6 +2972,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "新建会话"
+          }
+        }
+      }
+    },
+    "No %@ devices": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ devices"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有 %@ 设备"
           }
         }
       }

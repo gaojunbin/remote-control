@@ -14,10 +14,16 @@ struct DevicesView: View {
     @State private var revoking: Device?
     @State private var updating: Device?
     @State private var error: String?
+    /// The platform the list is narrowed to; a view of the list, not a setting.
+    @State private var platformFilter: DevicePlatform?
+
+    private var shown: [Device] {
+        DeviceFilter.apply(model.connection.devices, platform: platformFilter)
+    }
 
     var body: some View {
         List {
-            ForEach(model.connection.devices) { device in
+            ForEach(shown) { device in
                 // `docs/DESIGN.md` § "A device has a page": the row itself
                 // opens the machine; its menu and its swipe still act on it
                 // without going anywhere.
@@ -41,6 +47,15 @@ struct DevicesView: View {
                     }
             }
 
+            if let platformFilter, shown.isEmpty, !model.connection.devices.isEmpty {
+                Text(L10n.string("No %@ devices", DeviceLine.platformName(platformFilter)))
+                    .font(Theme.Text.meta)
+                    .foregroundStyle(Theme.inkSecondary)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .accessibilityIdentifier("devices.platformFilter.empty")
+            }
+
             if model.connection.devices.isEmpty {
                 EmptyStateView(symbol: "desktopcomputer",
                                title: L10n.string("No devices yet"),
@@ -59,6 +74,9 @@ struct DevicesView: View {
         .scrollContentBackground(.hidden)
         .pageBackground()
         .navigationTitle("Devices")
+        .toolbar {
+            ToolbarItem(placement: .trailingBar) { platformFilterMenu }
+        }
         .navigationDestination(for: String.self) { deviceID in
             DeviceDetailView(deviceID: deviceID).environment(model)
         }
@@ -101,6 +119,48 @@ struct DevicesView: View {
                 "Revoke %@? Its token stops working and its sessions leave this gateway. The machine keeps its agents and transcripts.",
                 revoking?.name ?? L10n.string("This device")))
         }
+    }
+
+    /// All, then the platforms the list actually contains — the same control
+    /// the Sessions screen has for agents (`docs/DESIGN.md` § "Devices can be
+    /// filtered by platform"). The chosen platform's word stands beside the
+    /// glyph, so the narrowed list says what it is narrowed to.
+    @ViewBuilder
+    private var platformFilterMenu: some View {
+        let options = DeviceFilter.platforms(in: model.connection.devices)
+        if !options.isEmpty {
+            Menu {
+                platformChoice(nil, label: L10n.string("All devices"))
+                ForEach(options, id: \.rawValue) { platform in
+                    platformChoice(platform, label: DeviceLine.platformName(platform))
+                }
+            } label: {
+                HStack(spacing: Theme.Space.hair + 2) {
+                    Image(systemName: "line.3.horizontal.decrease")
+                    if let platformFilter {
+                        Text(DeviceLine.platformName(platformFilter)).font(Theme.Text.meta)
+                    }
+                }
+                .foregroundStyle(platformFilter == nil ? Theme.inkSecondary : Theme.ink)
+                .frame(minHeight: Theme.Touch.minimum)
+            }
+            .accessibilityLabel("Filter by platform")
+            .accessibilityValue(platformFilter.map(DeviceLine.platformName) ?? L10n.string("All devices"))
+            .accessibilityIdentifier("devices.platformFilter")
+        }
+    }
+
+    private func platformChoice(_ platform: DevicePlatform?, label: String) -> some View {
+        Button {
+            platformFilter = platform
+        } label: {
+            if platformFilter == platform {
+                Label(label, systemImage: "checkmark")
+            } else {
+                Text(label)
+            }
+        }
+        .accessibilityIdentifier("devices.platformFilter.\(platform?.rawValue ?? "all")")
     }
 
     /// The context menu: the same three, in the order the web menu uses.
