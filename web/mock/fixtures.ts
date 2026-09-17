@@ -613,6 +613,19 @@ export const sessions: Session[] = [
     git: { branch: 'feat/ingest-split', dirty: true, ahead: 1, behind: 0, worktree: false },
   }),
   session({
+    // A35: a session Claude Code stopped at the five-hour window, with the
+    // resume the device scheduled a minute after the reset. The state is `idle`
+    // and the dot says so; the notice above the transcript carries the pause.
+    session_id: 'ses-limit',
+    device_id: 'dev-mac',
+    title: 'Port the ingest worker to asyncio',
+    cwd: '/Users/me/dev/remote-control/client',
+    state: 'idle',
+    updated_at: minutes(7),
+    resume: { at: inHours(1.5), estimated: false, attempts: 0, window_minutes: 300 },
+    git: { branch: 'feat/async-ingest', dirty: true, ahead: 1, behind: 0, worktree: false },
+  }),
+  session({
     // The CLI failed but the session is still ours, so the row stays active and
     // its dot reads `failed` rather than `off`.
     session_id: 'ses-crash',
@@ -821,6 +834,8 @@ export function historyFor(sessionId: string): SessionEvent[] {
       return answerHistory();
     case 'ses-crash':
       return crashHistory();
+    case 'ses-limit':
+      return limitHistory();
     case 'ses-otlp':
       return codexHistory();
     case 'ses-grok-terminal':
@@ -834,6 +849,72 @@ export function historyFor(sessionId: string): SessionEvent[] {
     default:
       return [];
   }
+}
+
+/**
+ * A35: a turn Claude Code ended at the five-hour window. The vendor's sentence
+ * goes out as an `error`, never as the agent's words; the turn closes with
+ * `limit`, and the device's `resume` row says when it will continue.
+ */
+function limitHistory(): SessionEvent[] {
+  const base = minutes(9);
+  const resetsAt = inHours(1.5) - 60_000;
+  return [
+    {
+      seq: 1,
+      ts: base,
+      kind: 'user_message',
+      block_id: 'lm-u1',
+      source: 'remote',
+      text: 'port the ingest worker to asyncio and keep the retry semantics',
+    },
+    {
+      seq: 2,
+      ts: base + 2_400,
+      kind: 'assistant_text',
+      block_id: 'lm-a1',
+      done: true,
+      text: 'Starting with the queue reader: it is the only place that blocks, so the rest follows once it awaits.',
+    },
+    {
+      seq: 3,
+      ts: base + 9_000,
+      kind: 'tool_call',
+      block_id: 'lm-t1',
+      tool: 'edit_file',
+      tool_kind: 'edit',
+      title: 'ingest/worker.py',
+      status: 'succeeded',
+      started_at: base + 4_000,
+      ended_at: base + 9_000,
+      duration_ms: 5_000,
+      diff: { path: 'ingest/worker.py', additions: 34, deletions: 21 },
+    },
+    {
+      seq: 4,
+      ts: base + 120_000,
+      kind: 'error',
+      message: "You've hit your session limit · resets 10:20pm (Asia/Singapore)",
+      code: 'rate_limit',
+    },
+    {
+      seq: 5,
+      ts: base + 120_100,
+      kind: 'turn_completed',
+      turn_id: 'limit-turn',
+      stop_reason: 'error',
+      duration_ms: 120_100,
+      limit: { window_minutes: 300, resets_at: resetsAt },
+    },
+    {
+      seq: 6,
+      ts: base + 120_200,
+      kind: 'resume',
+      status: 'scheduled',
+      at: resetsAt + 60_000,
+      estimated: false,
+    },
+  ];
 }
 
 /**

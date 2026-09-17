@@ -88,6 +88,9 @@ function isRenderable(event: SessionEvent): boolean {
   if (STATE_ONLY.has(event.kind)) return false;
   // A clean turn boundary needs no row; interrupted / failed turns do.
   if (event.kind === 'turn_completed') return event.stop_reason !== 'completed';
+  // A35: the moment of resuming is the prompt in the person's bubble, so the
+  // `fired` step is not a row of its own; every other step is.
+  if (event.kind === 'resume') return event.status !== 'fired';
   return true;
 }
 

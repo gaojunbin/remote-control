@@ -55,4 +55,25 @@ describe('UserMessageRow', () => {
     expect(bubble().className).not.toContain('from-agent');
     expect(screen.queryByText(en.chat.fromAgent)).toBeNull();
   });
+
+  /**
+   * A35: the one message the device wrote for the person. It belongs in their
+   * bubble — the work is theirs and so is the window it spends — and the
+   * caption says who put it there and why.
+   */
+  it('captions the prompt the device sent once the limit reset', () => {
+    render(
+      <UserMessageRow
+        event={message('resume', 'The usage limit has reset. Continue where you left off.')}
+      />,
+    );
+    expect(screen.getByText(en.chat.fromResume)).toBeInTheDocument();
+    expect(bubble().textContent).toContain('The usage limit has reset.');
+  });
+
+  it('says that caption in the interface language too', () => {
+    useSettings.setState({ language: 'zh-Hans' });
+    render(<UserMessageRow event={message('resume')} />);
+    expect(screen.getByText(zhHans.chat.fromResume)).toBeInTheDocument();
+  });
 });

@@ -7,6 +7,7 @@ import type {
   GitInfo,
   OutgoingAttachment,
   PolishInfo,
+  Preferences,
   QuestionAnswers,
   QueuedMessage,
   Session,
@@ -39,6 +40,8 @@ export interface HelloFrame {
   stt: { enabled: boolean; languages: string[] };
   /** A29: absent from a gateway too old to polish dictation, which is "off". */
   polish?: PolishInfo;
+  /** A35: absent from a gateway too old to hold the account's preferences. */
+  preferences?: Preferences;
   server_time: number;
 }
 
@@ -54,6 +57,8 @@ export type PushFrame =
   // `session_id` stays the primary key; `device_id` is routing information.
   | { type: 'session.event'; session_id: string; device_id?: string; event: SessionEvent }
   | { type: 'pairing.progress'; code: string; step: PairingStep; device?: Device }
+  // A35: the account's preferences changed, from this app or another one.
+  | { type: 'preferences.updated'; preferences: Preferences }
   | { type: 'ping' };
 
 export type ServerFrame = PushFrame | Reply;
@@ -187,6 +192,14 @@ export interface RequestMap {
   ];
   'session.block': [{ session_id: string; block_id: string }, BlockResult];
   'session.queue_remove': [{ session_id: string; queued_id: string }, Record<string, never>];
+  /**
+   * A35: schedule the resume of §7.2 for `at`, or move the pending one there.
+   * `bad_request` unless `at` is at least a minute ahead and within eight days;
+   * `conflict` while a turn runs or while the terminal controls the session.
+   */
+  'session.resume_set': [{ session_id: string; at: number }, SessionResult];
+  /** A35: remove the pending resume. Idempotent. */
+  'session.resume_cancel': [{ session_id: string }, SessionResult];
   'session.takeover': [{ session_id: string }, SessionResult];
   'session.archive': [{ session_id: string; archived: boolean }, SessionResult];
   'session.delete': [{ session_id: string }, Record<string, never>];

@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { StatusLine } from '../src/features/chat/StatusLine';
 import { claudeAgent, codexAgent } from '../mock/fixtures';
-import type { Session, SessionState } from '../src/protocol/types';
+import { foldSession } from '../src/stores/chat';
+import type { Session, SessionEvent, SessionState } from '../src/protocol/types';
 
 const base: Session = {
   session_id: 'ses-1',
@@ -85,5 +86,29 @@ describe('StatusLine', () => {
   it('reports an offline device before anything else', () => {
     show({ control: 'terminal', state: 'running' }, claudeAgent, false);
     expect(screen.getByText('Device offline')).toBeInTheDocument();
+  });
+
+  /**
+   * A35, §8 rule 17: a turn the device started once the usage limit reset reads
+   * exactly as a turn this app started. Nothing about the line says a machine
+   * sent it — the caption on the bubble above already does.
+   */
+  it('reads a turn a resume started the way it reads a remote one', () => {
+    const started: SessionEvent = {
+      seq: 43,
+      ts: 3,
+      kind: 'turn_started',
+      turn_id: 'resumed-turn',
+      trigger: 'resume',
+    };
+    const running = foldSession({ ...base, state: 'running' }, [started]);
+
+    expect(running.turn?.turn_id).toBe('resumed-turn');
+    show(running);
+
+    expect(
+      screen.getByText('Claude Code is working \u00b7 your message will be queued'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/terminal/i)).toBeNull();
   });
 });

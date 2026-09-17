@@ -5,6 +5,7 @@ import type {
   PolishModelsResponse,
   PolishRequest,
   PolishResponse,
+  Preferences,
   Session,
   User,
   UserRecord,
@@ -124,6 +125,16 @@ export interface PairingClaimResponse {
   expires_at: number;
 }
 
+/** A35: `GET` and `PATCH /api/preferences`, the caller's account only. */
+export interface PreferencesResponse {
+  preferences: Preferences;
+}
+
+/** A35: every field is optional and the ones present are set. */
+export interface PreferencesPatch {
+  resume_after_limit?: boolean;
+}
+
 export const api = {
   health: () => get<HealthResponse>('/api/health'),
   config: () => get<ConfigResponse>('/api/config'),
@@ -167,6 +178,11 @@ export const api = {
     const qs = q.toString();
     return get<{ sessions: Session[] }>(`/api/sessions${qs ? `?${qs}` : ''}`);
   },
+
+  /** A35: the account's preferences, the same on every app and device. */
+  preferences: () => get<PreferencesResponse>('/api/preferences'),
+  setPreferences: (body: PreferencesPatch) =>
+    patch<PreferencesResponse>('/api/preferences', body),
 
   /** A29: the models the operator's provider offers, for the Voice settings. */
   polishModels: () => get<PolishModelsResponse>('/api/polish/models'),

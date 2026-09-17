@@ -17,6 +17,7 @@ import { useConnection } from './connection';
 import { useDevices } from './devices';
 import { useDrafts } from './drafts';
 import { useOutbox } from './outbox';
+import { usePreferences } from './preferences';
 import { useSessions } from './sessions';
 import { useUsers } from './users';
 
@@ -31,4 +32,5 @@ export function signOut(): void {
   useSessions.getState().reset();
   useDevices.getState().reset();
   useUsers.getState().reset();
+  usePreferences.getState().reset();
 }

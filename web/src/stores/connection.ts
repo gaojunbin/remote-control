@@ -9,6 +9,7 @@ import type { PairingStep, PushFrame } from '../protocol/frames';
 import type { Device, PolishInfo } from '../protocol/types';
 import { useChat } from './chat';
 import { useDevices } from './devices';
+import { usePreferences } from './preferences';
 import { useSessions } from './sessions';
 
 export interface PairingProgress {
@@ -93,6 +94,8 @@ function handleFrame(frame: PushFrame, set: Setter): void {
     case 'hello': {
       useDevices.getState().replaceAll(frame.devices);
       useSessions.getState().replaceAll(frame.sessions);
+      // A35: the account's switches, or nothing at all on an older gateway.
+      usePreferences.getState().fromHello(frame.preferences);
       set({
         helloAt: Date.now(),
         gatewayVersion: frame.gateway_version,
@@ -120,6 +123,9 @@ function handleFrame(frame: PushFrame, set: Setter): void {
     case 'session.event':
       // Amendment A5: `device_id` is present when the gateway stamped it.
       useChat.getState().ingestEvent(frame.session_id, frame.event, frame.device_id);
+      return;
+    case 'preferences.updated':
+      usePreferences.getState().apply(frame.preferences);
       return;
     case 'pairing.progress':
       set({

@@ -10,6 +10,7 @@ import type {
   NoticeEvent,
   QuestionAnswers,
   QuestionEvent,
+  ResumeEvent,
   ThinkingEvent,
   ToolCallEvent,
   TurnCompletedEvent,
@@ -17,7 +18,7 @@ import type {
 } from '../../protocol/types';
 import { MarkdownText } from './MarkdownText';
 import { ApprovalCard } from './blocks/ApprovalCard';
-import { ErrorRow, NoticeRow, TurnEndRow } from './blocks/NoticeRow';
+import { ErrorRow, NoticeRow, ResumeRow, TurnEndRow } from './blocks/NoticeRow';
 import { QuestionCard } from './blocks/QuestionCard';
 import { ThinkingRow } from './blocks/ThinkingRow';
 import { ToolRow } from './blocks/ToolRow';
@@ -170,6 +171,8 @@ const ItemView = memo(function ItemView({ item, handlers, nested }: ItemProps) {
       return <ErrorRow event={event as ErrorEvent} />;
     case 'turn_completed':
       return <TurnEndRow event={event as TurnCompletedEvent} />;
+    case 'resume':
+      return <ResumeRow event={event as ResumeEvent} />;
     default:
       return null;
   }

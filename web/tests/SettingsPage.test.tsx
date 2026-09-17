@@ -7,8 +7,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { SettingsPage } from '../src/features/settings/SettingsPage';
+import { api } from '../src/lib/api';
 import { useAuth } from '../src/stores/auth';
 import { useConnection } from '../src/stores/connection';
+import { usePreferences } from '../src/stores/preferences';
 import { useSettings } from '../src/stores/settings';
 import { strings } from '../src/strings';
 
@@ -268,5 +270,78 @@ describe('settings: dictation polish', () => {
     expect(screen.getByText(strings.settings.polishServerDisabled)).toBeInTheDocument();
     expect(screen.queryByText(strings.settings.polishNote)).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A35 — the Sessions group. `docs/DESIGN.md` § "Paused by the usage limit": one
+ * switch, off until the person turns it on, and the account's rather than this
+ * browser's, so it is read from and written to the gateway.
+ */
+describe('settings: resume after the limit resets', () => {
+  afterEach(() => {
+    usePreferences.setState({ preferences: undefined });
+    vi.restoreAllMocks();
+  });
+
+  it('draws the switch off with its sentence under it', () => {
+    usePreferences.setState({ preferences: { resume_after_limit: false } });
+    renderPage();
+
+    expect(screen.getByRole('heading', { name: strings.settings.sessions })).toBeInTheDocument();
+    const toggle = screen.getByRole('switch', { name: strings.settings.resumeAfterLimit });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    expect(toggle).toBeEnabled();
+    expect(screen.getByText(strings.settings.resumeAfterLimitNote)).toBeInTheDocument();
+  });
+
+  it('draws it on when the account has turned it on', () => {
+    usePreferences.setState({ preferences: { resume_after_limit: true } });
+    renderPage();
+
+    expect(screen.getByRole('switch', { name: strings.settings.resumeAfterLimit })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+  });
+
+  it('writes the change to the account, not to this browser', async () => {
+    const user = userEvent.setup();
+    const patch = vi
+      .spyOn(api, 'setPreferences')
+      .mockResolvedValue({ preferences: { resume_after_limit: true } });
+    usePreferences.setState({ preferences: { resume_after_limit: false } });
+    renderPage();
+
+    await user.click(screen.getByRole('switch', { name: strings.settings.resumeAfterLimit }));
+
+    expect(patch).toHaveBeenCalledWith({ resume_after_limit: true });
+    await waitFor(() =>
+      expect(usePreferences.getState().preferences?.resume_after_limit).toBe(true),
+    );
+  });
+
+  it('puts the switch back and says so when the gateway refuses', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, 'setPreferences').mockRejectedValue(new Error('nope'));
+    usePreferences.setState({ preferences: { resume_after_limit: false } });
+    renderPage();
+
+    await user.click(screen.getByRole('switch', { name: strings.settings.resumeAfterLimit }));
+
+    await waitFor(() => expect(screen.getByText(strings.errors.setFailed)).toBeInTheDocument());
+    expect(screen.getByRole('switch', { name: strings.settings.resumeAfterLimit })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+  });
+
+  it('disables it with a note on a gateway that does not offer it', () => {
+    usePreferences.setState({ preferences: undefined });
+    renderPage();
+
+    expect(screen.getByRole('switch', { name: strings.settings.resumeAfterLimit })).toBeDisabled();
+    expect(screen.getByText(strings.settings.resumeUnavailable)).toBeInTheDocument();
+    expect(screen.queryByText(strings.settings.resumeAfterLimitNote)).toBeNull();
   });
 });

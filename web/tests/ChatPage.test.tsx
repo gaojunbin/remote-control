@@ -141,3 +141,93 @@ describe('the model card writes before the device answers', () => {
     expect(stored()?.speed).toBe('priority');
   });
 });
+
+/**
+ * A35, §8 rule 17 — a session whose `resume` is set says so above its
+ * transcript, and both actions go to the device that holds the resume.
+ * `docs/DESIGN.md` § "Paused by the usage limit".
+ */
+describe('the pending resume above the transcript', () => {
+  const at = (): number => Date.now() + 90 * 60_000;
+
+  const paused = (): Session => ({
+    ...session,
+    resume: { at: at(), estimated: false, attempts: 0, window_minutes: 300 },
+  });
+
+  it('draws nothing while the session has no resume', () => {
+    renderChat();
+    expect(screen.queryByText(new RegExp(strings.chat.pausedByLimit))).toBeNull();
+  });
+
+  it('sits between the header and the transcript while one is pending', () => {
+    useSessions.setState({ sessions: { [key]: paused() }, loaded: true, agentFilter: null });
+    renderChat();
+
+    const notice = document.querySelector('.resume-notice');
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toContain(strings.chat.pausedByLimit);
+    // The transcript comes after it, which is what "above the transcript" is.
+    const timeline = document.querySelector('.timeline-wrap');
+    expect(notice?.compareDocumentPosition(timeline as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it('cancels the resume on the device and keeps what it answered', async () => {
+    const user = userEvent.setup();
+    useSessions.setState({ sessions: { [key]: paused() }, loaded: true, agentFilter: null });
+    rpcMock.mockResolvedValue({ session: { ...session, resume: null } });
+    renderChat();
+
+    await user.click(screen.getByRole('button', { name: strings.chat.resumeCancel }));
+
+    expect(rpcMock).toHaveBeenCalledWith('session.resume_cancel', {
+      session_id: session.session_id,
+    });
+    await waitFor(() => expect(document.querySelector('.resume-notice')).toBeNull());
+  });
+
+  it('says so under the transcript when the cancel fails', async () => {
+    const user = userEvent.setup();
+    useSessions.setState({ sessions: { [key]: paused() }, loaded: true, agentFilter: null });
+    rpcMock.mockRejectedValue(new Error('the device is offline'));
+    renderChat();
+
+    await user.click(screen.getByRole('button', { name: strings.chat.resumeCancel }));
+
+    expect(await screen.findByText('the device is offline')).toBeInTheDocument();
+    // Nothing was guessed: the notice stays until the device says otherwise.
+    expect(document.querySelector('.resume-notice')).not.toBeNull();
+  });
+
+  it('moves the resume to the time the reader picked', async () => {
+    const user = userEvent.setup();
+    const wanted = new Date(Date.now() + 3 * 3_600_000);
+    wanted.setSeconds(0, 0);
+    const moved = { at: wanted.getTime(), estimated: false, attempts: 0 };
+    useSessions.setState({ sessions: { [key]: paused() }, loaded: true, agentFilter: null });
+    rpcMock.mockResolvedValue({ session: { ...session, resume: moved } });
+    renderChat();
+
+    await user.click(screen.getByRole('button', { name: strings.chat.resumeChange }));
+    const field = screen.getByLabelText(strings.chat.resumeAt);
+    await user.clear(field);
+    await user.type(field, localValue(wanted));
+    await user.click(screen.getByRole('button', { name: strings.chat.resumeSet }));
+
+    await waitFor(() =>
+      expect(rpcMock).toHaveBeenCalledWith('session.resume_set', {
+        session_id: session.session_id,
+        at: wanted.getTime(),
+      }),
+    );
+    await waitFor(() => expect(stored()?.resume?.at).toBe(wanted.getTime()));
+  });
+});
+
+/** What a `datetime-local` field must be typed with. */
+function localValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}

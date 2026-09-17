@@ -11,6 +11,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type {
   AgentInfo,
   Device,
+  Preferences,
   Session,
   SessionEvent,
   TodoItem,
@@ -81,6 +82,8 @@ const state = {
   deviceOwner: new Map<string, string>(),
   /** A24: who asked for each outstanding pairing code. */
   pairingOwner: new Map<string, string>(),
+  /** A35: one row of preferences per account; an absent row is the defaults. */
+  preferences: new Map<string, Preferences>(),
   /** A10: messages the device accepted but could not inject yet, per session. */
   held: new Map<string, { block_id: string; text: string; queued_id: string }[]>(),
   /** A12: what each `session.send` request id was already answered with. */
@@ -162,6 +165,36 @@ function broadcast(frame: unknown): void {
   for (const conn of conns) {
     if (owner === undefined || conn.username === owner) send(conn.socket, frame);
   }
+}
+
+/** A35: a frame that is about the account itself rather than about a device. */
+function broadcastTo(username: string, frame: unknown): void {
+  for (const conn of conns) {
+    if (conn.username === username) send(conn.socket, frame);
+  }
+}
+
+/** A35: the account's preferences; an account that chose nothing reads off. */
+const preferencesOf = (username: string): Preferences =>
+  state.preferences.get(username) ?? { resume_after_limit: false };
+
+/**
+ * A35 §6.3: a message the person sends into a session with a pending resume
+ * cancels it. They got there first, and a second "continue" a minute later
+ * would only spend the window again.
+ */
+function cancelResumeOnSend(sessionId: string): void {
+  const session = findSession(sessionId);
+  if (!session || session.resume == null) return;
+  session.resume = null;
+  broadcast({ type: 'session.updated', session });
+  emit(sessionId, {
+    seq: nextSeq(sessionId),
+    ts: Date.now(),
+    kind: 'resume',
+    status: 'cancelled',
+    reason: 'you sent a message',
+  });
 }
 
 /** The devices and sessions one account may see. */
@@ -584,6 +617,27 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
     return;
   }
 
+  // A35 §3.2: the caller's own account preferences. A change goes out as
+  // `preferences.updated` to every app socket of the account; a real gateway
+  // also sends the `preferences` frame to its devices, which this mock has none
+  // of.
+  if (path === '/api/preferences' && method === 'GET') {
+    json(res, 200, { preferences: preferencesOf(account.username) });
+    return;
+  }
+
+  if (path === '/api/preferences' && method === 'PATCH') {
+    const body = await readBody(req);
+    const next = { ...preferencesOf(account.username) };
+    if (typeof body.resume_after_limit === 'boolean') {
+      next.resume_after_limit = body.resume_after_limit;
+    }
+    state.preferences.set(account.username, next);
+    broadcastTo(account.username, { type: 'preferences.updated', preferences: next });
+    json(res, 200, { preferences: next });
+    return;
+  }
+
   // A29: the two models a configured provider would offer, and a polish that
   // does what the smallest useful model does — drop the fillers and the
   // stammered repeats, and start the sentence with a capital.
@@ -846,6 +900,9 @@ function onAppSocket(socket: WebSocket, account: Account): void {
     sessions: sessionsOf(account.username),
     stt: { enabled: true, languages: ['auto', 'zh', 'en'] },
     polish: { enabled: true },
+    // A35: absent here would be a gateway too old for the switch, which is what
+    // the app draws disabled; this one holds them.
+    preferences: preferencesOf(account.username),
     server_time: Date.now(),
   });
 
@@ -1001,6 +1058,7 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       // twice. This is the whole reason a Retry is safe.
       const already = state.served.answerFor(sessionId, id);
       if (already !== undefined) return reply(conn, id, already);
+      cancelResumeOnSend(sessionId);
       // A10 §6.3: a shared session accepts every send; the device decides
       // between injecting now and holding until the terminal turn ends.
       if (session.control === 'shared') return sharedSend(conn, id, session, frame);
@@ -1055,6 +1113,7 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
         return replyError(conn, id, 'conflict', 'wait for the turn to finish');
       }
       const argument = typeof frame.argument === 'string' ? frame.argument : undefined;
+      cancelResumeOnSend(sessionId);
       reply(conn, id, {});
       play(sessionId, commandScript(session.agent, name, argument, String(id)));
       return;
@@ -1195,6 +1254,60 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       const pending = (state.queues.get(sessionId) ?? []).filter((q) => q.id !== queuedId);
       emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending });
       reply(conn, id, {});
+      return;
+    }
+
+    // A35 §6.3: the person moves the resume the device scheduled, or removes
+    // it. Both answer with the session, and each step is a row of the timeline.
+    case 'session.resume_set': {
+      const session = findSession(sessionId);
+      if (!session) return replyError(conn, id, 'not_found', 'no such session');
+      if (session.turn !== null) return replyError(conn, id, 'conflict', 'a turn is running');
+      if (session.control === 'terminal') {
+        return replyError(conn, id, 'conflict', 'controlled by terminal');
+      }
+      const at = typeof frame.at === 'number' ? frame.at : 0;
+      const now = Date.now();
+      if (at < now + 60_000 || at > now + 8 * 24 * 3_600_000) {
+        return replyError(conn, id, 'bad_request', 'at is outside the allowed window');
+      }
+      const moved = session.resume != null;
+      session.resume = {
+        at,
+        estimated: false,
+        attempts: session.resume?.attempts ?? 0,
+        ...(session.resume?.window_minutes !== undefined
+          ? { window_minutes: session.resume.window_minutes }
+          : {}),
+      };
+      broadcast({ type: 'session.updated', session });
+      emit(sessionId, {
+        seq: nextSeq(sessionId),
+        ts: now,
+        kind: 'resume',
+        status: moved ? 'rescheduled' : 'scheduled',
+        at,
+        estimated: false,
+      });
+      reply(conn, id, { session });
+      return;
+    }
+
+    case 'session.resume_cancel': {
+      const session = findSession(sessionId);
+      if (!session) return replyError(conn, id, 'not_found', 'no such session');
+      if (session.resume != null) {
+        session.resume = null;
+        broadcast({ type: 'session.updated', session });
+        emit(sessionId, {
+          seq: nextSeq(sessionId),
+          ts: Date.now(),
+          kind: 'resume',
+          status: 'cancelled',
+          reason: 'you cancelled it',
+        });
+      }
+      reply(conn, id, { session });
       return;
     }
 

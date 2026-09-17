@@ -1043,6 +1043,67 @@
   flex: 1;
 }
 
+/*
+ * A35 — the notice a session with a pending resume carries above its
+ * transcript. It reads as a pause rather than as a failure, so it takes the
+ * attention tint the amber dot uses, not the danger one the two bars above use.
+ */
+.resume-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  /* The transcript's own box, so the bar lines up with the rows under it and
+     keeps a gutter at phone width instead of running edge to edge. */
+  max-width: 760px;
+  width: calc(100% - 2 * var(--sp-4));
+  margin: var(--sp-3) auto 0;
+  padding: 8px var(--sp-4);
+  border: 1px solid #ecdfba;
+  border-radius: var(--r-md);
+  background: var(--attention-soft);
+  color: #7a5600;
+  font-size: var(--fs-13);
+}
+
+.resume-notice > span {
+  flex: 1;
+}
+
+.resume-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  min-width: 232px;
+}
+
+.resume-form-label {
+  font-size: var(--fs-12);
+  color: var(--ink-secondary);
+}
+
+.resume-form-field {
+  height: 32px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--fs-13);
+  font-family: inherit;
+}
+
+.resume-form-field:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+
+.resume-form-error {
+  margin: 0;
+  font-size: var(--fs-12);
+  color: var(--danger);
+}
+
 .composer {
   display: flex;
   align-items: flex-end;

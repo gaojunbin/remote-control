@@ -39,10 +39,13 @@ export function UserMessageRow({
  * The caption above the bubble. A message this app or another one sent needs
  * none; a terminal-typed one says where it was typed. A34: a message another
  * agent filed never reaches this row — `AgentMessageRow` draws it on the
- * agent's side instead.
+ * agent's side instead. A35: the one prompt the device wrote for the person,
+ * once the usage limit reset, says so.
  */
 function originLabel(source: UserMessageEvent['source']): string | null {
-  return source === 'terminal' ? strings.chat.fromTerminal : null;
+  if (source === 'terminal') return strings.chat.fromTerminal;
+  if (source === 'resume') return strings.chat.fromResume;
+  return null;
 }
 
 /** The chip on a send the device has not confirmed, re-read on a slow clock. */

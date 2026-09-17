@@ -288,6 +288,8 @@ export const en = {
      * put into the conversation by another agent (A30). */
     fromTerminal: 'terminal',
     fromAgent: 'from another agent',
+    /** A35: the one message the device wrote for the person, and why. */
+    fromResume: 'Sent for you after the limit reset',
     sending: 'Sending…',
     steering: 'the agent will read it at its next step',
     deliveryAbsorbed: 'will be re-sent',
@@ -315,6 +317,35 @@ export const en = {
     turnInterrupted: 'Turn interrupted',
     turnFailed: 'Turn failed',
     copyCode: 'Copy code',
+
+    /**
+     * A35 — a session the usage limit stopped, and the resume the device holds
+     * for it (`docs/DESIGN.md` § "Paused by the usage limit"). The notice above
+     * the transcript reads "Paused by the usage limit · resumes 3:50 PM", with
+     * "about" when the device estimated the time and the try appended once a
+     * resume has run into the limit again.
+     */
+    pausedByLimit: 'Paused by the usage limit',
+    resumesAt: (when: string) => `resumes ${when}`,
+    resumesAbout: (when: string) => `resumes about ${when}`,
+    resumeSecondTry: 'second try',
+    resumeThirdTry: 'third try',
+    resumeChange: 'Change',
+    resumeCancel: 'Cancel',
+    resumeAt: 'Resume at',
+    resumeSet: 'Set',
+    resumeTooSoon: 'Pick a time at least a minute from now.',
+    resumeTooFar: 'Pick a time within the next eight days.',
+    /** The device's own steps, as rows of the timeline in the notice voice. */
+    resumeScheduledAt: (when: string) => `Resume scheduled for ${when}`,
+    resumeScheduled: 'Resume scheduled',
+    resumeMovedTo: (when: string) => `Resume moved to ${when}`,
+    resumeMoved: 'Resume moved',
+    resumeCancelled: 'Resume cancelled',
+    resumeDropped: 'Not resumed',
+    /** How a turn the vendor's usage limit ended closes. */
+    turnLimit: 'Ended at the usage limit',
+    turnLimitResets: (when: string) => `Ended at the usage limit · resets ${when}`,
   },
 
   status: {
@@ -414,6 +445,12 @@ export const en = {
     pushServerDisabled: 'The gateway has web push disabled.',
     pushEnableAction: 'Enable',
     pushDisableAction: 'Turn off',
+    /** A35: the one switch the account owns, not the browser. */
+    sessions: 'Sessions',
+    resumeAfterLimit: 'Resume after the limit resets',
+    resumeAfterLimitNote:
+      'When Claude Code or Codex stops at a usage limit, the device continues the session a minute after the limit resets.',
+    resumeUnavailable: 'Your gateway does not offer this yet.',
     voice: 'Voice',
     voiceLanguage: 'Default language',
     voiceServerDisabled: 'Speech-to-text is not configured on this gateway.',
@@ -457,6 +494,9 @@ export const en = {
     queueRemoveFailed: 'Could not remove the queued message.',
     setFailed: 'Could not change that setting.',
     takeoverFailed: 'Could not take over the session.',
+    /** A35: the two requests behind the notice above the transcript. */
+    resumeSetFailed: 'Could not change the resume time.',
+    resumeCancelFailed: 'Could not cancel the resume.',
     notFound: 'Not found.',
     sessionMissing: 'This session is no longer available.',
     deviceOffline: 'That device is offline.',

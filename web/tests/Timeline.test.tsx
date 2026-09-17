@@ -268,3 +268,84 @@ describe('back to latest at Simple', () => {
     expect(h.button()?.textContent).toBe('');
   });
 });
+
+/**
+ * A35 — what a session the usage limit stopped draws in the transcript, and
+ * what it deliberately does not (`docs/DESIGN.md` § "Paused by the usage
+ * limit"). The Simple level keeps all of it: these are not the agent's
+ * workings, they are what happened to the session.
+ */
+describe('a session the usage limit stopped', () => {
+  const limitEnd = (seq: number, resetsAt: number | null): SessionEvent =>
+    ({
+      seq,
+      ts: 4_000 + seq,
+      kind: 'turn_completed',
+      turn_id: 'limit-turn',
+      stop_reason: 'error',
+      duration_ms: 1_200,
+      limit: { window_minutes: 300, resets_at: resetsAt },
+    }) as SessionEvent;
+
+  const resume = (seq: number, partial: Record<string, unknown>): SessionEvent =>
+    ({ seq, ts: 5_000 + seq, kind: 'resume', ...partial }) as SessionEvent;
+
+  const at = (h: number, m: number): number => new Date(2026, 8, 17, h, m).getTime();
+
+  it('closes the turn at the usage limit and says when it resets', () => {
+    setup(stateOf(limitEnd(1, at(15, 50))));
+    expect(screen.getByText(/Ended at the usage limit/)).toHaveTextContent('resets');
+  });
+
+  it('says only that it ended when the vendor named no time', () => {
+    setup(stateOf(limitEnd(1, null)));
+    expect(screen.getByText('Ended at the usage limit')).toBeInTheDocument();
+  });
+
+  it("draws the device's steps in the notice voice", () => {
+    setup(
+      stateOf(
+        resume(1, { status: 'scheduled', at: at(15, 50), estimated: false }),
+        resume(2, { status: 'rescheduled', at: at(16, 20) }),
+        resume(3, { status: 'cancelled', reason: 'you sent a message' }),
+        resume(4, { status: 'dropped', reason: 'the terminal was closed' }),
+      ),
+    );
+
+    expect(screen.getByText(/Resume scheduled for/)).toBeInTheDocument();
+    expect(screen.getByText(/Resume moved to/)).toBeInTheDocument();
+    expect(screen.getByText('Resume cancelled · you sent a message')).toBeInTheDocument();
+    expect(screen.getByText('Not resumed · the terminal was closed')).toBeInTheDocument();
+  });
+
+  it('draws nothing at all for the moment of resuming', () => {
+    const state = stateOf(resume(1, { status: 'fired' }));
+    setup(state);
+
+    // Not a row, and not a block the reducer is holding on to either.
+    expect(state.order).toHaveLength(0);
+    expect(document.querySelectorAll('.notice')).toHaveLength(0);
+  });
+
+  it('keeps every one of them at the Simple level', () => {
+    useSettings.setState({ timelineDetail: 'simple' });
+    setup(
+      stateOf(
+        limitEnd(1, at(15, 50)),
+        resume(2, { status: 'scheduled', at: at(15, 50) }),
+        {
+          seq: 3,
+          ts: 6_000,
+          kind: 'user_message',
+          block_id: 'u-resume',
+          source: 'resume',
+          text: 'The usage limit has reset. Continue where you left off.',
+        } as SessionEvent,
+      ),
+    );
+
+    expect(screen.getByText(/Ended at the usage limit/)).toBeInTheDocument();
+    expect(screen.getByText(/Resume scheduled for/)).toBeInTheDocument();
+    expect(screen.getByText('Sent for you after the limit reset')).toBeInTheDocument();
+  });
+});

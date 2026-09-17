@@ -80,6 +80,12 @@ const TITLES = {
   needs_input: 'a question is waiting',
   turn_completed: 'finished a turn',
   error: 'hit an error',
+  // A35: what the device did about a session the usage limit stopped. The time
+  // is never in a push — the gateway does not know this browser's zone — and is
+  // read in the app, which has the session's `resume`.
+  limit_reached: 'paused by the usage limit',
+  resumed: 'resumed after the limit reset',
+  resume_dropped: 'not resumed',
 };
 
 self.addEventListener('push', (event) => {
@@ -91,10 +97,13 @@ self.addEventListener('push', (event) => {
   }
   const rc = payload.rc || {};
   const device = rc.device_name || 'A device';
-  const body = TITLES[rc.kind] || 'needs your attention';
+  // The gateway writes the whole line in `rc.title`; a kind this build knows is
+  // the fallback, and one it does not still says a device needs attention and
+  // still opens its session.
+  const body = rc.title || `${device}: ${TITLES[rc.kind] || 'needs your attention'}`;
   event.waitUntil(
     self.registration.showNotification('Remote Control', {
-      body: `${device}: ${body}`,
+      body,
       icon: '/icon-192.png',
       badge: '/icon-192.png',
       tag: rc.session_id ? `rc-${rc.session_id}` : 'rc',

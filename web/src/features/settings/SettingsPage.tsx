@@ -15,6 +15,7 @@ import {
 } from '../../strings';
 import { useAuth } from '../../stores/auth';
 import { useConnection } from '../../stores/connection';
+import { usePreferences } from '../../stores/preferences';
 import { INTERFACE_LANGUAGES, useSettings } from '../../stores/settings';
 import type { InterfaceLanguage } from '../../stores/settings';
 import type { TimelineDetail } from '../../stores/timeline';
@@ -49,6 +50,12 @@ export function SettingsPage() {
   const setUiLanguage = useSettings((s) => s.setLanguage);
   const detail = useSettings((s) => s.timelineDetail);
   const setDetail = useSettings((s) => s.setTimelineDetail);
+
+  // A35: the account's own switches, which the gateway holds. `undefined` is a
+  // gateway that predates them, not a switch that is off.
+  const preferences = usePreferences((s) => s.preferences);
+  const setResumeAfterLimit = usePreferences((s) => s.setResumeAfterLimit);
+  const [preferenceError, setPreferenceError] = useState<string | null>(null);
 
   const [push, setPush] = useState<PushState>('unsupported');
   const [pushBusy, setPushBusy] = useState(false);
@@ -190,6 +197,37 @@ export function SettingsPage() {
             </div>
           </div>
           <p className="settings-note">{strings.settings.pushDescription}</p>
+        </section>
+
+        {/*
+          A35 — `docs/DESIGN.md` § "Paused by the usage limit": one switch, on
+          the account rather than on this browser, so the phone, the browser and
+          every device read the same value.
+        */}
+        <section className="settings-section">
+          <h2 className="group-title">{strings.settings.sessions}</h2>
+          <div className="settings-group surface">
+            <div className="settings-row">
+              <span>{strings.settings.resumeAfterLimit}</span>
+              <Switch
+                label={strings.settings.resumeAfterLimit}
+                checked={preferences?.resume_after_limit ?? false}
+                disabled={preferences === undefined}
+                onChange={(next) => {
+                  setPreferenceError(null);
+                  setResumeAfterLimit(next).catch(() =>
+                    setPreferenceError(strings.errors.setFailed),
+                  );
+                }}
+              />
+            </div>
+          </div>
+          <p className="settings-note">
+            {preferences === undefined
+              ? strings.settings.resumeUnavailable
+              : strings.settings.resumeAfterLimitNote}
+          </p>
+          {preferenceError ? <p className="settings-note">{preferenceError}</p> : null}
         </section>
 
         <section className="settings-section">

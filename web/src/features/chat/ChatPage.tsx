@@ -16,6 +16,7 @@ import { polishContext } from '../voice/polish';
 import { NewSessionDrawer } from '../sessions/NewSessionDrawer';
 import { ChatHeader } from './ChatHeader';
 import { Composer } from './Composer';
+import { ResumeNotice } from './ResumeNotice';
 import { Sidebar } from './Sidebar';
 import { applyOptions, type SessionOptions } from './sessionOptions';
 import { StatusLine } from './StatusLine';
@@ -224,6 +225,27 @@ export function ChatPage() {
 
   const onLoadOlder = useCallback(() => void loadOlder(key), [loadOlder, key]);
 
+  /**
+   * A35: both resume actions answer with the session, so the notice follows the
+   * device rather than this app's guess. Change reports its own failure inside
+   * the popover, so the rejection travels on.
+   */
+  const onResumeSet = useCallback(
+    async (at: number) => {
+      setActionError(null);
+      const result = await rpc('session.resume_set', { session_id: sessionId, at });
+      useSessions.getState().upsert(result.session);
+    },
+    [sessionId],
+  );
+
+  const onResumeCancel = useCallback(() => {
+    setActionError(null);
+    void rpc('session.resume_cancel', { session_id: sessionId })
+      .then((result) => useSessions.getState().upsert(result.session))
+      .catch((err: unknown) => setActionError(errorText(err, strings.errors.resumeCancelFailed)));
+  }, [sessionId]);
+
   if (!session) {
     return (
       <div className="chat-layout">
@@ -254,6 +276,18 @@ export function ChatPage() {
           stopping={stopping}
           onStop={onStop}
         />
+
+        {/*
+          A35, §8 rule 17: a session whose `resume` is set says so above its
+          transcript, and the notice goes when `resume` does.
+        */}
+        {session.resume ? (
+          <ResumeNotice
+            resume={session.resume}
+            onSet={onResumeSet}
+            onCancel={onResumeCancel}
+          />
+        ) : null}
 
         <Timeline
           timeline={timeline}

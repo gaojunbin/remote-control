@@ -247,6 +247,38 @@ export interface TodoCounts {
   done: number;
 }
 
+/**
+ * A35 (4.4): why a turn ended when the vendor's usage window was used up. The
+ * device reads it from the agent's own signal, never from its words, and
+ * `resets_at` is null when the vendor named no time.
+ */
+export interface LimitStop {
+  /** The window that was hit: 300 for five hours, 10080 for a week. */
+  window_minutes?: number;
+  resets_at: number | null;
+}
+
+/**
+ * A35 (4.4): the one resume a session can have pending after a usage limit
+ * stopped it. `estimated` says the device computed `at` from the window's
+ * length because the vendor named no reset time.
+ */
+export interface SessionResume {
+  at: number;
+  estimated: boolean;
+  /** How many resumes have already run into the limit again. */
+  attempts: number;
+  window_minutes?: number;
+}
+
+/**
+ * A35 (3.2): the switches that read the same on every app and device of the
+ * account, so they live on the gateway rather than in this browser.
+ */
+export interface Preferences {
+  resume_after_limit: boolean;
+}
+
 export interface Session {
   session_id: string;
   device_id: string;
@@ -271,6 +303,8 @@ export interface Session {
   todos: TodoCounts | null;
   usage: Usage | null;
   queued: number;
+  /** A35: the resume the device has scheduled after a usage limit, if any. */
+  resume?: SessionResume | null;
 }
 
 /* ---------------------------------------------------------------- events */
@@ -334,9 +368,11 @@ export type MessageDelivery = 'delivered' | 'absorbed';
  * Who caused a message or a turn — the schema's one `Trigger`, shared by
  * `user_message.source` and `turn_started.trigger`. Amendment A30 adds `agent`:
  * words the CLI filed as a user turn that no person typed, another agent's
- * message or a background task's notification.
+ * message or a background task's notification. A35 adds `resume`: the fixed
+ * sentence the device sent for the person once a usage limit reset, which reads
+ * as a remote message and a remote turn.
  */
-export type Trigger = 'remote' | 'terminal' | 'queue' | 'agent';
+export type Trigger = 'remote' | 'terminal' | 'queue' | 'agent' | 'resume';
 
 export interface UserMessageEvent extends EventBase {
   kind: 'user_message';
@@ -456,6 +492,22 @@ export interface TurnCompletedEvent extends EventBase {
   stop_reason: 'completed' | 'interrupted' | 'error';
   duration_ms: number;
   usage?: Usage;
+  /** A35: present when the vendor's usage limit ended the turn. */
+  limit?: LimitStop;
+}
+
+/** A35 (5.15): what the device did about a session the usage limit stopped. */
+export type ResumeStatus = 'scheduled' | 'rescheduled' | 'fired' | 'cancelled' | 'dropped';
+
+export interface ResumeEvent extends EventBase {
+  kind: 'resume';
+  status: ResumeStatus;
+  /** For `scheduled` and `rescheduled`: when the prompt will be sent. */
+  at?: number;
+  estimated?: boolean;
+  attempts?: number;
+  /** For `cancelled` and `dropped`: why, in the device's words. */
+  reason?: string;
 }
 
 export interface StatusEvent extends EventBase {
@@ -516,7 +568,8 @@ export type SessionEvent =
   | MetaEvent
   | QueueEvent
   | NoticeEvent
-  | ErrorEvent;
+  | ErrorEvent
+  | ResumeEvent;
 
 export type SessionEventKind = SessionEvent['kind'];
 

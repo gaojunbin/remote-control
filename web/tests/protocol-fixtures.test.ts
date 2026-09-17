@@ -9,6 +9,7 @@ import type {
   AgentInfo,
   Command,
   Device,
+  Preferences,
   Session,
   SessionEvent,
   Usage,
@@ -20,7 +21,10 @@ import type {
   User,
   UserRecord,
 } from '../src/protocol/types';
-import type { HelloFrame, Reply, SubscribeResult } from '../src/protocol/frames';
+import type { PreferencesPatch, PreferencesResponse } from '../src/lib/api';
+import type { HelloFrame, Reply, SessionResult, SubscribeResult } from '../src/protocol/frames';
+import { resumeRowText } from '../src/features/chat/resume';
+import { en } from '../src/strings';
 import { toolCategory } from '../src/features/chat/blocks/toolCategory';
 import {
   commandSections,
@@ -45,6 +49,22 @@ const EVENT_KINDS = new Set([
   'queue',
   'notice',
   'error',
+  // A35: what the device did about a session the usage limit stopped.
+  'resume',
+]);
+
+/** A35 (5.15): the five steps a `resume` event reports. */
+const RESUME_STATUSES = new Set(['scheduled', 'rescheduled', 'fired', 'cancelled', 'dropped']);
+
+/** §3.7, with the three A35 kinds the service worker also renders. */
+const PUSH_KINDS = new Set([
+  'needs_approval',
+  'needs_input',
+  'turn_completed',
+  'error',
+  'limit_reached',
+  'resumed',
+  'resume_dropped',
 ]);
 
 const TOOL_KINDS = new Set([
@@ -61,7 +81,7 @@ const TOOL_KINDS = new Set([
 ]);
 
 /** The one `Trigger` of `schema/events.json`, behind both `source` and `trigger`. */
-const TRIGGERS = new Set(['remote', 'terminal', 'queue', 'agent']);
+const TRIGGERS = new Set(['remote', 'terminal', 'queue', 'agent', 'resume']);
 
 /** A27: `Command.name` of PROTOCOL.md §4.11 — lower case, never with the slash. */
 const COMMAND_NAME = /^[a-z0-9][a-z0-9_:.-]*$/;
@@ -151,6 +171,12 @@ function assertSession(session: Session): void {
   ).toBe(true);
   if (session.usage) assertUsage(session.usage);
   if (session.turn) expect(typeof session.turn.turn_id).toBe('string');
+  // A35: the one resume a session can have pending, or null/absent for none.
+  if (session.resume) {
+    expect(typeof session.resume.at).toBe('number');
+    expect(typeof session.resume.estimated).toBe('boolean');
+    expect(session.resume.attempts).toBeGreaterThanOrEqual(0);
+  }
 }
 
 function assertEvent(event: SessionEvent): void {
@@ -219,6 +245,26 @@ function assertEvent(event: SessionEvent): void {
     case 'turn_completed':
       expect(['completed', 'interrupted', 'error']).toContain(event.stop_reason);
       if (event.usage) assertUsage(event.usage);
+      // A35: a turn the vendor's usage limit ended is an `error` stop that says
+      // which window was hit and when it resets, or that it named no time.
+      if (event.limit) {
+        expect(event.stop_reason).toBe('error');
+        expect(
+          event.limit.resets_at === null || typeof event.limit.resets_at === 'number',
+        ).toBe(true);
+        if (event.limit.window_minutes !== undefined) {
+          expect(event.limit.window_minutes).toBeGreaterThan(0);
+        }
+      }
+      break;
+    case 'resume':
+      expect(RESUME_STATUSES).toContain(event.status);
+      // `at` belongs to the two steps that name a time; `reason` to the two
+      // that say why nothing will happen.
+      if (event.status === 'scheduled' || event.status === 'rescheduled') {
+        expect(typeof event.at).toBe('number');
+      }
+      if (event.reason !== undefined) expect(event.reason.length).toBeGreaterThan(0);
       break;
     case 'todos':
       for (const todo of event.items) {
@@ -502,9 +548,96 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
       rc: { v: number; kind: string; device_id: string; session_id: string; device_name: string };
     }>('http/push.payload.json');
     expect(payload.rc.v).toBe(1);
-    expect(['needs_approval', 'needs_input', 'turn_completed', 'error']).toContain(payload.rc.kind);
+    expect(PUSH_KINDS).toContain(payload.rc.kind);
     expect(typeof payload.rc.device_id).toBe('string');
     expect(typeof payload.rc.session_id).toBe('string');
+  });
+
+  /**
+   * A35 — everything the round added, decoded the way the app reads it: the
+   * account's preferences, the two resume requests and the reply that carries
+   * the session back, the timeline's new events, and the push the gateway sends
+   * when the device schedules a resume.
+   */
+  it('decodes the preferences bodies and frames of A35', () => {
+    const response = readFixture<PreferencesResponse>('http/preferences.response.json');
+    expect(typeof response.preferences.resume_after_limit).toBe('boolean');
+
+    const request = readFixture<PreferencesPatch>('http/preferences.patch.request.json');
+    expect(typeof request.resume_after_limit).toBe('boolean');
+
+    const updated = readFixture<{ type: string; preferences: Preferences }>(
+      'app/preferences.updated.json',
+    );
+    expect(updated.type).toBe('preferences.updated');
+    expect(typeof updated.preferences.resume_after_limit).toBe('boolean');
+
+    // `hello` carries the same object; a gateway older than A35 sends none.
+    const hello = readFixture<HelloFrame>('app/hello.json');
+    expect(typeof hello.preferences?.resume_after_limit).toBe('boolean');
+  });
+
+  it('decodes the resume requests, the session they answer with, and its rows', () => {
+    const set = readFixture<{ type: string; session_id: string; at: number }>(
+      'app/session.resume_set.json',
+    );
+    expect(set.type).toBe('session.resume_set');
+    expect(typeof set.at).toBe('number');
+
+    const cancel = readFixture<{ type: string; session_id: string }>(
+      'app/session.resume_cancel.json',
+    );
+    expect(cancel.type).toBe('session.resume_cancel');
+
+    const reply = readFixture<Reply<SessionResult>>('app/reply.session.resume_set.json');
+    expect(reply.ok).toBe(true);
+    if (!reply.ok) return;
+    assertSession(reply.result.session);
+    // The reply carries the time the request asked for, which is what the
+    // notice above the transcript then reads.
+    expect(reply.result.session.resume?.at).toBe(set.at);
+
+    const pending = readFixture<Session>('objects/session.resume-pending.json');
+    assertSession(pending);
+    expect(pending.resume?.estimated).toBe(false);
+    expect(pending.resume?.attempts).toBe(0);
+
+    const scheduled = readFixture<SessionEvent>('events/resume.json');
+    if (scheduled.kind !== 'resume') throw new Error('not a resume fixture');
+    expect(scheduled.status).toBe('scheduled');
+    expect(resumeRowText(scheduled, scheduled.at ?? 0)).toContain(en.chat.resumeScheduled);
+
+    const dropped = readFixture<SessionEvent>('events/resume.dropped.json');
+    if (dropped.kind !== 'resume') throw new Error('not a resume fixture');
+    expect(dropped.status).toBe('dropped');
+    // The device's one line of why joins the app's own word for what happened.
+    expect(resumeRowText(dropped)).toBe(`${en.chat.resumeDropped} · ${dropped.reason}`);
+    // The moment of resuming is not a row: the prompt in the bubble is.
+    expect(resumeRowText({ ...scheduled, status: 'fired' })).toBeNull();
+
+    const ended = readFixture<SessionEvent>('events/turn_completed.limit.json');
+    if (ended.kind !== 'turn_completed') throw new Error('not a turn_completed fixture');
+    expect(ended.stop_reason).toBe('error');
+    expect(ended.limit?.window_minutes).toBe(300);
+
+    const started = readFixture<SessionEvent>('events/turn_started.resume.json');
+    if (started.kind !== 'turn_started') throw new Error('not a turn_started fixture');
+    expect(started.trigger).toBe('resume');
+
+    const prompt = readFixture<SessionEvent>('events/user_message.resume.json');
+    if (prompt.kind !== 'user_message') throw new Error('not a user_message fixture');
+    expect(prompt.source).toBe('resume');
+    // §7.2: one fixed sentence, which also tells the agent about its subagents.
+    expect(prompt.text).toContain('The usage limit has reset.');
+    expect(prompt.text).toContain('subagents');
+
+    const push = readFixture<{ rc: { kind: string; title: string } }>(
+      'http/push.payload.limit.json',
+    );
+    expect(push.rc.kind).toBe('limit_reached');
+    // §3.7: the title is generic and never carries the time.
+    expect(push.rc.title).toContain('paused by the usage limit');
+    expect(push.rc.title).not.toMatch(/\d/);
   });
 
   it('decodes the dictation polish bodies of A29', () => {
