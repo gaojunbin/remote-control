@@ -855,8 +855,25 @@ func run() async -> (passed: Int, failures: [String]) {
     expect(LaptopShape.screenCorner > 0, "and the screen's corners are rounded")
     let doubled = LaptopShape().path(in: CGRect(x: 0, y: 0, width: 48, height: 48)).boundingRect
     equal(doubled, CGRect(x: 4, y: 8, width: 40, height: 32), "twice the box draws twice the laptop")
-    equal(LaptopGlyph.strokeWidth(for: 24), 1.5, "at grid size the stroke is lucide's 1.5 units")
-    equal(LaptopGlyph.strokeWidth(for: 20), 1.25, "and it thins with the box")
+    equal(OutlineGlyph.strokeWidth(for: 24), 1.5, "at grid size the stroke is lucide's 1.5 units")
+    equal(OutlineGlyph.strokeWidth(for: 20), 1.25, "and it thins with the box")
+    equal(OutlineGlyph.stroke(for: 24).lineCap, .round, "with round caps")
+    equal(OutlineGlyph.stroke(for: 24).lineJoin, .round, "and round joins")
+
+    // The folder before a session's working directory is lucide's `Folder` on
+    // the same grid: a body from the left edge to the right, its top edge
+    // stepping up to a tab on the left, every corner rounded, no fill.
+    let folder = FolderShape().path(in: CGRect(x: 0, y: 0, width: 24, height: 24)).boundingRect
+    equal(folder, CGRect(x: 2, y: 3, width: 20, height: 17),
+          "the folder spans the grid from its left edge to its right and from the tab's top to its bottom")
+    let tab = FolderShape.corners
+    expect(tab[4].y < tab[3].y && tab[4].x < tab[3].x,
+           "the tab rises up and to the left from the body's top edge")
+    equal(tab[2].y, tab[3].y, "the body's top edge is level to the tab")
+    equal(tab[4].y, tab[5].y, "and the tab's top is level to the left edge")
+    expect(FolderShape.cornerRadius > 0, "and its corners are rounded")
+    let folderDoubled = FolderShape().path(in: CGRect(x: 0, y: 0, width: 48, height: 48)).boundingRect
+    equal(folderDoubled, CGRect(x: 4, y: 6, width: 40, height: 34), "twice the box draws twice the folder")
 
     // The agents on the row are logos alone, so their names reach a reader who
     // cannot see them only as the labels the row hands each logo.
@@ -1641,7 +1658,7 @@ func run() async -> (passed: Int, failures: [String]) {
         }
         expect(project.contains("MARKETING_VERSION: '\(AppBuild.shipped)'"),
                "the project ships the version this source tree carries")
-        expect(project.contains("CURRENT_PROJECT_VERSION: 9"),
+        expect(project.contains("CURRENT_PROJECT_VERSION: 10"),
                "and a build number TestFlight can tell apart")
     } else {
         expect(false, "the check can read project.yml")

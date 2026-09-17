@@ -7,9 +7,8 @@ import SwiftUI
 /// Symbols, whose laptop has a trapezoid base and a different weight, so the
 /// two apps show one glyph.
 public struct LaptopShape: Shape {
-    /// lucide draws on a 24-unit grid; the screen and the base are placed on it
-    /// and scaled to the rect, so any size keeps the same proportions.
-    public static let grid: CGFloat = 24
+    /// The screen and the base are placed on `OutlineGlyph.grid` and scaled to
+    /// the rect, so any size keeps the same proportions.
     public static let screen = CGRect(x: 3, y: 4, width: 18, height: 12)
     public static let screenCorner: CGFloat = 2
     public static let baseY: CGFloat = 20
@@ -18,7 +17,7 @@ public struct LaptopShape: Shape {
     public init() {}
 
     public func path(in rect: CGRect) -> Path {
-        let unit = min(rect.width, rect.height) / Self.grid
+        let unit = min(rect.width, rect.height) / OutlineGlyph.grid
         var path = Path()
         path.addRoundedRect(
             in: CGRect(x: rect.minX + Self.screen.minX * unit,
@@ -32,28 +31,21 @@ public struct LaptopShape: Shape {
     }
 }
 
-/// `LaptopShape` stroked in the ink at the size of a row title. The stroke is
-/// 1.5 units of the 24-unit grid, the same weight the web row uses.
+/// `LaptopShape` stroked in the ink at the size of a row title, to
+/// `OutlineGlyph`'s stroke — the same weight the web row uses.
 public struct LaptopGlyph: View {
-    public static let strokeUnits: CGFloat = 1.5
-
     /// 20 pt beside a 16 pt callout title, following Dynamic Type with it.
     @ScaledMetric(relativeTo: .callout) private var size: CGFloat = 20
 
     public init() {}
 
-    public static func strokeWidth(for size: CGFloat) -> CGFloat {
-        size * strokeUnits / LaptopShape.grid
-    }
-
     public var body: some View {
         LaptopShape()
-            .stroke(Theme.ink, style: StrokeStyle(lineWidth: Self.strokeWidth(for: size),
-                                                  lineCap: .round, lineJoin: .round))
+            .stroke(Theme.ink, style: OutlineGlyph.stroke(for: size))
             .frame(width: size, height: size)
             // The base line sits on the title's baseline, as the foot of a
             // letter would.
-            .alignmentGuide(.firstTextBaseline) { d in d.height * LaptopShape.baseY / LaptopShape.grid }
+            .alignmentGuide(.firstTextBaseline) { d in d.height * LaptopShape.baseY / OutlineGlyph.grid }
             .accessibilityHidden(true)
     }
 }

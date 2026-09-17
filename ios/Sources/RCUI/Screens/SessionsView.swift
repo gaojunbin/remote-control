@@ -235,9 +235,10 @@ struct SessionsView: View {
     }
 }
 
-/// Title and time on one line, then the agent, a dot, a word and the folder on
-/// the next. Nothing is right-aligned into a column, because a column of
-/// statuses reads as a table.
+/// Three lines (`docs/DESIGN.md` § "The session row"): the title with the time
+/// at the trailing edge; the agent chip with the status — dot and word — at the
+/// trailing edge; and the working directory alone, after a folder glyph, so the
+/// path has the whole width and the second line says two things, not three.
 struct SessionRow: View {
     let session: Session
     /// A session on a machine that is not reachable shows a grey dot whatever
@@ -257,19 +258,21 @@ struct SessionRow: View {
                     .foregroundStyle(Theme.inkSecondary)
             }
             HStack(spacing: Theme.Space.tight) {
-                // The agent and the status word never shorten; the path is what
-                // gives way, and it truncates from the head so the folder stays.
                 AgentChip(agent: session.agent)
-                StatusLabel(tone: session.dotTone(online: online), text: session.statusLabel)
+                Spacer(minLength: Theme.Space.small)
                 if session.archived {
-                    separator
                     Text("Archived")
                         .font(Theme.Text.caption)
                         .foregroundStyle(Theme.inkSecondary)
+                    separator
                 }
-                separator
+                StatusLabel(tone: session.dotTone(online: online), text: session.statusLabel)
+            }
+            HStack(spacing: 5) {
+                // The path has the line to itself and truncates from the head,
+                // so the folder at its end is what survives a tight row.
+                FolderGlyph()
                 CodeText(session.cwd, font: Theme.Text.metaMono)
-                    .layoutPriority(-1)
                 Spacer(minLength: 0)
             }
         }
