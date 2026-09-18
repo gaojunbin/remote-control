@@ -25,7 +25,13 @@ drive the same four progress steps.
 **New session.** A right-hand drawer on the web, a sheet on iOS. Fields in the order you decide
 them: device (with its latency), agent as a segmented control showing the detected version and
 default model, working directory with recent paths and a browser, and git status with an "Isolate in
-worktree" toggle. One primary button, "Start session". The first prompt is typed in the chat, not
+worktree" toggle. One primary button, "Start session". **The browser can make a folder** (owner's
+ruling, 2026-09-18, A37): starting a project used to need a terminal first, because the picker
+could only choose what existed. Wherever the picker shows a listing it offers **New folder**; it
+asks for one name, makes exactly that directory inside the one on screen, then stands in the new,
+empty folder so the same choose action picks it as the working directory. A name that already
+exists is said beside the field and left for editing; a name with a slash or a leading dot is
+refused with the reason. The picker still browses and makes, and never deletes, renames or moves. The first prompt is typed in the chat, not
 here. On the phone the Sessions list ends the way the Devices list ends: one primary button in the
 bottom bar, **New session**, exactly where Devices puts **Add device**; the list itself begins with
 the first device group.
@@ -937,8 +943,9 @@ Every user-visible string lives in one catalog per app — `web/src/strings.ts` 
 - **A terminal emulator.** Mirroring a session, or attaching to one, is not the same as an SSH pane,
   and it is deliberately not one. You get the agent's conversation, not its screen. If you need a
   shell, use a shell.
-- **File browsing and editing.** The directory picker exists to choose a working directory, nothing
-  more.
+- **File browsing and editing.** The directory picker exists to choose a working directory —
+  making the folder to work in is part of choosing it (A37) — and nothing more: no files, no
+  renaming, no deleting.
 - **A session-level search.** There is a session-list search, not a transcript search.
 - **Deleting or renaming a session from an app.** The protocol and the device support both; neither
   app has a button that calls them. Archiving is there instead.
