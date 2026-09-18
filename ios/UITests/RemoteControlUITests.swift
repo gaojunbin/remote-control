@@ -1274,6 +1274,70 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "04-new-session")
     }
 
+    /// Amendment A37 and rule 19: the browser can make a folder where a session
+    /// will work. A name something already has is refused beside the name and
+    /// left to be corrected; the folder that is made becomes the listing on
+    /// screen, and the same Select picks it as the working directory.
+    func testDirectoryPickerMakesAFolderAndPicksIt() {
+        app.launch()
+        let newSession = app.buttons["sessions.new"]
+        XCTAssertTrue(newSession.waitForExistence(timeout: 20))
+        newSession.tap()
+
+        let browse = app.buttons["newsession.browse"]
+        XCTAssertTrue(scrollDown(to: browse), "the working directory offers the browser")
+        browse.tap()
+
+        let select = app.buttons["dirs.select"]
+        XCTAssertTrue(select.waitForExistence(timeout: 10), "the picker is up")
+        let newFolder = app.buttons["dirs.newFolder"]
+        XCTAssertTrue(newFolder.exists, "and offers New folder where it shows a listing")
+        newFolder.tap()
+
+        // `gateway` is a directory the demo device already has.
+        XCTAssertTrue(typeFolderName("gateway"), "the row asks for one name")
+        app.buttons["dirs.create"].tap()
+        XCTAssertTrue(app.staticTexts["A folder with that name already exists."]
+            .waitForExistence(timeout: 10), "a clash is said beside the name")
+        XCTAssertEqual(app.textFields["dirs.folderName"].value as? String, "gateway",
+                       "and the name is kept for editing")
+        attach(name: "53-directory-new-folder-clash")
+
+        // Cancel takes the row away without making anything.
+        app.buttons["dirs.cancelFolder"].tap()
+        XCTAssertTrue(app.textFields["dirs.folderName"].waitForNonExistence(timeout: 5),
+                      "Cancel leaves the listing as it was")
+
+        newFolder.tap()
+        XCTAssertTrue(typeFolderName("round-41"), "and the row can be asked for again")
+        attach(name: "54-directory-new-folder")
+        app.buttons["dirs.create"].tap()
+
+        // The device answered with the new directory's listing, so the picker
+        // now stands in it: its name is the title, and it holds nothing.
+        XCTAssertTrue(app.navigationBars["round-41"].waitForExistence(timeout: 10),
+                      "the picker stands in the folder it made")
+        XCTAssertTrue(app.staticTexts["No subdirectories here."].exists, "which is empty")
+        attach(name: "55-directory-picker-in-new-folder")
+        select.tap()
+
+        let cwd = app.textFields["newsession.cwd"]
+        XCTAssertTrue(cwd.waitForExistence(timeout: 10), "the sheet is back")
+        XCTAssertEqual(cwd.value as? String, "/Users/me/dev/round-41",
+                       "and the working directory is the folder that was just made")
+    }
+
+    /// Type a folder name into the row the picker revealed. Returns false when
+    /// the field never appeared, so the caller fails on that rather than on
+    /// whatever it asserted next.
+    private func typeFolderName(_ text: String) -> Bool {
+        let field = app.textFields["dirs.folderName"]
+        guard field.waitForExistence(timeout: 10) else { return false }
+        field.tap()
+        field.typeText(text)
+        return true
+    }
+
     func testDevicesTabShowsPairingSheet() {
         app.launch()
         let devices = app.tabBars.buttons["Devices"]

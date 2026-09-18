@@ -29,6 +29,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     private let agentsDelay: Duration
     private var devices = DemoFixtures.devices
     private var sessionList = DemoFixtures.sessions
+    /// Amendment A37: the directories this demo browses, which a folder made
+    /// from the picker is added to.
+    private var directories = DemoDirectoryTree.demo
     /// Amendment A24: the gateway's accounts, and which of them this app is.
     /// `--demo` never signs in, so it starts as the operator; the sign-in form
     /// replaces it with whichever account it was given.
@@ -186,7 +189,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         case "session.resume_cancel":
             return try cancelResume(request)
         case "device.dirs":
-            return try JSONValue.encode(DemoFixtures.directoryListing)
+            return try JSONValue.encode(directories.listing(of: request.body["path"]?.stringValue))
+        case "device.mkdir":
+            return try JSONValue.encode(makeDirectory(request))
         case "device.git":
             return try JSONValue.encode(GitStatus(isRepo: true, branch: "main", dirty: false, ahead: 0, behind: 0))
         case "device.agents":
@@ -429,6 +434,16 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         try? await Task.sleep(for: agentsDelay)
         let agents = DemoFixtures.agentsWithQuota(deviceID: id) ?? target.agents
         return try JSONValue.encode(AgentsResult(agents: agents))
+    }
+
+    /// Amendment A37: one folder, inside a directory this demo listed. The
+    /// device owns the name rules, so the tree answers them and this only
+    /// insists on the two fields the request is made of.
+    private func makeDirectory(_ request: GatewayRequest) throws -> DirectoryListing {
+        guard let path = request.body["path"]?.stringValue, !path.isEmpty else {
+            throw GatewayErrorBody(code: .badRequest, message: "path is required")
+        }
+        return try directories.makeDirectory(in: path, named: request.body["name"]?.stringValue ?? "")
     }
 
     private func updateDevice(_ request: GatewayRequest) throws -> JSONValue {
