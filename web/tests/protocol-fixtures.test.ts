@@ -22,7 +22,16 @@ import type {
   UserRecord,
 } from '../src/protocol/types';
 import type { PreferencesPatch, PreferencesResponse } from '../src/lib/api';
-import type { HelloFrame, Reply, SessionResult, SubscribeResult } from '../src/protocol/frames';
+import type {
+  HelloFrame,
+  PushFrame,
+  Reply,
+  RequestParams,
+  SessionResult,
+  SubscribeResult,
+  TerminalAttachResult,
+  TerminalOpenResult,
+} from '../src/protocol/frames';
 import { resumeRowText } from '../src/features/chat/resume';
 import { en } from '../src/strings';
 import { toolCategory } from '../src/features/chat/blocks/toolCategory';
@@ -32,6 +41,7 @@ import {
   matchCommand,
 } from '../src/features/chat/commands';
 import { CONTEXT_LIMIT, CONTEXT_TEXT_LIMIT } from '../src/features/voice/polish';
+import { base64Size } from '../src/lib/base64';
 import { fixturesAvailable, listFixtures, readFixture } from './fixtures';
 
 const EVENT_KINDS = new Set([
@@ -670,6 +680,78 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
     expect(
       readFixture<{ polish?: { enabled: boolean } }>('http/config.response.json').polish?.enabled,
     ).toBe(true);
+  });
+
+  /**
+   * A38 §7.3 — the five requests the terminal page sends, the two replies it
+   * reads, and the two frames the gateway pushes to it. The bytes stay base64
+   * the whole way: the emulator is the only thing that decodes them.
+   */
+  it('decodes the terminal frames of A38', () => {
+    const open = readFixture<RequestParams<'terminal.open'> & { type: string }>(
+      'app/terminal.open.json',
+    );
+    expect(open.type).toBe('terminal.open');
+    expect(open.cols).toBeGreaterThan(0);
+    expect(open.cols).toBeLessThanOrEqual(500);
+    expect(open.rows).toBeGreaterThan(0);
+    expect(open.rows).toBeLessThanOrEqual(200);
+
+    const opened = readFixture<Reply<TerminalOpenResult>>('app/reply.terminal.open.json');
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const terminalId = opened.result.terminal_id;
+
+    const input = readFixture<RequestParams<'terminal.input'> & { type: string }>(
+      'app/terminal.input.json',
+    );
+    expect(input.type).toBe('terminal.input');
+    expect(input.terminal_id).toBe(terminalId);
+    // §7.3: at most 64 KiB decoded, and never anything but base64.
+    expect(input.data).toMatch(/^[A-Za-z0-9+/]*={0,2}$/);
+    expect(base64Size(input.data)).toBeLessThanOrEqual(64 * 1024);
+
+    const resize = readFixture<RequestParams<'terminal.resize'> & { type: string }>(
+      'app/terminal.resize.json',
+    );
+    expect(resize.type).toBe('terminal.resize');
+    expect(resize.cols).toBeLessThanOrEqual(500);
+    expect(resize.rows).toBeLessThanOrEqual(200);
+
+    const attach = readFixture<RequestParams<'terminal.attach'> & { type: string }>(
+      'app/terminal.attach.json',
+    );
+    expect(attach.type).toBe('terminal.attach');
+    expect(attach.terminal_id).toBe(terminalId);
+
+    const attached = readFixture<Reply<TerminalAttachResult>>('app/reply.terminal.attach.json');
+    expect(attached.ok).toBe(true);
+    if (!attached.ok) return;
+    expect(attached.result.terminal_id).toBe(terminalId);
+    // The screen as it was left, which the page writes before it resumes.
+    expect(attached.result.scrollback).toMatch(/^[A-Za-z0-9+/]*={0,2}$/);
+    expect(base64Size(attached.result.scrollback)).toBeLessThanOrEqual(64 * 1024);
+
+    const close = readFixture<RequestParams<'terminal.close'> & { type: string }>(
+      'app/terminal.close.json',
+    );
+    expect(close.type).toBe('terminal.close');
+    expect(close.terminal_id).toBe(terminalId);
+
+    // The two push frames carry `device_id` and never the gateway's `to`.
+    const output = readFixture<PushFrame>('app/terminal.output.json');
+    if (output.type !== 'terminal.output') throw new Error('not a terminal.output fixture');
+    expect(output.terminal_id).toBe(terminalId);
+    expect(output.device_id).toBe(open.device_id);
+    expect(output.seq).toBeGreaterThanOrEqual(1);
+    expect(base64Size(output.data)).toBeLessThanOrEqual(16 * 1024);
+    expect(output).not.toHaveProperty('to');
+
+    const exited = readFixture<PushFrame>('app/terminal.exited.json');
+    if (exited.type !== 'terminal.exited') throw new Error('not a terminal.exited fixture');
+    expect(exited.terminal_id).toBe(terminalId);
+    expect(typeof exited.code).toBe('number');
+    expect(exited).not.toHaveProperty('to');
   });
 
   it('decodes the STT socket frames', () => {

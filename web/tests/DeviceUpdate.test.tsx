@@ -126,7 +126,11 @@ describe('the Retry update item', () => {
     renderPage();
     const menu = await openMenuFor('ci-runner-01');
     const labels = [...menu.querySelectorAll('.menu-label')].map((n) => n.textContent);
-    expect(labels).toEqual([strings.common.rename, strings.common.revoke]);
+    expect(labels).toEqual([
+      strings.common.rename,
+      strings.devices.showQuota,
+      strings.common.revoke,
+    ]);
   });
 
   it('is not offered while the update is still running', async () => {
@@ -134,10 +138,15 @@ describe('the Retry update item', () => {
     renderPage();
     const menu = await openMenuFor('ci-runner-01');
     const labels = [...menu.querySelectorAll('.menu-label')].map((n) => n.textContent);
-    expect(labels).toEqual([strings.common.rename, strings.common.revoke]);
+    expect(labels).toEqual([
+      strings.common.rename,
+      strings.devices.showQuota,
+      strings.common.revoke,
+    ]);
   });
 
-  it('sits between Rename and Revoke once the update failed', async () => {
+  // A38 rule 20: Rename · Retry update (only while failed) · Show quota · Revoke.
+  it('sits between Rename and Show quota once the update failed', async () => {
     setDevices({ ci: failed });
     renderPage();
     const menu = await openMenuFor('ci-runner-01');
@@ -145,6 +154,7 @@ describe('the Retry update item', () => {
     expect(labels).toEqual([
       strings.common.rename,
       strings.devices.retryUpdate,
+      strings.devices.showQuota,
       strings.common.revoke,
     ]);
   });
@@ -190,7 +200,7 @@ describe('the Retry update item', () => {
     renderPage();
     await openMenuFor('ci-runner-01');
     expect(retryItem()).toBeDisabled();
-    expect(retryItem()).toHaveAttribute('title', strings.devices.updateOffline);
+    expect(retryItem()).toHaveAttribute('title', strings.devices.deviceOffline);
   });
 
   it('is disabled while the gateway serves no wheel, and says why', async () => {

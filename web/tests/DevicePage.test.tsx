@@ -315,7 +315,7 @@ describe('the update notice on the page', () => {
     renderPage('dev-mac');
 
     expect(retryButton()).toBeDisabled();
-    expect(retryButton()).toHaveAttribute('title', strings.devices.updateOffline);
+    expect(retryButton()).toHaveAttribute('title', strings.devices.deviceOffline);
   });
 
   it('disables Retry while the gateway serves no wheel, and says why', async () => {

@@ -133,14 +133,38 @@ export const en = {
         ? `Update ${name} to the gateway's client? Its service restarts; sessions it drives are stopped.`
         : `Update ${name} to ${version}? Its service restarts; sessions it drives are stopped.`,
     updateConfirm: 'Update device',
-    updateOffline: 'This device is offline.',
+    // A38: the row's tap needs the same sentence, so the two share one key.
+    deviceOffline: 'This device is offline.',
     updateNoBuild: 'This gateway is not serving a client build.',
+    // A38: rule 20 — the row's menu, in this order, and what a tap that opens
+    // nothing says in its place.
+    showQuota: 'Show quota',
+    noTerminal: 'This device does not offer a terminal.',
     revokeTitle: 'Revoke device',
     revokeBody: (name: string) =>
       `Revoke ${name}? Its token stops working and its sessions leave this gateway. The machine keeps its agents and transcripts.`,
     revokeConfirm: 'Revoke device',
     noAgents: 'No agents detected',
     online: 'online',
+  },
+
+  /**
+   * A38: the shell on a device. Nothing the shell prints is ever translated —
+   * it is bytes the emulator draws, not words this app owns.
+   */
+  terminal: {
+    title: 'Terminal',
+    back: 'Devices',
+    connecting: 'Connecting',
+    connected: 'Connected',
+    disconnected: 'Disconnected',
+    reconnect: 'Reconnect',
+    exited: 'Shell exited',
+    exitedCode: (code: number) => `Shell exited (${code})`,
+    newShell: 'New shell',
+    /** §7.3: `seq` rises by one, so a jump is lost output and not a pause. */
+    gap: 'Some output was lost.',
+    gone: 'This device is no longer here.',
   },
 
   /**

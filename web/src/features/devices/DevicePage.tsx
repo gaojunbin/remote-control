@@ -68,7 +68,7 @@ export function DevicePage() {
   const notice = updateNotice(device, updateError);
   // A36: the same two reasons the row gives for a retry it cannot send.
   const blocked = !device.online
-    ? strings.devices.updateOffline
+    ? strings.devices.deviceOffline
     : served === undefined
       ? strings.devices.updateNoBuild
       : null;

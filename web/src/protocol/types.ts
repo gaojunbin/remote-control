@@ -201,6 +201,11 @@ export interface Device {
   created_at: number;
   latency_ms: number | null;
   agents: AgentInfo[];
+  /**
+   * A38: true when the device offers a shell. Absent from a client older than
+   * A38, which is the same as false: its row opens nothing and says so.
+   */
+  terminal?: boolean;
 }
 
 export interface GitInfo {

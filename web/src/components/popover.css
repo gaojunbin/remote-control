@@ -42,6 +42,7 @@
   overflow-y: auto;
 }
 
+/* An item is a button, or a link when it goes somewhere — both read as rows. */
 .menu-item {
   display: flex;
   flex-direction: column;
@@ -53,6 +54,8 @@
   border-radius: var(--r-sm);
   background: transparent;
   text-align: left;
+  color: inherit;
+  text-decoration: none;
 }
 
 .menu-item:hover:not(:disabled) {

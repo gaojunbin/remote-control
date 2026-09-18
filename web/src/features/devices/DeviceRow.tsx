@@ -6,7 +6,13 @@
  * version is nobody's to watch, because the gateway keeps every device on the
  * wheel it serves without being asked. The hostname, the architecture and the
  * build hash live on the device's own page.
+ *
+ * A38, rule 20: the row's own tap opens a terminal on the machine. A device
+ * that is offline or offers no shell says which of the two it is, beside the
+ * row, and goes nowhere. Everything else is the menu's, in one order:
+ * Rename · Retry update (only while failed) · Show quota · Revoke.
  */
+import { useEffect, useRef, useState } from 'react';
 import { LaptopMinimal, MoreHorizontal } from 'lucide-react';
 import { Link } from 'react-router';
 import { AgentLogo } from '../../components/AgentLogo';
@@ -31,6 +37,9 @@ interface Props {
   onRevoke: () => void;
 }
 
+/** How long the row keeps saying why it opened nothing. */
+const NOTE_MS = 4_000;
+
 export function DeviceRow({
   device,
   sessionCount,
@@ -52,10 +61,28 @@ export function DeviceRow({
   // item is there while the failure is, and says why it cannot be pressed.
   const failed = notice?.tone === 'failed';
   const blocked = !device.online
-    ? strings.devices.updateOffline
+    ? strings.devices.deviceOffline
     : served === undefined
       ? strings.devices.updateNoBuild
       : null;
+
+  // A38: the tap opens a shell, or says why it cannot. `terminal` is absent on
+  // a client older than the amendment, which is the same answer as `false`.
+  const terminal = device.online && device.terminal === true;
+  const refusal = !device.online ? strings.devices.deviceOffline : strings.devices.noTerminal;
+  const [note, setNote] = useState<string | null>(null);
+  const noteTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (noteTimer.current !== null) globalThis.clearTimeout(noteTimer.current);
+    },
+    [],
+  );
+  const refuse = () => {
+    setNote(refusal);
+    if (noteTimer.current !== null) globalThis.clearTimeout(noteTimer.current);
+    noteTimer.current = globalThis.setTimeout(() => setNote(null), NOTE_MS) as unknown as number;
+  };
 
   return (
     <li className="device-row">
@@ -67,12 +94,20 @@ export function DeviceRow({
 
       <div className="device-main">
         <div className="device-name">
-          {/* A33: the row itself opens the device. The link is stretched over
+          {/* A38: the row itself opens the terminal. The link is stretched over
               the whole row in CSS, and the menu is lifted above it, so its
-              actions keep working and none of them navigates. */}
-          <Link className="device-open" to={`/devices/${device.device_id}`}>
-            {device.name}
-          </Link>
+              actions keep working and none of them navigates. A device that
+              has no shell to give keeps the same box as a button that opens
+              nothing, so the row does not change shape between the two. */}
+          {terminal ? (
+            <Link className="device-open" to={`/devices/${device.device_id}/terminal`}>
+              {device.name}
+            </Link>
+          ) : (
+            <button type="button" className="device-open" onClick={refuse}>
+              {device.name}
+            </button>
+          )}
         </div>
         <div className="device-meta">
           <span className="device-status">
@@ -89,6 +124,11 @@ export function DeviceRow({
         </div>
         {notice ? (
           <div className={cx('device-client', notice.tone)}>{notice.text}</div>
+        ) : null}
+        {note ? (
+          <div className="device-note" role="status">
+            {note}
+          </div>
         ) : null}
       </div>
 
@@ -151,6 +191,18 @@ export function DeviceRow({
                 </button>
               </li>
             ) : null}
+            {/* A33's page, reached from here now that the row itself opens a
+                shell: the agents on the machine and what is left of each quota. */}
+            <li>
+              <Link
+                role="menuitem"
+                className="menu-item"
+                to={`/devices/${device.device_id}`}
+                onClick={close}
+              >
+                <span className="menu-label">{strings.devices.showQuota}</span>
+              </Link>
+            </li>
             <li>
               <button
                 type="button"

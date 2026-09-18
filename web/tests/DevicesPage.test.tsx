@@ -74,19 +74,67 @@ describe('device row menu', () => {
 });
 
 /**
- * A33 — `docs/DESIGN.md` § "A device has a page": the row itself opens the
- * device, and its menu keeps offering Rename, Update and Revoke.
+ * A38 rule 20 — `docs/DESIGN.md` § "A device has a page, and a device row opens
+ * a terminal": the row's own tap opens a shell on the machine, and everything
+ * else moved into the menu, in one order.
  */
-describe('a row opens the device', () => {
-  it('links the row to the device page', () => {
-    renderPage();
-    const first = devices[0];
-    if (!first) throw new Error('no mock device');
+describe('a row opens a terminal', () => {
+  const rowFor = (name: string): HTMLElement => {
+    const row = screen.getByText(name).closest('.device-row');
+    if (!row) throw new Error(`no row for ${name}`);
+    return row as HTMLElement;
+  };
 
-    const link = screen.getByRole('link', { name: first.name });
-    expect(link).toHaveAttribute('href', `/devices/${first.device_id}`);
+  it('links a row that can give a shell to the terminal', () => {
+    renderPage();
+
+    const link = screen.getByRole('link', { name: 'mac-studio-office' });
+    expect(link).toHaveAttribute('href', '/devices/dev-mac/terminal');
     // Stretched over the row, so the whole row is the link's target.
     expect(link.closest('.device-row')).not.toBeNull();
+  });
+
+  it('opens nothing on a device whose client offers no terminal, and says so', async () => {
+    renderPage();
+
+    const row = rowFor('ci-runner-01');
+    expect(within(row).queryByRole('link', { name: 'ci-runner-01' })).toBeNull();
+    await userEvent.click(within(row).getByRole('button', { name: 'ci-runner-01' }));
+
+    expect(within(row).getByText(strings.devices.noTerminal)).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/');
+  });
+
+  it('says the device is offline when that is the reason', async () => {
+    useDevices.setState({
+      devices: devices.map((d) =>
+        d.device_id === 'dev-mac' ? { ...d, online: false } : d,
+      ),
+      loaded: true,
+      error: null,
+    });
+    renderPage();
+
+    const row = rowFor('mac-studio-office');
+    await userEvent.click(within(row).getByRole('button', { name: 'mac-studio-office' }));
+
+    expect(within(row).getByText(strings.devices.deviceOffline)).toBeInTheDocument();
+  });
+
+  it('orders the menu Rename · Show quota · Revoke, and Show quota opens the page', async () => {
+    renderPage();
+
+    const menu = await openFirstMenu();
+    const labels = [...menu.querySelectorAll('.menu-label')].map((n) => n.textContent);
+    expect(labels).toEqual([
+      strings.common.rename,
+      strings.devices.showQuota,
+      strings.common.revoke,
+    ]);
+    expect(screen.getByRole('menuitem', { name: strings.devices.showQuota })).toHaveAttribute(
+      'href',
+      '/devices/dev-mac',
+    );
   });
 
   it('does not navigate when the menu is taken', async () => {
