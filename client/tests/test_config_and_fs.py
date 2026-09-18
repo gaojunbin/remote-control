@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import stat
 from pathlib import Path
 
@@ -18,7 +19,7 @@ from rc_client.config import (
 )
 from rc_client.diffs import from_tool_input, unified
 from rc_client.errors import RcError
-from rc_client.fs import list_dirs, merge_recents
+from rc_client.fs import list_dirs, make_dir, merge_recents
 from rc_client.git import git_info, session_git, slugify
 from rc_client.ids import block_uuid, is_uuid_v4
 
@@ -111,6 +112,65 @@ def test_list_dirs_rejects_a_missing_directory(tmp_path: Path) -> None:
     with pytest.raises(RcError) as caught:
         list_dirs(str(tmp_path / "nope"), [])
     assert caught.value.code == "not_found"
+
+
+def test_make_dir_creates_one_folder_and_returns_its_listing(tmp_path: Path) -> None:
+    listing = make_dir(str(tmp_path), "new-project", [("/recent", 42)])
+    made = tmp_path / "new-project"
+    assert made.is_dir()
+    assert listing["path"] == str(made)
+    assert listing["parent"] == str(tmp_path)
+    assert listing["entries"] == []
+    assert listing["recent"] == [{"path": "/recent", "last_used": 42}]
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["", "a/b", "sub\\dir", ".hidden", "..", ".", "n\0ul", "x" * 256, "\u00e9" * 200],
+)
+def test_make_dir_refuses_a_name_that_is_not_one_component(tmp_path: Path, name: str) -> None:
+    with pytest.raises(RcError) as caught:
+        make_dir(str(tmp_path), name, [])
+    assert caught.value.code == "bad_request"
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_make_dir_refuses_a_path_that_is_not_absolute(tmp_path: Path) -> None:
+    with pytest.raises(RcError) as caught:
+        make_dir("relative/dir", "child", [])
+    assert caught.value.code == "bad_request"
+
+
+def test_make_dir_reports_a_missing_parent_as_not_found(tmp_path: Path) -> None:
+    with pytest.raises(RcError) as caught:
+        make_dir(str(tmp_path / "nope"), "child", [])
+    assert caught.value.code == "not_found"
+
+
+def test_make_dir_reports_an_existing_directory_as_a_conflict(tmp_path: Path) -> None:
+    (tmp_path / "taken").mkdir()
+    with pytest.raises(RcError) as caught:
+        make_dir(str(tmp_path), "taken", [])
+    assert caught.value.code == "conflict"
+
+
+def test_make_dir_reports_an_existing_file_as_a_conflict(tmp_path: Path) -> None:
+    (tmp_path / "taken").write_text("x")
+    with pytest.raises(RcError) as caught:
+        make_dir(str(tmp_path), "taken", [])
+    assert caught.value.code == "conflict"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes anywhere")
+def test_make_dir_reports_an_unwritable_parent_as_forbidden(tmp_path: Path) -> None:
+    locked = tmp_path / "locked"
+    locked.mkdir(mode=0o500)
+    try:
+        with pytest.raises(RcError) as caught:
+            make_dir(str(locked), "child", [])
+        assert caught.value.code == "forbidden"
+    finally:
+        locked.chmod(0o700)
 
 
 def test_merge_recents_keeps_the_newest_use_per_path() -> None:
