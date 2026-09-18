@@ -77,6 +77,16 @@ class ClaudeConfig:
 
 
 @dataclass(slots=True)
+class TerminalConfig:
+    """Whether this device offers a shell over the gateway (A38, PROTOCOL 7.3)."""
+
+    enabled: bool = True
+
+    def to_dict(self) -> dict[str, bool]:
+        return {"enabled": self.enabled}
+
+
+@dataclass(slots=True)
 class Config:
     gateway_origin: str
     device_id: str
@@ -88,6 +98,7 @@ class Config:
     proxy: str = DIRECT
     mirror: MirrorConfig = field(default_factory=MirrorConfig)
     claude: ClaudeConfig = field(default_factory=ClaudeConfig)
+    terminal: TerminalConfig = field(default_factory=TerminalConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -98,6 +109,7 @@ class Config:
             "proxy": self.proxy,
             "mirror": self.mirror.to_dict(),
             "claude": self.claude.to_dict(),
+            "terminal": self.terminal.to_dict(),
         }
 
     @property
@@ -195,6 +207,7 @@ def load_config() -> Config:
         proxy=normalise_proxy(str(raw.get("proxy") or "")),
         mirror=_mirror_config(raw.get("mirror")),
         claude=_claude_config(raw.get("claude")),
+        terminal=_terminal_config(raw.get("terminal")),
     )
 
 
@@ -221,6 +234,13 @@ def _claude_config(raw: Any) -> ClaudeConfig:
         return ClaudeConfig()
     allowed = {"user", "project", "local"}
     return ClaudeConfig(setting_sources=[str(item) for item in sources if str(item) in allowed])
+
+
+def _terminal_config(raw: Any) -> TerminalConfig:
+    """A terminal is offered unless the configuration says otherwise (A38)."""
+    section = raw if isinstance(raw, dict) else {}
+    enabled = section.get("enabled")
+    return TerminalConfig(enabled=enabled if isinstance(enabled, bool) else True)
 
 
 def config_exists() -> bool:

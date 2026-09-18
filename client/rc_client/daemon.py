@@ -36,6 +36,7 @@ from .registry import Registry
 from .sessions.attach import AttachServer
 from .sessions.hub import SessionHub
 from .sessions.mirror import MirrorService
+from .terminal import TerminalManager
 from .update import log_tail, spawn_self_update
 
 log = logger("rc_client.daemon")
@@ -63,6 +64,7 @@ class Daemon:
         self.pi = PiExtensionService(self.hub)
         self.hub.pi_extensions = self.pi
         self.pi_socket = PiExtensionServer(pi_paths.socket_path(), self.pi)
+        self.terminals = TerminalManager(self._publish, enabled=config.terminal.enabled)
         self.link = GatewayLink(
             config.device_ws_url,
             config.device_token,
@@ -156,6 +158,7 @@ class Daemon:
         await self.grok.stop()
         await self.attach.stop()
         await self.pi_socket.stop()
+        await self.terminals.stop()
         await self.hub.close()
         await self.link.stop()
         self.registry.close()
@@ -196,6 +199,7 @@ class Daemon:
             "arch": "arm64" if platform.machine() in {"arm64", "aarch64"} else "x86_64",
             "agents": [info.to_dict() for info in self.agents],
             "sessions": self.hub.snapshot(),
+            "terminal": self.config.terminal.enabled,
         }
 
     # -------------------------------------------------------------- handlers
@@ -218,6 +222,12 @@ class Daemon:
             "session.takeover": self.hub.takeover,
             "session.archive": self.hub.archive,
             "session.delete": self.hub.delete,
+            "terminal.open": self.terminals.open,
+            "terminal.input": self.terminals.input,
+            "terminal.resize": self.terminals.resize,
+            "terminal.attach": self.terminals.attach,
+            "terminal.close": self.terminals.close,
+            "terminal.detach": self.terminals.detach,
             "device.dirs": self._device_dirs,
             "device.mkdir": self._device_mkdir,
             "device.git": self._device_git,
