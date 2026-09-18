@@ -217,6 +217,16 @@ and the bearer token cross the wire in the clear otherwise. Set `PUBLIC_ORIGIN` 
 address apps will actually use. The device installer refuses a plain-HTTP gateway that is not
 loopback or an RFC 1918 address, so a publicly reachable host must be https.
 
+## Terminals pass through (A38)
+
+From 1.5.0 a device row in the apps opens a shell on that machine. The bytes travel inside the two
+WebSocket connections the gateway already carries — the device's `/ws/device` and the app's
+`/ws/app` — as `terminal.output` and `terminal.input` frames, so a reverse proxy that passes those
+sockets passes terminals too: nothing new listens, no port is opened on the host or the VPS, and
+the gateway relays the frames without reading or logging their content. Expect a busy shell to
+push a few frames a second of up to 16 KiB each on each socket. A device can refuse the capability
+with `[terminal] enabled = false` in its `~/.rc-client/config.toml`.
+
 ## Lifecycle
 
 ```sh
@@ -240,7 +250,8 @@ Each of the six databases applies its own additive migrations when it is opened,
 `DATA_DIR` is brought up to the new schema in place and an upgrade needs no manual step. A release
 that adds a database — `preferences.sqlite3` in 1.4.0 — creates it on the first start and needs no
 manual step either, and brings no new environment variable with it; a release that adds a column —
-`devices.update_failed_build` in 1.4.7 (A36) — is applied the same way. From 1.4.7 the gateway also
+`devices.update_failed_build` in 1.4.7 (A36), `devices.terminal` in 1.5.0 (A38) — is applied the
+same way. From 1.4.7 the gateway also
 brings every connected device to the wheel it serves by itself (A36), so an image update is followed
 by the devices updating themselves, one `Updating…` at a time on the device rows; a device whose
 update fails stays on its old client and says so until someone retries. Signed-in apps stay signed in:

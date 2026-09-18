@@ -2131,6 +2131,68 @@ the agent's simulator and, with the About version row, on 32BBA636 after the bum
 `tmp_path`, the apps against the mock and the demo. The three Linux hosts and the Macs will carry
 `device.mkdir` once they update to 1.4.8 (automatically, A36).
 
+## 42. A device row opens a terminal (A38) (2026-09-18, 1.5.0)
+
+The owner asked for two things: "Show quota" moves from the row's tap into its swipe/menu before
+Revoke (Rename · Retry update · Show quota · Revoke, Retry only while failed), and tapping a device
+opens a remote shell on it — with the phone's experience designed rather than copied from a desktop.
+A proposal went first and all four decisions were approved: a pseudo-terminal streamed over the
+gateway rather than SSH, called Terminal; SwiftTerm on iOS and xterm.js on the web; a detached shell
+kept ten minutes, four terminals per device, 64 KiB scrollback; App Lock asked again before a
+terminal opens. Frozen as **A38** (`protocol/` 26c618e and c6b6749: `terminal.open/input/resize/
+attach/close`, gateway-originated `terminal.detach`, device frames `terminal.output` /
+`terminal.exited` addressed by `to`, `hello.terminal` / `Device.terminal`, 7.3 Terminals, rule 20;
+15 fixtures and two negatives) and `docs/DESIGN.md` § "The terminal" and § "A device has a page,
+and a device row opens a terminal" (b9ee6d2, 12c3c4b) — reversing the v1 decision not to ship a
+terminal emulator. Built by four subagents in worktrees — `term-gateway` d1a703c, `term-client`
+a6a81a1, `term-web` 5330632, `term-ios` c3440cb — and merged.
+
+**Gateway.** `terminals.py` (`TerminalRoutes`) remembers the holder of each terminal from accepted
+`open`/`attach` replies; `terminal.output`/`exited` go to that one connection, `to` stripped and
+`device_id` added, only within the owning account; a frame for a connection that is gone costs one
+`terminal.detach` to the device, and `detach_app` sends one per terminal the socket held;
+`hello.terminal` is a nullable column and appears on the `Device` only when the device said it. A
+real contract defect found on the way: gateway-originated requests carried `uuid4().hex` as `id`
+where 6.3 requires a UUID — fixed for backfill (A9), auto-update (A36) and detach (A38) alike, with a
+schema test. 417 → 435 tests.
+
+**Client.** `rc_client/terminal/` (`shell.py`, `manager.py`): `pty.fork()` runs the login shell
+with the child setting its own window size before `exec`; output coalesced 16 ms into ≤ 16 KiB
+frames with a rising `seq`, a 64 KiB ring, `waitpid(WNOHANG)` reaping, SIGHUP then SIGKILL on
+close, a ten-minute keep-alive after detach, `exited` to the last holder even after a detach (the
+gateway drops it and asks one idempotent detach if that socket is gone — a judgement recorded here);
+`[terminal] enabled` in config → `hello.terminal`; every terminal ends with the daemon. 18 tests
+on a real pseudo-terminal with `/bin/sh` — output and `seq`, `stty size` after a resize, `exit 3`,
+detach then keep-alive, attach with scrollback and output moving to the new holder, the fifth
+`conflict`, oversized input, a 40 KB burst split into frames, shutdown — three runs, no stray
+process. 1135 → 1159.
+
+**Web.** `TerminalPage.tsx` + `useTerminal.ts` with `@xterm/xterm` 6.0.0 and `@xterm/addon-fit`
+0.11.0, lazily loaded so the 336 KB emulator stays out of the 431 KB main bundle (a judgement:
+otherwise Vite's 500 KB warning fires); `stores/terminal.ts` remembers `terminal_id` per device in
+`sessionStorage` for the attach after a reconnect; the row's tap rule and the menu order; a fake
+shell in `mock/shell.ts`. 688 → 709 tests; screenshots `web-round42-terminal-{1280,400}.png`,
+`web-round42-devices-1280.png` (the "does not offer a terminal" notice).
+
+**iOS.** SwiftTerm pinned at **1.11.2** (1.12+ ship a Metal shader that makes Xcode 26 demand a
+separate multi-gigabyte Metal toolchain, absent here and on GitHub runners, for a renderer that is
+off by default — a judgement); `TerminalScreen`, `TerminalHost`, `TerminalKeyBar` as a
+`safeAreaInset(.bottom)` rather than an `inputAccessoryView` (reliable, screenshot-able, readable by
+UI tests, usable before the keyboard is up — a judgement), `TerminalSession`, `TerminalKeys`,
+`TerminalTypeSize`, `DemoShell`, `DeviceRoute`/`DeviceTap`/`DeviceRowAction`; the row is a button
+with `.contentShape(Rectangle())`; a container `accessibilityIdentifier` that renamed every child
+was found and removed. RCVerify 1371 → 1437, RCUIVerify 498 → 525, unit tests 371 → 391; eleven UI
+tests on the agent's simulator, and the terminal tap, the no-terminal notice, the menu order and
+the About row on 32BBA636 after the bump. Screenshot `term-ios/ios-round42-terminal.png`.
+
+**Counts.** Gateway 435, client 1159 (+3 skipped), web 709, RCVerify 1437, RCUIVerify 525, unit tests 391. Under five toolchains and an xcodebuild at once one gateway test and one client test failed on time (`test_a_binary_frame_does_not_drop_the_socket`, `test_a_thread_a_terminal_opens_is_no_session_until_it_speaks`, runs of 174 s and 274 s); both passed alone and both suites passed in full when run one after the other on an idle machine, which is the run the tag is gated on. All four components 1.5.0 (a feature release), iOS build 16, tag v1.5.0.
+
+**Not verified.** No shell was opened on a real device from a real app: the client is verified on a
+real pseudo-terminal in tests, the gateway against fake sockets, the apps against the mock and the
+demo shell. The first real run is the VPS deploy of 1.5.0 with a device updated to it (A36 does the
+update). Unobserved: a real phone's keyboard with the key bar, pinch-to-size on hardware, the
+ten-minute keep-alive against a real lock screen, and SwiftTerm's rendering on a device.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

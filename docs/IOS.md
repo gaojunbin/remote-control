@@ -392,6 +392,42 @@ sentence. The demo's directories are a real in-memory tree (`Demo/DemoDirectoryT
 without a device; `testDirectoryPickerMakesAFolderAndPicksIt` drives clash → cancel → make → select
 in one launch. Strings 新建文件夹 / 文件夹名称 / 创建 / 已存在同名文件夹。
 
+## A device row opens a terminal (A38)
+
+Tapping a device row opens `TerminalScreen` on that machine when the device is online and
+`Device.terminal` is true; otherwise the row says why under itself ("This device is offline." /
+"This device does not offer a terminal.") and goes nowhere. The swipe and the context menu read
+**Rename · Retry update (only while failed) · Show quota · Revoke**; Show quota pushes
+`DeviceDetailView`. `DeviceRoute`, `DeviceTap` and `DeviceRowAction` in RCUI are the pure rules the
+row and its tests share; the row is a `Button` with `.contentShape(Rectangle())`, without which a tap
+on its whitespace does nothing. When `settings.appLockEnabled`, the screen asks `LAContext` before
+opening the shell, even inside an unlocked app; a refusal goes back.
+
+The screen (`docs/DESIGN.md` § "The terminal"): the device's name as the title, **Close** at the
+trailing edge, the status line under it — Connecting / Connected / Disconnected with Reconnect /
+"Shell exited (code)" with New shell — and `TerminalHost` filling the rest: a `UIViewRepresentable`
+around SwiftTerm's `TerminalView` (SwiftTerm pinned at **1.11.2** — 1.12 and later ship a Metal
+shader that makes Xcode 26 demand a separate multi-gigabyte Metal toolchain, for a renderer that is
+off by default; the package graph is SwiftTerm and swift-argument-parser, nothing else). It feeds
+`terminal.output` bytes, reports typed bytes and size changes, copies a long-press selection through
+the system menu, and changes its type size on a pinch (`TerminalTypeSize`, remembered in
+`SettingsStore`). `TerminalSession` in RCCore is the whole protocol side — open, attach, input,
+resize, close, `seq` gaps and repeats, inputs sent in order by one task, resizes debounced — so the
+screen only decides when to open, what the status line says and what the key bar sends. A lost
+channel shows Disconnected and attaches again by itself when the channel is back, scrollback fed
+first; Close or back sends `terminal.close`; backgrounding sends nothing.
+
+`TerminalKeyBar` sits above the keyboard as a `safeAreaInset(.bottom)` — reliable, screenshot-able,
+readable by UI tests, and usable before the keyboard is up — in the design's order: Esc · Tab ·
+Ctrl · ↑ · ↓ · ← · → · Ctrl-C · Ctrl-D · Ctrl-Z · Ctrl-R · Ctrl-L · | · / · - · ~ · Paste. Ctrl is
+sticky and shows its armed state; `TerminalKeys` in RCCore is the pure table from key to bytes
+(Esc `1b`, Tab `09`, ↑ `1b 5b 41`, Ctrl+c `03`, …). A gotcha worth keeping: an
+`accessibilityIdentifier` on a SwiftUI container renames every element inside it — the one that was
+on the terminal screen's root overrode the status line, the emulator and every key, and is gone.
+`DemoShell` in RCCore is a fake shell (prompt, echo, `exit`) so the flow runs in the demo and the UI
+tests; RCVerify decodes the A38 fixtures; RCUIVerify checks the request bodies, the key table, the
+tap rule and the menu order; eleven UI tests drive the row, the menu, the screen and the key bar.
+
 ## Devices
 
 One row per enrolled machine: name and latency, the dot with `online`/`offline` and the platform,

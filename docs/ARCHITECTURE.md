@@ -487,6 +487,33 @@ instruction. `hello` and `GET /api/config` carry `polish.enabled`, which is what
 the setting or disable it with a note. Without the two variables everything about dictation is as
 it was.
 
+## A terminal on a device
+
+A device row opens a shell on that machine (A38, `docs/DESIGN.md` § "The terminal"). It is not
+SSH: the device dials out as it always has, nothing on the host listens and no key travels. The
+device starts the person's login shell in a pseudo-terminal and streams its bytes through the
+gateway to the **one app connection** that asked, and the gateway relays those bytes without
+reading them — a terminal is one person's view, never broadcast to the account's other sockets the
+way session events are.
+
+The pieces: the app sends `terminal.open {cols, rows}` (forwarded by `device_id` like any other
+device request), the device replies `{terminal_id}` and from then on publishes `terminal.output
+{terminal_id, to, seq, data}` frames — output coalesced for ~16 ms, at most 16 KiB decoded, `seq`
+rising by one per frame — where `to` is the app connection id the request carried; the gateway
+delivers each to that connection alone, stripping `to` and adding `device_id`, and only when that
+connection belongs to the device's account. Typed bytes travel back as `terminal.input`, the view's
+size as `terminal.resize`. The gateway remembers which connection holds each terminal from the
+`open` and `attach` replies; when that connection closes — a phone locked, a tab gone — it asks the
+device, on its own account, to `terminal.detach`, and the device stops streaming but keeps the
+shell and its 64 KiB scrollback ring for ten minutes so a `terminal.attach` from any connection of
+the account can take it back, scrollback first, `seq` continuing. `terminal.close` ends the shell
+(SIGHUP, then SIGKILL); a shell ending on its own is a `terminal.exited` to the holder. A device runs
+at most four terminals, ends them all when its own process ends, says in `hello` whether it offers
+the capability at all (`terminal`, a `[terminal] enabled` switch in its configuration), and logs
+only that a terminal opened and closed — never what went through it. The apps render the bytes
+with a real emulator (SwiftTerm on iOS, xterm.js on the web) and, on the phone, put the keys a
+shell needs on a bar above the keyboard.
+
 ## Devices keep themselves current
 
 The gateway serves one client wheel and knows the build every device runs from its `hello`; when

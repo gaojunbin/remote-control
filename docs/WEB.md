@@ -748,6 +748,33 @@ waits for output.
 block for Codex's read-only commands, a short turn for the rest, and nothing but the echo for
 Grok's `/context`, which renders in its own pager.
 
+## A device row opens a terminal (A38)
+
+Clicking a device row opens `/devices/:deviceId/terminal` when the device is online and
+`Device.terminal` is true; otherwise the row stays put and says why in place ("This device is
+offline." / "This device does not offer a terminal."). The row's menu reads Rename · Retry update
+(only while failed) · Show quota · Revoke, and Show quota is the link to the device page
+(`docs/DESIGN.md` § "A device has a page, and a device row opens a terminal").
+
+`features/devices/TerminalPage.tsx` is the screen — a header with a back arrow, the device's name,
+the status line (Connecting / Connected / Disconnected with Reconnect / Shell exited with New shell)
+and **Close**, and xterm.js filling the rest — loaded lazily from `App.tsx` so the 336 KB emulator
+stays out of the main bundle. `useTerminal.ts` joins the emulator to the session: on mount it fits
+the terminal to its container and sends `terminal.open {cols, rows}`; `terminal.output` frames for
+this terminal are base64-decoded (`lib/base64.ts`) and written, with `seq` watched for a gap;
+keystrokes go out as `terminal.input`; a container resize is debounced into `terminal.resize`; a
+lost socket shows Disconnected and, on reconnect, `terminal.attach` with the `terminal_id`
+remembered per device in `sessionStorage` (`stores/terminal.ts`, cleared on sign-out), the
+`scrollback` written before output resumes; `terminal.exited` shows the code and offers New shell;
+Close, back or any route change sends `terminal.close`. `terminalTheme.ts` is the light ANSI
+palette in the app's ink. `stores/connection.ts` dispatches the two push frames to the store.
+Packages: `@xterm/xterm` 6.0.0 and `@xterm/addon-fit` 0.11.0, pinned. The mock's `mock/shell.ts` is
+a fake shell — prompt, echo, `exit`, a 64 KiB ring, 16 ms coalescing, rising `seq` — and
+`mock/server.ts` answers the five requests and detaches after a lost socket, so the page can be
+driven; `dev-mac` offers a terminal in the fixtures and `dev-ci` does not. Tests cover the row's tap
+rule and menu order, open with the fitted size, output written, input and resize sent, attach after
+a reconnect with the scrollback first, close on unmount, and exited with New shell.
+
 ## The directory picker makes a folder (A37)
 
 `features/sessions/DirectoryPicker.tsx` is the modal the New session drawer's Browse opens: the

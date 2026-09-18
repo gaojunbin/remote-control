@@ -172,6 +172,36 @@ loginctl enable-linger $USER
 The Linux path has not been exercised: neither `rc-client service install` nor the systemd unit has
 been run on a real machine.
 
+## A terminal on the device (A38)
+
+A device row in the apps opens a shell on this machine. It is not SSH: the device dials out as it
+always has and nothing here listens. `rc_client/terminal/` is the whole of it — `shell.py`, one
+pseudo-terminal, and `manager.py`, at most four of them per device. `terminal.open {cols, rows}`
+forks the person's login shell with `pty.fork()` — `$SHELL`, else `/bin/sh`, run as `-l` in the
+home directory with the daemon's sanitised environment plus `TERM=xterm-256color` and
+`COLORTERM=truecolor`; the child sets its own window size before `exec`, so the shell reads the
+app's size rather than a fresh pty's 0×0. The master fd is read non-blocking off the event loop,
+output is coalesced for 16 ms and published as `terminal.output {terminal_id, to, seq, data}`
+frames of at most 16 KiB decoded, `seq` rising by one per frame, and the last 64 KiB is kept in a
+ring; `to` is the app connection id the request arrived with (`from`), so the gateway hands the
+bytes to that one socket. `terminal.input` decodes base64 (over 64 KiB is `bad_request`) and
+writes it to the master; `terminal.resize` applies `TIOCSWINSZ` within A38's bounds. The child is
+reaped with `waitpid(WNOHANG)` off the loop, and its end is one `terminal.exited {code}` to the
+holder — or to the last holder after a detach, so an app that reconnects learns the shell is gone
+rather than waiting for it (the gateway drops the frame if that socket is gone and asks once for a
+detach, which is answered `{}`).
+
+`terminal.detach` (which only the gateway sends, `from: "gateway"`) stops streaming — output
+goes only into the ring — and starts a ten-minute keep-alive, after which the shell is closed as
+`terminal.close` would close it: SIGHUP, then SIGKILL two seconds later. `terminal.attach` makes the
+new `from` the holder, replies with the size and the ring as `scrollback`, and output resumes to it
+with `seq` continuing. A fifth `open` is `conflict`, an unknown id `not_found` (`close` and
+`detach` are idempotent and answer `{}`), and every terminal ends when the daemon shuts down.
+`[terminal] enabled = true` in `config.toml` (the default) is announced as `hello.terminal`; with
+`false` the device answers `unsupported` and the apps say so. Nothing that travels through a
+terminal is logged — only that one opened and closed. `tests/test_terminal.py` runs the whole flow
+on a real pseudo-terminal with `/bin/sh` and kills what it starts.
+
 ## Updating a device
 
 Bringing a host to a newer client used to mean going to that machine and re-running the installer,
