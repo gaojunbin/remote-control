@@ -2088,6 +2088,49 @@ come back; the three Linux hosts still on the pre-1.4.5 updater will fail that o
 one manual `systemctl --user restart rc-client`, after which they update themselves. A device
 installed from source is never asked and shows nothing.
 
+## 41. A folder can be made where a session will work (A37) (2026-09-18, 1.4.8)
+
+The owner asked to create a folder while browsing a remote host's directories for a new session,
+and to choose it as the working directory — the picker could only choose what existed. Frozen as
+**A37** (`protocol/` 7d56eae: `device.mkdir {device_id, path, name}` → the new directory's listing
+as `device.dirs` would give it; one path component, no `/`, no leading `.`, at most 255 bytes;
+`conflict` for an existing entry; rule 19 for the picker; three fixtures and one negative) and
+`docs/DESIGN.md` § "The three screens" → New session (a6322e3). The gateway forwards it by
+`device_id` (8cf5428, b10d3ae; 415 → 417 tests). Built by three subagents in worktrees —
+`mkdir-client` fdb7ba1, `mkdir-web` cef0cad, `mkdir-ios` — and merged.
+
+**Client.** `fs.make_dir` checks the name (empty, `/`, `\\`, NUL, leading `.`, over 255 bytes →
+`bad_request` with a sentence), resolves the parent before joining (`bad_request` for a relative
+path, `not_found` for a missing directory), one `os.mkdir` (`conflict` for an existing directory or
+file, `forbidden` on `PermissionError`, `internal` otherwise), and replies with the new directory's
+listing. 18 tests, all under pytest's `tmp_path` (1116 → 1135, +3 skipped).
+
+**Web.** New folder beside the picker's path line reveals `NewFolderRow` (name, Create, Cancel;
+Enter creates, Escape cancels the row); the reply becomes the listing on screen and Use this
+directory picks it; a `conflict` says "A folder with that name already exists." under the field
+and keeps the name; other refusals show the device's sentence. The mock's tree moved to
+`mock/dirs.ts` and makes, clashes and refuses. 677 → 688 tests; driven end to end against the mock
+in Chrome (clash → Create → land in the new folder → Use → the drawer holds the new path → the
+parent lists it on reopening). Screenshots `web-round41-picker-{1280,400}.png`.
+
+**iOS.** `GatewayRequest.mkdir(deviceID:path:name:)`; a toolbar **New folder** (`dirs.newFolder`)
+reveals an inline row at the head of the list rather than an alert — the agent found SwiftUI's
+alert text field unreadable from the Create action two runs out of three on the simulator, and
+XCUITest treating a second alert as an interruption — with the clash said in red under the field
+and the name kept; the reply is the listing on screen and Select picks it. The demo gets a real
+in-memory tree (`DemoDirectoryTree`) that `device.dirs` navigates and `device.mkdir` makes, clashes
+and refuses in; `DirectoryError` turns `conflict` into the app's sentence. RCVerify 1360 → 1371
+(the two fixtures decode), RCUIVerify 489 → 498, unit tests 371; the UI test
+`testDirectoryPickerMakesAFolderAndPicksIt` (clash → cancel → make → select, one launch) passed on
+the agent's simulator and, with the About version row, on 32BBA636 after the bump. Screenshots
+`ios-round41-picker.png`, `-clash.png`, `-made.png`.
+
+**Counts.** All four components 1.4.8, iOS build 15, tag v1.4.8.
+
+**Not verified.** No folder was made on a real device from a real app: the client is verified on
+`tmp_path`, the apps against the mock and the demo. The three Linux hosts and the Macs will carry
+`device.mkdir` once they update to 1.4.8 (automatically, A36).
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

@@ -388,6 +388,17 @@ Claude send that has to restart the CLI to apply a new effort level, both show t
 they start. A Codex thread whose first turn has not run refuses every `thread/resume`, so a refusal
 is remembered and not repeated until a turn boundary on that thread says something has changed.
 
+`device.mkdir {device_id, path, name}` makes the folder a session will work in (A37): `fs.make_dir`
+checks the name as one path component — non-empty, no `/`, no `\\`, no NUL, no leading `.`, at most
+255 bytes of UTF-8 — and answers `bad_request` with a sentence a person can act on when it is not;
+`path` has to be absolute and resolve to an existing directory (`bad_request`, `not_found`), and it
+is resolved before the name is joined to it, so a name can never climb out of the directory the
+picker showed. One `os.mkdir`, default mode under the umask, exactly one level: `FileExistsError`
+(a directory *or* a file of that name) is `conflict`, `PermissionError` is `forbidden`, any other
+`OSError` is `internal` with its `strerror`. The reply is `list_dirs` of the directory just made —
+empty, with the same `recent` the picker already had — so the app stands in it at once and its
+choose action picks it. The daemon runs it off the loop like `device.dirs`, with the same recents.
+
 `session.history` pages backwards with `before_seq` and forwards with `after_seq`; the second form
 is how the gateway backfills events produced while its link to the device was down.
 

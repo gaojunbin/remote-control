@@ -748,6 +748,23 @@ waits for output.
 block for Codex's read-only commands, a short turn for the rest, and nothing but the echo for
 Grok's `/context`, which renders in its own pager.
 
+## The directory picker makes a folder (A37)
+
+`features/sessions/DirectoryPicker.tsx` is the modal the New session drawer's Browse opens: the
+path line, Up one level, the sub-directories with a branch mark on repositories, Cancel and Use
+this directory. Beside the path line sits **New folder** (`docs/DESIGN.md` § "The three screens",
+A37). Pressing it reveals `NewFolderRow.tsx`: one mono field (placeholder Folder name, autofocus,
+Enter creates, Escape cancels the row and not the modal), Create and Cancel. Create sends
+`device.mkdir {device_id, path: <the listing on screen>, name}`; the reply is a `DirsResult` of the
+new, empty directory and becomes the listing on screen, so Use this directory picks it and the
+drawer's working-directory field fills with the new path. A `conflict` shows "A folder with that
+name already exists." under the field and keeps the name for editing; every other refusal —
+`bad_request` for a slash or a leading dot, `not_found`, `forbidden` — shows the device's own
+sentence the same way. The row owns no request and no state beyond its text, so a clash never
+loses what was typed. The mock's directory tree moved to `mock/dirs.ts` so its `device.mkdir` can
+make, clash and refuse like the device; `tests/DirectoryPicker.test.tsx` drives the row and
+`tests/mock-dirs.test.ts` the tree.
+
 ## The session row
 
 `features/sessions/SessionRow.tsx` draws what `docs/DESIGN.md` § "The session row" rules: three

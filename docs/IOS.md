@@ -377,6 +377,21 @@ back empty is not drawn at all (A25); no agent ships an empty list today. The ag
 carries logos rather than names, as the Agents section above describes. Its section
 headers use `FieldLabel`, the one label every form section in the app is headed with.
 
+**The browser makes a folder (A37).** `DirectoryPicker` (`Screens/DirectoryPicker.swift`) lists a
+device's directories through `device.dirs`; its toolbar now carries **New folder**
+(`dirs.newFolder`, `folder.badge.plus`), which reveals an inline row at the head of the list — a
+mono field (Folder name), Create, Cancel — rather than an alert: SwiftUI's alert text field was not
+readable from the Create action two runs out of three on the simulator, and XCUITest treats a
+second alert of the app as an interruption to dismiss. Create sends
+`GatewayRequest.mkdir(deviceID:path:name:)` for the listing on screen; the reply is the new, empty
+directory's listing and becomes the listing on screen, so Select picks it and the sheet's working
+directory is the new path. A `conflict` is said in red under the field ("A folder with that name
+already exists.", `DirectoryError`) and the name is kept; any other refusal shows the device's own
+sentence. The demo's directories are a real in-memory tree (`Demo/DemoDirectoryTree.swift`) that
+`device.dirs` navigates and `device.mkdir` makes, clashes and refuses in, so the flow can be driven
+without a device; `testDirectoryPickerMakesAFolderAndPicksIt` drives clash → cancel → make → select
+in one launch. Strings 新建文件夹 / 文件夹名称 / 创建 / 已存在同名文件夹。
+
 ## Devices
 
 One row per enrolled machine: name and latency, the dot with `online`/`offline` and the platform,
