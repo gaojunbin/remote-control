@@ -68,9 +68,10 @@ public enum ResumeText {
         L10n.string("Sent for you after the limit reset")
     }
 
-    /// The sentence under the Sessions group in Settings: what the switch does,
-    /// or why it cannot be turned on.
-    public static func settingsFooter(offered: Bool) -> String {
+    /// The sentence in the resume row of Settings: what the switch does, or
+    /// why it cannot be turned on (`docs/DESIGN.md` § "The Settings screen" —
+    /// a state speaks in the row it belongs to).
+    public static func settingsSentence(offered: Bool) -> String {
         guard offered else { return L10n.string("Your gateway does not offer this yet.") }
         return L10n.string(
             "When Claude Code or Codex stops at a usage limit, the device continues the session a minute after the limit resets.")

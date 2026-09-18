@@ -33,9 +33,9 @@ struct UpdateRequiredView: View {
             }
 
             VStack(spacing: 0) {
-                SettingsRow("This app", value: requirement.current.description)
+                ValueRow("This app", value: requirement.current.description)
                 Divider().overlay(Theme.hairline)
-                SettingsRow("Gateway needs", value: requirement.minimum.description)
+                ValueRow("Gateway needs", value: requirement.minimum.description)
             }
             .padding(.horizontal, Theme.Space.medium)
             .background(Theme.surface,

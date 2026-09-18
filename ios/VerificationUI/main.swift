@@ -1088,11 +1088,11 @@ func run() async -> (passed: Int, failures: [String]) {
         user: UserIdentity(username: "admin"), devices: [], sessions: [], stt: .disabled,
         serverTime: DemoFixtures.now)))
     expect(!preferences.isOffered, "a gateway that predates the switch offers it disabled")
-    equal(ResumeText.settingsFooter(offered: preferences.isOffered),
+    equal(ResumeText.settingsSentence(offered: preferences.isOffered),
           L10n.string("Your gateway does not offer this yet."),
-          "and says so under the group")
+          "and says so in the row itself")
     preferences.receive(.preferencesUpdated(Preferences(resumeAfterLimit: true)))
-    expect(ResumeText.settingsFooter(offered: preferences.isOffered)
+    expect(ResumeText.settingsSentence(offered: preferences.isOffered)
             .contains("a minute after the limit resets"),
            "a gateway that does offer it explains what it does instead")
     preferences.attach(api: nil)
@@ -1861,6 +1861,99 @@ func run() async -> (passed: Int, failures: [String]) {
     }
     equal(remaining, "", "a launch with --reset-state forgets the drafts a previous run left")
     try? FileManager.default.removeItem(at: staleDirectory)
+
+    // MARK: - The Settings screen
+    //
+    // `docs/DESIGN.md` § "The Settings screen" (owner's ruling, 2026-09-18).
+    // Nothing here draws, so what is read back is the pure part — the initials,
+    // the host, the dot and its word, the header's own line and the versions —
+    // and the shape of the screen as its source states it.
+
+    equal(Initials.of("admin"), "AD", "one word gives its first two letters")
+    equal(Initials.of("j.gao"), "JG", "two words give a letter each")
+    equal(Initials.of("ci-runner"), "CR", "whatever the separator is")
+    equal(Initials.of("\u{674E}\u{96F7}"), "\u{674E}",
+          "and a script whose characters are words of their own gives one")
+    equal(Initials.of("x"), "X", "a one-letter name is one letter")
+    equal(Initials.of(""), "", "and an account with no name draws nothing")
+
+    equal(GatewayHost.of("https://rc.example.com"), "rc.example.com", "the host without its scheme")
+    equal(GatewayHost.of("http://192.168.1.4:8787"), "192.168.1.4:8787",
+          "with the port where the gateway is not on the usual one")
+    equal(GatewayHost.of("https://rc.example.com/"), "rc.example.com", "and no trailing slash")
+
+    equal(ConnectionTone.dot(.connected), .working, "a live connection is green")
+    equal(ConnectionTone.dot(.connecting), .waiting, "one being made pulses amber")
+    equal(ConnectionTone.dot(.syncing), .waiting, "so does one still catching up")
+    equal(ConnectionTone.dot(.reconnecting), .waiting, "and one coming back")
+    equal(ConnectionTone.dot(.signedOut), .off, "a link that is down is grey")
+    equal(ConnectionTone.dot(.forbidden), .failed, "a gateway that refused it is red")
+    equal(ConnectionTone.dot(.incompatible(gatewayVersion: 2)), .failed,
+          "and so is one that will not speak to this build")
+    equal(ConnectionTone.word(.connected), L10n.string("Connected"), "the dot's word is Connected")
+    equal(ConnectionTone.word(.reconnecting), L10n.string("Connecting"), "Connecting while it is made")
+    equal(ConnectionTone.word(.signedOut), L10n.string("Offline"), "Offline while there is none")
+    equal(ConnectionTone.word(.expired), L10n.string("Refused"), "and Refused when the gateway said no")
+
+    equal(IdentityLine.label(user: UserIdentity(username: DemoFixtures.adminUsername, role: .admin),
+                             host: L10n.string("Demo"), phase: .connected),
+          "admin, Admin, Demo, Connected",
+          "the header reads who is signed in, as what, where, and how the link is")
+
+    let versionsLine = VersionsLine.text(app: AppBuild.version, gateway: "1.5.0",
+                                         protocolVersion: RemoteProtocol.version)
+    expect(versionsLine.contains(AppBuild.shipped), "the versions line names this build")
+    expect(versionsLine.contains("Gateway 1.5.0"), "and the gateway it is talking to")
+    expect(versionsLine.hasSuffix("v\(RemoteProtocol.version)"),
+           "and ends on the protocol they both speak")
+    expect(!VersionsLine.text(app: AppBuild.version, gateway: "", protocolVersion: 1).contains("Gateway"),
+           "a gateway that has not said its version yet leaves its half out")
+
+    // The groups, read off the screen's own source: one file each, the captions
+    // the ruling names, in the order it names them, and none of the groups it
+    // took away.
+    let settingsRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()   // ios/VerificationUI
+        .deletingLastPathComponent()   // ios
+        .appending(path: "Sources/RCUI/Screens/Settings")
+    func settingsSource(_ name: String) -> String {
+        (try? String(contentsOf: settingsRoot.appending(path: name), encoding: .utf8)) ?? ""
+    }
+    let settingsFiles = ((try? FileManager.default.contentsOfDirectory(
+        at: settingsRoot, includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "swift" }
+    let settingsSources = settingsFiles
+        .compactMap { try? String(contentsOf: $0, encoding: .utf8) }.joined(separator: "\n")
+    expect(settingsFiles.count >= 9, "the screen is a file per group, not one of 380 lines")
+
+    for (file, caption) in [("SettingsAccountGroup.swift", "Account"),
+                            ("SettingsAwayGroup.swift", "While you're away"),
+                            ("SettingsVoiceGroup.swift", "Voice"),
+                            ("SettingsReadingGroup.swift", "Reading"),
+                            ("SettingsSecurityGroup.swift", "Security")] {
+        expect(settingsSource(file).contains("SettingsGroup(\"\(caption)\")"),
+               "the group in \(file) is headed \(caption)")
+    }
+
+    let screen = settingsSource("SettingsView.swift")
+    var cursor = screen.startIndex
+    var inOrder = !screen.isEmpty
+    for group in ["SettingsIdentityHeader(", "SettingsAccountGroup(", "SettingsAwayGroup(",
+                  "SettingsVoiceGroup(", "SettingsReadingGroup(", "SettingsSecurityGroup(",
+                  "SettingsVersionsRow("] {
+        guard let found = screen.range(of: group, range: cursor..<screen.endIndex) else {
+            inOrder = false
+            break
+        }
+        cursor = found.upperBound
+    }
+    expect(inOrder, "the header, the five groups and the versions line are drawn in that order")
+
+    for gone in ["About", "Notifications", "Timeline", "App lock", "Sessions", "Language"] {
+        expect(!settingsSources.contains("FieldLabel(\"\(gone)\")"),
+               "no group is headed \(gone) any more")
+    }
+    expect(!settingsSources.contains("SettingsFooter("),
+           "and no sentence is left under a group: a state speaks in its row")
 
     // MARK: - The privacy strings and the version the app ships
     //

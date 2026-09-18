@@ -579,23 +579,6 @@
         }
       }
     },
-    "About": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "About"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关于"
-          }
-        }
-      }
-    },
     "Account": {
       "extractionState": "manual",
       "localizations": {
@@ -626,6 +609,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "所有账户"
+          }
+        }
+      }
+    },
+    "Accounts on this gateway, and whether anyone can create one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accounts on this gateway, and whether anyone can create one."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此网关上的账户，以及是否开放注册。"
           }
         }
       }
@@ -970,23 +970,6 @@
         }
       }
     },
-    "App lock": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "App lock"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "应用锁"
-          }
-        }
-      }
-    },
     "Approval needed": {
       "extractionState": "manual",
       "localizations": {
@@ -1208,6 +1191,23 @@
         }
       }
     },
+    "Blocked in iOS Settings. Tap to open them.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked in iOS Settings. Tap to open them."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在 iOS 设置中关闭，点按前往。"
+          }
+        }
+      }
+    },
     "Browse": {
       "extractionState": "manual",
       "localizations": {
@@ -1225,19 +1225,19 @@
         }
       }
     },
-    "Cached sessions and drafts for this account are removed from this device. Nothing changes on your machines.": {
+    "Cached sessions and drafts leave this device. Nothing changes on your machines.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cached sessions and drafts for this account are removed from this device. Nothing changes on your machines."
+            "value": "Cached sessions and drafts leave this device. Nothing changes on your machines."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "本账户在此设备上的会话缓存和草稿会被清除。你的机器不受影响。"
+            "value": "缓存的会话和草稿将从此设备移除，你的机器不受影响。"
           }
         }
       }
@@ -1867,6 +1867,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "未确认送达。没有自动重发任何内容。"
+          }
+        }
+      }
+    },
+    "Demo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "演示"
           }
         }
       }
@@ -2619,6 +2636,23 @@
         }
       }
     },
+    "From the list this gateway serves.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From the list this gateway serves."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从此网关提供的列表中选择。"
+          }
+        }
+      }
+    },
     "Gateway": {
       "extractionState": "manual",
       "localizations": {
@@ -2683,23 +2717,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "网关就绪"
-          }
-        }
-      }
-    },
-    "Gateway version": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gateway version"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "网关版本"
           }
         }
       }
@@ -3074,6 +3091,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "适中"
+          }
+        }
+      }
+    },
+    "Moderate cleans up. Strong also restructures and resolves references.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderate cleans up. Strong also restructures and resolves references."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“适度”只做清理；“加强”还会重组语句并明确指代。"
           }
         }
       }
@@ -3469,23 +3503,6 @@
         }
       }
     },
-    "Notifications": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notifications"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知"
-          }
-        }
-      }
-    },
     "Notify me": {
       "extractionState": "manual",
       "localizations": {
@@ -3516,6 +3533,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "已关闭"
+          }
+        }
+      }
+    },
+    "Offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线"
           }
         }
       }
@@ -3618,23 +3652,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "已开启（仅本应用内提醒）"
-          }
-        }
-      }
-    },
-    "One switch for the gateway's notifications and the alerts this app raises while it is open: each says which device and session needs you, and nothing else. No prompt text, output or file contents leave the gateway.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "One switch for the gateway's notifications and the alerts this app raises while it is open: each says which device and session needs you, and nothing else. No prompt text, output or file contents leave the gateway."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "网关的通知和本应用打开时自行弹出的提醒共用这一个开关：两者都只说明哪台设备的哪个会话需要你，不包含其他内容。提示词、输出和文件内容都不会离开网关。"
           }
         }
       }
@@ -4047,23 +4064,6 @@
         }
       }
     },
-    "Protocol": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Protocol"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "协议"
-          }
-        }
-      }
-    },
     "Queue": {
       "extractionState": "manual",
       "localizations": {
@@ -4098,6 +4098,23 @@
         }
       }
     },
+    "Reading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阅读"
+          }
+        }
+      }
+    },
     "Reconnect": {
       "extractionState": "manual",
       "localizations": {
@@ -4128,6 +4145,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "重连中"
+          }
+        }
+      }
+    },
+    "Refused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refused"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拒绝"
           }
         }
       }
@@ -4196,6 +4230,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "远程启动"
+          }
+        }
+      }
+    },
+    "Remote Control %@ · Gateway %@ · Protocol v%lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote Control %@ · Gateway %@ · Protocol v%lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote Control %@ · 网关 %@ · 协议 v%lld"
+          }
+        }
+      }
+    },
+    "Remote Control %@ · Protocol v%lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote Control %@ · Protocol v%lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote Control %@ · 协议 v%lld"
           }
         }
       }
@@ -4812,6 +4880,23 @@
         }
       }
     },
+    "Security": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Security"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全"
+          }
+        }
+      }
+    },
     "Select": {
       "extractionState": "manual",
       "localizations": {
@@ -4859,6 +4944,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "发送中…"
+          }
+        }
+      }
+    },
+    "Sends what you dictated and the last few messages to this gateway's model. Nothing is sent while it is off.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends what you dictated and the last few messages to this gateway's model. Nothing is sent while it is off."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启后，会把你的听写内容和最近几条消息发给此网关配置的模型；关闭时不发送任何内容。"
           }
         }
       }
@@ -5186,23 +5288,6 @@
         }
       }
     },
-    "Signed in as": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Signed in as"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "登录身份"
-          }
-        }
-      }
-    },
     "Simple": {
       "extractionState": "manual",
       "localizations": {
@@ -5369,23 +5454,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "开始会话"
-          }
-        }
-      }
-    },
-    "Status": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Status"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "状态"
           }
         }
       }
@@ -5798,6 +5866,23 @@
         }
       }
     },
+    "The app's own words only; what the agent wrote stays as written.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The app's own words only; what the agent wrote stays as written."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只改应用自身的文案，代理写的内容保持原样。"
+          }
+        }
+      }
+    },
     "The code %@ can be used once and expires ten minutes after it was issued.": {
       "extractionState": "manual",
       "localizations": {
@@ -5811,6 +5896,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "配对码 %@ 只能使用一次，签发十分钟后失效。"
+          }
+        }
+      }
+    },
+    "The current password and the new one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The current password and the new one."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入当前密码和新密码。"
           }
         }
       }
@@ -5998,6 +6100,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "网关使用协议 %lld，本应用使用 %lld。请同时更新两端。"
+          }
+        }
+      }
+    },
+    "The language you dictate in; Automatic lets the recogniser decide.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The language you dictate in; Automatic lets the recogniser decide."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你听写时使用的语言；“自动”由识别器判断。"
           }
         }
       }
@@ -6580,23 +6699,6 @@
         }
       }
     },
-    "Timeline": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Timeline"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "时间线"
-          }
-        }
-      }
-    },
     "Todos %lld/%lld": {
       "extractionState": "manual",
       "localizations": {
@@ -7090,23 +7192,6 @@
         }
       }
     },
-    "Version": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Version"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "版本"
-          }
-        }
-      }
-    },
     "Voice": {
       "extractionState": "manual",
       "localizations": {
@@ -7175,19 +7260,36 @@
         }
       }
     },
-    "When this is on, what you dictated and the last few messages of the conversation are sent to the model this gateway is configured with. Nothing is sent while it is off.": {
+    "Which device and session needs you, and nothing else.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When this is on, what you dictated and the last few messages of the conversation are sent to the model this gateway is configured with. Nothing is sent while it is off."
+            "value": "Which device and session needs you, and nothing else."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "开启后，你口述的内容和最近几条消息会发送给此网关配置的模型。关闭时不发送任何内容。"
+            "value": "只告诉你哪台设备的哪个会话需要你，别无其他。"
+          }
+        }
+      }
+    },
+    "While you're away": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While you're away"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你不在时"
           }
         }
       }

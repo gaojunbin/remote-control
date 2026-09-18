@@ -441,13 +441,9 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 20), "the Settings tab is there")
         settings.tap()
 
-        let picker = app.descendants(matching: .any)["settings.timelineDetail"]
-        XCTAssertTrue(scrollDown(to: picker), "the timeline detail preference is in Settings")
-        picker.tap()
-        let detailed = app.buttons["Detailed"].exists
-            ? app.buttons["Detailed"] : app.staticTexts["Detailed"]
-        XCTAssertTrue(detailed.waitForExistence(timeout: 10), "and offers Detailed")
-        detailed.tap()
+        let detail = app.segmentedControls["settings.timelineDetail"]
+        XCTAssertTrue(scrollDown(to: detail), "the timeline detail preference is in Settings")
+        detail.buttons["Detailed"].tap()
 
         app.tabBars.buttons["Sessions"].tap()
         XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 15),
@@ -1371,23 +1367,29 @@ final class RemoteControlUITests: XCTestCase {
 
     /// `docs/DESIGN.md` § "Surfaces, rows and controls": nothing is re-cased.
     /// A re-cased header carries the transformed text in its accessibility
-    /// label, so reading the label reads what is really on the screen.
+    /// label, so reading the label reads what is really on the screen. The
+    /// groups are the five § "The Settings screen" names, in its order.
     func testSettingsSectionHeadersAreSentenceCase() {
         app.launch()
         let settings = app.tabBars.buttons["Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 20))
         settings.tap()
 
-        XCTAssertTrue(app.staticTexts["Signed in as"].waitForExistence(timeout: 15),
-                      "the account rows are drawn")
+        XCTAssertTrue(app.descendants(matching: .any)["settings.identity"]
+            .waitForExistence(timeout: 15), "the screen opens on who is signed in")
         attach(name: "30-settings-headers")
 
-        // Language sits between Voice and Timeline, so the last headers are
-        // below the fold on a phone and are scrolled to rather than assumed.
-        for header in ["Account", "Notifications", "Voice", "Language", "Timeline"] {
-            XCTAssertTrue(scrollDown(to: app.staticTexts[header]), "the section is headed \(header)")
+        // The last groups are below the fold on a phone, so they are scrolled
+        // to rather than assumed.
+        for header in ["Account", "While you're away", "Voice", "Reading", "Security"] {
+            XCTAssertTrue(scrollDown(to: app.staticTexts[header]), "the group is headed \(header)")
             XCTAssertFalse(app.staticTexts[header.uppercased()].exists,
                            "and not \(header.uppercased())")
+        }
+        // The groups the ruling took away, with their rows now in the header
+        // and in the versions line.
+        for gone in ["About", "Notifications", "Timeline", "App lock"] {
+            XCTAssertFalse(app.staticTexts[gone].exists, "and there is no group called \(gone)")
         }
     }
 
@@ -2080,7 +2082,10 @@ final class RemoteControlUITests: XCTestCase {
                       "an admin is offered the accounts screen")
         XCTAssertFalse(app.buttons["settings.changePassword"].exists,
                        "and not a password it cannot change, because it is the gateway's own")
-        XCTAssertTrue(app.staticTexts["settings.role"].exists, "the role is under the username")
+        let header = app.descendants(matching: .any)["settings.identity"]
+        XCTAssertTrue(header.exists, "the header says who is signed in")
+        XCTAssertTrue(header.label.contains("admin") && header.label.contains("Admin"),
+                      "with the account and the role it has, and not a row for either")
         attach(name: "75-settings-admin")
 
         app.buttons["settings.signOut"].tap()
@@ -2530,52 +2535,54 @@ final class RemoteControlUITests: XCTestCase {
     }
 
     /// A string a store built with `L10n.string` and kept goes on saying what it
-    /// said in the language it was built in. The notification status is computed
-    /// at read time instead, so it follows the preference on the screen that
-    /// changes it rather than waiting to be left and re-entered.
-    func testNotificationStatusFollowsAChangeOfLanguage() {
+    /// said in the language it was built in. The sentence under a settings row
+    /// is built at read time and its group holds the language, so it follows
+    /// the preference on the screen that changes it rather than waiting for the
+    /// screen to be left and re-entered.
+    func testARowSentenceFollowsAChangeOfLanguage() {
         app.launch()
         let settings = app.tabBars.buttons["Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 20), "the Settings tab is there")
         settings.tap()
 
-        // The row combines its label and its value into one element, so it is
-        // found by what it reads rather than by an identifier on a child.
-        func status(reading value: String) -> XCUIElement {
+        // The row combines its title, its sentence and its control into one
+        // element, so it is found by what it reads rather than by an identifier.
+        func row(reading sentence: String) -> XCUIElement {
             app.descendants(matching: .any)
-                .matching(NSPredicate(format: "label CONTAINS %@", value)).firstMatch
+                .matching(NSPredicate(format: "label CONTAINS %@", sentence)).firstMatch
         }
-        XCTAssertTrue(status(reading: "Off").waitForExistence(timeout: 15),
-                      "the notification status reads in English to start with")
+        XCTAssertTrue(row(reading: "a minute after the limit resets").waitForExistence(timeout: 15),
+                      "the resume row explains itself in English to start with")
 
         let language = app.segmentedControls["settings.language"]
         XCTAssertTrue(scrollDown(to: language), "the interface language is a segmented control")
         language.buttons["中文"].tap()
 
-        // The language control sits below the Notifications group, so reaching
-        // it scrolled the status row away, and a `List` recycles what it no
+        // Language sits in Reading, below the group the sentence is in, so
+        // reaching it scrolled that row away and a `List` recycles what it no
         // longer shows. The screen was never left: the row is scrolled back to.
         var reads = false
         for _ in 0..<8 where !reads {
-            reads = status(reading: "已关闭").exists
+            reads = row(reading: "限制重置一分钟后").exists
             if !reads { app.swipeDown() }
         }
-        XCTAssertTrue(reads, "and the status is in the new language without leaving the screen")
-        attach(name: "ios-status-follows-language")
+        XCTAssertTrue(reads, "and the sentence is in the new language without leaving the screen")
+        attach(name: "ios-sentence-follows-language")
     }
 
     // MARK: - A35, a session the usage limit stopped
 
-    /// Settings, Sessions group: the one switch the account owns, with the
+    /// Settings, "While you're away": the one switch the account owns, with the
     /// sentence that says what it does. The demo gateway carries preferences,
     /// so the switch is live rather than shown disabled.
-    func testSessionsGroupOffersTheResumeSwitch() {
+    func testAwayGroupOffersTheResumeSwitch() {
         app.launch()
         openSettingsTab()
 
         let toggle = app.switches["settings.resumeAfterLimit"]
-        XCTAssertTrue(scrollDown(to: toggle), "the Sessions group holds the resume switch")
-        XCTAssertTrue(app.staticTexts["Sessions"].exists, "under a group named for what it is")
+        XCTAssertTrue(scrollDown(to: toggle), "the away group holds the resume switch")
+        XCTAssertTrue(app.staticTexts["While you're away"].exists,
+                      "under a group named for what it is")
         XCTAssertTrue(anyText(containing: "a minute after the limit resets"),
                       "and the sentence under it says what the device will do")
 
@@ -2627,17 +2634,30 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(anyText(containing: "Resume cancelled"), "and the timeline records it")
     }
 
-    /// Every round that changes the app bumps its version, and the About group
-    /// is where the reader sees which build they are on.
-    func testAboutGroupNamesThisBuild() {
+    /// `docs/DESIGN.md` § "The Settings screen": the screen opens on who is
+    /// signed in and where, and closes on one line of versions — this build,
+    /// the gateway's and the protocol — rather than an About group.
+    func testSettingsHeaderAndVersionsLineNameTheAccountAndTheBuild() {
         app.launch()
         let settings = app.tabBars.buttons["Settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 20), "the Settings tab is there")
         settings.tap()
 
-        let version = app.staticTexts[AppBuild.shipped]
-        XCTAssertTrue(scrollDown(to: version), "the About group names this build")
-        attach(name: "ios-about-version")
+        let header = app.descendants(matching: .any)["settings.identity"]
+        XCTAssertTrue(header.waitForExistence(timeout: 15), "the header is the first thing on it")
+        for part in ["admin", "Admin", "Demo", "Connected"] {
+            XCTAssertTrue(header.label.contains(part),
+                          "the header reads \(part) to anyone who cannot see the dot")
+        }
+        attach(name: "ios-round43-settings")
+
+        let versions = app.descendants(matching: .any)["settings.versions"]
+        XCTAssertTrue(scrollDown(to: versions), "the versions line closes the screen")
+        XCTAssertTrue(versions.label.contains(AppBuild.shipped), "and names this build")
+        XCTAssertTrue(versions.label.contains("v\(RemoteProtocol.version)"),
+                      "and the protocol both ends speak")
+        XCTAssertTrue(app.buttons["settings.diagnostics"].exists, "with Diagnostics beside it")
+        attach(name: "ios-round43-settings-2")
     }
 
     /// Settings, Voice group: turn dictation polish on and come back to the
