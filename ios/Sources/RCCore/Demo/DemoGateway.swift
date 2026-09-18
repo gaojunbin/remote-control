@@ -70,6 +70,12 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// Amendment A27: the turn a slash command started, which runs beside the
     /// scripted reply rather than cancelling it.
     private var commanding: Task<Void, Never>?
+    /// Amendment A38: the shells this demo is running, by terminal id, with
+    /// the machine each belongs to and the `seq` its output is up to.
+    private var terminals: [String: DemoTerminal] = [:]
+    /// The first prompt of each shell, sent once the `open` reply has landed so
+    /// the screen has a terminal id to match it against.
+    private var greeting: Task<Void, Never>?
 
     /// The default is what a quick local device feels like. A UI test asks for
     /// a longer one so the state a real send passes through can be looked at
@@ -152,6 +158,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         answering?.cancel(); answering = nil
         updating?.cancel(); updating = nil
         commanding?.cancel(); commanding = nil
+        greeting?.cancel(); greeting = nil
         continuation.yield(.state(.disconnected))
     }
 
@@ -198,6 +205,16 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             return try await agents(request)
         case "device.update":
             return try updateDevice(request)
+        case "terminal.open":
+            return try openTerminal(request)
+        case "terminal.input":
+            return try writeTerminal(request)
+        case "terminal.resize":
+            return try resizeTerminal(request)
+        case "terminal.attach":
+            return try attachTerminal(request)
+        case "terminal.close":
+            return try closeTerminal(request)
         default:
             return .object([:])
         }
@@ -1162,6 +1179,121 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         transcripts[sessionID] = history
         let deviceID = sessionList.first { $0.sessionID == sessionID }?.deviceID
         continuation.yield(.frame(.sessionEvent(sessionID: sessionID, deviceID: deviceID, event: event)))
+    }
+
+    // MARK: - Terminals (amendment A38)
+
+    /// One demo shell, with what the wire needs around it.
+    private struct DemoTerminal {
+        let deviceID: String
+        var shell: DemoShell
+        var seq = 0
+    }
+
+    /// Protocol 7.3: four per machine, and a fifth is a conflict.
+    private static let terminalsPerDevice = 4
+
+    private func openTerminal(_ request: GatewayRequest) throws -> JSONValue {
+        let id = request.body["device_id"]?.stringValue ?? ""
+        let target = try device(id)
+        guard target.online else {
+            throw GatewayErrorBody(code: .deviceOffline, message: "That device is offline.")
+        }
+        guard target.offersTerminal else {
+            throw GatewayErrorBody(code: .unsupported, message: "This device offers no terminal.")
+        }
+        guard terminals.values.filter({ $0.deviceID == id }).count < Self.terminalsPerDevice else {
+            throw GatewayErrorBody(code: .conflict, message: "This device already runs four terminals.")
+        }
+        let cols = request.body["cols"]?.intValue ?? 80
+        let rows = request.body["rows"]?.intValue ?? 24
+        let terminalID = UUID().uuidString
+        terminals[terminalID] = DemoTerminal(
+            deviceID: id, shell: DemoShell(cols: TerminalLimits.cols(cols), rows: TerminalLimits.rows(rows)))
+        // The prompt follows the reply: a frame that arrives before the screen
+        // knows the id would be dropped as another terminal's.
+        greeting?.cancel()
+        greeting = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            await self?.greet(terminalID)
+        }
+        return try JSONValue.encode(TerminalOpenResult(terminalID: terminalID))
+    }
+
+    private func greet(_ terminalID: String) {
+        guard var terminal = terminals[terminalID] else { return }
+        let output = terminal.shell.start()
+        terminals[terminalID] = terminal
+        publish(output, from: terminalID)
+    }
+
+    private func writeTerminal(_ request: GatewayRequest) throws -> JSONValue {
+        let terminalID = try terminalID(of: request)
+        guard var terminal = terminals[terminalID] else {
+            throw GatewayErrorBody(code: .notFound, message: "No such terminal")
+        }
+        guard let encoded = request.body["data"]?.stringValue,
+              let bytes = Data(base64Encoded: encoded) else {
+            throw GatewayErrorBody(code: .badRequest, message: "data must be base64")
+        }
+        guard bytes.count <= TerminalLimits.maxInputBytes else {
+            throw GatewayErrorBody(code: .badRequest, message: "input is larger than 64 KiB")
+        }
+        let answer = terminal.shell.feed(bytes)
+        terminals[terminalID] = terminal
+        publish(answer.output, from: terminalID)
+        if let code = answer.code {
+            terminals.removeValue(forKey: terminalID)
+            continuation.yield(.frame(.terminalExited(
+                TerminalExited(terminalID: terminalID, deviceID: terminal.deviceID, code: code))))
+        }
+        return .object([:])
+    }
+
+    private func resizeTerminal(_ request: GatewayRequest) throws -> JSONValue {
+        let terminalID = try terminalID(of: request)
+        guard var terminal = terminals[terminalID] else {
+            throw GatewayErrorBody(code: .notFound, message: "No such terminal")
+        }
+        terminal.shell.resize(cols: request.body["cols"]?.intValue ?? terminal.shell.cols,
+                              rows: request.body["rows"]?.intValue ?? terminal.shell.rows)
+        terminals[terminalID] = terminal
+        return .object([:])
+    }
+
+    private func attachTerminal(_ request: GatewayRequest) throws -> JSONValue {
+        let terminalID = try terminalID(of: request)
+        guard let terminal = terminals[terminalID] else {
+            throw GatewayErrorBody(code: .notFound, message: "That terminal is gone.")
+        }
+        return try JSONValue.encode(TerminalAttachResult(
+            terminalID: terminalID, cols: terminal.shell.cols, rows: terminal.shell.rows,
+            scrollback: terminal.shell.scrollback.base64EncodedString()))
+    }
+
+    /// Idempotent, exactly as the device is: closing a terminal that is already
+    /// gone is not a refusal.
+    private func closeTerminal(_ request: GatewayRequest) throws -> JSONValue {
+        terminals.removeValue(forKey: try terminalID(of: request))
+        return .object([:])
+    }
+
+    private func terminalID(of request: GatewayRequest) throws -> String {
+        guard let id = request.body["terminal_id"]?.stringValue, !id.isEmpty else {
+            throw GatewayErrorBody(code: .badRequest, message: "terminal_id is required")
+        }
+        return id
+    }
+
+    /// Bytes out, with the rising `seq` an app reads a gap from.
+    private func publish(_ bytes: Data, from terminalID: String) {
+        guard !bytes.isEmpty, var terminal = terminals[terminalID] else { return }
+        terminal.seq += 1
+        terminals[terminalID] = terminal
+        continuation.yield(.frame(.terminalOutput(
+            TerminalOutput(terminalID: terminalID, deviceID: terminal.deviceID,
+                           seq: terminal.seq, data: bytes.base64EncodedString()))))
     }
 
     private func update(deviceID: String, _ mutate: (inout Device) -> Void) {

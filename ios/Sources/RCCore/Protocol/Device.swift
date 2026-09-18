@@ -174,6 +174,10 @@ public struct Device: Codable, Sendable, Hashable, Identifiable {
     public let createdAt: Int64
     public var latencyMS: Int?
     public var agents: [AgentInfo]
+    /// Amendment A38: whether this machine offers a shell over the gateway.
+    /// Nil where the client is older than the amendment or never said, which
+    /// reads the same way as false: the row's tap has nothing to open.
+    public var terminal: Bool?
 
     public var id: String { deviceID }
 
@@ -188,7 +192,7 @@ public struct Device: Codable, Sendable, Hashable, Identifiable {
                 clientVersion: String, clientBuild: String? = nil,
                 updateState: DeviceUpdateState = .idle, updateMessage: String? = nil,
                 online: Bool, lastSeen: Int64, createdAt: Int64,
-                latencyMS: Int? = nil, agents: [AgentInfo] = []) {
+                latencyMS: Int? = nil, agents: [AgentInfo] = [], terminal: Bool? = nil) {
         self.deviceID = deviceID
         self.name = name
         self.platform = platform
@@ -203,10 +207,14 @@ public struct Device: Codable, Sendable, Hashable, Identifiable {
         self.createdAt = createdAt
         self.latencyMS = latencyMS
         self.agents = agents
+        self.terminal = terminal
     }
 
+    /// Amendment A38: whether tapping this row can open a shell right now.
+    public var offersTerminal: Bool { terminal == true }
+
     enum CodingKeys: String, CodingKey {
-        case name, platform, hostname, arch, online, agents
+        case name, platform, hostname, arch, online, agents, terminal
         case deviceID = "device_id"
         case clientVersion = "client_version"
         case clientBuild = "client_build"
@@ -234,5 +242,6 @@ public struct Device: Codable, Sendable, Hashable, Identifiable {
         createdAt = try values.decodeIfPresent(Int64.self, forKey: .createdAt) ?? 0
         latencyMS = try values.decodeIfPresent(Int.self, forKey: .latencyMS)
         agents = try values.decodeIfPresent([AgentInfo].self, forKey: .agents) ?? []
+        terminal = try values.decodeIfPresent(Bool.self, forKey: .terminal)
     }
 }

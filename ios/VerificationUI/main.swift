@@ -20,6 +20,11 @@ func run() async -> (passed: Int, failures: [String]) {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition(), Date() < deadline { try? await Task.sleep(for: .milliseconds(20)) }
     }
+    /// The same, for a condition that has to ask an actor.
+    func settleAsync(timeout: TimeInterval = 3, _ condition: () async -> Bool) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while await !condition(), Date() < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+    }
 
     // MARK: - The demo app model
 
@@ -1343,6 +1348,117 @@ func run() async -> (passed: Int, failures: [String]) {
         }
     }
 
+    // MARK: - Amendment A38: a device row opens a terminal
+    //
+    // Rule 20, and `docs/DESIGN.md` § "The terminal". Three things are settled
+    // here: what a row's tap does on each of the three demo machines, what the
+    // row's menu offers and in which order, and what one shell actually sends
+    // and receives end to end through the demo gateway.
+    if let machine = model.connection.device(DemoFixtures.macDeviceID) {
+        equal(machine.terminal, true, "the demo's main machine offers a terminal")
+        equal(DeviceTap.outcome(for: machine), DeviceTap.Outcome.terminal,
+              "so its row's tap opens one")
+        equal(DeviceRowAction.menu(for: machine), [.rename, .showQuota, .revoke],
+              "and its menu reads Rename · Show quota · Revoke")
+    } else {
+        expect(false, "the demo lists the machine a terminal opens on")
+    }
+    if let machine = model.connection.device(DemoFixtures.laptopDeviceID) {
+        equal(DeviceTap.outcome(for: machine),
+              DeviceTap.Outcome.refused("This device does not offer a terminal."),
+              "a machine with the capability off says so instead of opening anything")
+    } else {
+        expect(false, "the demo lists a machine that offers no terminal")
+    }
+    // The fourth action appears only while an update has failed (A36, rule 18),
+    // and the demo's failed machine was already carried through a retry above,
+    // so the state is built here rather than borrowed.
+    equal(DeviceRowAction.menu(for: Device(deviceID: "d", name: "n", platform: .macos,
+                                           hostname: "h", arch: "arm64", clientVersion: "1",
+                                           updateState: .failed, updateMessage: "it did not come back",
+                                           online: true, lastSeen: 0, createdAt: 0, terminal: true)),
+          [.rename, .retryUpdate, .showQuota, .revoke],
+          "Retry update stands between Rename and Show quota where an update failed")
+    if let machine = model.connection.device(DemoFixtures.ciDeviceID) {
+        equal(DeviceTap.outcome(for: machine),
+              DeviceTap.Outcome.refused("This device is offline."),
+              "and a machine that is not there says that, though it does offer terminals")
+    } else {
+        expect(false, "the demo lists an offline machine")
+    }
+    equal(DeviceRowAction.showQuota.identifier, "device.showQuota",
+          "Show quota is what opens the page of A33")
+
+    if let live = model.connection.channel {
+        let gateway = RecordingGateway(live)
+        let sink = TerminalSink()
+        let terminal = TerminalSession(deviceID: DemoFixtures.macDeviceID, channel: gateway,
+                                       resizeDelay: .milliseconds(10))
+        terminal.onOutput = { sink.append($0) }
+        model.connection.addFrameHandler("terminal-checks") { terminal.receive($0) }
+
+        await terminal.open(cols: 100, rows: 32)
+        equal(terminal.status, .connected, "opening a terminal on the demo machine connects")
+        expect(terminal.terminalID?.isEmpty == false, "and names the terminal it opened")
+        let open = await gateway.bodies("terminal.open").first
+        equal(open?["device_id"]?.stringValue, DemoFixtures.macDeviceID,
+              "terminal.open names the machine")
+        equal(open?["cols"]?.intValue, 100, "with the columns the emulator was drawn at")
+        equal(open?["rows"]?.intValue, 32, "and the rows")
+
+        await settle { sink.text.contains("demo:~$") }
+        expect(sink.text.contains("demo:~$"), "the shell prints a prompt of its own accord")
+
+        terminal.type(Data("pwd\r".utf8))
+        await settle { sink.text.contains("/Users/me") }
+        expect(sink.text.contains("/Users/me"), "and answers a line that was typed")
+        let input = await gateway.bodies("terminal.input").first
+        equal(input?["terminal_id"]?.stringValue, terminal.terminalID,
+              "terminal.input names the terminal")
+        equal(Data(base64Encoded: input?["data"]?.stringValue ?? "").map {
+            String(decoding: $0, as: UTF8.self)
+        }, "pwd\r", "and carries the bytes as typed, base64")
+
+        terminal.resize(cols: 120, rows: 40)
+        await settleAsync { await !gateway.bodies("terminal.resize").isEmpty }
+        let resize = await gateway.bodies("terminal.resize").first
+        equal(resize?["cols"]?.intValue, 120, "a resize follows the view")
+        equal(resize?["rows"]?.intValue, 40, "in both directions")
+
+        // A lost socket, and the attach that brings the same screen back.
+        let before = sink.text
+        terminal.link(isUp: false)
+        equal(terminal.status, .disconnected, "a lost socket is said rather than hidden")
+        await terminal.attach()
+        equal(terminal.status, .connected, "and attaching takes the shell back")
+        expect(sink.text.count > before.count,
+               "with the scrollback written into the emulator before anything new")
+        let attach = await gateway.bodies("terminal.attach").first
+        equal(attach?["terminal_id"]?.stringValue, terminal.terminalID,
+              "terminal.attach names the terminal it is taking")
+
+        // The shell ends itself, and the screen offers another.
+        terminal.type(Data("exit\r".utf8))
+        await settle { TerminalStatusText.offersNewShell(terminal.status) }
+        equal(terminal.status, .exited(code: 0), "typing exit ends the shell with its code")
+        equal(TerminalStatusText.line(for: terminal.status), "Shell exited (0)",
+              "which the status line says in words")
+        expect(TerminalStatusText.offersNewShell(terminal.status),
+               "and offers a new shell rather than a reconnect")
+        equal(terminal.terminalID, nil, "the id is freed")
+
+        // A second shell, closed by hand, sends exactly one `terminal.close`.
+        await terminal.open(cols: 80, rows: 24)
+        terminal.close()
+        terminal.close()
+        await settleAsync { await !gateway.bodies("terminal.close").isEmpty }
+        equal(await gateway.bodies("terminal.close").count, 1,
+              "leaving the screen twice closes the shell once")
+        model.connection.removeFrameHandler("terminal-checks")
+    } else {
+        expect(false, "the demo gateway has a channel to open a terminal on")
+    }
+
     // MARK: - The interface language
 
     let languageDefaults = UserDefaults(suiteName: "rc-ui-verify-\(UUID().uuidString)")!
@@ -1928,6 +2044,38 @@ actor StoredAccountGateway: GatewayAPI, GatewayChannel {
     func restoreToken(username: String) async -> Bool { true }
     func bearerToken() async -> String? { "stored" }
     func forgetToken(username: String) async {}
+}
+
+/// Amendment A38: what the emulator would have been fed, collected instead.
+@MainActor
+final class TerminalSink {
+    private(set) var bytes = Data()
+    var text: String { String(decoding: bytes, as: UTF8.self) }
+    func append(_ data: Data) { bytes.append(data) }
+}
+
+/// A channel that passes everything to the demo gateway and remembers what went
+/// through it, so the requests a terminal makes can be read as well as their
+/// effect.
+actor RecordingGateway: GatewayChannel {
+    private nonisolated let inner: any GatewayChannel
+    private var seen: [GatewayRequest] = []
+
+    nonisolated var events: AsyncStream<GatewayEvent> { inner.events }
+
+    init(_ inner: any GatewayChannel) { self.inner = inner }
+
+    func connect() async { await inner.connect() }
+    func disconnect() async { await inner.disconnect() }
+
+    func request(_ request: GatewayRequest) async throws -> JSONValue {
+        seen.append(request)
+        return try await inner.request(request)
+    }
+
+    func bodies(_ type: String) -> [[String: JSONValue]] {
+        seen.filter { $0.type == type }.map(\.body)
+    }
 }
 
 /// The posting side of a local banner, with no UserNotifications behind it.

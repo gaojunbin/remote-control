@@ -25,6 +25,7 @@ enum ProtocolChecks {
         firstSeq(checks: checks)
         toolKinds(checks: checks)
         usageLimit(checks: checks)
+        terminals(checks: checks)
         return checks.result()
     }
 
@@ -75,7 +76,9 @@ enum ProtocolChecks {
 
     private static let inboundTypes: Set<String> = [
         "hello", "device.updated", "device.removed", "session.updated", "session.removed",
-        "session.event", "pairing.progress", "preferences.updated", "ping", "reply"
+        "session.event", "pairing.progress", "preferences.updated", "ping", "reply",
+        // Amendment A38: the two frames a terminal produces.
+        "terminal.output", "terminal.exited"
     ]
 
     /// Amendment A35: a session the usage limit stopped, the resume it is
@@ -1013,6 +1016,86 @@ enum ProtocolChecks {
         }
     }
 
+    /// Amendment A38: the five requests, the two replies, the two frames and
+    /// the one field on `Device` that make a terminal.
+    private static func terminals(checks: CheckRunner) {
+        if let json = FixtureSource.json("app/terminal.output.json"),
+           case .terminalOutput(let output)? = try? AppFrame(json: json) {
+            checks.expect(!output.terminalID.isEmpty, "terminal.output names its terminal")
+            checks.expect(!output.deviceID.isEmpty, "and the machine it came from")
+            checks.equal(output.seq, 1, "and starts its numbering at one")
+            checks.expect(output.bytes?.isEmpty == false, "and its data decodes from base64")
+        } else {
+            checks.expect(false, "app/terminal.output.json decodes as terminal output")
+        }
+        if let json = FixtureSource.json("app/terminal.exited.json"),
+           case .terminalExited(let exit)? = try? AppFrame(json: json) {
+            checks.expect(!exit.terminalID.isEmpty, "terminal.exited names its terminal")
+            checks.equal(exit.code, 0, "and carries the code the shell ended with")
+        } else {
+            checks.expect(false, "app/terminal.exited.json decodes as an exit")
+        }
+        // The code is nullable on the wire: a device that could not read one
+        // says so rather than inventing a zero, which means "it succeeded".
+        checks.noThrow("an exit with no code decodes as no code") {
+            let json: JSONValue = ["type": "terminal.exited", "terminal_id": "t",
+                                   "device_id": "d", "code": .null]
+            guard case .terminalExited(let exit) = try AppFrame(json: json), exit.code == nil else {
+                throw ProtocolFailure.malformed("terminal.exited code")
+            }
+        }
+        if let json = FixtureSource.json("app/reply.terminal.open.json"), let result = json["result"] {
+            checks.noThrow("an open reply names the terminal") {
+                guard try result.decode(TerminalOpenResult.self).terminalID.isEmpty == false else {
+                    throw ProtocolFailure.malformed("reply.terminal.open")
+                }
+            }
+        } else {
+            checks.expect(false, "app/reply.terminal.open.json has a result")
+        }
+        if let json = FixtureSource.json("app/reply.terminal.attach.json"), let result = json["result"] {
+            checks.noThrow("an attach reply carries the size and the scrollback") {
+                let attach = try result.decode(TerminalAttachResult.self)
+                guard attach.cols > 0, attach.rows > 0,
+                      attach.scrollbackBytes?.isEmpty == false else {
+                    throw ProtocolFailure.malformed("reply.terminal.attach")
+                }
+            }
+        } else {
+            checks.expect(false, "app/reply.terminal.attach.json has a result")
+        }
+
+        // `Device.terminal` is optional on the wire; absent is how a client
+        // older than the amendment answers, and it reads the same as false.
+        checks.noThrow("a device says whether it offers a terminal, or says nothing") {
+            let base: [String: JSONValue] = ["device_id": "d", "name": "n", "platform": "macos",
+                                             "hostname": "h", "arch": "arm64", "client_version": "1",
+                                             "online": true, "last_seen": 1, "created_at": 1,
+                                             "latency_ms": 1, "agents": []]
+            var offering = base
+            offering["terminal"] = true
+            guard try JSONValue.object(offering).decode(Device.self).offersTerminal else {
+                throw ProtocolFailure.malformed("device terminal true")
+            }
+            var refusing = base
+            refusing["terminal"] = false
+            guard try JSONValue.object(refusing).decode(Device.self).terminal == false else {
+                throw ProtocolFailure.malformed("device terminal false")
+            }
+            let silent = try JSONValue.object(base).decode(Device.self)
+            guard silent.terminal == nil, !silent.offersTerminal else {
+                throw ProtocolFailure.malformed("device terminal absent")
+            }
+        }
+
+        // Protocol 6.3 bounds, applied here so a rotation into an odd size is
+        // clamped rather than refused.
+        checks.equal(TerminalLimits.cols(0), 1, "a terminal is at least one column wide")
+        checks.equal(TerminalLimits.cols(9_000), 500, "and at most five hundred")
+        checks.equal(TerminalLimits.rows(0), 1, "at least one row tall")
+        checks.equal(TerminalLimits.rows(9_000), 200, "and at most two hundred")
+    }
+
     private static func requests(checks: CheckRunner) {
         func compare(_ built: GatewayRequest, with file: String, ignoring: Set<String> = []) {
             guard let expected = FixtureSource.json(file)?.objectValue else {
@@ -1163,6 +1246,50 @@ enum ProtocolChecks {
                                          path: mkdir.string("path") ?? "",
                                          name: mkdir.string("name") ?? ""),
                     with: "app/device.mkdir.json")
+        }
+        // Amendment A38: the five requests a terminal is driven by.
+        if let open = FixtureSource.json("app/terminal.open.json")?.objectValue {
+            compare(GatewayRequest.terminalOpen(deviceID: open.string("device_id") ?? "",
+                                                cols: open.int("cols") ?? 0,
+                                                rows: open.int("rows") ?? 0),
+                    with: "app/terminal.open.json")
+        }
+        if let input = FixtureSource.json("app/terminal.input.json")?.objectValue {
+            checks.noThrow("terminal.input matches the fixture") {
+                let bytes = Data(base64Encoded: input.string("data") ?? "") ?? Data()
+                guard !bytes.isEmpty else { throw ProtocolFailure.malformed("terminal.input data") }
+                compare(try GatewayRequest.terminalInput(deviceID: input.string("device_id") ?? "",
+                                                         terminalID: input.string("terminal_id") ?? "",
+                                                         data: bytes),
+                        with: "app/terminal.input.json")
+            }
+        }
+        // 64 KiB decoded is the device's limit, and the app keeps it: a paste
+        // larger than one frame is refused here rather than on the machine.
+        checks.noThrow("an input larger than the frame is refused before it is sent") {
+            do {
+                _ = try GatewayRequest.terminalInput(deviceID: "d", terminalID: "t",
+                                                     data: Data(count: TerminalLimits.maxInputBytes + 1))
+                throw ProtocolFailure.malformed("oversize input was built")
+            } catch TerminalInputError.tooLarge {
+                // The refusal the paste path reads.
+            }
+        }
+        if let resize = FixtureSource.json("app/terminal.resize.json")?.objectValue {
+            compare(GatewayRequest.terminalResize(deviceID: resize.string("device_id") ?? "",
+                                                  terminalID: resize.string("terminal_id") ?? "",
+                                                  cols: resize.int("cols") ?? 0,
+                                                  rows: resize.int("rows") ?? 0),
+                    with: "app/terminal.resize.json")
+        }
+        for (file, build) in [
+            ("app/terminal.attach.json", GatewayRequest.terminalAttach(deviceID:terminalID:)),
+            ("app/terminal.close.json", GatewayRequest.terminalClose(deviceID:terminalID:))
+        ] {
+            if let json = FixtureSource.json(file)?.objectValue {
+                compare(build(json.string("device_id") ?? "", json.string("terminal_id") ?? ""),
+                        with: file)
+            }
         }
         if let git = FixtureSource.json("app/device.git.json")?.objectValue {
             compare(GatewayRequest.git(deviceID: git.string("device_id") ?? "", path: git.string("path") ?? ""),

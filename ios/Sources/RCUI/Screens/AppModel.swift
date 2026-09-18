@@ -21,6 +21,10 @@ public final class AppModel {
     /// and todo event; a destination keyed by the value would rebuild the chat
     /// screen many times a turn and lose its scroll position.
     public var path: [String] = []
+    /// Amendment A38: the Devices stack, which now has two destinations — the
+    /// machine's page and a shell on it — so the tap and the menu can lead to
+    /// different places.
+    public var devicePath: [DeviceRoute] = []
     public var chat: ChatStore?
     public var isLocked = false
     public var toast: String?
