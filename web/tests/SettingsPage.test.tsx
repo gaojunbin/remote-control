@@ -1,13 +1,18 @@
 /**
- * The Timeline group in Settings: the detail level the transcript is drawn at,
- * `docs/DESIGN.md` § "The timeline". Simple is the default.
+ * The Settings screen, `docs/DESIGN.md` § "The Settings screen": a header
+ * saying who and where, four groups of two-line rows with no rule between them,
+ * a state that speaks in its own row, and the versions as one caption line.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { SettingsPage } from '../src/features/settings/SettingsPage';
-import { api } from '../src/lib/api';
+import { connectionTone } from '../src/features/settings/connectionTone';
+import { api, type ConfigResponse } from '../src/lib/api';
+import { gatewayHost, initials } from '../src/lib/identity';
 import { useAuth } from '../src/stores/auth';
 import { useConnection } from '../src/stores/connection';
 import { usePreferences } from '../src/stores/preferences';
@@ -19,6 +24,11 @@ beforeEach(() => {
   useAuth.setState({ status: 'signed-in', username: 'admin', role: 'admin' });
 });
 
+afterEach(() => {
+  useAuth.setState({ config: null, version: null, protocol: null });
+  useConnection.setState({ status: 'closed', gatewayVersion: null, protocol: null });
+});
+
 const renderPage = () =>
   render(
     <MemoryRouter>
@@ -26,94 +36,130 @@ const renderPage = () =>
     </MemoryRouter>,
   );
 
-describe('settings: timeline detail', () => {
-  it('starts at Simple, before anything is rendered', () => {
-    expect(useSettings.getState().timelineDetail).toBe('simple');
-  });
+const captions = () => [...document.querySelectorAll('.group-title')].map((el) => el.textContent);
 
-  it('offers the two levels under a Timeline group, with the explanation', () => {
-    renderPage();
-
-    expect(screen.getByRole('heading', { name: strings.settings.timeline })).toBeInTheDocument();
-    expect(screen.getByText(strings.settings.timelineDetail)).toBeInTheDocument();
-    expect(screen.getByText(strings.settings.timelineDetailNote)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: strings.settings.timelineDetail })).toHaveTextContent(
-      'Simple',
-    );
-  });
-
-  it('writes the level the reader picks', async () => {
-    const user = userEvent.setup();
-    renderPage();
-
-    await user.click(screen.getByRole('button', { name: strings.settings.timelineDetail }));
-    await user.click(screen.getByRole('option', { name: 'Detailed' }));
-
-    expect(useSettings.getState().timelineDetail).toBe('detailed');
-    expect(screen.getByRole('button', { name: strings.settings.timelineDetail })).toHaveTextContent(
-      'Detailed',
-    );
-  });
+/** What `GET /api/config` answers, with only the part a test cares about set. */
+const config = (over: Partial<ConfigResponse> = {}): ConfigResponse => ({
+  public_origin: 'https://rc.example.com',
+  stt: { enabled: false, languages: ['auto'] },
+  push: { web_enabled: true, apns_enabled: true },
+  version: '1.5.1',
+  ...over,
 });
 
 /**
- * The Language group, above Timeline. `docs/DESIGN.md` § "The three screens":
- * English and 中文, each written in its own script, English by default whatever
- * the system language is, and the app's own words only.
+ * The header replaces the rows Signed in as, Connection, Gateway and Gateway
+ * version: the username, then `role · host` with the connection's dot before
+ * the host. The dot's word is never printed — it is read aloud and shown on
+ * hover.
  */
-describe('settings: interface language', () => {
-  it('starts in English, before anything is rendered', () => {
-    expect(useSettings.getState().language).toBe('en');
-  });
-
-  it('offers the two languages, each in its own script, above Timeline', () => {
+describe('settings: the header', () => {
+  it('says the username, the role word and the host without its scheme', () => {
+    useAuth.setState({
+      username: 'alice',
+      role: 'member',
+      config: config(),
+    });
     renderPage();
 
-    const headings = [...document.querySelectorAll('.group-title')].map((el) => el.textContent);
-    expect(headings.indexOf(strings.settings.language)).toBe(
-      headings.indexOf(strings.settings.timeline) - 1,
-    );
-    expect(screen.getByRole('button', { name: strings.settings.language })).toHaveTextContent(
-      'English',
-    );
+    expect(screen.getByRole('heading', { name: 'alice' })).toBeInTheDocument();
+    expect(screen.getByText('Member')).toBeInTheDocument();
+    const host = document.querySelector('.settings-identity-host');
+    expect(host?.textContent).toBe('rc.example.com');
+    expect(host).toHaveAttribute('title', 'rc.example.com');
+    expect(document.querySelector('.settings-identity .avatar')?.textContent).toBe('AL');
   });
 
-  it('writes the language the reader picks, and says it in that language', async () => {
-    const user = userEvent.setup();
+  it('carries the connection as a dot whose word is its label alone', () => {
+    useConnection.setState({ status: 'open' });
+    const open = renderPage();
+
+    const dot = screen.getByRole('img', { name: strings.settings.connected });
+    expect(dot).toHaveClass('dot', 'working');
+    expect(dot).toHaveAttribute('title', strings.settings.connected);
+    expect(screen.queryByText(strings.settings.connected)).toBeNull();
+
+    open.unmount();
+    useConnection.setState({ status: 'closed' });
     renderPage();
 
-    await user.click(screen.getByRole('button', { name: strings.settings.language }));
-    await user.click(screen.getByRole('option', { name: '中文' }));
+    expect(screen.getByRole('img', { name: strings.settings.offline })).toHaveClass('dot', 'off');
+  });
 
-    expect(useSettings.getState().language).toBe('zh-Hans');
-    expect(screen.getByRole('heading', { name: '设置' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '语言' })).toHaveTextContent('中文');
+  it('takes its tone from the socket and nothing else', () => {
+    expect(connectionTone('open')).toBe('working');
+    expect(connectionTone('connecting')).toBe('waiting');
+    expect(connectionTone('reconnecting')).toBe('waiting');
+    expect(connectionTone('idle')).toBe('off');
+    expect(connectionTone('closed')).toBe('off');
+  });
+
+  it('reads a username and an origin the same way the top bar does', () => {
+    expect(initials('admin')).toBe('AD');
+    expect(initials('j.gao')).toBe('JG');
+    expect(initials('李雷')).toBe('李');
+    expect(gatewayHost('https://rc.example.com')).toBe('rc.example.com');
+    expect(gatewayHost('http://localhost:8787/')).toBe('localhost:8787');
+    expect(gatewayHost('rc.example.com:8443')).toBe('rc.example.com:8443');
   });
 });
 
+/**
+ * Four groups, in the order the ruling gives them, and nothing else: the About
+ * group and the footnotes are gone, and every row carries its own sentence.
+ */
+describe('settings: the groups', () => {
+  it('names the four groups in order and no others', () => {
+    renderPage();
+
+    expect(captions()).toEqual([
+      strings.settings.account,
+      strings.settings.whileAway,
+      strings.settings.voice,
+      strings.settings.reading,
+    ]);
+    for (const gone of ['About', 'Notifications', 'Sessions', 'Timeline']) {
+      expect(captions()).not.toContain(gone);
+    }
+  });
+
+  it('gives every row a sentence, and hangs no note under a group', () => {
+    renderPage();
+
+    const rows = [...document.querySelectorAll('.settings-row')];
+    expect(rows.length).toBeGreaterThan(5);
+    for (const row of rows) {
+      expect(row.querySelector('.settings-row-title')?.textContent).toBeTruthy();
+      expect(row.querySelector('.settings-row-sentence')?.textContent).toBeTruthy();
+    }
+    expect(document.querySelector('.settings-note')).toBeNull();
+  });
+
+  it('parts two rows by spacing alone, with no rule and no hairline', () => {
+    const css = readFileSync(resolve('src/features/settings/settings.css'), 'utf8');
+
+    expect(css).not.toMatch(/border-top/);
+    expect(css).not.toMatch(/--hairline/);
+    expect(css).not.toMatch(/settings-note/);
+    expect(css).toContain('--row-h-setting');
+  });
+});
 
 /**
- * A24: the Account group names the signed-in account and its role, and carries
- * the rows that account is allowed. The two are independent: Accounts belongs
- * to the admin role, and a password belongs to whoever has one — the gateway
- * refuses the change for the built-in `admin` account alone, whose password is
- * the gateway's own. `docs/DESIGN.md` § "Accounts".
+ * A24: Users belongs to the admin role, a password to whoever has one — the
+ * gateway refuses the change for the built-in `admin` alone — and Sign out asks
+ * before it takes anything away.
  */
 describe('settings: the account', () => {
-  it('shows the username with its role word under it', () => {
-    useAuth.setState({ username: 'alice', role: 'member' });
-    renderPage();
-
-    expect(screen.getByText('alice')).toBeInTheDocument();
-    expect(screen.getByText('Member')).toBeInTheDocument();
-  });
-
   it('offers a member its own password and no accounts screen', () => {
     useAuth.setState({ username: 'alice', role: 'member' });
     renderPage();
 
-    expect(screen.getByRole('button', { name: strings.settings.changePassword })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: strings.settings.changePassword }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: strings.users.title })).not.toBeInTheDocument();
+    expect(screen.getByText(strings.settings.changePasswordNote)).toBeInTheDocument();
   });
 
   it('offers the built-in admin the accounts screen and not a password it cannot change', () => {
@@ -130,9 +176,27 @@ describe('settings: the account', () => {
     renderPage();
 
     expect(screen.getByRole('button', { name: strings.users.title })).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: strings.settings.changePassword }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: strings.settings.changePassword })).toBeInTheDocument();
+  });
+
+  it('asks before signing out, and signs out only on the confirmation', async () => {
+    const user = userEvent.setup();
+    const logout = vi.fn().mockResolvedValue(undefined);
+    useAuth.setState({ logout });
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: strings.settings.signOut }));
+    expect(screen.getByRole('dialog')).toHaveTextContent(strings.settings.signOutConfirm);
+    expect(screen.getByRole('dialog')).toHaveTextContent(strings.settings.signOutNote);
+    expect(logout).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: strings.common.cancel }));
+    expect(logout).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: strings.settings.signOut }));
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: strings.settings.signOut }));
+    await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
   });
 
   it("posts a member's password change to /api/password", async () => {
@@ -169,126 +233,38 @@ describe('settings: the account', () => {
 });
 
 /**
- * A29 — the Voice group carries dictation polish: one switch, the model the
- * gateway's provider offers, and how far the model may go. `docs/DESIGN.md`
- * § "Polishing what you dictated".
+ * "While you're away": the notification that says a session needs you, and
+ * A35's resume. Both are switches like the phone's, and each says in its own
+ * row why it cannot be flipped.
  */
-describe('settings: dictation polish', () => {
-  const models = [
-    { id: 'gpt-4.1-mini', label: 'gpt-4.1-mini' },
-    { id: 'gpt-4.1', label: 'gpt-4.1' },
-  ];
-
-  const gateway = (polishEnabled: boolean) =>
-    useConnection.setState({
-      stt: { enabled: true, languages: ['auto', 'en'] },
-      polish: { enabled: polishEnabled },
-    });
-
-  const answerModels = (status = 200) =>
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify(
-            status === 200 ? { models } : { error: { code: 'upstream', message: 'provider' } },
-          ),
-          { status, headers: { 'content-type': 'application/json' } },
-        ),
-      ),
-    );
-
-  beforeEach(() => {
-    useSettings.setState({ polishEnabled: false, polishModel: '', polishStrength: 'moderate' });
-    answerModels();
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    useConnection.setState({
-      stt: { enabled: false, languages: ['auto'] },
-      polish: { enabled: false },
-    });
-  });
-
-  it('starts off, with no model and the gentler strength', () => {
-    expect(useSettings.getState().polishEnabled).toBe(false);
-    expect(useSettings.getState().polishModel).toBe('');
-    expect(useSettings.getState().polishStrength).toBe('moderate');
-  });
-
-  it('offers the switch and, once it is on, the model and the strength', async () => {
-    const user = userEvent.setup();
-    gateway(true);
-    renderPage();
-
-    const polish = screen.getByRole('switch', { name: strings.settings.polish });
-    expect(polish).toBeEnabled();
-    expect(polish).toHaveAttribute('aria-checked', 'false');
-    expect(screen.getByText(strings.settings.polishNote)).toBeInTheDocument();
-    // Nothing to choose while it is off.
-    expect(screen.queryByRole('button', { name: strings.settings.polishModel })).toBeNull();
-
-    await user.click(polish);
-
-    expect(useSettings.getState().polishEnabled).toBe(true);
-    // The first model the gateway listed is chosen, so the switch is enough.
-    await waitFor(() => expect(useSettings.getState().polishModel).toBe('gpt-4.1-mini'));
-    expect(screen.getByRole('button', { name: strings.settings.polishModel })).toHaveTextContent(
-      'gpt-4.1-mini',
-    );
-
-    await user.click(screen.getByRole('button', { name: strings.settings.polishModel }));
-    await user.click(screen.getByRole('option', { name: 'gpt-4.1' }));
-    expect(useSettings.getState().polishModel).toBe('gpt-4.1');
-
-    await user.click(screen.getByRole('button', { name: strings.settings.polishStrong }));
-    expect(useSettings.getState().polishStrength).toBe('strong');
-  });
-
-  it('keeps the select and says one line when the model list cannot be read', async () => {
-    const user = userEvent.setup();
-    gateway(true);
-    useSettings.setState({ polishEnabled: true, polishModel: 'gpt-4.1' });
-    answerModels(502);
-    renderPage();
-
-    await waitFor(() =>
-      expect(screen.getByText(strings.settings.polishModelsFailed)).toBeInTheDocument(),
-    );
-    const select = screen.getByRole('button', { name: strings.settings.polishModel });
-    expect(select).toHaveTextContent('gpt-4.1');
-    await user.click(select);
-    expect(screen.getByRole('listbox', { name: strings.settings.polishModel })).toBeInTheDocument();
-  });
-
-  it('disables the switch and says why when the gateway has no polish model', () => {
-    gateway(false);
-    renderPage();
-
-    expect(screen.getByRole('switch', { name: strings.settings.polish })).toBeDisabled();
-    expect(screen.getByText(strings.settings.polishServerDisabled)).toBeInTheDocument();
-    expect(screen.queryByText(strings.settings.polishNote)).toBeNull();
-    expect(fetch).not.toHaveBeenCalled();
-  });
-});
-
-/**
- * A35 — the Sessions group. `docs/DESIGN.md` § "Paused by the usage limit": one
- * switch, off until the person turns it on, and the account's rather than this
- * browser's, so it is read from and written to the gateway.
- */
-describe('settings: resume after the limit resets', () => {
+describe("settings: while you're away", () => {
   afterEach(() => {
     usePreferences.setState({ preferences: undefined });
     vi.restoreAllMocks();
   });
 
-  it('draws the switch off with its sentence under it', () => {
+  it('draws notifications as a switch, disabled with the reason this browser has none', async () => {
+    renderPage();
+
+    const toggle = screen.getByRole('switch', { name: strings.settings.notify });
+    await waitFor(() => expect(toggle).toBeDisabled());
+    expect(screen.getByText(strings.settings.pushUnsupported)).toBeInTheDocument();
+    expect(screen.queryByText(strings.settings.notifyNote)).toBeNull();
+  });
+
+  it('says so in the row when the gateway serves no web push', () => {
+    useAuth.setState({ config: config({ push: { web_enabled: false, apns_enabled: true } }) });
+    renderPage();
+
+    expect(screen.getByText(strings.settings.pushServerDisabled)).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: strings.settings.notify })).toBeDisabled();
+    expect(screen.queryByText(strings.settings.pushUnsupported)).toBeNull();
+  });
+
+  it('draws the resume switch off with its sentence under it', () => {
     usePreferences.setState({ preferences: { resume_after_limit: false } });
     renderPage();
 
-    expect(screen.getByRole('heading', { name: strings.settings.sessions })).toBeInTheDocument();
     const toggle = screen.getByRole('switch', { name: strings.settings.resumeAfterLimit });
     expect(toggle).toHaveAttribute('aria-checked', 'false');
     expect(toggle).toBeEnabled();
@@ -321,7 +297,7 @@ describe('settings: resume after the limit resets', () => {
     );
   });
 
-  it('puts the switch back and says so when the gateway refuses', async () => {
+  it('puts the switch back and says so in the row when the gateway refuses', async () => {
     const user = userEvent.setup();
     vi.spyOn(api, 'setPreferences').mockRejectedValue(new Error('nope'));
     usePreferences.setState({ preferences: { resume_after_limit: false } });
@@ -330,18 +306,226 @@ describe('settings: resume after the limit resets', () => {
     await user.click(screen.getByRole('switch', { name: strings.settings.resumeAfterLimit }));
 
     await waitFor(() => expect(screen.getByText(strings.errors.setFailed)).toBeInTheDocument());
+    expect(screen.queryByText(strings.settings.resumeAfterLimitNote)).toBeNull();
     expect(screen.getByRole('switch', { name: strings.settings.resumeAfterLimit })).toHaveAttribute(
       'aria-checked',
       'false',
     );
   });
 
-  it('disables it with a note on a gateway that does not offer it', () => {
+  it('disables it with its reason on a gateway that does not offer it', () => {
     usePreferences.setState({ preferences: undefined });
     renderPage();
 
     expect(screen.getByRole('switch', { name: strings.settings.resumeAfterLimit })).toBeDisabled();
     expect(screen.getByText(strings.settings.resumeUnavailable)).toBeInTheDocument();
     expect(screen.queryByText(strings.settings.resumeAfterLimitNote)).toBeNull();
+  });
+});
+
+/**
+ * A29 — the Voice group: the language dictation is spoken in, and whether a
+ * model tidies it up. A gateway with neither keeps both rows and says so in
+ * them.
+ */
+describe('settings: voice', () => {
+  const models = [
+    { id: 'gpt-4.1-mini', label: 'gpt-4.1-mini' },
+    { id: 'gpt-4.1', label: 'gpt-4.1' },
+  ];
+
+  const gateway = (polishEnabled: boolean) =>
+    useConnection.setState({
+      stt: { enabled: true, languages: ['auto', 'en'] },
+      polish: { enabled: polishEnabled },
+    });
+
+  const answerModels = (status = 200) =>
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify(
+              status === 200 ? { models } : { error: { code: 'upstream', message: 'provider' } },
+            ),
+            { status, headers: { 'content-type': 'application/json' } },
+          ),
+      ),
+    );
+
+  beforeEach(() => {
+    useSettings.setState({ polishEnabled: false, polishModel: '', polishStrength: 'moderate' });
+    answerModels();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    useConnection.setState({
+      stt: { enabled: false, languages: ['auto'] },
+      polish: { enabled: false },
+    });
+  });
+
+  it('keeps the group on a gateway with no speech-to-text, and says so in the row', () => {
+    renderPage();
+
+    expect(captions()).toContain(strings.settings.voice);
+    expect(screen.getByRole('button', { name: strings.settings.voiceLanguage })).toBeDisabled();
+    expect(screen.getByText(strings.settings.voiceServerDisabled)).toBeInTheDocument();
+  });
+
+  it('opens the dictation menu from a click anywhere on the row', async () => {
+    const user = userEvent.setup();
+    gateway(false);
+    renderPage();
+
+    await user.click(screen.getByText(strings.settings.voiceLanguage));
+
+    expect(
+      screen.getByRole('listbox', { name: strings.settings.voiceLanguage }),
+    ).toBeInTheDocument();
+  });
+
+  it('offers the switch and, once it is on, the model and the strength', async () => {
+    const user = userEvent.setup();
+    gateway(true);
+    renderPage();
+
+    const polish = screen.getByRole('switch', { name: strings.settings.polish });
+    expect(polish).toBeEnabled();
+    expect(polish).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText(strings.settings.polishNote)).toBeInTheDocument();
+    // Nothing to choose while it is off.
+    expect(screen.queryByRole('button', { name: strings.settings.polishModel })).toBeNull();
+
+    await user.click(polish);
+
+    expect(useSettings.getState().polishEnabled).toBe(true);
+    // The first model the gateway listed is chosen, so the switch is enough.
+    await waitFor(() => expect(useSettings.getState().polishModel).toBe('gpt-4.1-mini'));
+    expect(screen.getByRole('button', { name: strings.settings.polishModel })).toHaveTextContent(
+      'gpt-4.1-mini',
+    );
+    expect(screen.getByText(strings.settings.polishModelNote)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: strings.settings.polishModel }));
+    await user.click(screen.getByRole('option', { name: 'gpt-4.1' }));
+    expect(useSettings.getState().polishModel).toBe('gpt-4.1');
+
+    await user.click(screen.getByRole('button', { name: strings.settings.polishStrong }));
+    expect(useSettings.getState().polishStrength).toBe('strong');
+  });
+
+  it('keeps the menu and says one line in the row when the model list cannot be read', async () => {
+    const user = userEvent.setup();
+    gateway(true);
+    useSettings.setState({ polishEnabled: true, polishModel: 'gpt-4.1' });
+    answerModels(502);
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByText(strings.settings.polishModelsFailed)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(strings.settings.polishModelNote)).toBeNull();
+    const select = screen.getByRole('button', { name: strings.settings.polishModel });
+    expect(select).toHaveTextContent('gpt-4.1');
+    await user.click(select);
+    expect(screen.getByRole('listbox', { name: strings.settings.polishModel })).toBeInTheDocument();
+  });
+
+  it('disables the switch and says why in the row when the gateway has no polish model', () => {
+    gateway(false);
+    renderPage();
+
+    expect(screen.getByRole('switch', { name: strings.settings.polish })).toBeDisabled();
+    expect(screen.getByText(strings.settings.polishServerDisabled)).toBeInTheDocument();
+    expect(screen.queryByText(strings.settings.polishNote)).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Reading: two choices each, so both are segmented controls in the row rather
+ * than menus. `docs/DESIGN.md` § "The three screens" for the language itself.
+ */
+describe('settings: reading', () => {
+  it('starts in English and at Simple, before anything is rendered', () => {
+    expect(useSettings.getState().language).toBe('en');
+    expect(useSettings.getState().timelineDetail).toBe('simple');
+  });
+
+  it('draws both choices as segments, with their sentences', () => {
+    renderPage();
+
+    const language = screen.getByRole('group', { name: strings.settings.language });
+    const detail = screen.getByRole('group', { name: strings.settings.timelineDetail });
+    expect([...language.querySelectorAll('button')].map((b) => b.textContent)).toEqual([
+      'English',
+      '中文',
+    ]);
+    expect([...detail.querySelectorAll('button')].map((b) => b.textContent)).toEqual([
+      'Simple',
+      'Detailed',
+    ]);
+    expect(screen.getByText(strings.settings.languageNote)).toBeInTheDocument();
+    expect(screen.getByText(strings.settings.timelineDetailNote)).toBeInTheDocument();
+  });
+
+  it('writes the detail level the reader picks', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: 'Detailed' }));
+
+    expect(useSettings.getState().timelineDetail).toBe('detailed');
+    expect(screen.getByRole('button', { name: 'Detailed' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('writes the language the reader picks', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: '中文' }));
+
+    expect(useSettings.getState().language).toBe('zh-Hans');
+  });
+
+  // The app remounts its routes on a language change (`App.tsx`), so what the
+  // screen owes is that it is drawn in the language it is given.
+  it('says the screen and its group captions in 中文', () => {
+    useSettings.setState({ language: 'zh-Hans' });
+    renderPage();
+
+    expect(screen.getByRole('heading', { name: '设置' })).toBeInTheDocument();
+    expect(captions()).toEqual(['账户', '你不在时', '语音', '阅读']);
+    expect(
+      screen.getByText('缓存的会话和草稿将从此设备移除，你的机器不受影响。'),
+    ).toBeInTheDocument();
+  });
+});
+
+/** The line that closes the screen, from the running code and never typed. */
+describe('settings: the versions line', () => {
+  it('says the gateway and the protocol the connection reported', () => {
+    useConnection.setState({ status: 'open', gatewayVersion: '1.5.1', protocol: 1 });
+    renderPage();
+
+    const line = document.querySelector('.settings-versions');
+    expect(line?.textContent).toContain('1.5.1');
+    expect(line?.textContent).toContain('v1');
+    expect(line?.textContent).toBe(strings.settings.versions('1.5.1', 'v1'));
+  });
+
+  it('falls back to what /api/config answered before the socket said hello', () => {
+    useAuth.setState({ version: '1.4.9', protocol: 1 });
+    renderPage();
+
+    expect(document.querySelector('.settings-versions')?.textContent).toBe(
+      strings.settings.versions('1.4.9', 'v1'),
+    );
   });
 });

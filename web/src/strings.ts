@@ -466,53 +466,66 @@ export const en = {
     polishFailed: 'Polishing failed, your words are unchanged',
   },
 
+  /**
+   * `docs/DESIGN.md` § "The Settings screen": four groups, and every row a
+   * title with one sentence under it. A row whose state has something to say
+   * says it in place of that sentence, so none of these is a footnote.
+   */
   settings: {
     title: 'Settings',
     account: 'Account',
-    signedInAs: 'Signed in as',
+    whileAway: "While you're away",
+    voice: 'Voice',
+    reading: 'Reading',
+
+    usersNote: 'Accounts on this gateway, and whether anyone can create one.',
     changePassword: 'Change password',
+    changePasswordNote: 'The current password and the new one.',
     signOut: 'Sign out',
-    notifications: 'Notifications',
-    pushEnable: 'Push notifications',
-    pushDescription: 'Get a notification when an agent needs you or finishes a turn.',
-    pushEnabled: 'On',
-    pushDisabled: 'Off',
-    pushBlocked: 'Blocked in browser settings',
+    signOutNote:
+      'Cached sessions and drafts leave this device. Nothing changes on your machines.',
+    signOutConfirm: 'Sign out of this gateway?',
+
+    notify: 'Notify me',
+    notifyNote: 'Which device and session needs you, and nothing else.',
+    pushBlocked: 'Blocked in browser settings.',
     pushUnsupported: 'This browser does not support push notifications.',
     pushServerDisabled: 'The gateway has web push disabled.',
-    pushEnableAction: 'Enable',
-    pushDisableAction: 'Turn off',
     /** A35: the one switch the account owns, not the browser. */
-    sessions: 'Sessions',
     resumeAfterLimit: 'Resume after the limit resets',
     resumeAfterLimitNote:
       'When Claude Code or Codex stops at a usage limit, the device continues the session a minute after the limit resets.',
     resumeUnavailable: 'Your gateway does not offer this yet.',
-    voice: 'Voice',
-    voiceLanguage: 'Default language',
+
+    voiceLanguage: 'Dictation language',
+    voiceLanguageNote: 'The language you dictate in; Automatic lets the recogniser decide.',
     voiceServerDisabled: 'Speech-to-text is not configured on this gateway.',
     polish: 'Polish dictation with AI',
+    polishNote:
+      "Sends what you dictated and the last few messages to this gateway's model. Nothing is sent while it is off.",
+    polishServerDisabled: 'This gateway has no polish model configured',
     polishModel: 'Model',
+    polishModelNote: 'From the list this gateway serves.',
+    polishModelsFailed: 'The model list could not be loaded.',
+    polishChooseModel: 'Choose a model',
     polishStrength: 'Strength',
+    polishStrengthNote:
+      'Moderate cleans up. Strong also restructures and resolves references.',
     polishModerate: 'Moderate',
     polishStrong: 'Strong',
-    polishChooseModel: 'Choose a model',
-    polishNote:
-      'When this is on, what you dictated and the last few messages of the conversation are sent to the model this gateway is configured with. Nothing is sent while it is off.',
-    polishServerDisabled: 'This gateway has no polish model configured',
-    polishModelsFailed: 'The model list could not be loaded.',
+
     language: 'Language',
-    timeline: 'Timeline',
+    languageNote: "The app's own words only; what the agent wrote stays as written.",
     timelineDetail: 'Detail',
     timelineDetailNote:
       'Simple shows only what is written to you. Detailed adds thinking, tool calls and the task list.',
-    about: 'About',
-    gatewayVersion: 'Gateway version',
-    protocolVersion: 'Protocol',
-    origin: 'Gateway origin',
-    connection: 'Connection',
+
+    /** The caption that closes the screen. The numbers come from the running code. */
+    versions: (gateway: string, protocol: string) =>
+      `Gateway ${gateway} · Protocol ${protocol}`,
+    /** The header dot's word, which is read aloud and shown on hover, never printed. */
     connected: 'Connected',
-    connecting: 'Connecting…',
+    connecting: 'Connecting',
     offline: 'Offline',
   },
 

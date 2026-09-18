@@ -19,8 +19,8 @@
   /* lines */
   --line: #e6e5e1;
   --line-strong: #d6d5d0;
-  /* The only divider inside a soft surface: one hairline between a settings
-     group's two rows. List rows are parted by spacing alone. */
+  /* A bar's edge — the chat header, a page's section break — and never a line
+     between two rows: every list, Settings included, is parted by spacing. */
   --hairline: rgba(17, 17, 17, 0.08);
 
   /* A list row under the pointer, and the stronger step the selected row holds. */
@@ -35,6 +35,9 @@
   --row-h-stacked-tall: 108px;
   /* Three lines of text — a title and two meta lines — with the same breathing room. */
   --row-h-three: 84px;
+  /* A settings row is a floor, not a clip: a sentence that wraps makes its row
+     taller and moves nothing at the widths where it does not wrap. */
+  --row-h-setting: 56px;
 
   /* ink */
   --ink: #111111;

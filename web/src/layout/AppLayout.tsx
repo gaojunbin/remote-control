@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router';
 import { cx } from '../lib/cx';
+import { gatewayHost, initials } from '../lib/identity';
 import { strings } from '../strings';
 import { useAuth } from '../stores/auth';
 import { useConnection } from '../stores/connection';
@@ -20,7 +21,6 @@ export function AppLayout() {
   const username = useAuth((s) => s.username);
   const status = useConnection((s) => s.status);
   const origin = config?.public_origin ?? window.location.host;
-  const initials = (username ?? '?').slice(0, 2).toUpperCase();
 
   return (
     <div className="shell">
@@ -49,10 +49,10 @@ export function AppLayout() {
               </span>
             ) : null}
             <span className="origin mono" title={origin}>
-              {stripScheme(origin)}
+              {gatewayHost(origin)}
             </span>
             <span className="avatar" aria-hidden>
-              {initials}
+              {initials(username ?? '?')}
             </span>
           </div>
         </div>
@@ -62,8 +62,4 @@ export function AppLayout() {
       </main>
     </div>
   );
-}
-
-function stripScheme(origin: string): string {
-  return origin.replace(/^https?:\/\//, '');
 }
