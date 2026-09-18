@@ -42,7 +42,7 @@ page's own canvas. The composer sits at the bottom with the model card (model, e
 one control), the permission-mode picker and the voice language picker on a row beneath it.
 
 **Settings** holds the account, notifications, voice, the timeline detail, the app lock, and the
-interface language. **Language** offers English and 中文 and defaults to English whatever the
+interface language, in the shape § "The Settings screen" gives it. **Language** offers English and 中文 and defaults to English whatever the
 system language is; it changes the app's own words only — menus, buttons, captions, status lines,
 placeholders, accessible names — and applies the moment it is chosen, on every screen that is open.
 What the agent wrote, what the device reported (its name, a path, a branch, a model id, a permission
@@ -200,6 +200,60 @@ now three lines, on both apps:
   laptop before a device (§ "The device row"): a 1.5-unit stroke on the 24-unit grid, round caps
   and joins, no fill, in the ink. The web uses lucide's; iOS draws the same path (`FolderGlyph`).
 
+### The Settings screen
+
+The owner's ruling (2026-09-18): Settings is drawn to the rules the device and session rows
+arrived at — few edges, spacing instead of lines, one rhythm — and reads in a screen and a half
+rather than three. The same shape on both apps.
+
+**A header says who and where.** The screen opens with an identity header on the canvas, not a
+card: a 44 px circle in the ink carrying the username's initials in the inverse ink, the username
+beside it in the title weight, and one meta line under it, `role · host` — "Admin · rc.example.com"
+— with the connection's dot before the host. The host is the gateway origin without its scheme,
+truncated in the middle; the demo says "Demo". The dot takes the state palette: green while
+connected, pulsing amber while connecting, syncing or reconnecting, grey while the link is down,
+red when the gateway refused it (expired, forbidden, superseded, incompatible); the word for it —
+Connected, Connecting, Offline, Refused — is the accessibility label and the web's tooltip, never
+printed. The header replaces the rows Gateway, Signed in as, Connection and Gateway version.
+
+**Four groups, each named for the question it answers**, in this order, then the versions:
+
+| Group | Rows (title, then the sentence under it) |
+| --- | --- |
+| **Account** | **Users** (admin role) — "Accounts on this gateway, and whether anyone can create one." · **Change password** (every account but the built-in `admin`) — "The current password and the new one." · **Sign out** — "Cached sessions and drafts leave this device. Nothing changes on your machines." |
+| **While you're away** | **Notify me** — "Which device and session needs you, and nothing else." · **Resume after the limit resets** (A35) — "When Claude Code or Codex stops at a usage limit, the device continues the session a minute after the limit resets." |
+| **Voice** | **Transcribe** (iOS) — the chosen backend's own sentence · **Dictation language** — "The language you dictate in; Automatic lets the recogniser decide." · **Polish dictation with AI** — "Sends what you dictated and the last few messages to this gateway's model. Nothing is sent while it is off." · while it is on, **Model** — "From the list this gateway serves." and **Strength** — "Moderate cleans up. Strong also restructures and resolves references." |
+| **Reading** | **Language** — "The app's own words only; what the agent wrote stays as written." · **Detail** — "Simple shows only what is written to you. Detailed adds thinking, tool calls and the task list." |
+| **Security** (iOS) | **Require Face ID** — "Unlock with Face ID, Touch ID or your passcode when the app returns from the background." |
+
+The versions close the screen as one caption line in the tertiary ink, centred, and not a group:
+`Remote Control 1.5.1 · Gateway 1.5.0 · Protocol v1` on the phone, `Gateway 1.5.0 · Protocol v1`
+on the web (the browser has no version of its own), with **Diagnostics** as a text button beside
+it on the phone. There is no About group. In 中文 the group captions read 账户 · 你不在时 · 语音 ·
+阅读 · 安全, and the product names and numbers stay as they are.
+
+**A row is two lines and no rule.** Every row is a title in the label weight with one sentence
+under it in the secondary ink at 12–13 px, and the control at the trailing edge, vertically
+centred on the two lines. The rows of a group sit on one soft surface with no hairline between
+them; the row's height is a floor (56 px on the web), not a clip, so a sentence that wraps once on
+the narrowest phone makes its row taller and moves nothing at the widths where it does not wrap.
+The footnote under a group is gone: its sentence is in the row. A row whose state has something to
+say — the system blocked notifications, this gateway has no polish model or no transcription
+service, the model list could not be loaded, the gateway refused the change or does not offer the
+switch — says it in that second line in place of the sentence, in the same ink, and its control is
+disabled where it can do nothing. Nothing is drawn as a separate element for a state.
+
+**Controls by the shape of the choice.** Two options are a segmented control in the row (Language,
+Detail) on both apps. More than two are a menu showing the chosen word (Dictation language, Model,
+Transcribe). On or off is a switch — the web's notifications row is a switch like the phone's, not
+a button. On the web the whole row is the target: a click anywhere on it opens the menu or flips
+the switch. On the phone a menu row already is, and a switch row keeps the system's behaviour; the
+one exception is the Notify me row while iOS has blocked notifications, whose tap opens iOS
+Settings, as its sentence says: "Blocked in iOS Settings. Tap to open them."
+
+**Asking before signing out, on both apps.** Sign out asks "Sign out of this gateway?" with the
+row's own sentence as the explanation and Sign out / Cancel; the web had signed out on the click.
+
 ## The terminal
 
 A machine you are not at sometimes needs a shell command, not an agent (owner's ruling,
@@ -258,10 +312,11 @@ in instead" beneath. Creating an account signs it in. The username rules are the
 (lower-case letters, digits, `.`, `_`, `-`; 3 to 32 characters) and the form says so only when a
 name is refused; a password is 8 characters or more.
 
-**Account, in Settings.** The Account group shows the username with the role word under it —
-Admin or Member — then **Change password** (members only: the current password and the new one,
-in a modal on the web and a sheet on the phone), then **Sign out**. An admin has one more row,
-**Users**, which opens the accounts screen.
+**Account, in Settings.** The header at the top of Settings says who is signed in and as what —
+the username, then `role · host`, Admin or Member — and the Account group under it holds the rows
+the account has: **Users** for the admin role (the accounts screen), **Change password** for every
+account but the built-in `admin` (the current password and the new one, in a modal on the web and a
+sheet on the phone), then **Sign out**, which asks first on both apps (§ "The Settings screen").
 
 **Users** is the admin's screen and nobody else's; a member never sees the row, and typing the
 web address lands on Sessions. At the top is one switch, **Registration**, with the caption
@@ -403,10 +458,12 @@ The app is one canvas, not a stack of boxes. These rules hold on every screen in
 - **Lists, not tables.** Device and session rows are list rows: no column rules, no header row, and
   no hairlines between rows. Every row has the same fixed height, so spacing alone separates them,
   and the pointer resting on a row tints it one step off the surface (`--hover`, below); the selected
-  row holds a slightly stronger tint. Hairlines are for settings groups only.
-- **Settings** read like macOS System Settings: a caption above each group, one soft surface with
-  label-left / control-right rows inside, generous inset padding, and an explanation as a small
-  footnote under the group rather than inside it. No fieldsets, no card inside a card.
+  row holds a slightly stronger tint. Settings rows follow the same rule (§ "The Settings screen");
+  a hairline is a bar's edge, never a line between two rows.
+- **Settings** read like the lists: a caption above each group, one soft surface with two-line rows
+  inside — a title, one sentence under it in the secondary ink, the control at the trailing edge —
+  no hairline between the rows and no footnote under the group. No fieldsets, no card inside a
+  card. § "The Settings screen" has the groups, the rows and their words.
 - **Chips and badges** are text-only or tinted pills. Nothing is outlined. Status is an 8 px dot plus
   a word, coloured from the state palette below.
 - **Type carries the hierarchy.** Row and section titles are 15–17 px semibold, meta is 12–13 px in
@@ -824,7 +881,7 @@ the transition arrives, so the alert appears whether or not the gateway can push
 screen the person has left the phone open on. The words are the status vocabulary above — "Turn
 finished", "Needs your approval", "Waiting for your answer", "Errored" — under the device's name, and
 the payload is the push's own shape: identifiers and one generic sentence, never the agent's words.
-Tapping the banner opens the session. The Notifications switch in Settings is the one switch for
+Tapping the banner opens the session. The Notify me switch in Settings is the one switch for
 both kinds, and the system permission it asks for covers both. A remote push for a transition the app
 has already announced is not shown a second time while the app is in the foreground and connected.
 Foreground only, by design: a suspended app cannot watch the stream, and the gateway's push is the
@@ -844,9 +901,10 @@ the agent's bubble, and the work waited for someone to notice. The owner's rulin
 A35): **a session the limit stopped resumes itself when the limit resets, if the person has said
 so once, and the person can see and end every such resume where the session is.**
 
-- **One switch, on the account.** Settings gains a "Sessions" group with one switch, "Resume after
-  the limit resets", and one sentence under it: "When Claude Code or Codex stops at a usage limit,
-  the device continues the session a minute after the limit resets." It is off until the person
+- **One switch, on the account.** The "While you're away" group of Settings holds one switch,
+  "Resume after the limit resets", with one sentence under its title: "When Claude Code or Codex
+  stops at a usage limit, the device continues the session a minute after the limit resets." It is
+  off until the person
   turns it on, and it is the account's, not the phone's: the gateway keeps it, so the browser, the
   phone and every device read the same value, and turning it off anywhere cancels every pending
   resume everywhere. A gateway that predates the switch shows it disabled with "Your gateway does
@@ -917,7 +975,7 @@ says so in one line, and brings Send back too. When the gateway
 has no polish service the switch is shown disabled with a note saying so, and dictation is untouched.
 The conversation the model sees is what the app already shows — the last few user and assistant
 messages, trimmed — and it goes to the operator's provider only when the switch is on, which the
-Settings footer says in plain words.
+row's own sentence says in plain words.
 
 ### The screen stays awake in a conversation
 
@@ -961,7 +1019,7 @@ but the design was not reviewed in dark mode.
 | Canvas | `#F5F5F4` | The page |
 | Surface | `#FFFFFF` | Cards, sheets, rows |
 | Line | `#E6E5E1` | Field and modal edges |
-| Hairline | `rgba(17,17,17,.08)` | The one divider between two rows inside a settings group |
+| Hairline | `rgba(17,17,17,.08)` | A bar's edge — the chat header, a page's section break — never a line between two rows |
 | Hover | `rgba(17,17,17,.04)` | A list row under the pointer; the selected row uses `.07` |
 | Ink | `#111111` | Primary text, and the primary button fill |
 | Ink secondary | `#6B6B6B` | Metadata |
