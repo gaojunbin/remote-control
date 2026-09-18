@@ -59,6 +59,13 @@ export type PushFrame =
   | { type: 'pairing.progress'; code: string; step: PairingStep; device?: Device }
   // A35: the account's preferences changed, from this app or another one.
   | { type: 'preferences.updated'; preferences: Preferences }
+  // A38: bytes one terminal produced, for the single app connection holding it.
+  // The device's `to` never reaches an app; the gateway strips it and stamps
+  // `device_id` instead. `seq` starts at 1 and rises by one per frame, so a
+  // jump is a gap and not a pause.
+  | { type: 'terminal.output'; terminal_id: string; device_id: string; seq: number; data: string }
+  // A38: that shell ended and the id is free.
+  | { type: 'terminal.exited'; terminal_id: string; device_id: string; code: number }
   | { type: 'ping' };
 
 export type ServerFrame = PushFrame | Reply;
@@ -150,6 +157,22 @@ export interface CommandsResult {
   commands: Command[];
 }
 
+/** A38: the shell is running; every frame for it now names this connection. */
+export interface TerminalOpenResult {
+  terminal_id: string;
+}
+
+/**
+ * A38: output comes to this connection from now on, and `scrollback` is base64
+ * of the last 64 KiB the terminal produced — the screen as it was left.
+ */
+export interface TerminalAttachResult {
+  terminal_id: string;
+  cols: number;
+  rows: number;
+  scrollback: string;
+}
+
 /** Request type -> (params, result) mapping used by the typed socket client. */
 export interface RequestMap {
   'session.subscribe': [{ session_id: string; since_seq?: number }, SubscribeResult];
@@ -213,6 +236,22 @@ export interface RequestMap {
   'device.agents': [{ device_id: string }, AgentsResult];
   /** A22: bring the device to the build the gateway serves. */
   'device.update': [{ device_id: string; build: string }, UpdateAcceptedResult];
+  /**
+   * A38: start the person's login shell in a pseudo-terminal of this size.
+   * `unsupported` when the device offers no terminal, `conflict` at the fifth.
+   */
+  'terminal.open': [{ device_id: string; cols: number; rows: number }, TerminalOpenResult];
+  /** A38: bytes as typed, base64, at most 64 KiB decoded. */
+  'terminal.input': [{ device_id: string; terminal_id: string; data: string }, Record<string, never>];
+  /** A38: 1-500 columns, 1-200 rows. */
+  'terminal.resize': [
+    { device_id: string; terminal_id: string; cols: number; rows: number },
+    Record<string, never>,
+  ];
+  /** A38: take a detached terminal over, with the screen it was left on. */
+  'terminal.attach': [{ device_id: string; terminal_id: string }, TerminalAttachResult];
+  /** A38: end the shell. Idempotent. */
+  'terminal.close': [{ device_id: string; terminal_id: string }, Record<string, never>];
 }
 
 export type RequestType = keyof RequestMap;

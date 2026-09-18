@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { Suspense, lazy, useCallback, useEffect } from 'react';
 import { Route, Routes, useLocation, useNavigate } from 'react-router';
 import { AppLayout } from './layout/AppLayout';
 import { Landing } from './layout/Landing';
@@ -15,6 +15,15 @@ import { useAuth } from './stores/auth';
 import { useConnection } from './stores/connection';
 import { signOut } from './stores/signOut';
 import { readSettingsFor, useSettings } from './stores/settings';
+
+/**
+ * A38: xterm.js is a third of a megabyte, and most opens of this app never
+ * reach a terminal. The page is fetched when a device row is tapped, so the
+ * boot bundle is the one it was before the emulator arrived.
+ */
+const TerminalPage = lazy(() =>
+  import('./features/devices/TerminalPage').then((m) => ({ default: m.TerminalPage })),
+);
 
 export function App() {
   const status = useAuth((s) => s.status);
@@ -83,6 +92,15 @@ export function App() {
     <Routes key={language}>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/sessions/:deviceId/:sessionId" element={<ChatPage />} />
+      {/* A38: a shell on one device, full screen — the emulator wants the page. */}
+      <Route
+        path="/devices/:deviceId/terminal"
+        element={
+          <Suspense fallback={<div className="boot" aria-busy="true" />}>
+            <TerminalPage />
+          </Suspense>
+        }
+      />
       <Route element={<AppLayout />}>
         <Route path="/devices" element={<DevicesPage />} />
         {/* A33: one device, its agents, how each is signed in and its quota. */}

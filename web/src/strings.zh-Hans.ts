@@ -124,14 +124,30 @@ export const zhHans: StringTable = {
         ? `将 ${name} 更新到网关提供的客户端？它的服务会重启，由它驱动的会话会被停止。`
         : `将 ${name} 更新到 ${version}？它的服务会重启，由它驱动的会话会被停止。`,
     updateConfirm: '更新设备',
-    updateOffline: '此设备当前离线。',
+    deviceOffline: '此设备已离线。',
     updateNoBuild: '本网关未提供客户端安装包。',
+    showQuota: '显示额度',
+    noTerminal: '此设备不提供终端。',
     revokeTitle: '吊销设备',
     revokeBody: (name: string) =>
       `吊销 ${name}？它的令牌会失效，它的会话也会离开本网关。机器上的 agent 和记录都会保留。`,
     revokeConfirm: '吊销设备',
     noAgents: '未检测到 agent',
     online: '在线',
+  },
+
+  terminal: {
+    title: '终端',
+    back: '设备',
+    connecting: '连接中',
+    connected: '已连接',
+    disconnected: '已断开',
+    reconnect: '重新连接',
+    exited: 'Shell 已退出',
+    exitedCode: (code: number) => `Shell 已退出（${code}）`,
+    newShell: '新建 Shell',
+    gap: '部分输出已丢失。',
+    gone: '该设备已不在这里。',
   },
 
   devicePage: {

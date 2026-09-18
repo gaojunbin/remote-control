@@ -11,6 +11,7 @@ import { useChat } from './chat';
 import { useDevices } from './devices';
 import { usePreferences } from './preferences';
 import { useSessions } from './sessions';
+import { pushTerminalFrame } from './terminal';
 
 export interface PairingProgress {
   code: string;
@@ -126,6 +127,13 @@ function handleFrame(frame: PushFrame, set: Setter): void {
       return;
     case 'preferences.updated':
       usePreferences.getState().apply(frame.preferences);
+      return;
+    // A38: bytes and the shell's end, for the one terminal page that asked.
+    // The gateway sends them to this connection alone, so there is nobody to
+    // fan them out to; the feed hands them straight to whoever is open.
+    case 'terminal.output':
+    case 'terminal.exited':
+      pushTerminalFrame(frame);
       return;
     case 'pairing.progress':
       set({

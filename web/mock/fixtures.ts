@@ -429,6 +429,9 @@ export const devices: Device[] = [
     last_seen: now,
     created_at: minutes(60 * 24 * 9),
     latency_ms: 18,
+    // A38: the device with a shell, so the row's tap and the terminal page can
+    // both be driven here.
+    terminal: true,
     // A25: the one device that knows all four, so the picker, the card and a
     // session of each can be seen in development.
     agents: macAgents.map(withoutLimits),
@@ -449,6 +452,9 @@ export const devices: Device[] = [
     last_seen: minutes(2),
     created_at: minutes(60 * 24 * 30),
     latency_ms: 42,
+    // A38: the capability is off in this machine's configuration, so its row
+    // says so instead of opening anything.
+    terminal: false,
     // A28: Grok is installed here too, but this machine's config never turned
     // the leader on, so its terminal sessions are watched rather than attached.
     agents: ciAgents.map(withoutLimits),

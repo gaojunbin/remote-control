@@ -19,6 +19,7 @@ import { useDrafts } from './drafts';
 import { useOutbox } from './outbox';
 import { usePreferences } from './preferences';
 import { useSessions } from './sessions';
+import { resetTerminals } from './terminal';
 import { useUsers } from './users';
 
 export function signOut(): void {
@@ -33,4 +34,7 @@ export function signOut(): void {
   useDevices.getState().reset();
   useUsers.getState().reset();
   usePreferences.getState().reset();
+  // A38: the ids of this account's detached shells, so the next person in the
+  // browser attaches to none of them.
+  resetTerminals();
 }

@@ -16,6 +16,7 @@ import { useDrafts } from '../src/stores/drafts';
 import { useOutbox } from '../src/stores/outbox';
 import { useSessions } from '../src/stores/sessions';
 import { signOut } from '../src/stores/signOut';
+import { rememberTerminal, rememberedTerminal } from '../src/stores/terminal';
 import { useUsers } from '../src/stores/users';
 import { emptyTimeline } from '../src/stores/timeline';
 import type { QuestionEvent } from '../src/protocol/types';
@@ -85,6 +86,9 @@ function fillStores(): void {
   useSessions.setState({ sessions: {}, loaded: true, agentFilter: 'codex' });
   useDevices.setState({ devices: [], loaded: true, updateErrors: { 'dev-a': 'busy' } });
   useUsers.setState({ users: [], registrationOpen: true, loaded: true, error: null });
+  // A38: the shell this account left detached on a device. The next person in
+  // the browser must not attach to it.
+  rememberTerminal('dev-a', 'term-a');
 }
 
 beforeEach(() => {
@@ -103,6 +107,7 @@ describe('signing out', () => {
     expect(useSessions.getState().sessions).toEqual({});
     expect(useDevices.getState().updateErrors).toEqual({});
     expect(useUsers.getState().registrationOpen).toBe(false);
+    expect(rememberedTerminal('dev-a')).toBeNull();
   });
 
   it('puts the gateway’s capabilities back to what no hello has confirmed', () => {

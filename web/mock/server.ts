@@ -60,6 +60,7 @@ import {
 } from './script';
 import { ServedSends, needsResync, replayFor } from './replay';
 import { dirEntries, makeDir } from './dirs';
+import { FakeShell } from './shell';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const PASSWORD = process.env.RC_PASSWORD ?? 'dev';
@@ -89,6 +90,10 @@ const state = {
   held: new Map<string, { block_id: string; text: string; queued_id: string }[]>(),
   /** A12: what each `session.send` request id was already answered with. */
   served: new ServedSends(),
+  /** A38: the shells this mock is running, by terminal id. */
+  terminals: new Map<string, FakeShell>(),
+  /** A38: the ten minutes a detached shell is kept, by terminal id. */
+  detached: new Map<string, NodeJS.Timeout>(),
 };
 
 seedAccounts(PASSWORD);
@@ -136,6 +141,8 @@ interface AppConn {
   /** A24: the account this socket signed in as. */
   username: string;
   subscriptions: Set<string>;
+  /** A38: the terminals this connection holds, which it loses when it closes. */
+  terminals: Set<string>;
 }
 
 const conns = new Set<AppConn>();
@@ -889,7 +896,12 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 function onAppSocket(socket: WebSocket, account: Account): void {
-  const conn: AppConn = { socket, username: account.username, subscriptions: new Set() };
+  const conn: AppConn = {
+    socket,
+    username: account.username,
+    subscriptions: new Set(),
+    terminals: new Set(),
+  };
   conns.add(conn);
 
   send(socket, {
@@ -922,6 +934,10 @@ function onAppSocket(socket: WebSocket, account: Account): void {
   socket.on('close', () => {
     clearInterval(ping);
     conns.delete(conn);
+    // A38: the gateway's `terminal.detach` — the shell keeps running, with its
+    // scrollback, for ten minutes, and any socket of the account may attach.
+    for (const terminalId of conn.terminals) detachTerminal(terminalId);
+    conn.terminals.clear();
   });
 }
 
@@ -936,6 +952,69 @@ const replySend = (conn: AppConn, id: unknown, sessionId: string, result: unknow
   state.served.record(sessionId, id, result);
   reply(conn, id, result);
 };
+
+/* ------------------------------------------------------------- A38 terminals */
+
+/** §7.3: four shells per device, and ten minutes for a detached one. */
+const MAX_TERMINALS = 4;
+const DETACH_MS = 10 * 60_000;
+
+const promptFor = (device: Device): string =>
+  device.platform === 'macos' ? `me@${device.name} ~ % ` : `ci@${device.name}:~$ `;
+
+/** A column or row count the schema would accept, or null. */
+function extent(value: unknown, max: number): number | null {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return null;
+  return value >= 1 && value <= max ? value : null;
+}
+
+const sinkFor = (conn: AppConn, deviceId: string, terminalId: string) => ({
+  output: (data: string, seq: number) =>
+    send(conn.socket, {
+      type: 'terminal.output',
+      terminal_id: terminalId,
+      device_id: deviceId,
+      seq,
+      data,
+    }),
+  exited: (code: number) => {
+    send(conn.socket, {
+      type: 'terminal.exited',
+      terminal_id: terminalId,
+      device_id: deviceId,
+      code,
+    });
+    forgetTerminal(terminalId);
+  },
+});
+
+function forgetTerminal(terminalId: string): void {
+  const timer = state.detached.get(terminalId);
+  if (timer) clearTimeout(timer);
+  state.detached.delete(terminalId);
+  state.terminals.delete(terminalId);
+  for (const conn of conns) conn.terminals.delete(terminalId);
+}
+
+/** The gateway's `terminal.detach`: the shell lives on, with nobody watching. */
+function detachTerminal(terminalId: string): void {
+  const shell = state.terminals.get(terminalId);
+  if (!shell) return;
+  shell.detach();
+  const timer = setTimeout(() => {
+    shell.close(0);
+    forgetTerminal(terminalId);
+  }, DETACH_MS);
+  timer.unref();
+  state.detached.set(terminalId, timer);
+}
+
+/** The shell this request names, when the caller may have it. */
+function terminalOf(conn: AppConn, frame: Record<string, unknown>): FakeShell | null {
+  const shell = state.terminals.get(String(frame.terminal_id ?? ''));
+  if (!shell || shell.deviceId !== String(frame.device_id ?? '')) return null;
+  return conn.terminals.has(String(frame.terminal_id ?? '')) ? shell : null;
+}
 
 function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
   const id = frame.id;
@@ -1431,6 +1510,87 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
         device.update_message = null;
         broadcast({ type: 'device.updated', device });
       }, 6_000);
+      return;
+    }
+
+    // A38 §7.3: the person's login shell in a pseudo-terminal, streamed to the
+    // one connection that asked for it and to nobody else.
+    case 'terminal.open': {
+      const device = state.devices.find((d) => d.device_id === deviceId);
+      if (!device) return replyError(conn, id, 'not_found', 'no such device');
+      if (!device.online) return replyError(conn, id, 'device_offline', 'the device is offline');
+      if (device.terminal !== true) {
+        return replyError(conn, id, 'unsupported', 'this device offers no terminal');
+      }
+      const cols = extent(frame.cols, 500);
+      const rows = extent(frame.rows, 200);
+      if (cols === null || rows === null) return replyError(conn, id, 'bad_request', 'bad size');
+      const running = [...state.terminals.values()].filter(
+        (shell) => shell.deviceId === deviceId && shell.running,
+      );
+      if (running.length >= MAX_TERMINALS) {
+        return replyError(conn, id, 'conflict', 'this device already runs four terminals');
+      }
+      const terminalId = randomUUID();
+      const shell = new FakeShell(deviceId, promptFor(device), cols, rows);
+      state.terminals.set(terminalId, shell);
+      conn.terminals.add(terminalId);
+      shell.attach(sinkFor(conn, deviceId, terminalId));
+      reply(conn, id, { terminal_id: terminalId });
+      shell.greet();
+      return;
+    }
+
+    case 'terminal.input': {
+      const shell = terminalOf(conn, frame);
+      if (!shell) return replyError(conn, id, 'not_found', 'no such terminal');
+      const data = String(frame.data ?? '');
+      if (Buffer.byteLength(data, 'base64') > 64 * 1024) {
+        return replyError(conn, id, 'too_large', 'at most 64 KiB per write');
+      }
+      reply(conn, id, {});
+      shell.input(data);
+      return;
+    }
+
+    case 'terminal.resize': {
+      const shell = terminalOf(conn, frame);
+      if (!shell) return replyError(conn, id, 'not_found', 'no such terminal');
+      const cols = extent(frame.cols, 500);
+      const rows = extent(frame.rows, 200);
+      if (cols === null || rows === null) return replyError(conn, id, 'bad_request', 'bad size');
+      shell.resize(cols, rows);
+      reply(conn, id, {});
+      return;
+    }
+
+    // §7.3: output moves to this connection, with the screen it was left on.
+    case 'terminal.attach': {
+      const terminalId = String(frame.terminal_id ?? '');
+      const shell = state.terminals.get(terminalId);
+      if (!shell || shell.deviceId !== deviceId || !shell.running) {
+        return replyError(conn, id, 'not_found', 'no such terminal');
+      }
+      const timer = state.detached.get(terminalId);
+      if (timer) clearTimeout(timer);
+      state.detached.delete(terminalId);
+      for (const other of conns) other.terminals.delete(terminalId);
+      conn.terminals.add(terminalId);
+      shell.attach(sinkFor(conn, deviceId, terminalId));
+      reply(conn, id, {
+        terminal_id: terminalId,
+        cols: shell.cols,
+        rows: shell.rows,
+        scrollback: shell.scrollback,
+      });
+      return;
+    }
+
+    // §7.3: ends the shell, and says so again when it was already gone.
+    case 'terminal.close': {
+      const shell = state.terminals.get(String(frame.terminal_id ?? ''));
+      reply(conn, id, {});
+      shell?.close(0);
       return;
     }
 
