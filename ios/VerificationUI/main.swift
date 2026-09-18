@@ -1295,6 +1295,54 @@ func run() async -> (passed: Int, failures: [String]) {
     equal(QuotaWindow.band(usedPercent: 80.5), .warning, "past it the meter warns")
     equal(QuotaWindow.band(usedPercent: 100), .danger, "and a spent window is the danger colour")
 
+    // MARK: - Amendment A37: a folder made where a session will work
+    //
+    // The picker sends `device.mkdir` for the directory on screen and stands in
+    // whatever comes back. What decides the screen is here: the listing a made
+    // folder answers with, the parent that now holds it, and the two refusals
+    // the alert has words for.
+    if let channel = model.connection.channel {
+        let made = try? await channel.request(
+            .mkdir(deviceID: DemoFixtures.macDeviceID, path: "/Users/me/dev", name: "round-41"),
+            as: DirectoryListing.self)
+        equal(made?.path, "/Users/me/dev/round-41", "the reply stands in the folder that was made")
+        equal(made?.parent, "/Users/me/dev", "under the directory it was made in")
+        equal(made?.entries.count, 0, "and it is empty, so Select picks a folder with nothing in it")
+        equal(made?.recent.isEmpty, false, "with the recents `device.dirs` would have sent")
+
+        let parent = try? await channel.request(
+            .dirs(deviceID: DemoFixtures.macDeviceID, path: "/Users/me/dev"),
+            as: DirectoryListing.self)
+        expect(parent?.entries.contains { $0.name == "round-41" } ?? false,
+               "and browsing back up lists it where it was made")
+
+        do {
+            _ = try await channel.request(
+                .mkdir(deviceID: DemoFixtures.macDeviceID, path: "/Users/me/dev", name: "round-41"),
+                as: DirectoryListing.self)
+            expect(false, "a second folder of that name is refused")
+        } catch let error as GatewayErrorBody {
+            equal(error.code, .conflict, "with the code the alert reads")
+            equal(DirectoryError.makeFolder(error), "A folder with that name already exists.",
+                  "which the app says in its own words rather than repeating a path")
+        } catch {
+            expect(false, "a clash is refused by the gateway, not by the transport")
+        }
+
+        do {
+            _ = try await channel.request(
+                .mkdir(deviceID: DemoFixtures.macDeviceID, path: "/Users/me/dev", name: ".hidden"),
+                as: DirectoryListing.self)
+            expect(false, "a name the rules do not allow is refused")
+        } catch let error as GatewayErrorBody {
+            equal(error.code, .badRequest, "as a bad request")
+            equal(DirectoryError.makeFolder(error), error.message,
+                  "and there the device's own sentence is what the reader is shown")
+        } catch {
+            expect(false, "a bad name is refused by the gateway, not by the transport")
+        }
+    }
+
     // MARK: - The interface language
 
     let languageDefaults = UserDefaults(suiteName: "rc-ui-verify-\(UUID().uuidString)")!

@@ -750,6 +750,19 @@ enum ProtocolChecks {
                 }
             }
         }
+        // Amendment A37: a made folder answers with its own listing, which is
+        // empty and stands under the directory it was made in.
+        if let json = FixtureSource.json("app/reply.device.mkdir.json"), let result = json["result"] {
+            checks.noThrow("a made directory's listing decodes") {
+                let listing = try result.decode(DirectoryListing.self)
+                guard listing.entries.isEmpty,
+                      let parent = listing.parent,
+                      listing.path == "\(parent)/\(URL(fileURLWithPath: listing.path).lastPathComponent)"
+                else {
+                    throw ProtocolFailure.malformed("made directory listing")
+                }
+            }
+        }
         if let json = FixtureSource.json("app/reply.device.git.json"), let result = json["result"] {
             checks.noThrow("a git status decodes") { _ = try result.decode(GitStatus.self) }
         }
@@ -1143,6 +1156,13 @@ enum ProtocolChecks {
         if let dirs = FixtureSource.json("app/device.dirs.json")?.objectValue {
             compare(GatewayRequest.dirs(deviceID: dirs.string("device_id") ?? "", path: dirs.string("path")),
                     with: "app/device.dirs.json")
+        }
+        // Amendment A37: the three fields the device needs to make one folder.
+        if let mkdir = FixtureSource.json("app/device.mkdir.json")?.objectValue {
+            compare(GatewayRequest.mkdir(deviceID: mkdir.string("device_id") ?? "",
+                                         path: mkdir.string("path") ?? "",
+                                         name: mkdir.string("name") ?? ""),
+                    with: "app/device.mkdir.json")
         }
         if let git = FixtureSource.json("app/device.git.json")?.objectValue {
             compare(GatewayRequest.git(deviceID: git.string("device_id") ?? "", path: git.string("path") ?? ""),

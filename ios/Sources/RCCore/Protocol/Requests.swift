@@ -262,6 +262,16 @@ extension GatewayRequest {
         return GatewayRequest(type: "device.dirs", body: body)
     }
 
+    /// Amendment A37: make one directory, `name`, inside `path` — a directory
+    /// the device listed. The reply is the new directory's own listing, as
+    /// `device.dirs` would answer it, so the picker stands in it at once.
+    public static func mkdir(deviceID: String, path: String, name: String) -> GatewayRequest {
+        GatewayRequest(type: "device.mkdir",
+                       body: ["device_id": .string(deviceID),
+                              "path": .string(path),
+                              "name": .string(name)])
+    }
+
     public static func git(deviceID: String, path: String) -> GatewayRequest {
         GatewayRequest(type: "device.git", body: ["device_id": .string(deviceID), "path": .string(path)])
     }

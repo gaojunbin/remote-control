@@ -900,20 +900,6 @@ public enum DemoFixtures {
         }
     }
 
-    public static var directoryListing: DirectoryListing {
-        DirectoryListing(
-            path: "/Users/me/dev", parent: "/Users/me",
-            entries: [
-                DirectoryEntry(name: "remote-control", path: "/Users/me/dev/remote-control", isGit: true),
-                DirectoryEntry(name: "gateway", path: "/Users/me/dev/gateway", isGit: true),
-                DirectoryEntry(name: "notes", path: "/Users/me/dev/notes", isGit: false)
-            ],
-            recent: [
-                RecentDirectory(path: "/Users/me/dev/remote-control/gateway", lastUsed: now - 7_200_000),
-                RecentDirectory(path: "/Users/me/dev/remote-control/web", lastUsed: now - 86_400_000)
-            ])
-    }
-
     public static func config(minimumAppVersion: String = AppBuild.version) -> GatewayConfig {
         GatewayConfig(publicOrigin: "https://demo.remote-control.invalid",
                       stt: STTConfig(enabled: true, languages: ["auto", "en", "zh"]),

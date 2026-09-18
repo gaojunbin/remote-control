@@ -528,6 +528,23 @@
         }
       }
     },
+    "A folder with that name already exists.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A folder with that name already exists."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已存在同名文件夹。"
+          }
+        }
+      }
+    },
     "A worktree gives the agent its own checkout, so your working copy stays untouched.": {
       "extractionState": "manual",
       "localizations": {
@@ -1616,6 +1633,23 @@
         }
       }
     },
+    "Create": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建"
+          }
+        }
+      }
+    },
     "Create account": {
       "extractionState": "manual",
       "localizations": {
@@ -2466,6 +2500,23 @@
         }
       }
     },
+    "Folder name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder name"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件夹名称"
+          }
+        }
+      }
+    },
     "For you": {
       "extractionState": "manual",
       "localizations": {
@@ -2972,6 +3023,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "需要你批准"
+          }
+        }
+      }
+    },
+    "New folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New folder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建文件夹"
           }
         }
       }
