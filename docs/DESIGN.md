@@ -67,7 +67,19 @@ anything. The device's own page — the agents on it, how each is signed in and 
 account's quota, with the hostname and the architecture under the name — is reached from the row's
 menu as **Show quota**. The row's swipe on iOS and its menu on both apps read, in this order:
 **Rename**, **Retry update** (only while an update has failed, § "A device keeps itself current"),
-**Show quota**, **Revoke**.
+**Show quota**, **Revoke**. The page itself: the name, then hostname · architecture, then one card per coding
+agent the device found, in the device's own order, and nothing for an agent it did not find; a
+device with no agents says so in one line. A card names the agent by logo and name with its
+version, and under it says how the agent is signed in, in one line: *Anthropic account · Max ·
+Max 5x · me@example.com* when it runs on the vendor's own account — the vendor's name, then the
+plan, the tier and the email, each only when reported; *Anthropic API key* when it runs on a key,
+*Anthropic API key · api.relay.example* when the key goes to a third-party host; *Not signed in*
+when the device found neither. The plan is the vendor's own word with its first letter raised
+(`max` → *Max*); the tier is printed exactly as the device reported it, because the device already
+put it into words. pi, which signs in per provider, gets one such line per provider. The vendor's name comes
+from a small table the app keeps for the ids it knows (`anthropic`, `openai`, `xai`); an id it does
+not know is printed as itself. Nothing is drawn for what the agent does not report, and the same
+three actions the row offers — Rename, Update, Revoke — are not repeated on the page.
 
 **Quota is a meter, drawn for accounts only.** Under an account line the page draws the vendor's
 rate-limit windows the device could read, one row each: the window's name — *5-hour*, *7-day*,
