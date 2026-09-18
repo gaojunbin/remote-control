@@ -147,11 +147,15 @@ username on `POST /api/users` and an account refusing to be touched on `PATCH`. 
 which half was wrong. The strings are copied from `web/src/strings.ts`: the one that read
 differently on each app would be the bug.
 
-**Account, in Settings.** `UserIdentity` carries the `role`, so `AccountRow` draws the username
-with Admin or Member under it. A member gets **Change password** (`PasswordSheet`, two fields,
-`POST /api/password`; a `401` reads "That is not your current password."). An admin does not: the
-operator's password is the gateway's own `RC_PASSWORD` and there is nothing on a phone that could
-change it. An admin gets **Users** instead.
+**Account, in Settings.** `UserIdentity` carries the `role`, so the Settings header
+(`Screens/Settings/SettingsIdentityHeader.swift`) says who is signed in and as what — the initials
+(`Initials.of`), the username, then `role · connection dot · host` (`GatewayHost.of`,
+`ConnectionTone.dot`; the dot's word is the accessibility label only, `IdentityLine.label`). The
+Account group under it (`SettingsAccountGroup`) offers a member **Change password**
+(`PasswordSheet`, two fields, `POST /api/password`; a `401` reads "That is not your current
+password."). An admin does not: the operator's password is the gateway's own `RC_PASSWORD` and
+there is nothing on a phone that could change it. An admin gets **Users** instead. **Sign out** is
+last and asks first, with the row's own sentence as the dialog's message.
 
 **Users** (`UsersView`) is the admin's screen. `ConnectionStore.usersStore()` returns nil for
 anyone else, so a member has no way to build one. The registration switch sits at the top with its
@@ -651,9 +655,29 @@ row take `@ScaledMetric(relativeTo: .body)` from `Theme.Touch.primary`, and its 
 `-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge` and
 measures the circle.
 
-Settings reads like iOS grouped settings: a quiet caption, one soft surface, label left and control
-right, and the explanation as a footnote under the group rather than inside it. A monospace value
-truncates in the middle, so a gateway origin keeps its scheme and its host.
+Settings is `docs/DESIGN.md` § "The Settings screen", one file per part under
+`Sources/RCUI/Screens/Settings/`: the header and the versions line sit on the canvas
+(`canvasRow()`), and the groups — Account, While you're away, Voice, Reading, Security — are
+`SettingsGroup`s. **A group is one `List` cell, not one cell per row.** `List` drew a separator
+between the second and third rows of the Voice group whatever `listRowSeparator` was asked of
+every row, of the section, and of every variation tried (row type, row order, a `.task`, a
+`.disabled`, a trailing `if`, a `Menu` in place of a menu-styled `Picker` — six builds); a surface
+that is a single cell has no boundary for it to draw on, so the rows are a `VStack` inside one
+cell and carry their own insets (`settingsRowPadding()`). Rows are `SettingsRow` (a
+`SettingsLabel` — title and one sentence — with the control at the trailing edge),
+`SettingsMenuRow` (a `Menu` holding a `Picker`, whose label is the whole row, so the row is the
+target), a `Toggle` whose own label is a `SettingsLabel`, or a `Button` labelled with a
+`SettingsActionLabel` (Users, Change password with a chevron; Sign out in the danger ink). Users
+is pushed with `navigationDestination(isPresented:)` from `SettingsView`, not by a `NavigationLink`
+inside the cell, which would make the whole cell the link. No footer: a state — notifications
+blocked (the row's tap then opens iOS Settings), no transcription or polish service, a failed model
+list, a refused preference — replaces the row's sentence and disables its control. Two options are
+`.segmented` inside the row (Language, Detail); the versions line (`VersionsLine.text`,
+`settings.versions`) reads `Remote Control x · Gateway y · Protocol vN` with Diagnostics beside it,
+stacked under it on a phone too narrow for both. The sentences are `String`s built with
+`L10n.string`, so every group takes the interface language as a value and is rebuilt when it
+changes. `ValueRow` (label left, monospace value right, middle truncation) and `settingsRowLayout()`
+survive for the update-required screen, the accounts screen and the resume notice.
 
 **Nothing is re-cased, and it takes saying so twice.** `docs/DESIGN.md` § "Surfaces, rows and
 controls" allows no `text-transform` anywhere, and the app broke that rule in two ways at once: a
@@ -1410,8 +1434,9 @@ is what makes the banners appear.
 The Voice group of Settings offers the polish switch, the model and the strength only when the
 gateway says it can (`hello.polish.enabled`, also in `GET /api/config`; absent on an older gateway
 means disabled, and the switch is then shown disabled with "This gateway has no polish model
-configured"). `PolishSettings.swift` draws the three controls; the model list comes from
-`GatewayAPI.polishModels()` when the group appears with the switch on; the three values are
+configured" as the switch row's sentence). `SettingsVoiceGroup.swift` draws the three controls;
+the model list comes from `GatewayAPI.polishModels()` when the switch appears, and a failed list
+puts "The model list could not be loaded." in the Model row's own line; the three values are
 per-account keys of `SettingsStore` (`polishEnabled`, `polishModel`, `polishStrength`). When a
 dictation ends with polish on, the words land in the field at once as before, `ChatStore` enters its
 polish phase — the status line reads "Polishing…" — and `polish(_:)` is sent the dictated span alone

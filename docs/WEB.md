@@ -15,7 +15,7 @@ hand-written CSS with no framework. It talks only to the gateway and follows
 | `/pair` | Claims the token a host printed as a QR code and shows the same handshake (A23) |
 | `/sessions` | Every session across every device: one collapsible group per device, its active rows and then its own collapsed **Archive**, a search, an agent filter and a device filter, and **New session** in a right-hand drawer |
 | `/sessions/:deviceId/:sessionId` | The chat: sidebar, timeline, composer, status line |
-| `/settings` | Grouped settings — the account with its role, **Change password** for a member or **Users** for an admin, sign out, browser notifications, the **Sessions** group with "Resume after the limit resets" (A35), voice language and push-to-talk, and an About group with the gateway origin, both versions and the connection state |
+| `/settings` | The Settings screen (`docs/DESIGN.md` § "The Settings screen"): an identity header — initials, username, `role · connection dot · host` — then four groups of two-line rows, **Account** (Users for the admin role, Change password for every account but `admin`, Sign out, which asks first), **While you're away** (Notify me, "Resume after the limit resets", A35), **Voice** (dictation language, polish and its model and strength) and **Reading** (language, timeline detail), and one caption line with the gateway and protocol versions |
 | `/users` | The admin's accounts screen: the registration switch, one row per account, Reset password / Disable / Delete, and **Add user** (A24). A member who types it lands on Sessions |
 
 ## Commands
@@ -203,12 +203,13 @@ A finished dictation can go through the model the gateway operator configured be
 reads it, on the person's own switch. The gateway says whether it can (`hello.polish.enabled`,
 kept in the connection store, `{enabled: false}` by default and on an older gateway), and the
 Settings page's Voice group offers three things only when it can: the switch "Polish dictation
-with AI", a model select filled from `GET /api/polish/models` when the group renders with the
-switch on (the first model is chosen when none was; a failed fetch keeps the select and shows one
-line), and a Moderate / Strong control. The footer says what leaves the browser and when: what was
-dictated and the last few messages of the conversation, sent to the gateway's model only while the
-switch is on. A gateway without the feature shows the switch disabled with "This gateway has no
-polish model configured". The three values live in the settings store per account
+with AI", a model menu filled from `GET /api/polish/models` when the rows render with the switch on
+(the first model is chosen when none was; a failed fetch keeps the menu and puts "The model list
+could not be loaded." in the Model row's own line), and a Moderate / Strong control. The switch's
+row says what leaves the browser and when: what was dictated and the last few messages, sent to
+the gateway's model only while the switch is on. A gateway without the feature shows the switch
+disabled with "This gateway has no polish model configured" as that row's sentence. The three
+values live in the settings store per account
 (`polishEnabled`, `polishModel`, `polishStrength`).
 
 In the composer the words the recogniser produced land the instant dictation ends, exactly as
@@ -269,7 +270,8 @@ pure module carries every word.
 `Preferences | undefined`: `hello.preferences` seeds it, a `preferences.updated` frame replaces it,
 and a change is written with `PATCH /api/preferences` and rolled back if the gateway refuses.
 `undefined` means a gateway older than A35 — not "off" — and Settings then draws the switch disabled
-under "Your gateway does not offer this yet." rather than as a choice that could be made. The store
+with "Your gateway does not offer this yet." as its row's sentence rather than as a choice that could
+be made. The store
 joins `signOut()` like every other store that holds something of an account's. Everything else in
 Settings is still local to the browser in `stores/settings.ts`; this one row is the exception, which
 is why it lives in its own store rather than in that one.
@@ -335,13 +337,21 @@ gateway takes registrations, swaps the card for username, password and **Create 
 `409` taken, `400` the username and password rules, `403` registration closed, which also removes
 the link.
 
-**The Account group in Settings** shows the username with its role word under it, then the rows that
-account has. The two are independent, because the gateway's own rules are: **Users** appears for the
-admin role, and **Change password** (a modal asking the current password and the new one; `401`
-reads "That is not your current password.") appears for every account except the built-in `admin`,
-whose password is the gateway's `RC_PASSWORD` and which `POST /api/password` refuses by username. A
-second account created with the admin role therefore gets both rows; it used to get neither the
-password row nor any way to change its own password from the app. **Sign out** stays last.
+**The Settings header and the Account group.** The header (`features/settings/IdentityHeader.tsx`)
+says who is signed in and where: the initials and the gateway host come from `lib/identity.ts`,
+the one rule the top bar uses too, and the connection dot's tone from `connectionTone.ts` (green
+for an open socket, pulsing amber while it connects or reconnects, grey otherwise; a browser the
+gateway refuses is signed out, so the ruling's red never arises here). The Account group
+(`AccountGroup.tsx`) holds the rows that account has, and the two are independent because the
+gateway's own rules are: **Users** appears for the admin role, and **Change password** (a modal
+asking the current password and the new one; `401` reads "That is not your current password.")
+appears for every account except the built-in `admin`, whose password is the gateway's
+`RC_PASSWORD` and which `POST /api/password` refuses by username. A second account created with the
+admin role therefore gets both rows. **Sign out** stays last and asks first (`ConfirmDialog`), with
+the row's own sentence as the dialog's body. Every row on the screen is `SettingsRow` or
+`SettingsActionRow` (`SettingsRow.tsx`): a title, one sentence, the control at the trailing edge,
+no hairline; a state — push blocked or unsupported, no polish model, no transcription, a refused
+preference — replaces the sentence and disables the control rather than adding an element.
 
 **Signing out empties the tab.** `signOut` in `src/stores/signOut.ts` is the one place that knows
 the list: it closes the socket, puts the connection store back to what no `hello` has confirmed

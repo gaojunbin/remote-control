@@ -2193,6 +2193,59 @@ demo shell. The first real run is the VPS deploy of 1.5.0 with a device updated 
 update). Unobserved: a real phone's keyboard with the key bar, pinch-to-size on hardware, the
 ten-minute keep-alive against a real lock screen, and SwiftTerm's rendering on a device.
 
+## 43. The Settings screen catches up with the lists (2026-09-18, 1.5.1)
+
+The owner found Settings a generation behind the Devices and Sessions screens — many hairlines, a
+stack of cards, footnotes floating between them — and asked for a proposal before any code. Six
+points were proposed and approved (a seventh, a "Try dictation" row, was offered as optional and
+not taken): an identity header instead of four rows; four groups named for the question they
+answer (Account · While you're away · Voice · Reading, plus Security on the phone); two-line rows
+with the sentence in the row and no hairline; controls by the shape of the choice (two options a
+segmented control, more a menu, on/off a switch, the whole row the target on the web); the
+connection's dot in the header; the versions as one caption line instead of an About group. Frozen
+in `docs/DESIGN.md` § "The Settings screen" (eb4752b) with the rewritten Settings bullets, then
+built by two subagents in worktrees — `settings-web` 328df1d, `settings-ios` — and merged. No
+protocol change.
+
+**Web.** `features/settings/` is now a header, a shared row (`SettingsRow` / `SettingsActionRow`),
+one file per group and a versions line; `lib/identity.ts` gives the top bar and the header one rule
+for initials and the gateway host; `connectionTone.ts` maps the socket status to the dot (green
+open, pulsing amber connecting or reconnecting, grey otherwise — a browser the gateway refuses is
+signed out, so the ruling's red never arises on the web and no "Refused" string was added). The
+notifications row is a switch; Sign out asks through `ConfirmDialog`; a click on a menu or switch
+row's title reaches its control. Tests 709 → 720: the header's words and dot, the captions in order
+and no old ones, every row's sentence, the segmented Language and Detail, the disabled switch with
+its reason, Sign out asking and only the confirm signing out, the versions line, the row click,
+zh-Hans captions. Screenshots `web-round43-settings-{1280,400}.png`.
+
+**iOS.** `Sources/RCUI/Screens/Settings/` (ten files) replaces `SettingsView`, `PolishSettings`
+and `SessionPreferences`; pure helpers in RCCore — `ConnectionTone`, `Initials`, `GatewayHost`,
+`VersionsLine`, `IdentityLine` — carry the header's and the footer's words and are checked in
+RCUIVerify (525 → 564). `ValueRow` keeps the old label/value row for the update-required screen.
+Nine UI tests ran on 473CA51C and passed (the five Settings tests — captions, header and versions,
+the away group, a sentence following a language change, polish — plus users, admin/member, the
+tool card and dictation polish); the header-and-versions test was rerun on 32BBA636 by the
+orchestrator for the screenshots. **One rule survived the subagent**, between the second and
+third rows of the Voice group, after five attempts at `listRowSeparator`. The orchestrator ran six
+more builds to isolate it — the row types, the row order, the `.task`, the `.disabled`, a trailing
+`if`, a `Menu` in place of a menu-styled `Picker` — and the line stayed at that boundary every time,
+while a three-row Reading group drew none; the cause was not found. The fix is structural: a group
+is one `List` cell holding a `VStack` of rows (`SettingsGroup`, `settingsRowPadding()`), so there
+is no cell boundary for `List` to draw on, and Users is pushed with `navigationDestination` rather
+than by a `NavigationLink` inside the cell. Along the way the menu rows became `SettingsMenuRow`
+(a `Menu` whose label is the whole row, so the row is the target on the phone too), and RCUIVerify
+was pointed at `SettingsGroup("…")` for the captions. After the restructure: RCUIVerify 564, RCVerify
+1437, unit tests 391, and thirteen UI tests on 32BBA636 — the ten that open Settings plus the
+dictation-polish, paused-session and accessibility-text ones that pass through it — all green. The
+versions line stacks above Diagnostics on a phone (`ViewThatFits`), side by side where the width
+allows. Unverified: the blocked-notifications
+row's tap opening iOS Settings, because the simulator never denies the permission. Screenshots
+`ios-round43-settings.png`, `ios-round43-settings-2.png`.
+
+**Counts.** Web 720, RCVerify 1437, RCUIVerify 564, unit tests 391; gateway 435 and client 1159
+(+3 skipped) untouched this round. All four components 1.5.1 (a fix release), iOS build 17, tag
+v1.5.1.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
