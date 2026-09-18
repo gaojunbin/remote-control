@@ -156,6 +156,7 @@ enum SourceStrings {
 
     private static let constructors = [
         "Text", "Button", "Label", "navigationTitle", "FieldLabel", "SettingsRow",
+        "SettingsLabel", "ValueRow",
         "Toggle", "Picker", "TextField", "SecureField", "GrowingTextField",
         "confirmationDialog", "alert", "accessibilityLabel", "accessibilityHint"
     ]
