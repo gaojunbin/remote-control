@@ -59,6 +59,7 @@ import {
   type Step,
 } from './script';
 import { ServedSends, needsResync, replayFor } from './replay';
+import { dirEntries, makeDir } from './dirs';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const PASSWORD = process.env.RC_PASSWORD ?? 'dev';
@@ -1364,14 +1365,23 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       const deviceId = String(frame.device_id ?? '');
       const home = HOME[deviceId] ?? '/home/user';
       const path = typeof frame.path === 'string' && frame.path.length > 0 ? frame.path : home;
-      const entries = dirEntries(path, home);
-      if (entries === null) return replyError(conn, id, 'not_found', 'no such directory');
       reply(conn, id, {
         path,
         parent: path === '/' ? null : path.slice(0, path.lastIndexOf('/')) || '/',
-        entries,
+        entries: dirEntries(path, home),
         recent: recentDirs,
       });
+      return;
+    }
+
+    // A37: one directory, inside one the device listed, answered with the new
+    // directory's own listing so the picker can stand in it and choose it.
+    case 'device.mkdir': {
+      const deviceId = String(frame.device_id ?? '');
+      const home = HOME[deviceId] ?? '/home/user';
+      const made = makeDir(String(frame.path ?? ''), home, String(frame.name ?? ''));
+      if ('error' in made) return replyError(conn, id, made.error.code, made.error.message);
+      reply(conn, id, { ...made, recent: recentDirs });
       return;
     }
 
@@ -1453,25 +1463,6 @@ function historyEvents(all: readonly SessionEvent[], beforeSeq: number): Session
   const out = [...latestByBlock.values(), ...rest];
   if (latestTodos) out.push(latestTodos);
   return out.sort((a, b) => a.seq - b.seq);
-}
-
-const TREE: Record<string, string[]> = {
-  '': ['dev', 'work', 'Documents'],
-  '/dev': ['remote-control', 'scratch'],
-  '/dev/remote-control': ['gateway', 'client', 'web', 'ios', 'protocol'],
-  '/work': ['api', 'infra'],
-};
-
-function dirEntries(path: string, home: string): { name: string; path: string; is_git: boolean }[] | null {
-  const relative = path.startsWith(home) ? path.slice(home.length) : null;
-  if (relative === null) return path === '/' ? [{ name: 'Users', path: '/Users', is_git: false }] : [];
-  const names = TREE[relative];
-  if (names === undefined) return relative === '' ? [] : [];
-  return names.map((name) => ({
-    name,
-    path: `${path}/${name}`,
-    is_git: relative === '/dev/remote-control' || name === 'remote-control' || name === 'api',
-  }));
 }
 
 /* --------------------------------------------------- A10/A11 shared sessions */

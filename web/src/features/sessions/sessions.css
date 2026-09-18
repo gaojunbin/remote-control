@@ -365,11 +365,44 @@
 
 /* --- directory picker ------------------------------------------------- */
 
+.picker-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.picker-head .btn {
+  flex: none;
+}
+
 .picker-path {
   font-size: var(--fs-13);
   color: var(--ink-secondary);
-  margin-bottom: var(--sp-3);
   word-break: break-all;
+}
+
+/* A37: the row that names one folder, above the listing it will be made in. */
+.picker-new {
+  margin-bottom: var(--sp-3);
+}
+
+.picker-new-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.picker-new-row .field,
+.picker-new-row .btn {
+  height: 32px;
+}
+
+.picker-new-error {
+  margin: var(--sp-2) 0 0;
+  color: var(--danger);
+  font-size: var(--fs-13);
 }
 
 .picker-list {
