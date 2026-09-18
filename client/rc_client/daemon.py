@@ -26,7 +26,7 @@ from .channel.settings import write_settings
 from .child_env import scrub_parent_secrets
 from .config import Config
 from .errors import RcError
-from .fs import list_dirs, merge_recents
+from .fs import list_dirs, make_dir, merge_recents
 from .gateway import GatewayLink
 from .git import git_info
 from .logging_setup import logger
@@ -219,6 +219,7 @@ class Daemon:
             "session.archive": self.hub.archive,
             "session.delete": self.hub.delete,
             "device.dirs": self._device_dirs,
+            "device.mkdir": self._device_mkdir,
             "device.git": self._device_git,
             "device.agents": self._device_agents,
             "device.update": self._device_update,
@@ -233,6 +234,15 @@ class Daemon:
     async def _device_dirs(self, params: dict[str, Any]) -> dict[str, Any]:
         recents = merge_recents(self._session_recents())
         return await asyncio.to_thread(list_dirs, params.get("path"), recents)
+
+    async def _device_mkdir(self, params: dict[str, Any]) -> dict[str, Any]:
+        """A37: make one folder where a session will work, and list it."""
+        path = params.get("path")
+        name = params.get("name")
+        if not isinstance(path, str) or not isinstance(name, str):
+            raise RcError("bad_request", "path and name are required")
+        recents = merge_recents(self._session_recents())
+        return await asyncio.to_thread(make_dir, path, name, recents)
 
     def _session_recents(self) -> list[tuple[str, int]]:
         return [

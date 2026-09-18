@@ -111,6 +111,61 @@ async def test_device_dirs_is_answered_over_the_socket(
     assert reply["result"]["path"] == str(root)
 
 
+async def test_device_mkdir_makes_the_folder_and_replies_with_its_listing(
+    running_daemon: tuple[Daemon, FakeGateway], tmp_path: Path
+) -> None:
+    _, server = running_daemon
+    root = tmp_path / "workspace"
+    root.mkdir()
+    reply = await request(
+        server,
+        {
+            "type": "device.mkdir",
+            "id": "m1",
+            "from": "app-1",
+            "device_id": "dev-1",
+            "path": str(root),
+            "name": "new-project",
+        },
+    )
+    assert reply["ok"] is True
+    assert (root / "new-project").is_dir()
+    assert reply["result"]["path"] == str(root / "new-project")
+    assert reply["result"]["parent"] == str(root)
+    assert reply["result"]["entries"] == []
+
+
+async def test_device_mkdir_reports_an_existing_folder_as_a_conflict(
+    running_daemon: tuple[Daemon, FakeGateway], tmp_path: Path
+) -> None:
+    _, server = running_daemon
+    (tmp_path / "taken").mkdir()
+    reply = await request(
+        server,
+        {
+            "type": "device.mkdir",
+            "id": "m2",
+            "from": "app-1",
+            "device_id": "dev-1",
+            "path": str(tmp_path),
+            "name": "taken",
+        },
+    )
+    assert reply["ok"] is False
+    assert reply["error"]["code"] == "conflict"
+
+
+async def test_device_mkdir_requires_a_path_and_a_name(
+    running_daemon: tuple[Daemon, FakeGateway],
+) -> None:
+    _, server = running_daemon
+    reply = await request(
+        server, {"type": "device.mkdir", "id": "m3", "from": "app-1", "device_id": "dev-1"}
+    )
+    assert reply["ok"] is False
+    assert reply["error"]["code"] == "bad_request"
+
+
 async def test_device_git_reports_a_non_repository(
     running_daemon: tuple[Daemon, FakeGateway], tmp_path: Path
 ) -> None:
