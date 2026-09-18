@@ -1497,6 +1497,23 @@
         }
       }
     },
+    "Connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接"
+          }
+        }
+      }
+    },
     "Connecting": {
       "extractionState": "manual",
       "localizations": {
@@ -2143,6 +2160,23 @@
         }
       }
     },
+    "Disconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnected"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已断开"
+          }
+        }
+      }
+    },
     "Dismiss": {
       "extractionState": "manual",
       "localizations": {
@@ -2173,6 +2207,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "完成"
+          }
+        }
+      }
+    },
+    "Down arrow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Down arrow"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下箭头"
           }
         }
       }
@@ -2721,6 +2772,23 @@
         }
       }
     },
+    "Hyphen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hyphen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连字符"
+          }
+        }
+      }
+    },
     "Input": {
       "extractionState": "manual",
       "localizations": {
@@ -2802,6 +2870,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "语言"
+          }
+        }
+      }
+    },
+    "Left arrow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left arrow"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左箭头"
           }
         }
       }
@@ -3074,6 +3159,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "新建会话"
+          }
+        }
+      }
+    },
+    "New shell": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New shell"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建 Shell"
           }
         }
       }
@@ -3554,6 +3656,23 @@
         }
       }
     },
+    "Open a terminal on this device": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a terminal on this device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此设备上打开终端"
+          }
+        }
+      }
+    },
     "Open full output": {
       "extractionState": "manual",
       "localizations": {
@@ -3673,6 +3792,23 @@
         }
       }
     },
+    "Paste": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴"
+          }
+        }
+      }
+    },
     "Paused by the usage limit": {
       "extractionState": "manual",
       "localizations": {
@@ -3788,6 +3924,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "为这个网关选一个用户名和密码。"
+          }
+        }
+      }
+    },
+    "Pipe": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pipe"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "竖线"
           }
         }
       }
@@ -4455,6 +4608,23 @@
         }
       }
     },
+    "Right arrow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right arrow"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右箭头"
+          }
+        }
+      }
+    },
     "Role": {
       "extractionState": "manual",
       "localizations": {
@@ -4846,6 +5016,40 @@
         }
       }
     },
+    "Shell exited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell exited"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 已退出"
+          }
+        }
+      }
+    },
+    "Shell exited (%lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell exited (%lld)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 已退出（%lld）"
+          }
+        }
+      }
+    },
     "Show all %lld lines": {
       "extractionState": "manual",
       "localizations": {
@@ -4876,6 +5080,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "收起"
+          }
+        }
+      }
+    },
+    "Show quota": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show quota"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示额度"
           }
         }
       }
@@ -5029,6 +5250,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "模拟扫码"
+          }
+        }
+      }
+    },
+    "Slash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slash"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "斜杠"
+          }
+        }
+      }
+    },
+    "Some output was lost.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some output was lost."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分输出已丢失。"
           }
         }
       }
@@ -5420,6 +5675,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "这张图片太大了，请换一张小一些的。"
+          }
+        }
+      }
+    },
+    "That is more than 64 KB of text. Paste less of it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That is more than 64 KB of text. Paste less of it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文本超过 64 KB。请少粘贴一些。"
           }
         }
       }
@@ -5968,6 +6240,40 @@
         }
       }
     },
+    "This device already runs four terminals. Close one first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device already runs four terminals. Close one first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备已运行四个终端。请先关闭一个。"
+          }
+        }
+      }
+    },
+    "This device does not offer a terminal.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device does not offer a terminal."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备不提供终端。"
+          }
+        }
+      }
+    },
     "This device is offline.": {
       "extractionState": "manual",
       "localizations": {
@@ -6257,6 +6563,23 @@
         }
       }
     },
+    "Tilde": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilde"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "波浪号"
+          }
+        }
+      }
+    },
     "Timeline": {
       "extractionState": "manual",
       "localizations": {
@@ -6525,6 +6848,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "未命名会话"
+          }
+        }
+      }
+    },
+    "Up arrow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up arrow"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上箭头"
           }
         }
       }

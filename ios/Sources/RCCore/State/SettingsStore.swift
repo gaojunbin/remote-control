@@ -83,6 +83,7 @@ public final class SettingsStore {
         static let polishStrength = "preference.polishStrength"
         static let timelineDetail = "preference.timelineDetail"
         static let language = "preference.language"
+        static let terminalFontSize = "preference.terminalFontSize"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -114,6 +115,12 @@ public final class SettingsStore {
     public var timelineDetail: TimelineDetail {
         didSet { write(timelineDetail.rawValue, Key.timelineDetail) }
     }
+    /// Amendment A38: how large the terminal's type is, in points. A pinch on
+    /// the terminal changes it and the next terminal opens at the same size —
+    /// a reading preference, kept on this phone like the timeline detail.
+    public var terminalFontSize: Double {
+        didSet { write(terminalFontSize, Key.terminalFontSize) }
+    }
     /// Which language the app writes its own words in. Changing it moves the
     /// table every string outside a `Text` is looked up in, so the whole app
     /// follows the next time it draws, which is at once.
@@ -137,6 +144,7 @@ public final class SettingsStore {
         polishModel = ""
         polishStrength = .moderate
         timelineDetail = .simple
+        terminalFontSize = TerminalTypeSize.standard
         language = .en
         // The account the app is about to come back to owns the preferences it
         // reads on launch, so the first screen is already in their language.
@@ -180,6 +188,9 @@ public final class SettingsStore {
             ?? .moderate
         timelineDetail = TimelineDetail(rawValue: defaults.string(forKey: key(Key.timelineDetail)) ?? "")
             ?? .simple
+        // A stored zero is a fresh install, not a request for invisible type.
+        let storedTypeSize = defaults.double(forKey: key(Key.terminalFontSize))
+        terminalFontSize = storedTypeSize > 0 ? TerminalTypeSize.clamp(storedTypeSize) : TerminalTypeSize.standard
         // English whatever the phone is set to: the default is the product's
         // own language and not a guess from `Locale.preferredLanguages`.
         language = pinnedLanguage

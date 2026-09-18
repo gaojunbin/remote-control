@@ -3,10 +3,11 @@ import RCCore
 
 /// The machines this gateway knows about, and how to add another one.
 ///
-/// Every row offers the same actions the web offers — Rename and Revoke, and
-/// Retry update on a machine whose update failed — from one trailing swipe and
-/// from the context menu, so nothing is reachable on one app and not the other
-/// (`docs/DESIGN.md` § "Devices").
+/// Amendment A38, rule 20: the row's own tap opens a shell on the machine, and
+/// its swipe and its menu hold the rest — Rename · Retry update (only while one
+/// has failed) · Show quota · Revoke — in the order the web uses, so nothing is
+/// reachable on one app and not the other (`docs/DESIGN.md` § "Devices" and
+/// § "A device has a page, and a device row opens a terminal").
 struct DevicesView: View {
     @Environment(AppModel.self) private var model
     @State private var isAdding = false
@@ -17,6 +18,10 @@ struct DevicesView: View {
     @State private var error: String?
     /// The platform the list is narrowed to; a view of the list, not a setting.
     @State private var platformFilter: DevicePlatform?
+    /// Why the last tap opened nothing, and on which row. A machine that is
+    /// offline or offers no terminal says so where it stands rather than
+    /// pushing a screen that would only say it again.
+    @State private var refusal: (deviceID: String, reason: String)?
 
     private var shown: [Device] {
         DeviceFilter.apply(model.connection.devices, platform: platformFilter)
@@ -25,24 +30,45 @@ struct DevicesView: View {
     var body: some View {
         List {
             ForEach(shown) { device in
-                // `docs/DESIGN.md` § "A device has a page": the row itself
-                // opens the machine; its menu and its swipe still act on it
-                // without going anywhere.
-                NavigationLink(value: device.deviceID) {
+                // Rule 20: the row itself opens a shell on the machine. It is a
+                // button and not a link because the tap does not always lead
+                // anywhere — an offline machine, or one that offers no
+                // terminal, answers in place.
+                Button { open(device) } label: {
                     DeviceRow(device: device, localError: model.deviceUpdateError(device.deviceID))
+                        // The row is the target, not the words in it: a plain
+                        // button hit-tests what it draws, and a row with an
+                        // empty band between its lines would swallow the tap
+                        // that landed there.
+                        .contentShape(Rectangle())
                 }
+                    .buttonStyle(.plain)
                     .sessionRowLayout()
                     .accessibilityIdentifier("device.\(device.deviceID)")
                     .contextMenu { actions(for: device) }
                     // One swipe carries them all. SwiftUI lays a trailing swipe
                     // out from the edge inwards, so the first listed is the one
                     // nearest the edge and the row reads Rename · Retry update
-                    // · Revoke from left to right.
+                    // · Show quota · Revoke from left to right.
                     .swipeActions(edge: .trailing) {
-                        revokeAction(for: device)
-                        retryAction(for: device)
-                        renameAction(for: device)
+                        ForEach(DeviceRowAction.menu(for: device).reversed()) { action in
+                            button(action, for: device)
+                        }
                     }
+
+                // The answer to a tap that opened nothing, under the row it
+                // belongs to: a line of its own, so the row's own reading is
+                // still the machine and its state.
+                if refusal?.deviceID == device.deviceID, let reason = refusal?.reason {
+                    Text(reason)
+                        .font(Theme.Text.caption)
+                        .foregroundStyle(Theme.inkSecondary)
+                        .listRowBackground(Theme.surface)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 0, leading: Theme.Space.medium,
+                                                  bottom: 14, trailing: Theme.Space.medium))
+                        .accessibilityIdentifier("device.terminalRefusal")
+                }
             }
 
             if let platformFilter, shown.isEmpty, !model.connection.devices.isEmpty {
@@ -75,8 +101,13 @@ struct DevicesView: View {
         .toolbar {
             ToolbarItem(placement: .trailingBar) { platformFilterMenu }
         }
-        .navigationDestination(for: String.self) { deviceID in
-            DeviceDetailView(deviceID: deviceID).environment(model)
+        .navigationDestination(for: DeviceRoute.self) { route in
+            switch route {
+            case .page(let deviceID):
+                DeviceDetailView(deviceID: deviceID).environment(model)
+            case .terminal(let deviceID):
+                TerminalScreen(deviceID: deviceID).environment(model)
+            }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Button {
@@ -161,47 +192,68 @@ struct DevicesView: View {
         .accessibilityIdentifier("devices.platformFilter.\(platform?.rawValue ?? "all")")
     }
 
-    /// The context menu: the same actions the swipe holds, in the order the web
-    /// menu uses.
+    /// Rule 20: the row's tap opens a shell where one can be opened, and says
+    /// why where it cannot. The reason stands beside the row for a moment
+    /// rather than in an alert: nothing went wrong, and nothing needs dismissing.
+    private func open(_ device: Device) {
+        switch DeviceTap.outcome(for: device) {
+        case .terminal:
+            refusal = nil
+            model.devicePath.append(.terminal(device.deviceID))
+        case .refused(let reason):
+            refusal = (device.deviceID, reason)
+        }
+    }
+
+    /// The context menu: the same actions the swipe holds, in the order rule 20
+    /// gives them.
     @ViewBuilder
     private func actions(for device: Device) -> some View {
-        renameAction(for: device)
-        retryAction(for: device)
-        revokeAction(for: device)
-    }
-
-    private func renameAction(for device: Device) -> some View {
-        Button { renaming = device; newName = device.name } label: { Label("Rename", systemImage: "pencil") }
-            .tint(Theme.inkSecondary)
-            .accessibilityIdentifier("device.rename")
-    }
-
-    /// The tint is explicit: the app sets its own `.tint` at the root, and a
-    /// destructive swipe button takes that over the system red without it.
-    private func revokeAction(for device: Device) -> some View {
-        Button(role: .destructive) { revoking = device } label: {
-            Label("Revoke", systemImage: "trash")
+        ForEach(DeviceRowAction.menu(for: device)) { action in
+            button(action, for: device)
         }
-        .tint(Theme.danger)
-        .accessibilityIdentifier("device.revoke")
     }
 
-    /// Amendment A36. The gateway keeps every device on the wheel it serves, so
-    /// there is nothing to offer until one of those updates fails: only then is
-    /// the action on the row, and it says why it cannot act rather than
-    /// disappearing again.
+    /// One action, wherever it is drawn. The swipe and the menu carry the same
+    /// buttons, so there is one place that decides what each one says and does.
     @ViewBuilder
-    private func retryAction(for device: Device) -> some View {
-        if DeviceUpdate.canRetry(device) {
+    private func button(_ action: DeviceRowAction, for device: Device) -> some View {
+        switch action {
+        case .rename:
+            Button { renaming = device; newName = device.name } label: {
+                Label("Rename", systemImage: action.symbol)
+            }
+            .tint(Theme.inkSecondary)
+            .accessibilityIdentifier(action.identifier)
+        case .retryUpdate:
+            // Amendment A36. The gateway keeps every device on the wheel it
+            // serves, so there is nothing to offer until one of those updates
+            // fails: only then is the action on the row, and it says why it
+            // cannot act rather than disappearing again.
             let blocked = DeviceUpdate.block(for: device,
                                              servedBuild: model.connection.config.servedBuild)
             Button { retrying = device } label: {
-                Label("Retry update", systemImage: "arrow.clockwise")
+                Label("Retry update", systemImage: action.symbol)
             }
             .tint(Theme.accent)
             .disabled(blocked != nil)
             .accessibilityHint(blocked.map(DeviceUpdateText.reason) ?? "")
-            .accessibilityIdentifier("device.retryUpdate")
+            .accessibilityIdentifier(action.identifier)
+        case .showQuota:
+            // Amendment A33's page, which the row's tap used to open.
+            Button { model.devicePath.append(.page(device.deviceID)) } label: {
+                Label("Show quota", systemImage: action.symbol)
+            }
+            .tint(Theme.inkSecondary)
+            .accessibilityIdentifier(action.identifier)
+        case .revoke:
+            // The tint is explicit: the app sets its own `.tint` at the root,
+            // and a destructive swipe button takes that over the system red.
+            Button(role: .destructive) { revoking = device } label: {
+                Label("Revoke", systemImage: action.symbol)
+            }
+            .tint(Theme.danger)
+            .accessibilityIdentifier(action.identifier)
         }
     }
 

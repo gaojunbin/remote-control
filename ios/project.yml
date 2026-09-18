@@ -7,6 +7,12 @@ options:
 packages:
   RemoteControlIOS:
     path: .
+  # Amendment A38: the terminal emulator the shell screen renders with, pinned
+  # to one release. The local package declares it for iOS too; it is named here
+  # so the app target links it explicitly rather than by inheritance.
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    exactVersion: 1.11.2
 configFiles:
   Debug: Signing.xcconfig
   Release: Signing.xcconfig
@@ -22,6 +28,8 @@ targets:
     dependencies:
       - package: RemoteControlIOS
         product: RCUI
+      - package: SwiftTerm
+        product: SwiftTerm
     settings:
       configs:
         Debug:

@@ -167,6 +167,12 @@ public enum AppFrame: Sendable {
     case pairingProgress(PairingProgress)
     /// Amendment A35: the account's preferences changed, here or in another app.
     case preferencesUpdated(Preferences)
+    /// Amendment A38: bytes a terminal on a device produced, for the one
+    /// connection holding it — which is this one, or the gateway would not
+    /// have sent them.
+    case terminalOutput(TerminalOutput)
+    /// Amendment A38: that terminal's shell ended.
+    case terminalExited(TerminalExited)
     case ping
     case reply(id: String, result: Result<JSONValue, GatewayErrorBody>)
     case unknown(type: String, raw: JSONValue)
@@ -205,6 +211,10 @@ public enum AppFrame: Sendable {
                 throw ProtocolFailure.malformed("preferences.updated")
             }
             self = .preferencesUpdated(try preferences.decode(Preferences.self))
+        case "terminal.output":
+            self = .terminalOutput(try TerminalOutput(json: json))
+        case "terminal.exited":
+            self = .terminalExited(try TerminalExited(json: json))
         case "ping":
             self = .ping
         case "reply":

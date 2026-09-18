@@ -1624,22 +1624,28 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(studio.waitForExistence(timeout: 10), "All brings the Macs back")
     }
 
-    func testDeviceRowSwipeHoldsRenameAndRevoke() {
+    /// Amendment A38, rule 20: one swipe, in one order on both apps — Rename ·
+    /// Retry update (only while one has failed) · Show quota · Revoke.
+    func testDeviceRowSwipeHoldsTheMenuInRuleTwentysOrder() {
         openDevices()
         let studio = deviceRow(DemoDevices.studio)
         XCTAssertTrue(studio.waitForExistence(timeout: 15), "the machines are listed")
 
         // Amendment A36: a machine the gateway is keeping current has nothing
-        // to update, so the swipe holds the two actions that are always there.
+        // to update, so the swipe holds the three actions that are always there.
         studio.swipeLeft()
         let rename = app.buttons["device.rename"]
+        let quota = app.buttons["device.showQuota"]
         let revoke = app.buttons["device.revoke"]
         XCTAssertTrue(rename.waitForExistence(timeout: 10), "one swipe offers Rename")
+        XCTAssertTrue(quota.exists, "Show quota")
         XCTAssertTrue(revoke.exists, "and Revoke")
         XCTAssertFalse(app.buttons["device.retryUpdate"].exists,
                        "with nothing to retry on a machine whose update never failed")
-        XCTAssertLessThan(rename.frame.minX, revoke.frame.minX,
-                          "read left to right the row says Rename, then Revoke nearest the edge")
+        XCTAssertLessThan(rename.frame.minX, quota.frame.minX,
+                          "read left to right the row says Rename, then Show quota")
+        XCTAssertLessThan(quota.frame.minX, revoke.frame.minX,
+                          "and Revoke nearest the edge")
         attach(name: "60-device-swipe-actions")
 
         rename.tap()
@@ -1648,7 +1654,7 @@ final class RemoteControlUITests: XCTestCase {
         app.alerts["Rename device"].buttons["Cancel"].tap()
 
         // The one machine the gateway gave up on carries Retry update between
-        // the two, and it is the only row that does.
+        // Rename and Show quota, and it is the only row that does.
         let laptop = deviceRow(DemoDevices.laptop)
         laptop.swipeLeft()
         let retry = app.buttons["device.retryUpdate"]
@@ -1656,9 +1662,79 @@ final class RemoteControlUITests: XCTestCase {
                       "the failed machine's swipe offers Retry update")
         XCTAssertLessThan(app.buttons["device.rename"].frame.minX, retry.frame.minX,
                           "after Rename")
-        XCTAssertLessThan(retry.frame.minX, app.buttons["device.revoke"].frame.minX,
-                          "and before Revoke")
+        XCTAssertLessThan(retry.frame.minX, app.buttons["device.showQuota"].frame.minX,
+                          "before Show quota")
+        XCTAssertLessThan(app.buttons["device.showQuota"].frame.minX,
+                          app.buttons["device.revoke"].frame.minX, "and before Revoke")
         attach(name: "60b-device-swipe-retry")
+    }
+
+    /// Amendment A38, rule 20: tapping a machine that is online and offers a
+    /// terminal opens a full-screen shell on it — the emulator, the status
+    /// line, Close, and the key bar a phone needs.
+    func testTappingADeviceOpensATerminalOnIt() {
+        openDevices()
+        let row = deviceRow(DemoDevices.studio)
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
+        row.tap()
+
+        XCTAssertTrue(app.navigationBars["mac-studio-office"].waitForExistence(timeout: 15),
+                      "the row's own tap opens a shell, titled with the machine's name")
+        XCTAssertTrue(app.buttons["terminal.close"].exists, "with Close at the trailing edge")
+
+        let status = app.staticTexts["terminal.status"].firstMatch
+        XCTAssertTrue(status.waitForExistence(timeout: 15),
+                      "a thin status line stands under the title")
+        _ = waitFor(timeout: 20) { status.label == "Connected" }
+
+        // The key bar of rule 20, in the order the design lists it.
+        let escape = app.buttons["terminal.key.escape"]
+        XCTAssertTrue(escape.waitForExistence(timeout: 10), "Esc is the first cap")
+        XCTAssertLessThan(escape.frame.minX, app.buttons["terminal.key.tab"].frame.minX,
+                          "then Tab")
+        XCTAssertLessThan(app.buttons["terminal.key.tab"].frame.minX,
+                          app.buttons["terminal.key.control"].frame.minX, "then the sticky Ctrl")
+        XCTAssertLessThan(app.buttons["terminal.key.control"].frame.minX,
+                          app.buttons["terminal.key.up"].frame.minX, "then the arrows")
+
+        // The emulator draws its own glyphs and publishes no text to the
+        // accessibility tree, so what the shell printed is checked where it can
+        // be read — `RCUIVerify` drives the same demo shell through
+        // `TerminalSession` and reads the bytes. Here the screenshot is the
+        // evidence, and the status line is the assertion.
+        attach(name: "ios-round42-terminal")
+        XCTAssertEqual(status.label, "Connected",
+                       "and the line under the title says so once the shell is up")
+
+        app.buttons["terminal.close"].tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "and Close goes back to the list")
+        XCTAssertFalse(app.buttons["terminal.close"].exists, "leaving the screen behind it")
+    }
+
+    /// The other half of rule 20: a machine that cannot be opened says why
+    /// where it stands, and nothing is pushed.
+    func testADeviceWithNoTerminalSaysSoInsteadOfOpeningOne() {
+        openDevices()
+        let laptop = deviceRow(DemoDevices.laptop)
+        XCTAssertTrue(laptop.waitForExistence(timeout: 15), "the machines are listed")
+        laptop.tap()
+
+        // A list row is a cell, not a static text, so the notice is looked up
+        // wherever SwiftUI put it — the same way the device rows are.
+        let notice = app.descendants(matching: .any)["device.terminalRefusal"].firstMatch
+        let shown = notice.waitForExistence(timeout: 10)
+        attach(name: "91-device-tap-refused")
+        XCTAssertTrue(shown, "a machine with the capability off answers under its own row")
+        XCTAssertEqual(notice.label, "This device does not offer a terminal.",
+                       "saying which of the two reasons it is")
+        XCTAssertFalse(app.buttons["terminal.close"].exists, "and nothing is opened")
+
+        deviceRow(DemoDevices.ci).tap()
+        XCTAssertTrue(waitFor(timeout: 10) {
+            app.descendants(matching: .any)["device.terminalRefusal"].firstMatch.label
+                == "This device is offline."
+        }, "and a machine that is not there says that instead, in the one place")
+        XCTAssertFalse(app.buttons["terminal.close"].exists, "with nothing opened either")
     }
 
     /// The word for taking a machine's token away is Revoke on both apps, and
@@ -1733,9 +1809,7 @@ final class RemoteControlUITests: XCTestCase {
     /// build, and the same notice with a retry beside it where one failed.
     func testDevicePageStatesNoClientVersionAndCarriesTheRetry() {
         openDevices()
-        let row = deviceRow(DemoDevices.laptop)
-        XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
-        row.tap()
+        openDevicePage(DemoDevices.laptop)
 
         XCTAssertTrue(app.descendants(matching: .any)["device.page"].waitForExistence(timeout: 15))
         XCTAssertTrue(anyText(containing: "macbook-air.local · arm64"),
@@ -1759,14 +1833,13 @@ final class RemoteControlUITests: XCTestCase {
         alert.buttons["Cancel"].tap()
     }
 
-    /// Amendment A33: tapping a device opens its page — the agents on it, how
-    /// each is signed in, and what is left of each account's quota. The row's
-    /// own three actions stay on the row and are not repeated here.
+    /// Amendment A33: the machine's page — the agents on it, how each is
+    /// signed in, and what is left of each account's quota. Since A38 it is
+    /// reached from the row's menu as **Show quota**, because the row's own tap
+    /// opens a terminal; the row's actions stay on the row and are not repeated.
     func testDevicePageShowsHowEachAgentIsSignedInAndWhatIsLeft() {
         openDevices()
-        let row = deviceRow(DemoDevices.studio)
-        XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
-        row.tap()
+        openDevicePage(DemoDevices.studio)
 
         // The windows are read on request, so the meters say they are coming.
         // This is the first thing the page does, so it is the first thing
@@ -1777,7 +1850,7 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "80-device-page-checking")
 
         let page = app.descendants(matching: .any)["device.page"]
-        XCTAssertTrue(page.exists, "the row itself opens the machine")
+        XCTAssertTrue(page.exists, "the row's Show quota opens the machine's page")
         // `docs/DESIGN.md` § "The device row": what the row dropped is checked
         // here, in one line under the name the navigation bar carries.
         XCTAssertTrue(anyText(containing: "mac-studio.local · arm64"),
@@ -1814,9 +1887,7 @@ final class RemoteControlUITests: XCTestCase {
     /// reported and says so where the meters go.
     func testOfflineDevicePageKeepsItsAccountsAndSaysWhyThereAreNoMeters() {
         openDevices()
-        let row = deviceRow(DemoDevices.ci)
-        XCTAssertTrue(row.waitForExistence(timeout: 15), "the offline machine is listed")
-        row.tap()
+        openDevicePage(DemoDevices.ci)
 
         XCTAssertTrue(app.descendants(matching: .any)["device.page"].waitForExistence(timeout: 15))
         XCTAssertTrue(anyText(containing: "OpenAI account"),
@@ -1834,9 +1905,7 @@ final class RemoteControlUITests: XCTestCase {
     /// signed in nowhere.
     func testDevicePageSaysWhyAQuotaIsMissingAndWhenNothingIsSignedIn() {
         openDevices()
-        let row = deviceRow(DemoDevices.laptop)
-        XCTAssertTrue(row.waitForExistence(timeout: 15), "the second machine is listed")
-        row.tap()
+        openDevicePage(DemoDevices.laptop)
 
         XCTAssertTrue(app.descendants(matching: .any)["device.page"].waitForExistence(timeout: 15))
         let reason = app.descendants(matching: .any)["device.quota.error"].firstMatch
@@ -2212,6 +2281,17 @@ final class RemoteControlUITests: XCTestCase {
     /// up wherever SwiftUI decided to put it.
     private func deviceRow(_ deviceID: String) -> XCUIElement {
         app.descendants(matching: .any)["device.\(deviceID)"].firstMatch
+    }
+
+    /// Amendment A38, rule 20: the row's own tap opens a terminal, so the
+    /// machine's page is reached from the row's menu as **Show quota**.
+    private func openDevicePage(_ deviceID: String) {
+        let row = deviceRow(deviceID)
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "the machines are listed")
+        row.swipeLeft()
+        let quota = app.buttons["device.showQuota"]
+        XCTAssertTrue(quota.waitForExistence(timeout: 10), "the swipe offers Show quota")
+        quota.tap()
     }
 
     /// The system photo picker runs out of process and is titled in the phone's

@@ -11,6 +11,7 @@
 		07236D2B59E39C44983977D9 /* RemoteControlUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2EBBFC1636811F2D9E55698 /* RemoteControlUITests.swift */; };
 		4FFF329E1E3E815DCB7FBE46 /* RealGatewaySmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78F4A72703A42B20E0238D0F /* RealGatewaySmokeTests.swift */; };
 		70025633001208385BD564AB /* RCUI in Frameworks */ = {isa = PBXBuildFile; productRef = F1164C525D06F30C646910DE /* RCUI */; };
+		7E16768E0EC554EBE8A02D05 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = E0ABA81EA28A751076B375C9 /* SwiftTerm */; };
 		91552BBFECB7EDBEBFCC46C8 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 7ADF56FCC644E7FEB89AA3BD /* PrivacyInfo.xcprivacy */; };
 		A8DBDA562B872D3280A14953 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 7A15A638BF8E1A3A2FB0177E /* Localizable.xcstrings */; };
 		BBF5829347222572E02FEBE3 /* RCCore in Frameworks */ = {isa = PBXBuildFile; productRef = 2819A334DC44487B7F1D1231 /* RCCore */; };
@@ -48,6 +49,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				70025633001208385BD564AB /* RCUI in Frameworks */,
+				7E16768E0EC554EBE8A02D05 /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -139,6 +141,7 @@
 			name = RemoteControl;
 			packageProductDependencies = (
 				F1164C525D06F30C646910DE /* RCUI */,
+				E0ABA81EA28A751076B375C9 /* SwiftTerm */,
 			);
 			productName = RemoteControl;
 			productReference = DF6F831755BBDAA7D4A65987 /* RemoteControl.app */;
@@ -189,6 +192,7 @@
 			mainGroup = A64BFC3C82E5BB8CD00CFE2E;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				1A78675F4342A40F0AB9BCCB /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				9E9D0796C01B5B0403C21B8E /* XCLocalSwiftPackageReference "." */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -508,10 +512,26 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		1A78675F4342A40F0AB9BCCB /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
+			requirement = {
+				kind = exactVersion;
+				version = 1.11.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		2819A334DC44487B7F1D1231 /* RCCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = RCCore;
+		};
+		E0ABA81EA28A751076B375C9 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1A78675F4342A40F0AB9BCCB /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
 		};
 		F1164C525D06F30C646910DE /* RCUI */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -359,7 +359,9 @@ public enum DemoFixtures {
                    online: true, lastSeen: now, createdAt: now - 8_640_000, latencyMS: 18,
                    // Amendment A26: one machine with all four agents on it, so
                    // the picker, the card and a session of each can be seen.
-                   agents: [claude, codex, grok, pi]),
+                   agents: [claude, codex, grok, pi],
+                   // Amendment A38: the machine whose row opens a shell.
+                   terminal: true),
             Device(deviceID: laptopDeviceID, name: "macbook-air", platform: .macos,
                    hostname: "macbook-air.local", arch: "arm64",
                    clientVersion: outdatedClientVersion, clientBuild: outdatedBuild,
@@ -369,12 +371,17 @@ public enum DemoFixtures {
                    online: true, lastSeen: now, createdAt: now - 4_320_000, latencyMS: 41,
                    // Amendment A28: the machine that is prepared for neither
                    // attachment, so both hints can be read on a real session.
-                   agents: [claudeWithoutShim, grokWithoutLeader]),
+                   agents: [claudeWithoutShim, grokWithoutLeader],
+                   // Amendment A38: the machine that turned the capability off,
+                   // so the row's tap has a second thing to say.
+                   terminal: false),
             Device(deviceID: ciDeviceID, name: "ci-runner-01", platform: .linux,
                    hostname: "ci-runner-01", arch: "x86_64",
                    clientVersion: outdatedClientVersion, clientBuild: outdatedBuild,
                    online: false, lastSeen: now - 3_600_000, createdAt: now - 86_400_000,
-                   latencyMS: nil, agents: [codexWithoutDaemon])
+                   // Amendment A38: it offers a terminal and is not there to
+                   // open one, which is the third thing a row's tap can say.
+                   latencyMS: nil, agents: [codexWithoutDaemon], terminal: true)
         ]
     }
 

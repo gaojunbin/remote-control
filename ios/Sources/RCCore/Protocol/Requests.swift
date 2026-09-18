@@ -287,4 +287,61 @@ extension GatewayRequest {
         GatewayRequest(type: "device.update",
                        body: ["device_id": .string(deviceID), "build": .string(build)])
     }
+
+    // MARK: - Terminals (amendment A38)
+
+    /// Start the person's login shell on a device, at the size the emulator is
+    /// drawn at. Output streams to this connection alone until it closes or
+    /// another one attaches.
+    public static func terminalOpen(deviceID: String, cols: Int, rows: Int) -> GatewayRequest {
+        GatewayRequest(type: "terminal.open",
+                       body: ["device_id": .string(deviceID),
+                              "cols": .integer(Int64(TerminalLimits.cols(cols))),
+                              "rows": .integer(Int64(TerminalLimits.rows(rows)))])
+    }
+
+    /// Bytes as typed. The emulator produces the key sequences; nothing here
+    /// interprets them, and nothing anywhere logs them.
+    public static func terminalInput(deviceID: String, terminalID: String,
+                                     data: Data) throws -> GatewayRequest {
+        guard data.count <= TerminalLimits.maxInputBytes else { throw TerminalInputError.tooLarge }
+        return GatewayRequest(type: "terminal.input",
+                              body: ["device_id": .string(deviceID),
+                                     "terminal_id": .string(terminalID),
+                                     "data": .string(data.base64EncodedString())])
+    }
+
+    /// The app's view changed size, so the shell's does.
+    public static func terminalResize(deviceID: String, terminalID: String,
+                                      cols: Int, rows: Int) -> GatewayRequest {
+        GatewayRequest(type: "terminal.resize",
+                       body: ["device_id": .string(deviceID),
+                              "terminal_id": .string(terminalID),
+                              "cols": .integer(Int64(TerminalLimits.cols(cols))),
+                              "rows": .integer(Int64(TerminalLimits.rows(rows)))])
+    }
+
+    /// Take a terminal this account left running — after a lost socket, or from
+    /// another app of the same account. The reply carries the scrollback.
+    public static func terminalAttach(deviceID: String, terminalID: String) -> GatewayRequest {
+        GatewayRequest(type: "terminal.attach",
+                       body: ["device_id": .string(deviceID), "terminal_id": .string(terminalID)])
+    }
+
+    /// End the shell. Idempotent, so leaving the screen twice is not an error.
+    public static func terminalClose(deviceID: String, terminalID: String) -> GatewayRequest {
+        GatewayRequest(type: "terminal.close",
+                       body: ["device_id": .string(deviceID), "terminal_id": .string(terminalID)])
+    }
 }
+
+/// The one thing the app refuses before the device does: a paste larger than
+/// one `terminal.input` may carry (A38).
+public enum TerminalInputError: Error, Equatable, Sendable, LocalizedError {
+    case tooLarge
+
+    public var errorDescription: String? {
+        L10n.string("That is more than 64 KB of text. Paste less of it.")
+    }
+}
+
