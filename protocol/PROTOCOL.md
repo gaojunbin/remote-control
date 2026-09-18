@@ -653,6 +653,7 @@ Schema: `schema/objects.json`. These objects appear in HTTP bodies and in frames
 | `client_build` | string \| null | no | SHA-256 of the wheel the client was installed from; null when unknown (A22) |
 | `update_state` | `idle` \| `updating` \| `failed` | no | An update the gateway (A36) or an app (A22) asked for, in flight or failed; absent means idle |
 | `update_message` | string \| null | no | Why the last update failed (A22) |
+| `terminal` | boolean | no | True when the device offers a shell (7.3, A38); absent on a client older than A38 |
 | `online` | boolean | yes | True while the device socket is live |
 | `last_seen` | timestamp | yes | |
 | `created_at` | timestamp | yes | Enrollment time |
@@ -2447,6 +2448,11 @@ The gateway forwards these to the owning device and returns the device's reply.
 | `device.dirs` | `device_id`, `path?` | `{path, parent, entries, recent}` |
 | `device.git` | `device_id`, `path` | `{is_repo, branch?, dirty?, ahead?, behind?}` |
 | `device.mkdir` | `device_id`, `path`, `name` | `{path, parent, entries, recent}` — makes the directory `name` inside `path` and replies with the new directory's listing, as `device.dirs` would (A37) |
+| `terminal.open` | `device_id`, `cols`, `rows` | `{terminal_id}` — starts the person's login shell in a pseudo-terminal of that size and streams it to the requesting app connection (7.3, A38). `unsupported` when the device offers no terminal; `conflict` when it already runs four |
+| `terminal.input` | `device_id`, `terminal_id`, `data` | `{}` — `data` is base64, at most 64 KiB decoded, written to the terminal as typed (A38) |
+| `terminal.resize` | `device_id`, `terminal_id`, `cols`, `rows` | `{}` — 1–500 columns, 1–200 rows (A38) |
+| `terminal.attach` | `device_id`, `terminal_id` | `{terminal_id, cols, rows, scrollback}` — output goes to this app connection from now on; `scrollback` is base64 of the last 64 KiB the terminal produced (A38). `not_found` once the terminal is gone |
+| `terminal.close` | `device_id`, `terminal_id` | `{}` — ends the shell; idempotent (A38) |
 | `device.agents` | `device_id` | `{agents}` — the agents as `hello` reports them, with `accounts[].limits` read fresh for this reply (A33) |
 | `device.update` | `device_id`, `build` | `{accepted: true, from}` — the device fetches the gateway's wheel, refuses it unless its SHA-256 is `build`, installs it, restarts its service and reconnects with the new `client_build` (A22). `conflict` while a session it drives is running or when it already runs `build`; `unsupported` when the client cannot update itself (installed from source). The gateway sends it on its own account, with `from: "gateway"`, whenever a device's build is not the served one (A36); an app sends it to retry a failed update. |
 
@@ -2882,6 +2888,36 @@ out of the Archive when the device's `session.updated` arrives.
 }
 ```
 
+`fixtures/app/terminal.open.json`
+
+```json
+{
+  "type": "terminal.open",
+  "id": "7c1e9a52-3f4b-4d86-b2e7-9a0c5d1f6e83",
+  "device_id": "c5efb1ec-2912-4619-90f7-93b5172fd712",
+  "cols": 80,
+  "rows": 24
+}
+```
+
+`fixtures/app/reply.terminal.open.json`
+
+```json
+{
+  "type": "reply",
+  "id": "7c1e9a52-3f4b-4d86-b2e7-9a0c5d1f6e83",
+  "ok": true,
+  "result": {
+    "terminal_id": "2f8d4b6a-1c3e-4a75-9b0d-6e2f8c4a1d57"
+  }
+}
+```
+
+`fixtures/app/terminal.attach.json` and `fixtures/app/reply.terminal.attach.json` show the
+reconnect: the reply carries the size the terminal has now and `scrollback`, the last 64 KiB of
+its output, base64. `fixtures/app/terminal.input.json`, `terminal.resize.json` and
+`terminal.close.json` are the other three requests.
+
 `fixtures/app/device.git.json`
 
 ```json
@@ -2965,18 +3001,21 @@ device replaces the first; the old socket is closed with code 4001.
 
 | Direction | Type | Payload |
 | --- | --- | --- |
-| device → gateway | `hello` | `protocol`, `client_version`, `client_build?`, `name`, `platform`, `hostname`, `arch`, `agents`, `sessions` |
+| device → gateway | `hello` | `protocol`, `client_version`, `client_build?`, `name`, `platform`, `hostname`, `arch`, `agents`, `sessions`, `terminal?` (A38) |
 | gateway → device | `hello_ack` | `device_id`, `server_time`, `config: {delta_flush_ms, max_event_bytes}` |
 | device → gateway | `session.updated` | `session` |
 | device → gateway | `session.removed` | `session_id` |
 | device → gateway | `session.event` | `session_id`, `event` |
 | device → gateway | `agents.updated` | `agents` |
 | device → gateway | `update.failed` | `message` — the update that was asked for did not complete; the old client is still running (A22, A36) |
+| device → gateway | `terminal.output` | `terminal_id`, `to`, `seq`, `data` — bytes the shell produced, base64, at most 16 KiB decoded, for the one app connection `to` names (7.3, A38) |
+| device → gateway | `terminal.exited` | `terminal_id`, `to`, `code` — the shell ended; the terminal is gone (A38) |
 | device → gateway | `pong` | – |
 | device → gateway | `reply` | `id`, `from`, `ok`, `result` or `error` |
 | gateway → device | forwarded request | any type from 6.3, plus `from` and `device_id` |
 | gateway → device | `ping` | – every 25 s |
 | gateway → device | `preferences` | `preferences` — after `hello_ack`, and whenever the account's preferences change (A35) |
+| gateway → device | `terminal.detach` | `terminal_id` — a gateway-originated request (`from: "gateway"`, `device_id`) when the app connection holding a terminal is gone; the device stops streaming and keeps the shell for ten minutes (7.3, A38) |
 
 `fixtures/device/hello.json` (abridged)
 
@@ -3268,6 +3307,43 @@ The gateway stores the preference per account (3.2), sends it to each device aft
 on every change, and pushes (3.7) `limit_reached` on `resume {status: "scheduled"}`, `resumed` on
 `fired` and `resume_dropped` on `dropped` to the account's registrations.
 
+### 7.3 Terminals
+
+A person taps a device and gets a shell on it (amendment A38). It is not SSH: the device dials out
+as it always has, nothing on the host listens, no key is exchanged. The device starts the person's
+login shell — `$SHELL`, else `/bin/sh` — in a pseudo-terminal with `TERM=xterm-256color`, in the
+home directory, as the user the client runs as, and streams its bytes through the gateway to the
+one app connection that asked. The gateway relays bytes and never reads them.
+
+- **Opening.** `terminal.open {cols, rows}` (6.3) replies `{terminal_id}`; from then on every
+  `terminal.output` for that terminal names the requesting connection in `to`, and the gateway
+  delivers it to that connection alone — a terminal is one person's view, never broadcast to the
+  account's other sockets. A device runs at most four terminals; a fifth `open` is `conflict`. A
+  device that offers no terminal — the capability is off in its configuration, or the client is
+  older than A38 — says `terminal: false` or nothing in `hello` and answers `unsupported`.
+- **Output.** The device coalesces what the shell writes for about 16 ms and sends it in
+  `terminal.output` frames of at most 16 KiB (decoded), each with a `seq` that starts at 1 and
+  rises by one per frame per terminal, so an app can tell a gap from a pause. It keeps the last
+  64 KiB of every terminal's output as scrollback for `attach`.
+- **Input and size.** `terminal.input {data}` writes bytes as typed — key sequences included, the
+  app's terminal emulator produces them. `terminal.resize {cols, rows}` follows the app's view.
+- **Detaching and attaching.** When the app connection that holds a terminal closes, the gateway
+  sends the device `terminal.detach {terminal_id}` on its own account; the device stops streaming,
+  keeps the shell running and its scrollback for **ten minutes**, then ends it as `terminal.close`
+  would. Within that time any app connection of the same account may `terminal.attach
+  {terminal_id}`: the reply carries the terminal's current `cols`, `rows` and `scrollback`, output
+  resumes to the attaching connection, and `seq` continues where it left off. A second `attach`
+  while another connection holds the terminal moves it: the previous holder gets nothing more.
+- **Ending.** `terminal.close` ends the shell (SIGHUP, then SIGKILL after a grace); the shell
+  ending on its own — `exit`, or the ten minutes — produces `terminal.exited {code}` to the
+  holder, if any, and frees the id. Every terminal ends when the device process does.
+- **What travels.** Bytes, both ways, base64 in JSON. Nothing about them is stored by the gateway
+  or the device beyond the scrollback ring; nothing is logged but the fact that a terminal opened
+  and closed.
+
+`fixtures/device/terminal.output.json`, `fixtures/device/terminal.exited.json` and
+`fixtures/device/forwarded/terminal.detach.json` are the three frames.
+
 ---
 
 ## 8. Semantics every UI must honour
@@ -3363,6 +3439,17 @@ on every change, and pushes (3.7) `limit_reached` on `resume {status: "scheduled
     name and the name kept for editing; a `bad_request` says what a name may not contain. The
     picker makes one folder at a time and never deletes, renames or moves anything.
 
+20. **A device row opens a terminal; its menu holds the rest.** Tapping a device that is online
+    and offers a terminal opens a full-screen shell on it (7.3, A38), on the phone as on the web; an
+    offline device or one without the capability says so instead of opening anything. The row's
+    swipe or menu offers, in this order, **Rename**, **Retry update** (only while `failed`, rule
+    18), **Show quota** (the device page of A33) and **Revoke**. The terminal screen renders the
+    bytes with a real terminal emulator, sends what the person types as bytes, resizes with its
+    view, reconnects with `terminal.attach` after a lost socket for as long as the device keeps the
+    shell, and says plainly when the shell has exited or the device is gone. A phone's terminal
+    carries a key bar above the keyboard — Esc, Tab, a sticky Ctrl, the arrows, Ctrl-C, Ctrl-D and
+    the characters a shell needs — and a way to paste, copy a selection and change the type size.
+
 ## 9. Conformance checklist
 
 ### 9.1 Gateway
@@ -3380,6 +3467,11 @@ on every change, and pushes (3.7) `limit_reached` on `resume {status: "scheduled
       `failed` with the message on `update.failed` or when no `hello` follows within five minutes,
       and clears both on the next `hello` (A22).
 - [ ] Forwards `device.mkdir` to the device it names, as it forwards `device.dirs` (A37).
+- [ ] Forwards the five `terminal.*` requests by `device_id`; delivers `terminal.output` and
+      `terminal.exited` to the one app connection `to` names and to nobody else; remembers which
+      connection holds each terminal from the `open` and `attach` replies, and sends the device
+      `terminal.detach` on its own account when that connection closes; stores `terminal` from
+      `hello` on the `Device` (A38).
 - [ ] Sends `device.update {build}` itself, `from: "gateway"`, to a device whose `hello`
       carries a `client_build` that is neither null nor the served build — once per served build
       per device, retried while the device answers `conflict` for a running session, never again
@@ -3467,6 +3559,11 @@ on every change, and pushes (3.7) `limit_reached` on `resume {status: "scheduled
 - [ ] On a `shared` session injects only while the transcript is idle, holds everything else as a
       `queue` entry with no `user_message`, and emits the block with `delivery: "delivered"` only
       once it is injected (A19).
+- [ ] Reports `terminal` in `hello`; runs the login shell in a pseudo-terminal per `terminal.open`
+      (at most four), coalesces output into `terminal.output` frames of at most 16 KiB with a rising
+      `seq`, keeps 64 KiB of scrollback, writes `terminal.input` and applies `terminal.resize`,
+      keeps a detached shell ten minutes for `terminal.attach`, ends it on `terminal.close` or when
+      the shell exits (`terminal.exited`), and never logs what travels (7.3, A38).
 - [ ] Answers `device.mkdir` with the new directory's listing; makes exactly one level as `mkdir`
       would; refuses a `name` with a `/`, a leading `.` or more than 255 bytes with `bad_request`,
       a `path` that is not a directory with `not_found`, an existing entry with `conflict`, and a
@@ -3550,6 +3647,9 @@ on every change, and pushes (3.7) `limit_reached` on `resume {status: "scheduled
       the accounts screen only to `admin` (A24).
 - [ ] Shows `model`, `permission_mode` and `effort` on a terminal-held session as values it cannot
       change, by label when `AgentInfo` lists the id and by the id otherwise (A17).
+- [ ] Opens a terminal on a device row's tap and orders the row's menu Rename · Retry update ·
+      Show quota · Revoke, as rule 20 says; renders with a terminal emulator, resizes, attaches
+      again after a lost socket, and on a phone carries the key bar of rule 20 (A38).
 - [ ] Offers **New folder** in the directory picker as rule 19 says: a name, `device.mkdir` for
       the directory on screen, the new directory shown and choosable, a clash said beside the name
       (A37).
@@ -4016,3 +4116,17 @@ picker stands in it at once and its choose action picks it. One level, as `mkdir
 one path component with no `/`, no leading `.` and at most 255 bytes; `conflict` when something is
 already there. Rule 19 says how a picker offers it. New: `device.mkdir`, forwarded by `device_id`,
 and its reply. See 6.3, 8 and 9.
+
+**2026-09-18 A38 — a device row opens a terminal.** Remote control of an agent is most of what a
+person wants from a machine they are not at, but not all of it: sometimes there is a shell command
+to run, and until now that meant SSH from somewhere else. A device now offers a **terminal**: the
+device starts the person's login shell in a pseudo-terminal and streams its bytes through the
+gateway to the one app connection that asked — no SSH, no listening port, no key, the device dials
+out as before and the gateway relays without reading. New requests `terminal.open`,
+`terminal.input`, `terminal.resize`, `terminal.attach`, `terminal.close`; new device frames
+`terminal.output` and `terminal.exited`, addressed to one connection by `to`; a gateway-originated
+`terminal.detach` when that connection is gone, after which the device keeps the shell ten minutes
+for an `attach`; `hello.terminal` and `Device.terminal`. Four terminals per device, 16 KiB frames,
+64 KiB scrollback. Rule 20 says what the apps do: tapping a device row opens it, the row's menu
+reads Rename · Retry update · Show quota · Revoke, and a phone's terminal carries a key bar. This
+reverses the v1 decision not to ship a terminal emulator. See 4.1, 6.3, 7, 7.3, 8 and 9.

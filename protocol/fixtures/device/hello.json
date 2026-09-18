@@ -229,5 +229,6 @@
       },
       "queued": 0
     }
-  ]
+  ],
+  "terminal": true
 }

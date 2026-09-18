@@ -15,6 +15,8 @@
         { "$ref": "#/$defs/SessionEvent" },
         { "$ref": "#/$defs/AgentsUpdated" },
         { "$ref": "#/$defs/UpdateFailed" },
+        { "$ref": "#/$defs/TerminalOutput" },
+        { "$ref": "#/$defs/TerminalExited" },
         { "$ref": "#/$defs/Ping" },
         { "$ref": "#/$defs/Pong" },
         { "$ref": "#/$defs/Reply" },
@@ -41,7 +43,8 @@
         "hostname": { "type": "string" },
         "arch": { "$ref": "objects.json#/$defs/Arch" },
         "agents": { "type": "array", "items": { "$ref": "objects.json#/$defs/AgentInfo" } },
-        "sessions": { "type": "array", "items": { "$ref": "objects.json#/$defs/Session" } }
+        "sessions": { "type": "array", "items": { "$ref": "objects.json#/$defs/Session" } },
+        "terminal": { "type": "boolean", "description": "Whether this device offers a shell over the gateway (7.3, A38)." }
       },
       "required": ["type", "protocol", "client_version", "name", "platform", "hostname", "arch", "agents", "sessions"]
     },
@@ -120,6 +123,29 @@
         "message": { "type": "string", "minLength": 1, "maxLength": 400 }
       },
       "required": ["type", "message"]
+    },
+    "TerminalOutput": {
+      "description": "Device -> gateway: bytes a terminal produced, for the one app connection `to` names (7.3, A38). Base64, at most 16 KiB decoded; `seq` starts at 1 and rises by one per frame per terminal.",
+      "type": "object",
+      "properties": {
+        "type": { "const": "terminal.output" },
+        "terminal_id": { "$ref": "objects.json#/$defs/Uuid" },
+        "to": { "$ref": "#/$defs/ConnectionId" },
+        "seq": { "type": "integer", "minimum": 1 },
+        "data": { "type": "string", "pattern": "^[A-Za-z0-9+/]*={0,2}$", "maxLength": 21848 }
+      },
+      "required": ["type", "terminal_id", "to", "seq", "data"]
+    },
+    "TerminalExited": {
+      "description": "Device -> gateway: the shell ended and the terminal is gone (A38).",
+      "type": "object",
+      "properties": {
+        "type": { "const": "terminal.exited" },
+        "terminal_id": { "$ref": "objects.json#/$defs/Uuid" },
+        "to": { "$ref": "#/$defs/ConnectionId" },
+        "code": { "type": ["integer", "null"] }
+      },
+      "required": ["type", "terminal_id", "to", "code"]
     },
     "Ping": {
       "description": "Gateway -> device every 25 s.",

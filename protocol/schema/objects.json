@@ -571,6 +571,10 @@
             "null"
           ],
           "description": "Why the last update failed, in one line (A22)."
+        },
+        "terminal": {
+          "type": "boolean",
+          "description": "True when the device offers a shell over the gateway (7.3, A38). Absent on a client older than A38."
         }
       },
       "required": [

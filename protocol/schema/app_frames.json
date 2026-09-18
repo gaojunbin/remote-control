@@ -104,6 +104,21 @@
           "$ref": "#/$defs/DeviceMkdir"
         },
         {
+          "$ref": "#/$defs/TerminalOpen"
+        },
+        {
+          "$ref": "#/$defs/TerminalInput"
+        },
+        {
+          "$ref": "#/$defs/TerminalResize"
+        },
+        {
+          "$ref": "#/$defs/TerminalAttach"
+        },
+        {
+          "$ref": "#/$defs/TerminalClose"
+        },
+        {
           "$ref": "#/$defs/DeviceAgents"
         },
         {
@@ -170,6 +185,24 @@
         },
         {
           "$ref": "#/$defs/DeviceMkdir"
+        },
+        {
+          "$ref": "#/$defs/TerminalOpen"
+        },
+        {
+          "$ref": "#/$defs/TerminalInput"
+        },
+        {
+          "$ref": "#/$defs/TerminalResize"
+        },
+        {
+          "$ref": "#/$defs/TerminalAttach"
+        },
+        {
+          "$ref": "#/$defs/TerminalClose"
+        },
+        {
+          "$ref": "#/$defs/TerminalDetach"
         },
         {
           "$ref": "#/$defs/DeviceAgents"
@@ -1607,6 +1640,255 @@
       "properties": {
         "result": {
           "$ref": "#/$defs/ResultDeviceDirs"
+        }
+      }
+    },
+    "TerminalOpen": {
+      "description": "Start the person's login shell in a pseudo-terminal of this size; output streams to this connection (7.3, A38).",
+      "allOf": [
+        {
+          "$ref": "#/$defs/RequestBase"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "terminal.open"
+        },
+        "device_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "device_id",
+        "cols",
+        "rows"
+      ]
+    },
+    "TerminalInput": {
+      "description": "Bytes to write to the terminal, as typed (A38).",
+      "allOf": [
+        {
+          "$ref": "#/$defs/RequestBase"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "terminal.input"
+        },
+        "device_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        },
+        "terminal_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        },
+        "data": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "maxLength": 87384,
+          "description": "Base64, at most 64 KiB decoded."
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "device_id",
+        "terminal_id",
+        "data"
+      ]
+    },
+    "TerminalResize": {
+      "description": "The app's view changed size (A38).",
+      "allOf": [
+        {
+          "$ref": "#/$defs/RequestBase"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "terminal.resize"
+        },
+        "device_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        },
+        "terminal_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "device_id",
+        "terminal_id",
+        "cols",
+        "rows"
+      ]
+    },
+    "TerminalAttach": {
+      "description": "Take a terminal this account opened: output goes to this connection from now on, and the reply carries the scrollback (A38).",
+      "allOf": [
+        {
+          "$ref": "#/$defs/RequestBase"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "terminal.attach"
+        },
+        "device_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        },
+        "terminal_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "device_id",
+        "terminal_id"
+      ]
+    },
+    "TerminalClose": {
+      "description": "End the shell; idempotent (A38).",
+      "allOf": [
+        {
+          "$ref": "#/$defs/RequestBase"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "terminal.close"
+        },
+        "device_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        },
+        "terminal_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "device_id",
+        "terminal_id"
+      ]
+    },
+    "TerminalDetach": {
+      "description": "Gateway -> device only, from: \"gateway\": the app connection holding the terminal is gone; stop streaming and keep the shell ten minutes (7.3, A38).",
+      "allOf": [
+        {
+          "$ref": "#/$defs/RequestBase"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "terminal.detach"
+        },
+        "device_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        },
+        "terminal_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "device_id",
+        "terminal_id"
+      ]
+    },
+    "ResultTerminalOpen": {
+      "type": "object",
+      "properties": {
+        "terminal_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        }
+      },
+      "required": [
+        "terminal_id"
+      ]
+    },
+    "ResultTerminalAttach": {
+      "type": "object",
+      "properties": {
+        "terminal_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "scrollback": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "description": "The last 64 KiB the terminal produced, base64."
+        }
+      },
+      "required": [
+        "terminal_id",
+        "cols",
+        "rows",
+        "scrollback"
+      ]
+    },
+    "ReplyTerminalOpen": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/ReplyOk"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/ResultTerminalOpen"
+        }
+      }
+    },
+    "ReplyTerminalAttach": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/ReplyOk"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/ResultTerminalAttach"
         }
       }
     }
