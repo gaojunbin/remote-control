@@ -51,7 +51,14 @@ from .frames import (
     PROTOCOL_VERSION,
     REQUEST_TIMEOUT_SECONDS,
     SILENT_TIMEOUT_SECONDS,
+    TERMINAL_ATTACH,
+    TERMINAL_CLOSE,
+    TERMINAL_DETACH,
+    TERMINAL_EXITED,
+    TERMINAL_OPEN,
+    TERMINAL_PUSH_TYPES,
     Frame,
+    bool_field,
     error_reply,
     frame_type,
     int_field,
@@ -63,6 +70,7 @@ from .frames import (
 from .index import IndexedSession, SessionIndex
 from .logging import logger
 from .replay import ReplayBuffer
+from .terminals import TerminalRoutes
 from .users import UserRecord
 from .views import device_view, has_available_agent, user_view
 
@@ -180,6 +188,9 @@ class _Pending:
     connection_id: str
     #: The frame type that was forwarded; ``device.update`` moves the device on an accepted reply.
     kind: str = ""
+    #: A38: the terminal a ``terminal.*`` request named, so an accepted ``terminal.close`` is
+    #: forgotten by the id the request carried rather than by one the reply does not repeat.
+    terminal_id: str = ""
     timer: asyncio.Task[None] | None = None
 
 
@@ -250,6 +261,8 @@ class Hub:
         self._grace: dict[str, _Grace] = {}
         self._updates: dict[str, asyncio.Task[None]] = {}
         self._pairings: dict[str, _Pairing] = {}
+        #: A38: which app connection each open terminal streams to.
+        self._terminals = TerminalRoutes()
         self._budget = ByteBudget()
         self._lock = asyncio.Lock()
         self._send_lock = asyncio.Lock()
@@ -354,6 +367,9 @@ class Hub:
             if self._devices.get(connection.device_id) is not connection:
                 return
             del self._devices[connection.device_id]
+        # A38: the shells were the daemon's children. Whatever survives a mere link drop will be
+        # detached again by the first output frame addressed to a connection that cannot take it.
+        self._terminals.release_device(connection.device_id)
         code = connection.close_code
         log.info("device disconnected", device_id=connection.device_id, close_code=code)
         if code in IMMEDIATE_OFFLINE_CLOSES:
@@ -452,6 +468,9 @@ class Hub:
             hostname=text_field(frame, "hostname"),
             arch=text_field(frame, "arch"),
             client_version=text_field(frame, "client_version"),
+            # A38. Absent means a client older than the amendment, which is not the same as a
+            # client that offers no shell, so the `Device` keeps the field out rather than false.
+            terminal=bool_field(frame, "terminal"),
         )
         # A22: the device that comes back is the outcome of any update it was asked for, so the
         # build it announces lands before the apps are told anything about it.
@@ -552,7 +571,9 @@ class Hub:
     async def _ask_device(self, connection: DeviceConnection, request: Frame) -> Frame | None:
         """Send a gateway-originated request and wait for the device's reply."""
         kind = frame_type(request)
-        identifier = uuid.uuid4().hex
+        # A UUID, not a bare hex string: every request id on the wire is one (§6.3 `RequestBase`),
+        # and a device validating what it receives would refuse the gateway's own requests.
+        identifier = str(uuid.uuid4())
         waiter: asyncio.Future[Frame] = asyncio.get_running_loop().create_future()
         self._gateway_pending[identifier] = _GatewayRequest(kind=kind, waiter=waiter)
         frame = {
@@ -587,7 +608,9 @@ class Hub:
         if kind not in DEVICE_PUSH_TYPES:
             log.debug("unknown device frame dropped", device_id=connection.device_id, kind=kind)
             return
-        if kind == "session.event":
+        if kind in TERMINAL_PUSH_TYPES:
+            await self._route_terminal(connection, kind, frame)
+        elif kind == "session.event":
             await self._handle_session_event(connection, frame)
         elif kind == "session.updated":
             summary = object_field(frame, "session")
@@ -666,6 +689,84 @@ class Hub:
         sessions = await self.index.list_sessions(device_id=device_id)
         return any(text_field(item, "state") in BUSY_STATES for item in sessions)
 
+    # ---- terminals (A38, §7.3) ----
+
+    async def _route_terminal(self, device: DeviceConnection, kind: str, frame: Frame) -> None:
+        """Hand one terminal frame to the connection that holds it, and to nobody else.
+
+        A terminal is one person's view: the frame goes to the socket ``to`` names, with ``to``
+        stripped and the device identity the token proved put in its place, and only when that
+        socket signed in as the account that owns the machine. Nothing here reads ``data``; the
+        gateway relays bytes and never looks at them or logs them.
+        """
+        terminal_id = text_field(frame, "terminal_id")
+        target = text_field(frame, "to")
+        if not terminal_id or not target:
+            return
+        gone = kind == TERMINAL_EXITED
+        async with self._lock:
+            connection = self._apps.get(target)
+        owner = await self.device_owner(device.device_id)
+        if connection is None or not owner or connection.username != owner:
+            if gone:
+                self._terminals.release(device.device_id, terminal_id)
+            else:
+                self._detach_terminal(device, terminal_id)
+            return
+        if gone:
+            self._terminals.release(device.device_id, terminal_id)
+        outgoing = {key: value for key, value in frame.items() if key != "to"}
+        outgoing["device_id"] = device.device_id
+        await self._send_app(connection, outgoing)
+
+    def _detach_terminal(self, device: DeviceConnection, terminal_id: str) -> None:
+        """Tell the device to stop streaming a terminal nobody is holding (§7.3).
+
+        Once per terminal, not once per frame: a shell that keeps printing after its app socket
+        closed would otherwise become one gateway request per 16 ms of output. Off the read loop
+        as a task, because the request waits for the device's reply and that loop dispatches one
+        frame at a time.
+        """
+        if not self._terminals.note_detached(device.device_id, terminal_id):
+            return
+        self._spawn_notification(self._run_detach(device, terminal_id))
+
+    async def _run_detach(self, device: DeviceConnection, terminal_id: str) -> None:
+        reply = await self._ask_device(
+            device, {"type": TERMINAL_DETACH, "terminal_id": terminal_id}
+        )
+        if reply is None or reply.get("ok") is not True:
+            log.info("terminal detach was not acknowledged", device_id=device.device_id)
+
+    async def _detach_terminals_of(self, connection: AppConnection) -> None:
+        """An app socket closed: its shells run on, detached, for the device's ten minutes."""
+        for device_id, terminal_id in self._terminals.release_connection(connection.id):
+            device = self._devices.get(device_id)
+            if device is None:
+                self._terminals.release(device_id, terminal_id)
+                continue
+            self._detach_terminal(device, terminal_id)
+
+    def _note_terminal_reply(self, device_id: str, pending: _Pending, frame: Frame) -> str:
+        """Read a terminal's holder out of the device's answer, or forget a closed one.
+
+        ``open`` and ``attach`` are the only two frames that say who receives a terminal's
+        output, and an `attach` from another socket of the same account simply moves it here.
+        Returns the terminal now held, so a reply for a socket that has since closed can be
+        undone by the caller.
+        """
+        if frame.get("ok") is not True:
+            return ""
+        if pending.kind in (TERMINAL_OPEN, TERMINAL_ATTACH):
+            result = object_field(frame, "result") or {}
+            terminal_id = text_field(result, "terminal_id") or pending.terminal_id
+            if terminal_id:
+                self._terminals.hold(device_id, terminal_id, pending.connection_id)
+            return terminal_id
+        if pending.kind == TERMINAL_CLOSE and pending.terminal_id:
+            self._terminals.release(device_id, pending.terminal_id)
+        return ""
+
     # ---- app side ----
 
     async def attach_app(self, connection: AppConnection) -> None:
@@ -696,6 +797,7 @@ class Hub:
             pending = self._pending.pop(key, None)
             if pending is not None and pending.timer is not None:
                 pending.timer.cancel()
+        await self._detach_terminals_of(connection)
 
     async def app_hello_payload(
         self,
@@ -941,16 +1043,28 @@ class Hub:
                     error_reply(identifier, ERROR_DEVICE_OFFLINE, "device link broken"),
                 )
                 return
-        self._track_pending(connection, identifier, device_id, kind)
+        self._track_pending(
+            connection, identifier, device_id, kind, text_field(frame, "terminal_id")
+        )
 
     def _track_pending(
-        self, connection: AppConnection, identifier: str, device_id: str, kind: str
+        self,
+        connection: AppConnection,
+        identifier: str,
+        device_id: str,
+        kind: str,
+        terminal_id: str = "",
     ) -> None:
         key = (connection.id, identifier)
         existing = self._pending.get(key)
         if existing is not None and existing.timer is not None:
             existing.timer.cancel()
-        pending = _Pending(device_id=device_id, connection_id=connection.id, kind=kind)
+        pending = _Pending(
+            device_id=device_id,
+            connection_id=connection.id,
+            kind=kind,
+            terminal_id=terminal_id,
+        )
         self._pending[key] = pending
         pending.timer = asyncio.create_task(self._expire_pending(key, identifier))
 
@@ -1002,9 +1116,17 @@ class Hub:
             pending.timer.cancel()
         if pending.kind == DEVICE_UPDATE and frame.get("ok") is True:
             await self._begin_update(device.device_id)
+        # A38: an accepted open or attach is where the gateway learns who receives this
+        # terminal's output, and an accepted close is where it forgets.
+        held = self._note_terminal_reply(device.device_id, pending, frame)
         async with self._lock:
             connection = self._apps.get(target)
         if connection is None:
+            # The socket that asked for the terminal closed before its reply arrived, so nobody
+            # will ever read it: detach now rather than after a first output frame nobody takes.
+            if held:
+                self._terminals.release(device.device_id, held)
+                self._detach_terminal(device, held)
             return
         reply = {key_: value for key_, value in frame.items() if key_ != "from"}
         await self._send_app(connection, reply)
@@ -1281,7 +1403,11 @@ class Hub:
             log.exception("session resume hook failed", session_id=notice.session_id)
 
     def _spawn_notification(self, work: Coroutine[Any, Any, None]) -> None:
-        """Run a push trigger as a task the shutdown drains."""
+        """Run work off the read loop as a task the shutdown drains.
+
+        Push triggers and A38's ``terminal.detach`` both belong here: each would otherwise hold
+        the next frame from the same device behind an outbound call.
+        """
         task = asyncio.create_task(work)
         self._notifications.add(task)
         task.add_done_callback(self._notifications.discard)
@@ -1297,6 +1423,7 @@ class Hub:
         owner = await self.device_owner(device_id)
         for session_id in await self.index.remove_for_device(device_id):
             await self._drop_session(device_id, session_id, owner)
+        self._terminals.release_device(device_id)
         self._device_owners.pop(device_id, None)
 
     async def _drop_session(self, device_id: str, session_id: str, owner: str) -> None:

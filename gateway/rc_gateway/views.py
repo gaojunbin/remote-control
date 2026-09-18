@@ -44,7 +44,7 @@ def device_view(
     latency_ms: int | None = None,
     last_seen: int | None = None,
 ) -> Device:
-    return {
+    view: Device = {
         "device_id": record.device_id,
         "name": record.name,
         "platform": record.platform,
@@ -62,6 +62,11 @@ def device_view(
         "update_state": record.update_state,
         "update_message": record.update_message,
     }
+    # A38, and unlike the A22 three: the field is left out for a client that never said, which is
+    # what "older than the amendment" looks like and is not the same as a device with no shell.
+    if record.terminal is not None:
+        view["terminal"] = record.terminal
+    return view
 
 
 def has_available_agent(agents: list[dict[str, Any]] | None) -> bool:

@@ -48,6 +48,17 @@ FORWARDED_BY_SESSION = frozenset(
         "session.delete",
     }
 )
+#: A38: a terminal belongs to a machine, never to a session, so all five name the device.
+#: ``terminal.detach`` is deliberately absent: only the gateway sends it, on its own account.
+TERMINAL_OPEN = "terminal.open"
+TERMINAL_INPUT = "terminal.input"
+TERMINAL_RESIZE = "terminal.resize"
+TERMINAL_ATTACH = "terminal.attach"
+TERMINAL_CLOSE = "terminal.close"
+TERMINAL_DETACH = "terminal.detach"
+TERMINAL_OUTPUT = "terminal.output"
+TERMINAL_EXITED = "terminal.exited"
+
 FORWARDED_BY_DEVICE = frozenset(
     {
         "session.create",
@@ -56,23 +67,35 @@ FORWARDED_BY_DEVICE = frozenset(
         "device.git",
         "device.agents",
         "device.update",
+        TERMINAL_OPEN,
+        TERMINAL_INPUT,
+        TERMINAL_RESIZE,
+        TERMINAL_ATTACH,
+        TERMINAL_CLOSE,
     }
 )
 FORWARDED_TYPES = FORWARDED_BY_SESSION | FORWARDED_BY_DEVICE
+
+#: A38: the two frames a device pushes for a terminal. Both name one app connection in ``to``,
+#: and the gateway delivers them to that connection alone (§7.3).
+TERMINAL_PUSH_TYPES = frozenset({TERMINAL_OUTPUT, TERMINAL_EXITED})
 
 #: A22: an accepted reply to this puts the device into `updating` until it comes back.
 DEVICE_UPDATE = "device.update"
 DEVICE_UPDATE_FAILED = "update.failed"
 
 #: Frames a device may send unsolicited.
-DEVICE_PUSH_TYPES = frozenset(
-    {
-        "session.updated",
-        "session.removed",
-        "session.event",
-        "agents.updated",
-        DEVICE_UPDATE_FAILED,
-    }
+DEVICE_PUSH_TYPES = (
+    frozenset(
+        {
+            "session.updated",
+            "session.removed",
+            "session.event",
+            "agents.updated",
+            DEVICE_UPDATE_FAILED,
+        }
+    )
+    | TERMINAL_PUSH_TYPES
 )
 
 #: Amendment A4 close codes. 4401 tells an app to stop reconnecting and return to login; 4403
@@ -137,6 +160,16 @@ def int_field(frame: Frame, name: str) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value
+
+
+def bool_field(frame: Frame, name: str) -> bool | None:
+    """A boolean a frame may omit. ``None`` means the peer said nothing, which is not ``False``.
+
+    A38 turns on this distinction: a device older than the amendment reports no ``terminal`` at
+    all, and the `Device` object leaves the field out rather than claiming the shell is off.
+    """
+    value = frame.get(name)
+    return value if isinstance(value, bool) else None
 
 
 def object_field(frame: Frame, name: str) -> Frame | None:

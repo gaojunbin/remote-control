@@ -31,6 +31,9 @@ MIGRATIONS: tuple[Migration, ...] = (
     ("devices", "update_state", "TEXT NOT NULL DEFAULT 'idle'"),
     ("devices", "update_message", "TEXT"),
     ("devices", "update_failed_build", "TEXT"),
+    # A38: nullable on purpose. NULL is "this client never said", which the `Device` object
+    # reports as an absent field rather than as a device without a shell.
+    ("devices", "terminal", "INTEGER"),
 )
 
 PAIR_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
@@ -81,6 +84,9 @@ class DeviceRecord:
     #: A36, gateway-internal and never part of the `Device` an app sees: the served build that
     #: failed on this machine, so the gateway does not try that same wheel again by itself.
     update_failed_build: str | None = None
+    #: A38: whether the machine offers a shell, as its `hello` said. None on a client older than
+    #: the amendment, which never says either way.
+    terminal: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -131,7 +137,8 @@ class DeviceStore:
                     client_build TEXT,
                     update_state TEXT NOT NULL DEFAULT 'idle',
                     update_message TEXT,
-                    update_failed_build TEXT
+                    update_failed_build TEXT,
+                    terminal INTEGER
                 )
                 """
             )
@@ -349,23 +356,29 @@ class DeviceStore:
         device_id: str,
         *,
         agents: list[dict[str, Any]] | None = None,
+        terminal: bool | None = None,
         **fields: str,
     ) -> None:
-        """Persist the identity and agent inventory a device announced."""
-        await asyncio.to_thread(self._describe, device_id, fields, agents)
+        """Persist the identity, agent inventory and terminal capability a device announced."""
+        await asyncio.to_thread(self._describe, device_id, fields, agents, terminal)
 
     def _describe(
         self,
         device_id: str,
         fields: dict[str, str],
         agents: list[dict[str, Any]] | None,
+        terminal: bool | None = None,
     ) -> None:
         allowed = {"name", "platform", "hostname", "arch", "client_version"}
-        updates: dict[str, str] = {
+        updates: dict[str, Any] = {
             key: value for key, value in fields.items() if key in allowed and value
         }
         if agents is not None:
             updates["agents"] = json.dumps(agents, ensure_ascii=False, separators=(",", ":"))
+        # A38. Only `hello` carries it, and only a client that said something overwrites what is
+        # stored: an `agents.updated` never silently takes a device's shell away.
+        if terminal is not None:
+            updates["terminal"] = int(terminal)
         if not updates:
             return
         assignments = ", ".join(f"{key}=?" for key in updates)
@@ -464,7 +477,7 @@ class DeviceStore:
 
 _COLUMNS = (
     "device_id, username, name, platform, hostname, arch, client_version, created_at, last_seen, "
-    "agents, client_build, update_state, update_message, update_failed_build"
+    "agents, client_build, update_state, update_message, update_failed_build, terminal"
 )
 
 
@@ -486,6 +499,7 @@ def _record(row: Any) -> DeviceRecord:
         update_failed_build=(
             None if row["update_failed_build"] is None else str(row["update_failed_build"])
         ),
+        terminal=None if row["terminal"] is None else bool(row["terminal"]),
     )
 
 

@@ -196,6 +196,74 @@ def test_pushed_app_frames_match_the_schema(client: TestClient, auth: dict[str, 
     check(client.get("/api/devices", headers=auth).json(), "http.json", "DeviceListResponse")
 
 
+def test_terminal_frames_match_the_schema(client: TestClient, auth: dict[str, str]) -> None:
+    """A38: the two frames the gateway re-addresses, and the detach it sends on its own account."""
+    enrolled = enroll_device(client, auth)
+    headers = {"Authorization": f"Bearer {enrolled['device_token']}"}
+    terminal_id = "2f8d4b6a-1c3e-4a75-9b0d-6e2f8c4a1d57"
+    with client.websocket_connect("/ws/device", headers=headers) as device:
+        device.send_json(device_hello(terminal=True))
+        device.receive_json()
+        check(client.get("/api/devices", headers=auth).json(), "http.json", "DeviceListResponse")
+        with client.websocket_connect("/ws/app", headers=auth) as app:
+            drain_until(app, "hello")
+            app.send_json(
+                {
+                    "type": "terminal.open",
+                    "id": "44444444-5555-4666-8777-888888888888",
+                    "device_id": enrolled["device_id"],
+                    "cols": 80,
+                    "rows": 24,
+                }
+            )
+            forwarded = drain_until(device, "terminal.open")
+            check(forwarded, "app_frames.json", "TerminalOpen")
+            device.send_json(
+                {
+                    "type": "reply",
+                    "id": forwarded["id"],
+                    "from": forwarded["from"],
+                    "ok": True,
+                    "result": {"terminal_id": terminal_id},
+                }
+            )
+            check(drain_until(app, "reply"), "app_frames.json", "ReplyTerminalOpen")
+            device.send_json(
+                {
+                    "type": "terminal.output",
+                    "terminal_id": terminal_id,
+                    "to": forwarded["from"],
+                    "seq": 1,
+                    "data": "JCA=",
+                }
+            )
+            check(drain_until(app, "terminal.output"), "app_frames.json", "TerminalOutput")
+            device.send_json(
+                {
+                    "type": "terminal.exited",
+                    "terminal_id": terminal_id,
+                    "to": forwarded["from"],
+                    "code": 0,
+                }
+            )
+            check(drain_until(app, "terminal.exited"), "app_frames.json", "TerminalExited")
+            # And the gateway's own request, once nobody is holding the terminal any more.
+            device.send_json(
+                {
+                    "type": "terminal.output",
+                    "terminal_id": terminal_id,
+                    "to": "no-such-connection",
+                    "seq": 2,
+                    "data": "JCA=",
+                }
+            )
+            detach = drain_until(device, "terminal.detach")
+            check(detach, "app_frames.json", "TerminalDetach")
+            device.send_json(
+                {"type": "reply", "id": detach["id"], "from": "gateway", "ok": True, "result": {}}
+            )
+
+
 def test_pairing_progress_matches_the_schema(client: TestClient, auth: dict[str, str]) -> None:
     with client.websocket_connect("/ws/app", headers=auth) as app:
         drain_until(app, "hello")

@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from rc_gateway.frames import FORWARDED_TYPES
 from rc_gateway.push import build_payload
 from rc_gateway.replay import ReplayBuffer
 from rc_gateway.state import GatewayState
@@ -35,8 +36,20 @@ def event_files() -> list[str]:
 
 
 def forwarded_files() -> list[str]:
+    """The forwarded fixtures an app can send.
+
+    ``terminal.detach`` lives in the same directory and is not one of them: A38 gives it to the
+    gateway alone, so it is exercised by the hub tests that make the gateway send it, not here.
+    """
     directory = FIXTURE_DIR / "device" / "forwarded"
-    return sorted(item.name for item in directory.glob("*.json")) if directory.is_dir() else []
+    if not directory.is_dir():
+        return []
+    names = []
+    for item in sorted(directory.glob("*.json")):
+        frame = json.loads(item.read_text(encoding="utf-8"))
+        if frame.get("type") in FORWARDED_TYPES:
+            names.append(item.name)
+    return names
 
 
 def test_health_and_config_match_the_fixture_shape(

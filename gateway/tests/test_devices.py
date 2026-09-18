@@ -270,6 +270,8 @@ async def test_a_database_from_an_older_release_is_migrated(tmp_path: Path) -> N
     assert listed["legacy-1"].agents == []
     # A36's column is one of them: an upgraded gateway reads a row that never had it.
     assert listed["legacy-1"].update_failed_build is None
+    # A38's likewise, and NULL there means "this client never said", not "no shell".
+    assert listed["legacy-1"].terminal is None
     # And the column that the migration added is now usable.
     replayed = await store.redeem(
         grant.code,
