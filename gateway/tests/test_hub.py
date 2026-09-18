@@ -105,6 +105,48 @@ def test_a_request_addressed_by_device_id_is_forwarded_unchanged(
             assert forwarded["cwd"] == "/tmp"
 
 
+def test_device_mkdir_is_forwarded_to_the_device_it_names(
+    client: TestClient, auth: dict[str, str]
+) -> None:
+    """A37: the picker's New folder travels like device.dirs, by device_id, with from stamped."""
+    enrolled = enroll_device(client, auth)
+    with client.websocket_connect("/ws/device", headers=_device_headers(enrolled)) as device:
+        device.send_json(device_hello())
+        device.receive_json()
+        with client.websocket_connect("/ws/app", headers=auth) as app:
+            drain_until(app, "hello")
+            app.send_json(
+                {
+                    "type": "device.mkdir",
+                    "id": "req-mkdir",
+                    "device_id": enrolled["device_id"],
+                    "path": "/Users/me/dev",
+                    "name": "new-project",
+                }
+            )
+            forwarded = drain_until(device, "device.mkdir")
+            assert forwarded["path"] == "/Users/me/dev"
+            assert forwarded["name"] == "new-project"
+            assert forwarded["from"]
+            device.send_json(
+                {
+                    "type": "reply",
+                    "id": "req-mkdir",
+                    "from": forwarded["from"],
+                    "ok": True,
+                    "result": {
+                        "path": "/Users/me/dev/new-project",
+                        "parent": "/Users/me/dev",
+                        "entries": [],
+                        "recent": [],
+                    },
+                }
+            )
+            reply = drain_until(app, "reply")
+            assert reply["ok"] is True
+            assert reply["result"]["path"] == "/Users/me/dev/new-project"
+
+
 def test_offline_device_yields_a_device_offline_reply(
     client: TestClient, auth: dict[str, str]
 ) -> None:

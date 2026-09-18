@@ -49,7 +49,7 @@ FORWARDED_BY_SESSION = frozenset(
     }
 )
 FORWARDED_BY_DEVICE = frozenset(
-    {"session.create", "device.dirs", "device.git", "device.agents", "device.update"}
+    {"session.create", "device.dirs", "device.mkdir", "device.git", "device.agents", "device.update"}
 )
 FORWARDED_TYPES = FORWARDED_BY_SESSION | FORWARDED_BY_DEVICE
 
