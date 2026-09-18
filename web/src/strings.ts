@@ -262,6 +262,11 @@ export const en = {
     browseUp: 'Up one level',
     browseUse: 'Use this directory',
     browseEmpty: 'No subdirectories.',
+    /** A37: the picker makes one folder where the session will work. */
+    newFolder: 'New folder',
+    newFolderName: 'Folder name',
+    newFolderCreate: 'Create',
+    newFolderExists: 'A folder with that name already exists.',
   },
 
   chat: {

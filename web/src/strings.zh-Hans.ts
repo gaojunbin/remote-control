@@ -242,6 +242,10 @@ export const zhHans: StringTable = {
     browseUp: '上一级',
     browseUse: '使用此目录',
     browseEmpty: '没有子目录。',
+    newFolder: '新建文件夹',
+    newFolderName: '文件夹名称',
+    newFolderCreate: '创建',
+    newFolderExists: '已存在同名文件夹。',
   },
 
   chat: {

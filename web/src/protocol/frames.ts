@@ -205,6 +205,11 @@ export interface RequestMap {
   'session.delete': [{ session_id: string }, Record<string, never>];
   'device.dirs': [{ device_id: string; path?: string }, DirsResult];
   'device.git': [{ device_id: string; path: string }, GitResult];
+  /**
+   * A37: make one directory, `name`, inside `path`, and answer with the new
+   * directory's listing — empty, so the picker can stand in it and choose it.
+   */
+  'device.mkdir': [{ device_id: string; path: string; name: string }, DirsResult];
   'device.agents': [{ device_id: string }, AgentsResult];
   /** A22: bring the device to the build the gateway serves. */
   'device.update': [{ device_id: string; build: string }, UpdateAcceptedResult];
