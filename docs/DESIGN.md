@@ -60,20 +60,14 @@ apps, with the same words in the same order — **Rename**, **Update** and **Rev
 row's menu on the web, and on the phone from one trailing swipe holding all three and from the
 context menu; nothing is reachable on one app and not the other.
 
-**A device has a page.** Tapping a device row — the row itself, not its menu — opens the device
-(A33): its name, hostname, platform and client build as the row shows them, then one card per coding
-agent the device found, in the device's own order, and nothing for an agent it did not find; a
-device with no agents says so in one line. A card names the agent by logo and name with its
-version, and under it says how the agent is signed in, in one line: *Anthropic account · Max ·
-Max 5x · me@example.com* when it runs on the vendor's own account — the vendor's name, then the
-plan, the tier and the email, each only when reported; *Anthropic API key* when it runs on a key,
-*Anthropic API key · api.relay.example* when the key goes to a third-party host; *Not signed in*
-when the device found neither. The plan is the vendor's own word with its first letter raised
-(`max` → *Max*); the tier is printed exactly as the device reported it, because the device already
-put it into words. pi, which signs in per provider, gets one such line per provider. The vendor's name comes
-from a small table the app keeps for the ids it knows (`anthropic`, `openai`, `xai`); an id it does
-not know is printed as itself. Nothing is drawn for what the agent does not report, and the same
-three actions the row offers — Rename, Update, Revoke — are not repeated on the page.
+**A device has a page, and a device row opens a terminal** (A33, A38; owner's ruling 2026-09-18).
+Tapping a device row — the row itself, not its menu — opens a shell on that machine (§ "The
+terminal"); an offline device, or one whose client is older than A38, says so in place of opening
+anything. The device's own page — the agents on it, how each is signed in and what is left of each
+account's quota, with the hostname and the architecture under the name — is reached from the row's
+menu as **Show quota**. The row's swipe on iOS and its menu on both apps read, in this order:
+**Rename**, **Retry update** (only while an update has failed, § "A device keeps itself current"),
+**Show quota**, **Revoke**.
 
 **Quota is a meter, drawn for accounts only.** Under an account line the page draws the vendor's
 rate-limit windows the device could read, one row each: the window's name — *5-hour*, *7-day*,
@@ -167,7 +161,7 @@ devices ran into each other. The row now reads, top to bottom:
   runs ("Updating…") or has failed ("Update failed · <reason>"); otherwise the agents follow the
   status line directly. The device page keeps the hostname and the architecture and nothing about
   the client but the same notice.
-- The row menu is unchanged.
+- The row menu reads Rename · Retry update (only while failed) · Show quota · Revoke, and the row's tap opens the terminal (§ "A device has a page, and a device row opens a terminal").
 
 **Devices can be filtered by platform** (owner's ruling, 2026-09-18). The Devices screen carries the
 same filter control the Sessions screen has for agents, top right: a menu of "All devices" and the
@@ -193,6 +187,46 @@ now three lines, on both apps:
   from the front, its tab on the left, every corner rounded — drawn to the same rule as the
   laptop before a device (§ "The device row"): a 1.5-unit stroke on the 24-unit grid, round caps
   and joins, no fill, in the ink. The web uses lucide's; iOS draws the same path (`FolderGlyph`).
+
+## The terminal
+
+A machine you are not at sometimes needs a shell command, not an agent (owner's ruling,
+2026-09-18, A38). Tapping a device row opens a **terminal** on it: the device starts your login
+shell in a pseudo-terminal and streams its bytes through the gateway to this one app connection. It
+is not SSH and is not called SSH — nothing on the host listens, no key travels, the device dials out
+as it always has — so the word on screen is **Terminal**. This reverses the v1 decision not to ship
+a terminal emulator; that decision stood while the apps had nothing to say to a shell, and the
+device row's tap is now the shortest path to one.
+
+**The screen.** Full-screen, the device's name as the title, **Close** at the trailing edge; the
+emulator fills the rest — SwiftTerm on iOS, xterm.js on the web — and follows the visible area:
+rotate the phone or raise the keyboard and the terminal is resized (`terminal.resize`), never
+letterboxed or scaled. A thin status line under the title says **Connecting**, **Connected**, or
+**Disconnected** with a **Reconnect** action; after a lost socket the app attaches again by itself
+(`terminal.attach`) for as long as the device keeps the shell, and comes back to the same
+scrollback. When the shell exits the screen says **Shell exited** with the code and offers **New
+shell**; when the device goes offline it says so.
+
+**The phone's key bar.** The one thing that decides whether a shell is usable on a phone. A single
+row above the software keyboard, scrolling sideways when it must, in this order: **Esc · Tab ·
+Ctrl · ↑ · ↓ · ← · → · Ctrl-C · Ctrl-D · Ctrl-Z · Ctrl-R · Ctrl-L · | · / · - · ~ · Paste**. Ctrl is
+sticky: tap it once and the next letter is sent as a control character, then it releases; it shows
+its armed state. Each key sends the byte sequence a terminal expects (`\x1b`, `\t`, `\x1b[A`…),
+nothing app-specific. Paste inserts the clipboard as typed. A long press on the terminal selects
+text and copies it through the system menu; a pinch changes the type size, which is remembered; a
+tap on the terminal raises the keyboard; two fingers scroll the scrollback.
+
+**Safety.** Opening a terminal is the most powerful thing an app can do to a machine, so on iOS,
+when App Lock is on, opening one asks for Face ID or the passcode first, even inside an unlocked
+app. The device runs at most four terminals and keeps a detached one for ten minutes, then ends it;
+`Close` ends it at once. The gateway relays bytes and reads none of them; nothing about a terminal
+is stored anywhere but the device's 64 KiB scrollback ring, and only the fact that one opened and
+closed is logged. A device can turn the capability off in its configuration and then says so in
+`hello`; such a device's row tap says "This device does not offer a terminal."
+
+**The web.** The same screen at `/devices/:id/terminal`: xterm.js with the fit addon, native copy
+and paste, the status line and Close in a header, the emulator taking the rest of the page. No key
+bar — the keyboard is real.
 
 ## Accounts
 
@@ -940,9 +974,9 @@ Every user-visible string lives in one catalog per app — `web/src/strings.ts` 
 - **Dark mode as a designed theme.** The tokens exist on iOS; the design does not.
 - **Workspaces and sharing.** Accounts are separate people with separate devices; nothing is
   shared between two of them, and a device belongs to exactly one.
-- **A terminal emulator.** Mirroring a session, or attaching to one, is not the same as an SSH pane,
-  and it is deliberately not one. You get the agent's conversation, not its screen. If you need a
-  shell, use a shell.
+- **A general remote desktop.** A terminal on a device is there since A38 (§ "The terminal"); a
+  screen, a file manager or a port forward are not. You get the agent's conversation and, when you
+  ask for it, a shell — not the machine's display.
 - **File browsing and editing.** The directory picker exists to choose a working directory —
   making the folder to work in is part of choosing it (A37) — and nothing more: no files, no
   renaming, no deleting.
