@@ -101,6 +101,9 @@
           "$ref": "#/$defs/DeviceGit"
         },
         {
+          "$ref": "#/$defs/DeviceMkdir"
+        },
+        {
           "$ref": "#/$defs/DeviceAgents"
         },
         {
@@ -164,6 +167,9 @@
         },
         {
           "$ref": "#/$defs/DeviceGit"
+        },
+        {
+          "$ref": "#/$defs/DeviceMkdir"
         },
         {
           "$ref": "#/$defs/DeviceAgents"
@@ -1555,6 +1561,52 @@
       "properties": {
         "result": {
           "$ref": "#/$defs/ResultSession"
+        }
+      }
+    },
+    "DeviceMkdir": {
+      "description": "Make one directory, `name`, inside `path` (a directory the device listed), and reply with its listing (A37).",
+      "allOf": [
+        {
+          "$ref": "#/$defs/RequestBase"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "device.mkdir"
+        },
+        "device_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "description": "One path component: no slash, no leading dot, at most 255 bytes.",
+          "type": "string",
+          "pattern": "^(?!\\.)[^/\\u0000]{1,255}$"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "device_id",
+        "path",
+        "name"
+      ]
+    },
+    "ReplyDeviceMkdir": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/ReplyOk"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/ResultDeviceDirs"
         }
       }
     }

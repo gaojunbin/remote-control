@@ -83,6 +83,7 @@ APP_FRAME_TYPES = (
     "session.delete",
     "device.dirs",
     "device.git",
+    "device.mkdir",
     "device.agents",
     "device.update",
 )
@@ -118,6 +119,7 @@ FORWARDED_TYPES = (
     "session.delete",
     "device.dirs",
     "device.git",
+    "device.mkdir",
     "device.agents",
     "device.update",
 )
@@ -227,6 +229,7 @@ PATH_SCHEMAS = {
     "app/reply.session.resume_set.json": ("app_frames.json", "ReplySessionResumeSet"),
     "app/reply.device.dirs.json": ("app_frames.json", "ReplyDeviceDirs"),
     "app/reply.device.git.json": ("app_frames.json", "ReplyDeviceGit"),
+    "app/reply.device.mkdir.json": ("app_frames.json", "ReplyDeviceMkdir"),
     "app/reply.device.agents.json": ("app_frames.json", "ReplyDeviceAgents"),
     "app/reply.device.update.json": ("app_frames.json", "ReplyDeviceUpdate"),
 }

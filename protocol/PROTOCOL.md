@@ -2446,13 +2446,20 @@ The gateway forwards these to the owning device and returns the device's reply.
 | `session.delete` | `session_id` | `{}` |
 | `device.dirs` | `device_id`, `path?` | `{path, parent, entries, recent}` |
 | `device.git` | `device_id`, `path` | `{is_repo, branch?, dirty?, ahead?, behind?}` |
+| `device.mkdir` | `device_id`, `path`, `name` | `{path, parent, entries, recent}` — makes the directory `name` inside `path` and replies with the new directory's listing, as `device.dirs` would (A37) |
 | `device.agents` | `device_id` | `{agents}` — the agents as `hello` reports them, with `accounts[].limits` read fresh for this reply (A33) |
 | `device.update` | `device_id`, `build` | `{accepted: true, from}` — the device fetches the gateway's wheel, refuses it unless its SHA-256 is `build`, installs it, restarts its service and reconnects with the new `client_build` (A22). `conflict` while a session it drives is running or when it already runs `build`; `unsupported` when the client cannot update itself (installed from source). The gateway sends it on its own account, with `from: "gateway"`, whenever a device's build is not the served one (A36); an app sends it to retry a failed update. |
 
 Every request carries `id`. `session.stop` is idempotent. `session.delete` removes the session from
 the device registry and does **not** delete the agent's own transcripts. `device.dirs` returns
 directories only, excludes hidden entries, and defaults to the home directory when `path` is
-omitted. `session.takeover` needs capability `takeover` and applies to `control: "terminal"`
+omitted. `device.mkdir` makes exactly one directory, as `mkdir` would: `path` is a directory the
+device listed, `name` is one path component — no `/`, no leading `.`, at most 255 bytes — and the
+reply is the listing of the directory just made (empty, with the same `recent`), so a picker can
+show it as the place it now stands in. `bad_request` for a name or path that breaks the rule,
+`not_found` when `path` is not a directory, `conflict` when something already exists under that
+name, `forbidden` when the device may not write there (A37). `session.takeover` needs capability
+`takeover` and applies to `control: "terminal"`
 sessions; on a `shared` session it fails with `conflict`.
 
 #### `session.send` modes
@@ -2836,6 +2843,39 @@ out of the Archive when the device's `session.updated` arrives.
       {
         "path": "/Users/me/dev/web",
         "last_used": 1788937200000
+      }
+    ]
+  }
+}
+```
+
+`fixtures/app/device.mkdir.json`
+
+```json
+{
+  "type": "device.mkdir",
+  "id": "3b9c6f1e-7a2d-4e58-9c1b-8f6a2d4e7b31",
+  "device_id": "c5efb1ec-2912-4619-90f7-93b5172fd712",
+  "path": "/Users/me/dev",
+  "name": "new-project"
+}
+```
+
+`fixtures/app/reply.device.mkdir.json`
+
+```json
+{
+  "type": "reply",
+  "id": "3b9c6f1e-7a2d-4e58-9c1b-8f6a2d4e7b31",
+  "ok": true,
+  "result": {
+    "path": "/Users/me/dev/new-project",
+    "parent": "/Users/me/dev",
+    "entries": [],
+    "recent": [
+      {
+        "path": "/Users/me/dev/gateway",
+        "last_used": 1788943800000
       }
     ]
   }
@@ -3316,6 +3356,13 @@ on every change, and pushes (3.7) `limit_reached` on `resume {status: "scheduled
     the device's own page states the client version or its build: a person is never asked to know
     it.
 
+19. **A folder can be made where a session will work.** The directory picker offers **New folder**
+    wherever it shows a listing: it asks for a name, sends `device.mkdir {path, name}` for the
+    directory on screen, and on success the new directory is the listing on screen — empty, ready
+    to be chosen — so the picker's choose action picks it (A37). A `conflict` is said beside the
+    name and the name kept for editing; a `bad_request` says what a name may not contain. The
+    picker makes one folder at a time and never deletes, renames or moves anything.
+
 ## 9. Conformance checklist
 
 ### 9.1 Gateway
@@ -3332,6 +3379,7 @@ on every change, and pushes (3.7) `limit_reached` on `resume {status: "scheduled
       `hello`, forwards `device.update`, marks the device `updating` on an accepted reply and
       `failed` with the message on `update.failed` or when no `hello` follows within five minutes,
       and clears both on the next `hello` (A22).
+- [ ] Forwards `device.mkdir` to the device it names, as it forwards `device.dirs` (A37).
 - [ ] Sends `device.update {build}` itself, `from: "gateway"`, to a device whose `hello`
       carries a `client_build` that is neither null nor the served build — once per served build
       per device, retried while the device answers `conflict` for a running session, never again
@@ -3419,6 +3467,10 @@ on every change, and pushes (3.7) `limit_reached` on `resume {status: "scheduled
 - [ ] On a `shared` session injects only while the transcript is idle, holds everything else as a
       `queue` entry with no `user_message`, and emits the block with `delivery: "delivered"` only
       once it is injected (A19).
+- [ ] Answers `device.mkdir` with the new directory's listing; makes exactly one level as `mkdir`
+      would; refuses a `name` with a `/`, a leading `.` or more than 255 bytes with `bad_request`,
+      a `path` that is not a directory with `not_found`, an existing entry with `conflict`, and a
+      directory it may not write with `forbidden` (A37).
 - [ ] Reports `client_build` in `hello`, answers `device.update` as 6.3 says, verifies the wheel's
       SHA-256 before installing, restarts itself only after a successful install, and sends
       `update.failed` otherwise (A22).
@@ -3498,6 +3550,9 @@ on every change, and pushes (3.7) `limit_reached` on `resume {status: "scheduled
       the accounts screen only to `admin` (A24).
 - [ ] Shows `model`, `permission_mode` and `effort` on a terminal-held session as values it cannot
       change, by label when `AgentInfo` lists the id and by the id otherwise (A17).
+- [ ] Offers **New folder** in the directory picker as rule 19 says: a name, `device.mkdir` for
+      the directory on screen, the new directory shown and choosable, a clash said beside the name
+      (A37).
 - [ ] Offers Rename and Revoke on every device row, shows no client version or build on the row
       or the device page and no "Update available", reads "Updating…" and "Update failed ·
       <message>" from `update_state`, and offers **Retry update** only while it is `failed`
@@ -3952,3 +4007,12 @@ client version and its build from the device row and the device page alike, drop
 available", and offer **Retry update** only on a failed device; "Updating…" and "Update failed ·
 <message>" stay. Nothing changes on the wire: the
 request, its replies and `Device.update_state` are A22's. See 3.2, 4.3, 6.3, 7, 8 and 9.
+
+**2026-09-18 A37 — a folder can be made where a session will work.** The directory picker could
+only choose a directory that existed, so starting a project in a new folder meant a terminal first.
+`device.mkdir {device_id, path, name}` asks the device to make one directory, `name`, inside a
+directory it listed, and replies with the new directory's listing as `device.dirs` would, so the
+picker stands in it at once and its choose action picks it. One level, as `mkdir` would; a name is
+one path component with no `/`, no leading `.` and at most 255 bytes; `conflict` when something is
+already there. Rule 19 says how a picker offers it. New: `device.mkdir`, forwarded by `device_id`,
+and its reply. See 6.3, 8 and 9.
