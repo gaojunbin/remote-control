@@ -34,6 +34,25 @@ def object_validator(name: str) -> Any:
     return jsonschema.Draft202012Validator({**schema, "$ref": f"#/$defs/{name}"})
 
 
+def device_frame_validator(name: str) -> Any:
+    """A jsonschema validator for one `$defs` entry of `device_frames.json`, or None."""
+    path = SCHEMA_ROOT / "device_frames.json"
+    if not path.exists():
+        return None
+    import jsonschema
+    from referencing import Registry, Resource
+    from referencing.jsonschema import DRAFT202012 as DRAFT
+
+    def retrieve(uri: str) -> Any:
+        return Resource.from_contents(
+            _load_schema(uri.rsplit("/", 1)[-1]), default_specification=DRAFT
+        )
+
+    schema = _load_schema("device_frames.json")
+    registry = Registry(retrieve=retrieve)  # type: ignore[call-arg]
+    return jsonschema.Draft202012Validator({**schema, "$ref": f"#/$defs/{name}"}, registry=registry)
+
+
 def event_validator() -> Any:
     """A jsonschema validator for `Event`, or None when the schema is missing."""
     path = SCHEMA_ROOT / "events.json"

@@ -62,7 +62,7 @@ Exit codes: `0` success, `1` runtime failure, `2` usage error, `3` not enrolled.
 
 ### Optional settings
 
-`enroll` writes the four required keys. Two sections may be added by hand; both
+`enroll` writes the four required keys. Three sections may be added by hand; all
 have safe defaults, and an unreadable or out-of-range value falls back to them.
 
 ```toml
@@ -72,6 +72,9 @@ max_age_days = 14   # and how far back to look
 
 [claude]
 setting_sources = ["project", "local"]
+
+[terminal]
+enabled = true      # offer a shell to the apps (A38)
 ```
 
 `mirror` bounds what a freshly enrolled device publishes. Without it a developer
@@ -84,6 +87,11 @@ cancels the request the remote decision arrives on, so the tool runs before
 anyone could approve it. Adding `"user"` restores the machine's MCP servers and
 skills, at the cost of letting those settings approve on the remote user's
 behalf.
+
+`terminal` decides whether this device offers a shell. With it on, which is the
+default, an app may open the person's login shell in a pseudo-terminal and drive
+it through the gateway; `enabled = false` is reported in `hello` and every
+`terminal.*` request is answered `unsupported`.
 
 `RC_CLIENT_HOME` overrides the directory. The background service is a launchd
 user agent labelled `dev.remote-control.client` on macOS, and a systemd user
@@ -117,6 +125,12 @@ survives logout).
   WebSocket over the machine's shared `codex app-server` control socket, that
   becomes the session index and the event stream for every Codex thread when the
   daemon is running. Falls back to the per-session adapter when it is not.
+* **Terminals** (`terminal/`) — up to four login shells on pseudo-terminals,
+  each streamed to the one app connection that opened it: output is coalesced
+  for 16 ms into frames of at most 16 KiB with a rising `seq`, the last 64 KiB
+  is kept so a reconnecting app can redraw, and a shell whose app is gone is
+  kept ten minutes for an `attach` before it ends. Nothing that travels through
+  a terminal is logged.
 * **Mirroring** (`sessions/mirror.py`) — discovers recent transcripts under
   `~/.claude/projects` and rollouts under `~/.codex/sessions`, tails them by
   file size, and decides who controls a session from a process scan. In Codex
