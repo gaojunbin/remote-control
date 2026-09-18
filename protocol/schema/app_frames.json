@@ -32,6 +32,12 @@
           "$ref": "#/$defs/PreferencesUpdated"
         },
         {
+          "$ref": "#/$defs/TerminalOutput"
+        },
+        {
+          "$ref": "#/$defs/TerminalExited"
+        },
+        {
           "$ref": "#/$defs/Ping"
         },
         {
@@ -1891,6 +1897,64 @@
           "$ref": "#/$defs/ResultTerminalAttach"
         }
       }
+    },
+    "TerminalOutput": {
+      "description": "Gateway -> app: bytes a terminal produced, to the one connection holding it (7.3, A38).",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "terminal.output"
+        },
+        "terminal_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        },
+        "device_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "data": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$",
+          "maxLength": 21848
+        }
+      },
+      "required": [
+        "type",
+        "terminal_id",
+        "device_id",
+        "seq",
+        "data"
+      ]
+    },
+    "TerminalExited": {
+      "description": "Gateway -> app: the shell ended and the terminal is gone (A38).",
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "terminal.exited"
+        },
+        "terminal_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        },
+        "device_id": {
+          "$ref": "objects.json#/$defs/Uuid"
+        },
+        "code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "terminal_id",
+        "device_id",
+        "code"
+      ]
     }
   }
 }

@@ -1960,6 +1960,8 @@ device is answered `not_found`, exactly as one naming nothing would be.
 | `session.updated` | `session` | Any change to a session summary |
 | `session.removed` | `session_id`, `device_id` | A session is deleted |
 | `session.event` | `session_id`, `device_id`, `event` | Only for sessions this connection subscribed to |
+| `terminal.output` | `terminal_id`, `device_id`, `seq`, `data` | Only to the one connection holding the terminal (7.3, A38); the device's `to` is stripped and `device_id` added |
+| `terminal.exited` | `terminal_id`, `device_id`, `code` | The shell ended; to the holder alone (A38) |
 | `pairing.progress` | `code`, `step`, `device?` | While a pairing code is outstanding. `step` is `waiting`, `enrolled`, `online` or `agents`. |
 | `preferences.updated` | `preferences` | The account's preferences changed, from this app or another (A35) |
 | `ping` | – | Every 25 s; the app replies `pong` |
@@ -3468,7 +3470,8 @@ one app connection that asked. The gateway relays bytes and never reads them.
       and clears both on the next `hello` (A22).
 - [ ] Forwards `device.mkdir` to the device it names, as it forwards `device.dirs` (A37).
 - [ ] Forwards the five `terminal.*` requests by `device_id`; delivers `terminal.output` and
-      `terminal.exited` to the one app connection `to` names and to nobody else; remembers which
+      `terminal.exited` to the one app connection `to` names and to nobody else — `to` stripped,
+      `device_id` added, and only when that connection belongs to the device's account; remembers which
       connection holds each terminal from the `open` and `attach` replies, and sends the device
       `terminal.detach` on its own account when that connection closes; stores `terminal` from
       `hello` on the `Device` (A38).

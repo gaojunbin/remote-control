@@ -60,6 +60,8 @@ APP_FRAME_TYPES = (
     "session.event",
     "pairing.progress",
     "preferences.updated",
+    "terminal.output",
+    "terminal.exited",
     "ping",
     "pong",
     "reply",
