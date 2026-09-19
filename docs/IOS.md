@@ -277,8 +277,13 @@ A device is listed when at least one of its sessions passes the filters, and is 
 all otherwise. Inside the group come the sessions something still holds, then that device's own
 **Archive**: `control: "none"` means the CLI exited and nothing owns the session, so it lands
 there whatever its state, and a hand-archived session joins it whatever still owns it, with a
-small "Archived" mark so the two are told apart. Nothing is removed from the protocol:
-`session.archive` and the swipe action stay where they were.
+small "Archived" mark so the two are told apart. The row's one action is **Close** (A39,
+`docs/DESIGN.md` § "Close, then the Archive"): on a `remote` row that is not archived
+(`SessionListLayout.offersClose`), a destructive `xmark.circle` in the trailing swipe and the
+context menu that sends `session.archive {archived: true}` — behind an alert with Cancel and Close
+when the row's dot tone is `.working` (`SessionClose.asksFirst`; a `confirmationDialog` on this OS
+draws the destructive button alone), at once otherwise — and the device answers with the session closed,
+stopped and unowned, which is what puts the row in the Archive marked "Archived".
 
 | Rule | Where |
 | --- | --- |

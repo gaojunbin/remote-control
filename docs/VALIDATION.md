@@ -2246,6 +2246,56 @@ row's tap opening iOS Settings, because the simulator never denies the permissio
 (+3 skipped) untouched this round. All four components 1.5.1 (a fix release), iOS build 17, tag
 v1.5.1.
 
+## 44. Closing a remote session closes it (A39) (2026-09-19, 1.5.2)
+
+The owner found that archiving a session started from the phone or the web only moved the row into
+the Archive: the agent could run on in the machine's background, where nobody is at a terminal to
+stop it. The intent was to **close** the session from the apps and have it archived afterwards.
+Root cause in the code: `hub.archive` called `runner.close()`, which ends a Claude or pi process
+but only `thread/unsubscribe`s a Codex thread on the shared daemon and only unroutes a Grok
+session on the leader — both stayed loaded, a running turn ran on, and the thread's next word made
+the daemon service revive the row (A15). Frozen as **A39** (e54eab6: the frame unchanged, its
+meaning the whole of it — interrupt, end what the device holds, then archive/none/stopped in one
+reply and publish; rule 21; 9.2 and 9.3 items) and `docs/DESIGN.md` § "Close, then the Archive"
+(1dcc0bb: the action is Close, it asks first only while the session is working). Built by three
+subagents in worktrees — `close-client`, `close-web` ff292da, `close-ios` ded3f2d — and merged; the
+gateway is untouched.
+
+**Client.** `SessionRunner.shutdown()` on every runner (Claude and pi: `close`; Codex daemon
+session: `turn/interrupt` when busy, `thread/archive`, `close`; Grok on the leader with no terminal
+in the session: `session/cancel`, `session/close`, `detach`); `hub.archive` marks the channel
+`closing` — `revive()` returns at once while it is set — interrupts, shuts down, then writes
+archived/none/stopped and publishes once, bounded at 8 s; the Codex service keeps a `closing` set
+that adoption and revival respect, handles `thread/archived` by forgetting the thread without
+removing the session, unarchives before a resume Codex refuses, and counts a live subscription as
+loaded. **Verified against Codex 0.154.0** in an isolated `CODEX_HOME`: `thread/archive` notifies
+`thread/archived` and `thread/status/changed`, never `thread/closed`; the thread leaves both
+`thread/loaded/list` and `thread/list`; `thread/resume` is refused until `thread/unarchive`; and end
+to end on the real hub a close left the row archived, unowned and stopped with the thread unloaded,
+and a later send unarchived, resumed and completed a second turn with `control` back to `remote`.
+Every process, socket and directory of the check was removed. Tests 1159 → 1175 (+3 skipped).
+
+**Web.** `SessionCloseButton` (lucide `CircleX`) on the same rows as before; `ConfirmDialog` only
+when the dot tone is `working`; the store's `close` is the frame's only caller; the mock closes as a
+device does (marks the session closed at once, publishes archived/none/stopped once, drops what the
+session was still saying, lets a later write revive it). Tests 720 → 725. Screenshots
+`web-round44-close-{1280,400}.png`.
+
+**iOS.** `offersClose`, `SessionClose.asksFirst` (pure, tested), a destructive `xmark.circle` in the
+trailing swipe and the context menu, an alert with Cancel and Close — a `confirmationDialog` on iOS
+27 draws the destructive button alone — the demo cancelling its scripted turn and publishing the
+closed row once. RCVerify 1437 → 1449, RCUIVerify 564 → 577, unit tests 391 → 395; the new UI test
+`testClosingASessionAsksOnlyWhileTheAgentIsWorking` passed on 473CA51C and again on 32BBA636.
+Screenshot `ios-round44-close.png`.
+
+**Counts.** Gateway 435 (untouched), client 1175 (+3 skipped), web 725, RCVerify 1449, RCUIVerify
+577, unit tests 395. All four components 1.5.2 (a fix release), iOS build 18, tag v1.5.2.
+
+**Not verified.** A close of a Grok leader session and of a Claude or pi process against the real
+agents (the Grok path is tested against the fake agent; Claude's and pi's `shutdown` are the
+`close` that already ended their processes). The first real Grok close is the VPS deploy of 1.5.2
+with a device updated to it.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

@@ -442,6 +442,40 @@ it, `shared` when a terminal attached — so it never comes back still claiming 
 Archiving closes a running agent, so archiving and then sending again is a restart of the CLI, not a
 handover to a process that was still there.
 
+**Closing a session the device drives (A39).** `session.archive {archived: true}` on a session with
+a runner is a close, and `hub.archive` does it in one motion: it marks the channel `closing` first,
+so `revive()` — the A15 path a turn ending or a status changing would otherwise take — returns at
+once; interrupts the runner when it is busy; calls the runner's `shutdown()`; and only then writes
+`archived: true`, `control: "none"`, `state: "stopped"`, clears the turn and the detail, publishes
+the summary once and answers. The whole close is bounded (8 s); an agent that will not die is let
+go of anyway, because the person asked for the session to end and a request that never answers
+helps nobody. `archived: false` only clears the flag. `shutdown()` is the runner protocol's second
+ending beside `close()` — `close` lets go of the agent, `shutdown` ends it:
+
+| Runner | `shutdown()` |
+| --- | --- |
+| Claude (`ClaudeRunner`) | `close`: the SDK's disconnect ends the CLI — stdin EOF, then terminate, then kill |
+| pi (`PiRunner`, and its terminal session) | `close`: the process is killed |
+| Codex on the shared daemon (`CodexDaemonSession`) | tells the service the thread is closing, `turn/interrupt` when busy (waits up to 5 s for the turn to settle), `thread/archive {threadId}`, then `close` (`thread/unsubscribe`) |
+| Codex standalone (`CodexRunner`) | `close`: its own app-server child is terminated |
+| Grok on the leader (`GrokRunner`) | when no terminal is in the session (`control` is `remote`): `session/cancel` when busy (up to 5 s), then `session/close {sessionId}` — the one place that sends it, because it unloads the session for every client of the leader (A28) — then `detach`; a `shared` or `terminal` session only detaches |
+| Grok private child | `close`: closing the child ends the agent |
+
+**What Codex does on `thread/archive`, verified against Codex 0.154.0 in an isolated `CODEX_HOME`:**
+it notifies `thread/archived` and `thread/status/changed` and **not** `thread/closed`; the thread
+leaves both `thread/loaded/list` and `thread/list`, and its rollout moves to `archived_sessions/`;
+`thread/read` still answers, `turn/start` says "thread not found", and `thread/resume` is refused
+with "session … is archived. Run `codex unarchive …`"; `thread/unarchive` and then `thread/resume`
+succeeds. So the daemon service keeps a `closing` set (a 30 s grace) that `_retry_attach`,
+`_adopt_by_id` and `_adopt` respect, handles `thread/archived` by forgetting the thread in its index
+without removing the session — a thread gone from `thread/list` would otherwise be taken for a
+deleted one and the row removed — and, when an app writes to a closed session (A15), resumes it
+through `thread/unarchive` first when Codex refuses the resume for being archived. `publish_control`
+counts a live subscription as loaded, so a session reopened this way reads `remote` before the next
+scan rather than `none`. End to end on the real hub: close → the row is archived, unowned and stopped
+and the thread is unloaded; send again → unarchive, resume, a second turn completes, `control` back
+to `remote`.
+
 ### Working means all of it
 
 `docs/DESIGN.md` § "Working means all of it" (owner's ruling, 2026-09-18): a session is `running`

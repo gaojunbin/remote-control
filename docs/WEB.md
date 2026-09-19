@@ -445,7 +445,12 @@ Nothing of this reaches the gateway.
   group and every Archive holding a match, without writing either array, and clearing the query
   hands the list back to what was stored. There is no global "show archived" toggle: it only ever
   toggled the hand-archived sessions, which the collapsed Archive already hid, so pressing it
-  changed nothing on screen. Archiving a row still works and still calls `session.archive`.
+  changed nothing on screen. The row's one action is **Close** (A39, `docs/DESIGN.md` § "Close,
+  then the Archive"): on a `remote` row that is not archived, a circled cross that sends
+  `session.archive {archived: true}` — after a `ConfirmDialog` when the row's dot tone is
+  `working`, at once otherwise — and the device answers with the session closed, stopped and
+  unowned, which is what puts the row in the Archive marked "Archived". The store's `close` is the
+  only caller of the frame; nothing else archives or unarchives from the browser.
 - **The agent filter** is `agentFilter` in the sessions store rather than in a page, so the Sessions
   page and the chat sidebar always show the same slice. It is not persisted, and its options come
   from `selectAgents`, the agents the loaded sessions actually run. A25 turned it from a segmented
