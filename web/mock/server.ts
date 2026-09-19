@@ -94,6 +94,8 @@ const state = {
   terminals: new Map<string, FakeShell>(),
   /** A38: the ten minutes a detached shell is kept, by terminal id. */
   detached: new Map<string, NodeJS.Timeout>(),
+  /** A39: sessions an app closed. Nothing they were still saying gets out. */
+  closed: new Set<string>(),
 };
 
 seedAccounts(PASSWORD);
@@ -218,6 +220,10 @@ const ownsSession = (username: string, sessionId: string): boolean => {
 };
 
 function emit(sessionId: string, event: SessionEvent): void {
+  // A39: a closed session is over. A scripted step still on its way — the end
+  // of the turn the close interrupted — neither reaches an app nor moves the
+  // row back out of the Archive.
+  if (state.closed.has(sessionId)) return;
   const list = state.events.get(sessionId) ?? [];
   stampFirstSeq(list, event);
   list.push(event);
@@ -284,6 +290,43 @@ function drainQueue(sessionId: string): void {
   if (!next) return;
   emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending: rest });
   setTimeout(() => playRemote(sessionId, next.text, next.id), 400);
+}
+
+/**
+ * A39: `session.archive {archived: true}` closes the session. A real device
+ * interrupts the turn, ends what it holds for the agent and only then records
+ * the choice, so the mock stops the session's events at once and publishes it
+ * archived, unowned and stopped in one go. A working session takes a moment
+ * over it, the way ending a process does.
+ */
+const CLOSE_DELAY_MS = 500;
+
+function closeSession(session: Session, done: () => void): void {
+  const working = session.state === 'running' || session.state === 'starting';
+  // Marked before the wait rather than after it: nothing the agent says while
+  // the close is in progress reaches an app or revives the row.
+  state.closed.add(session.session_id);
+  const finish = () => {
+    session.turn = null;
+    session.archived = true;
+    session.control = 'none';
+    session.state = 'stopped';
+    session.state_detail = null;
+    session.updated_at = Date.now();
+    broadcast({ type: 'session.updated', session });
+    done();
+  };
+  if (working) setTimeout(finish, CLOSE_DELAY_MS);
+  else finish();
+}
+
+/** A15: writing to a closed session brings it back to life. */
+function reviveSession(session: Session): void {
+  const wasClosed = state.closed.delete(session.session_id);
+  if (!wasClosed && !session.archived) return;
+  session.archived = false;
+  if (session.control === 'none') session.control = 'remote';
+  broadcast({ type: 'session.updated', session });
 }
 
 /** Ends the running turn as `interrupted` and leaves the session idle. */
@@ -1139,6 +1182,7 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       const already = state.served.answerFor(sessionId, id);
       if (already !== undefined) return reply(conn, id, already);
       cancelResumeOnSend(sessionId);
+      reviveSession(session);
       // A10 §6.3: a shared session accepts every send; the device decides
       // between injecting now and holding until the terminal turn ends.
       if (session.control === 'shared') return sharedSend(conn, id, session, frame);
@@ -1422,9 +1466,15 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
     case 'session.archive': {
       const session = findSession(sessionId);
       if (!session) return replyError(conn, id, 'not_found', 'no such session');
-      session.archived = Boolean(frame.archived);
-      broadcast({ type: 'session.updated', session });
-      reply(conn, id, { session });
+      // A39: `archived: true` closes the session; `archived: false` only
+      // clears the flag, which is what the device does with it.
+      if (!frame.archived) {
+        session.archived = false;
+        broadcast({ type: 'session.updated', session });
+        reply(conn, id, { session });
+        return;
+      }
+      closeSession(session, () => reply(conn, id, { session }));
       return;
     }
 

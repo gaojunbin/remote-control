@@ -77,12 +77,12 @@
   display: flex;
   align-items: center;
   height: var(--row-h-three);
-  /* The gutter the archive action sits in, reserved by every row. */
+  /* The gutter the close action sits in, reserved by every row. */
   padding-right: 40px;
   transition: background var(--dur-fast) var(--ease);
 }
 
-/* The whole row tints, including under the archive button at its end. */
+/* The whole row tints, including under the close button at its end. */
 .session-row:hover {
   background: var(--hover);
 }
@@ -172,9 +172,9 @@
 
 /*
  * The action sits in the gutter every row reserves, so a row that offers no
- * archive still ends its meta column in the same place as the row above it.
+ * close still ends its meta column in the same place as the row above it.
  */
-.session-archive {
+.session-close {
   position: absolute;
   right: var(--sp-3);
   top: 50%;
@@ -182,8 +182,8 @@
   opacity: 0;
 }
 
-.session-row:hover .session-archive,
-.session-archive:focus-visible {
+.session-row:hover .session-close,
+.session-close:focus-visible {
   opacity: 1;
 }
 
@@ -465,7 +465,7 @@
     padding: 0 var(--sp-4);
   }
 
-  .session-archive {
+  .session-close {
     opacity: 1;
   }
 }

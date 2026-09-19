@@ -3,7 +3,7 @@
  * device, that device's active rows, then its own collapsed Archive, with an
  * agent filter shared with the chat sidebar.
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
@@ -11,7 +11,7 @@ import { SessionsPage } from '../src/features/sessions/SessionsPage';
 import { useDevices } from '../src/stores/devices';
 import { keyOf, useSessions } from '../src/stores/sessions';
 import { useSettings } from '../src/stores/settings';
-import { strings } from '../src/strings';
+import { en, stringTables, strings } from '../src/strings';
 import { devices, sessions } from '../mock/fixtures';
 import type { Device, Session } from '../src/protocol/types';
 
@@ -62,6 +62,17 @@ const titlesIn = (selector: string): string[] =>
 
 const activeTitles = (): string[] => titlesIn('.session-group > .session-list');
 const archiveTitles = (): string[] => titlesIn('.session-archive-group .session-list');
+
+/** One rendered row, by the title it prints. */
+const rowFor = (title: string): HTMLElement => {
+  const row = screen.getByText(title).closest('.session-row');
+  if (!row) throw new Error(`no row for ${title}`);
+  return row as HTMLElement;
+};
+
+/** The word beside the dot on a row, by the row's title. */
+const wordIn = (title: string): string =>
+  rowFor(title).querySelector('.session-state')?.textContent ?? '';
 
 /** The tone class on one row's status dot, by the row's title. */
 const dotTone = (title: string): string => {
@@ -257,16 +268,6 @@ describe('SessionsPage grouping', () => {
  * origin, then the working directory alone after a folder glyph.
  */
 describe('the session row', () => {
-  const rowFor = (title: string): HTMLElement => {
-    const row = screen.getByText(title).closest('.session-row');
-    if (!row) throw new Error(`no row for ${title}`);
-    return row as HTMLElement;
-  };
-
-  /** The word beside the dot on a row, by the row's title. */
-  const wordIn = (title: string): string =>
-    rowFor(title).querySelector('.session-state')?.textContent ?? '';
-
   /** Every word the visible rows print beside their dots. */
   const words = (): string[] =>
     [...document.querySelectorAll('.session-state')].map((el) => el.textContent ?? '');
@@ -393,29 +394,58 @@ describe('the dot legend', () => {
 });
 
 /**
- * `docs/DESIGN.md` § "Session lists": the archive action is offered on exactly
- * one kind of row, and there is no unarchive anywhere.
+ * `docs/DESIGN.md` § "Close, then the Archive" (A39): the row action is Close,
+ * not Archive; it ends the session and the row lands in the Archive. It is
+ * offered on exactly one kind of row, it asks first only while the agent is
+ * working, and there is no unarchive anywhere.
  */
-describe('the archive action', () => {
-  const rowFor = (title: string): HTMLElement => {
-    const row = screen.getByText(title).closest('.session-row');
-    if (!row) throw new Error(`no row for ${title}`);
-    return row as HTMLElement;
-  };
+describe('the close action', () => {
+  const realClose = useSessions.getState().close;
 
-  const archiveIn = (title: string) =>
-    within(rowFor(title)).queryByRole('button', { name: strings.sessions.archive });
+  afterEach(() => {
+    useSessions.setState({ close: realClose });
+    useSettings.setState({ language: 'en' });
+  });
+
+  const closeIn = (title: string) =>
+    within(rowFor(title)).queryByRole('button', { name: strings.sessions.close });
+
+  const dialog = () => screen.getByRole('dialog');
+
+  const buttonIn = (parent: HTMLElement, name: string) =>
+    within(parent).getByRole('button', { name });
+
+  /**
+   * The store's own `close` stands in for the device: the reply it applies is
+   * the session archived, unowned and stopped, which is what A39 promises.
+   */
+  const record = (): string[] => {
+    const closed: string[] = [];
+    useSessions.setState({
+      close: async (session) => {
+        closed.push(session.session_id);
+        useSessions.getState().upsert({
+          ...session,
+          archived: true,
+          control: 'none',
+          state: 'stopped',
+          state_detail: null,
+        });
+      },
+    });
+    return closed;
+  };
 
   it('offers it on a session the device drives', () => {
     renderPage();
-    expect(archiveIn('iOS push tokens')).toBeInTheDocument();
+    expect(closeIn('iOS push tokens')).toBeInTheDocument();
   });
 
   it('offers nothing on a row a terminal holds', () => {
     renderPage();
     // `terminal` and `shared`: the terminal owns the row until it exits.
-    expect(archiveIn('Refactor relay routing')).toBeNull();
-    expect(archiveIn('Wire the channel shim')).toBeNull();
+    expect(closeIn('Refactor relay routing')).toBeNull();
+    expect(closeIn('Wire the channel shim')).toBeNull();
   });
 
   it('offers nothing on a row already in the Archive', async () => {
@@ -423,27 +453,87 @@ describe('the archive action', () => {
     await userEvent.click(screen.getByRole('button', { name: strings.sessions.archiveGroup(3) }));
 
     // Hand-archived, and an exited session the CLI let go of.
-    expect(archiveIn('Sketch the pairing QR flow')).toBeNull();
-    expect(archiveIn('Rewrite the pairing docs')).toBeNull();
+    expect(closeIn('Sketch the pairing QR flow')).toBeNull();
+    expect(closeIn('Rewrite the pairing docs')).toBeNull();
     expect(screen.queryByRole('button', { name: /unarchive/i })).not.toBeInTheDocument();
   });
 
-  it('archives without asking what to toggle', async () => {
-    const calls: [string, boolean][] = [];
-    const request = useSessions.getState().setArchived;
-    useSessions.setState({
-      setArchived: async (session, archived) => void calls.push([session.session_id, archived]),
-    });
-    try {
-      renderPage();
-      const button = archiveIn('iOS push tokens');
-      if (!button) throw new Error('the action should be offered');
-      await userEvent.click(button);
-    } finally {
-      useSessions.setState({ setArchived: request });
-    }
+  it('closes an idle session on the tap, without asking', async () => {
+    const closed = record();
+    renderPage();
+    const button = closeIn('iOS push tokens');
+    if (!button) throw new Error('the action should be offered');
 
-    expect(calls).toEqual([['ses-push', true]]);
+    await userEvent.click(button);
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(closed).toEqual(['ses-push']);
+  });
+
+  it('asks before closing a working session, and sends nothing on Cancel', async () => {
+    const closed = record();
+    renderPage();
+    const button = closeIn('Fix flaky auth test');
+    if (!button) throw new Error('the action should be offered');
+
+    await userEvent.click(button);
+
+    expect(within(dialog()).getByText(strings.sessions.closeTitle)).toBeInTheDocument();
+    expect(within(dialog()).getByText(strings.sessions.closeBody)).toBeInTheDocument();
+
+    await userEvent.click(buttonIn(dialog(), strings.common.cancel));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(closed).toEqual([]);
+    expect(activeTitles()).toContain('Fix flaky auth test');
+  });
+
+  it('sends one close on the answer, and the row lands in the Archive', async () => {
+    const closed = record();
+    renderPage();
+    const button = closeIn('Fix flaky auth test');
+    if (!button) throw new Error('the action should be offered');
+
+    await userEvent.click(button);
+    await userEvent.click(buttonIn(dialog(), strings.sessions.close));
+
+    expect(closed).toEqual(['ses-flaky']);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(activeTitles()).not.toContain('Fix flaky auth test');
+
+    // One row more in the device's own Archive, marked and gone quiet.
+    await userEvent.click(screen.getByRole('button', { name: strings.sessions.archiveGroup(4) }));
+    expect(archiveTitles()).toContain('Fix flaky auth test');
+    expect(wordIn('Fix flaky auth test')).toBe('Archived · Remote Control');
+    expect(dotTone('Fix flaky auth test')).toBe('off');
+    expect(closeIn('Fix flaky auth test')).toBeNull();
+  });
+
+  it('says Close on the button', () => {
+    renderPage();
+    expect(closeIn('iOS push tokens')).toHaveAttribute('title', 'Close');
+  });
+
+  it('says 关闭 in Chinese, on the button and in the question', async () => {
+    useSettings.setState({ language: 'zh-Hans' });
+    renderPage();
+    const button = closeIn('Fix flaky auth test');
+    if (!button) throw new Error('the action should be offered');
+    expect(button).toHaveAttribute('title', '关闭');
+
+    await userEvent.click(button);
+
+    expect(within(dialog()).getByText('关闭此会话？')).toBeInTheDocument();
+    expect(within(dialog()).getByText('代理仍在工作，未完成的部分会丢失。')).toBeInTheDocument();
+  });
+
+  it('leaves the word Archive to the group caption alone', () => {
+    renderPage();
+
+    expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
+    expect(Object.keys(en.sessions)).not.toContain('archive');
+    expect(Object.keys(stringTables['zh-Hans'].sessions)).not.toContain('archive');
+    expect(screen.getByRole('button', { name: strings.sessions.archiveGroup(3) })).toBeInTheDocument();
   });
 });
 

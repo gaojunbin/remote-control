@@ -29,7 +29,13 @@ interface SessionsState {
   upsert: (session: Session) => void;
   remove: (deviceId: string, sessionId: string) => void;
   create: (params: CreateSessionParams) => Promise<Session>;
-  setArchived: (session: Session, archived: boolean) => Promise<void>;
+  /**
+   * A39: end a session the device drives. The frame is `session.archive`
+   * with `archived: true`; the device interrupts the turn, ends what it
+   * holds for the agent and only then replies with the session archived,
+   * unowned and stopped, which is what the list then draws.
+   */
+  close: (session: Session) => Promise<void>;
   takeover: (session: Session) => Promise<Session>;
   /** Sign-out: nothing of the previous account stays in the tab (`signOut`). */
   reset: () => void;
@@ -72,8 +78,11 @@ export const useSessions = create<SessionsState>((set, get) => ({
     return session;
   },
 
-  setArchived: async (session, archived) => {
-    const result = await rpc('session.archive', { session_id: session.session_id, archived });
+  close: async (session) => {
+    const result = await rpc('session.archive', {
+      session_id: session.session_id,
+      archived: true,
+    });
     get().upsert(result.session);
   },
 

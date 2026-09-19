@@ -236,9 +236,17 @@ export const en = {
     allDevices: 'All devices',
     allAgents: 'All agents',
     agentFilter: 'Filter by agent',
-    archive: 'Archive',
     archiveGroup: (n: number) => `Archive · ${n}`,
     archived: 'Archived',
+    /**
+     * A39: the row action on a session the device drives. It ends the session
+     * on the machine and the row lands in the Archive afterwards, so the word
+     * is Close, not Archive. The question is asked only while the agent is
+     * working, because an idle session has nothing to lose.
+     */
+    close: 'Close',
+    closeTitle: 'Close this session?',
+    closeBody: 'The agent is still working; what it has not finished is lost.',
     open: 'Open session',
     untitled: 'Untitled session',
     /**
