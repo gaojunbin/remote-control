@@ -50,6 +50,10 @@ MAX_ATTACHMENTS = 8
 # and a link that never comes back would otherwise grow them without end.
 MAX_TERMINALS = 64
 MAX_PENDING_REMOVALS = 64
+# How long closing a session may take before the reply goes out anyway (A39).
+# An agent that will not die is still let go of here: the person asked for the
+# session to be closed, and a request that never answers helps nobody.
+CLOSE_TIMEOUT = 8.0
 
 
 def _as_int(value: Any, field: str) -> int | None:
@@ -692,14 +696,56 @@ class SessionHub:
         return {}
 
     async def archive(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Close a session the device drives, then archive it (amendment A39).
+
+        `archived: false` only clears the flag; the session comes back to life
+        through the paths A15 names.
+        """
         entry = self.entry(str(params.get("session_id") or ""))
-        entry.session.archived = bool(params.get("archived"))
-        if entry.session.archived and entry.runner is not None:
-            await entry.runner.close()
-            entry.runner = None
-            entry.session.control = "none"
+        archived = bool(params.get("archived"))
+        if archived and entry.runner is not None:
+            await self._close_session(entry)
+            return {"session": entry.session.to_dict()}
+        entry.session.archived = archived
         await entry.channel.publish_summary()
         return {"session": entry.session.to_dict()}
+
+    async def _close_session(self, entry: SessionEntry) -> None:
+        """End what the device holds for the agent, then say so once (A39).
+
+        The session is marked as being closed before anything is asked of the
+        agent, so its last words — a turn ending, a status going idle — cannot
+        take it back out of the Archive. Everything else is one publish at the
+        end: the row goes from working to closed and archived in a single step,
+        whether or not the agent went quietly.
+        """
+        runner = entry.runner
+        entry.channel.closing = True
+        try:
+            await asyncio.wait_for(self._shutdown(runner), CLOSE_TIMEOUT)
+        except TimeoutError:
+            log.warning("a session did not close in time; letting go of it anyway")
+        except Exception as exc:
+            log.warning("closing a session failed", error=str(exc)[:200])
+        finally:
+            entry.runner = None
+            entry.session.archived = True
+            entry.session.control = "none"
+            entry.session.state = "stopped"
+            entry.session.state_detail = None
+            entry.session.turn = None
+            entry.channel.closing = False
+        await entry.channel.publish_summary()
+
+    @staticmethod
+    async def _shutdown(runner: SessionRunner | None) -> None:
+        """Stop the work, then end the session for good."""
+        if runner is None:
+            return
+        if runner.busy:
+            with contextlib.suppress(Exception):
+                await runner.interrupt()
+        await runner.shutdown()
 
     async def delete(self, params: dict[str, Any]) -> dict[str, Any]:
         await self._remove(self.entry(str(params.get("session_id") or "")))

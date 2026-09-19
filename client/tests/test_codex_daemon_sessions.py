@@ -1791,3 +1791,124 @@ async def test_a_subagent_that_says_nothing_for_long_enough_lets_the_turn_end(
     await harness.service.refresh()
     await settle(lambda: bool(harness.events("turn_completed")))
     assert harness.hub.entry(THREAD).session.state == "idle"
+
+
+# ----------------------------------- A39: closing a session the device drives
+
+
+async def device_driven(harness: Harness) -> None:
+    """A thread this device drives: loaded, subscribed, no terminal in it."""
+    await started(harness, loaded=[THREAD])
+    harness.terminals.cwds = set()
+    await harness.service.refresh_terminals()
+    assert harness.hub.entry(THREAD).session.control == "none"
+
+
+async def test_closing_a_thread_interrupts_the_turn_then_archives_it(harness: Harness) -> None:
+    await device_driven(harness)
+    await harness.hub.send({"id": "req-1", "session_id": THREAD, "text": "go"})
+    assert harness.hub.entry(THREAD).session.control == "remote"
+
+    closing = asyncio.create_task(harness.hub.archive({"session_id": THREAD, "archived": True}))
+    await harness.daemon.wait_for_call("turn/interrupt")
+    await harness.daemon.notify(
+        "turn/completed", {"threadId": THREAD, "turn": {"id": "turn-1", "status": "completed"}}
+    )
+    result = await closing
+
+    asked = [
+        method
+        for method, _ in harness.daemon.calls
+        if method in {"turn/interrupt", "thread/archive", "thread/unsubscribe"}
+    ]
+    assert asked == ["turn/interrupt", "thread/archive", "thread/unsubscribe"]
+    assert harness.daemon.sent("thread/archive")[-1] == {"threadId": THREAD}
+    session = result["session"]
+    assert (session["archived"], session["control"], session["state"]) == (True, "none", "stopped")
+    assert harness.hub.entry(THREAD).runner is None
+
+
+async def test_a_thread_s_last_word_during_a_close_does_not_revive_it(harness: Harness) -> None:
+    await device_driven(harness)
+    await harness.hub.send({"id": "req-1", "session_id": THREAD, "text": "go"})
+    closing = asyncio.create_task(harness.hub.archive({"session_id": THREAD, "archived": True}))
+    await harness.daemon.wait_for_call("turn/interrupt")
+    await harness.daemon.notify(
+        "turn/completed", {"threadId": THREAD, "turn": {"id": "turn-1", "status": "completed"}}
+    )
+    await closing
+
+    # Everything the thread says on its way out: a status, and the archive
+    # itself. None of it is the session coming back to life (A15 does not fire).
+    await harness.daemon.notify(
+        "thread/status/changed", {"threadId": THREAD, "status": {"type": "active"}}
+    )
+    await harness.daemon.notify("thread/archived", {"threadId": THREAD})
+    await asyncio.sleep(0.15)
+
+    session = harness.hub.entry(THREAD).session
+    assert (session.archived, session.state, session.control) == (True, "stopped", "none")
+    assert harness.hub.entry(THREAD).runner is None
+
+
+async def test_a_closed_thread_leaves_the_index_and_keeps_its_row(harness: Harness) -> None:
+    """Codex hides an archived thread, and a hidden thread is not a deleted one."""
+    await device_driven(harness)
+    await harness.hub.archive({"session_id": THREAD, "archived": True})
+    await harness.daemon.notify("thread/archived", {"threadId": THREAD})
+    await settle(lambda: harness.service.knows(THREAD) is False)
+
+    harness.daemon.replies["thread/list"] = {"data": [thread_row("t-other")]}
+    harness.daemon.replies["thread/loaded/list"] = {"data": ["t-other"]}
+    await harness.service.refresh()
+
+    assert THREAD in harness.hub.entries
+    assert harness.hub.entry(THREAD).session.archived is True
+    assert {"type": "session.removed", "session_id": THREAD} not in harness.frames
+
+
+async def test_writing_to_a_closed_session_unarchives_the_thread(harness: Harness) -> None:
+    await device_driven(harness)
+    await harness.hub.archive({"session_id": THREAD, "archived": True})
+    harness.daemon.errors["thread/resume"] = (
+        f"session {THREAD} is archived. Run `codex unarchive {THREAD}` to unarchive it first."
+    )
+
+    def responder(method: str, params: dict[str, Any]) -> Any:
+        if method == "thread/unarchive":
+            harness.daemon.errors.pop("thread/resume", None)
+            return {}
+        return None
+
+    harness.daemon.responder = responder
+
+    await harness.hub.send({"id": "req-9", "session_id": THREAD, "text": "carry on"})
+
+    assert harness.daemon.sent("thread/unarchive")[-1] == {"threadId": THREAD}
+    session = harness.hub.entry(THREAD).session
+    assert session.archived is False
+    assert session.control == "remote"
+
+
+async def test_a_resume_refused_for_any_other_reason_is_not_unarchived(harness: Harness) -> None:
+    """A thread too young to resume refuses every time; asking to unarchive it helps nobody."""
+    await device_driven(harness)
+    await harness.hub.archive({"session_id": THREAD, "archived": True})
+    harness.daemon.errors["thread/resume"] = "thread has no rollout yet"
+
+    await harness.hub.send({"id": "req-9", "session_id": THREAD, "text": "carry on"})
+
+    assert harness.daemon.sent("thread/unarchive") == []
+
+
+async def test_a_session_reopened_after_a_close_is_the_device_s_again(harness: Harness) -> None:
+    """The index forgot the thread; the live subscription is what says it is back."""
+    await device_driven(harness)
+    await harness.hub.archive({"session_id": THREAD, "archived": True})
+    await harness.daemon.notify("thread/archived", {"threadId": THREAD})
+    await settle(lambda: harness.service.knows(THREAD) is False)
+
+    await harness.hub.send({"id": "req-9", "session_id": THREAD, "text": "carry on"})
+
+    session = harness.hub.entry(THREAD).session
+    assert (session.archived, session.control) == (False, "remote")

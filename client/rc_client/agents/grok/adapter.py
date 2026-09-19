@@ -5,7 +5,8 @@ Two transports, one runner. A session this device started for itself owns an
 machine's leader shares one connection with every other client of it (A28): the
 device joins with `session/load`, publishes the replay above the `eventId` it
 already applied, mirrors the words typed at the TUI as terminal messages, and
-never sends `session/close`, which would unload the session for everyone.
+sends `session/close`, which unloads the session for everyone, in one place
+only — `shutdown`, the close of a session no terminal is in (A39).
 """
 
 from __future__ import annotations
@@ -34,6 +35,10 @@ log = logger("rc_client.grok")
 
 APPROVAL_TIMEOUT = 300.0
 DRAIN_TIMEOUT = 15.0
+# How long a close waits for the cancelled turn before unloading the session
+# anyway (A39). The person is closing it, so the session matters more than the
+# last words of the turn.
+CLOSE_DRAIN_TIMEOUT = 5.0
 LOAD_TIMEOUT = 120.0
 PERMISSION_REQUEST = "session/request_permission"
 # The option that turns the whole session into always-approve mode. It is a
@@ -114,6 +119,11 @@ class GrokRunner:
     def attached(self) -> bool:
         """Whether this session is held on the machine's shared leader."""
         return self._leader is not None
+
+    @property
+    def terminal_holds(self) -> bool:
+        """Whether a TUI is in this session, which `control` is the record of (A28)."""
+        return self.channel.session.control in {"shared", "terminal"}
 
     @property
     def session_id(self) -> str | None:
@@ -261,13 +271,34 @@ class GrokRunner:
             self._turn = None
         if self._leader is not None:
             # Only stop routing. `session/close` unloads the session for every
-            # client of the leader, the terminal included (A28).
+            # client of the leader, the terminal included (A28); `shutdown` is
+            # where the person's close sends it (A39).
             if self._session_id is not None:
                 self._leader.detach(self._session_id)
             return
         if self._child is not None:
             await self._child.close()
             self._child = None
+
+    async def shutdown(self) -> None:
+        """End the session for good (A39): on the leader, unload it as well.
+
+        `close` only stops routing, because `session/close` unloads the session
+        for every client of the leader, a TUI included (A28). This is the one
+        place that sends it, and only for a session no terminal is in: that is
+        what `remote` means, and it is the only session an app offers to close.
+        A private child needs nothing — closing it ends the agent with it.
+        """
+        session_id = self._session_id
+        if self._leader is None or session_id is None or self.terminal_holds:
+            await self.close()
+            return
+        if self.busy:
+            with contextlib.suppress(TimeoutError, RcError):
+                await asyncio.wait_for(self.interrupt(), CLOSE_DRAIN_TIMEOUT)
+        with contextlib.suppress(RcError):
+            await self._leader.request("session/close", {"sessionId": session_id})
+        await self.close()
 
     # ------------------------------------------------------------- streaming
 

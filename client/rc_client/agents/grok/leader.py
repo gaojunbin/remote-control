@@ -10,7 +10,9 @@ A `session/load` on a session a TUI has open joins that session rather than
 opening a second copy. Every client then sees every update, a prompt from any of
 them runs in the one conversation, and `session/cancel` and
 `session/set_config_option` act for all. `session/close` is the exception: it
-unloads the session for everyone, so nothing here ever sends it.
+unloads the session for everyone, so it is sent in one case only — the person
+closing a session no terminal is in, where ending it is the whole point (A39).
+Letting go of a session without closing it is `detach`.
 """
 
 from __future__ import annotations
@@ -188,7 +190,12 @@ class LeaderClient:
         self._routes[session_id] = route
 
     def detach(self, session_id: str) -> None:
-        """Stop routing one session. Never `session/close`: that unloads it for all."""
+        """Stop routing one session, leaving it loaded for whoever else is in it.
+
+        `session/close` is the other ending, and unloads the session for every
+        client of the leader; only a close of a session no terminal is in sends
+        it (A39), and it goes out as an ordinary `request`.
+        """
         self._routes.pop(session_id, None)
 
     def routed(self, session_id: str) -> bool:

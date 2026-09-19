@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import json
 import os
+import time
 from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
@@ -45,6 +46,10 @@ QUIET_THREADS = 64
 # Threads another application owns, remembered so the index stops asking about
 # them. The whole machine's history goes through here, so this is generous.
 FOREIGN_THREADS = 256
+# How long a thread the device is closing stays out of reach (A39). Codex
+# answers `thread/archive` with `thread/archived`, which is what normally ends
+# the window; this is the bound for a daemon that never does.
+CLOSING_GRACE_S = 30.0
 
 
 def thread_config() -> dict[str, Any] | None:
@@ -102,6 +107,10 @@ class CodexDaemonService:
         # sessions themselves (A18); their work is their parent's.
         self._children = ChildIndex()
         self._attaching: set[str] = set()
+        # Threads the device is closing on the person's word, and when each
+        # window expires (A39). Nothing a thread says while it is in here
+        # adopts it, revives it or republishes it as alive.
+        self._closing: dict[str, float] = {}
         self._catalog = ModelCatalog()
         self._config = thread_config()
         self._lock = asyncio.Lock()
@@ -122,6 +131,26 @@ class CodexDaemonService:
     async def rate_limits(self) -> dict[str, Any]:
         """The account's rate-limit windows, where `/usage` reads them too (A33)."""
         return await self.client.request(RATE_LIMITS, {})
+
+    def closing_thread(self, thread_id: str) -> None:
+        """A session's close has begun (A39); hold the thread out of reach for it.
+
+        The runner says so before it interrupts the turn, because everything the
+        thread says between here and its `thread/closed` — the interrupted
+        turn's completion, a status going idle, the close itself — would
+        otherwise be read as a thread that is alive and adopted back.
+        """
+        self._closing[thread_id] = time.monotonic() + CLOSING_GRACE_S
+
+    def is_closing(self, thread_id: str) -> bool:
+        """Whether a close of this thread is still under way."""
+        deadline = self._closing.get(thread_id)
+        if deadline is None:
+            return False
+        if time.monotonic() >= deadline:
+            del self._closing[thread_id]
+            return False
+        return True
 
     def knows(self, thread_id: str) -> bool:
         """Whether this thread is the daemon's, so the rollout mirror leaves it alone."""
@@ -355,7 +384,7 @@ class CodexDaemonService:
         use, whatever the index still says about it, and the client using it
         is not this device, which drives only threads it already holds.
         """
-        if thread_id in self._foreign:
+        if thread_id in self._foreign or self.is_closing(thread_id):
             return
         result = await self._safe_request("thread/read", {"threadId": thread_id})
         thread = result.get("thread") if isinstance(result.get("thread"), dict) else result
@@ -409,6 +438,9 @@ class CodexDaemonService:
         it is, because the only client that can be in it is the one that opened
         it.
         """
+        if self.is_closing(summary.thread_id):
+            # A thread the device is closing (A39) is nobody's to describe yet.
+            return
         self._used[summary.thread_id] = summary.updated_at
         entry = self.hub.entries.get(summary.thread_id)
         if entry is None:
@@ -490,6 +522,9 @@ class CodexDaemonService:
             self._loaded.add(thread_id)
             await self.hub.rekey(entry, thread_id)
 
+        async def on_closing(thread_id: str) -> None:
+            self.closing_thread(thread_id)
+
         return CodexDaemonSession(
             entry.channel,
             self.client,
@@ -505,6 +540,7 @@ class CodexDaemonService:
             on_turn_end=on_turn_end,
             on_control_change=on_control_change,
             on_thread_id=on_thread_id,
+            on_closing=on_closing,
         )
 
     def _claim_order(self, entry: SessionEntry) -> tuple[int, int, str]:
@@ -529,11 +565,19 @@ class CodexDaemonService:
         )
 
     async def publish_control(self, entry: SessionEntry) -> None:
-        """Apply the A11 table and announce a change the way every other one travels."""
+        """Apply the A11 table and announce a change the way every other one travels.
+
+        A live subscription is proof the daemon has the thread, as speaking is:
+        a session reopened after a close (A39) resumed the thread itself, and
+        the index does not hear of it again until the next scan.
+        """
         runner = entry.runner if isinstance(entry.runner, CodexDaemonSession) else None
+        loaded = entry.session.session_id in self._loaded or (
+            runner is not None and runner.subscribed
+        )
         origin, control = threads.resolve(
             self._created_here(entry),
-            loaded=entry.session.session_id in self._loaded,
+            loaded=loaded,
             terminal_holds=runner is not None and runner.terminal_holds,
             local_turn=runner is not None and runner.local_turn,
         )
@@ -571,6 +615,9 @@ class CodexDaemonService:
         if method == "thread/closed":
             await self._thread_closed(thread_id)
             return
+        if method == "thread/archived":
+            await self._thread_archived(thread_id)
+            return
         if method == "thread/name/updated":
             await self._thread_named(thread_id, str(params.get("threadName") or ""))
             return
@@ -601,6 +648,10 @@ class CodexDaemonService:
         alive"). Speaking is also proof the daemon has the thread loaded, which
         the index may still be a scan behind on.
         """
+        if self.is_closing(thread_id):
+            # The device is closing this thread on the person's word (A39): its
+            # last words are not a reason to take the session out of the Archive.
+            return
         entry = self.hub.entries.get(thread_id)
         if entry is None:
             if thread_id not in self._loaded:
@@ -670,16 +721,53 @@ class CodexDaemonService:
         if entry is not None and name:
             await titles.from_agent(entry.channel, name)
 
-    async def _thread_closed(self, thread_id: str) -> None:
-        self._loaded.discard(thread_id)
-        if thread_id in self._quiet:
-            self._quiet.remove(thread_id)
+    async def _thread_archived(self, thread_id: str) -> None:
+        """A thread archived in Codex, by this device's close (A39) or in a terminal.
+
+        Codex moves the rollout to `archived_sessions/` and takes the thread out
+        of both `thread/loaded/list` and `thread/list`, so the index forgets it
+        outright: a thread missing from the history page is otherwise read as
+        one deleted in Codex, and the session would go with it. The session
+        record stays where it is — closed here, it is the row in the Archive —
+        and a message sent to it later unarchives the thread and resumes it.
+        """
+        closed_here = self.is_closing(thread_id)
+        self._forget(thread_id)
         entry = self.hub.entries.get(thread_id)
         if entry is None:
             return
         if isinstance(entry.runner, CodexDaemonSession):
             await entry.runner.close()
             entry.runner = None
+        if closed_here:
+            # The close has already said what the session is: archived, stopped
+            # and unowned (A39). Nothing here is news.
+            return
+        await self.publish_control(entry)
+
+    def _forget(self, thread_id: str) -> None:
+        """Drop one thread from the index, leaving its session alone."""
+        self._known.discard(thread_id)
+        self._loaded.discard(thread_id)
+        self._used.pop(thread_id, None)
+        if thread_id in self._quiet:
+            self._quiet.remove(thread_id)
+
+    async def _thread_closed(self, thread_id: str) -> None:
+        self._loaded.discard(thread_id)
+        if thread_id in self._quiet:
+            self._quiet.remove(thread_id)
+        closed_here = self._closing.pop(thread_id, None) is not None
+        entry = self.hub.entries.get(thread_id)
+        if entry is None:
+            return
+        if isinstance(entry.runner, CodexDaemonSession):
+            await entry.runner.close()
+            entry.runner = None
+        if closed_here:
+            # The close this answers has already said what the session is:
+            # archived, stopped and unowned (A39). Nothing to publish.
+            return
         await self.publish_control(entry)
 
     async def _request(self, request_id: Any, method: str, params: dict[str, Any]) -> Any:

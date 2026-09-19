@@ -146,6 +146,10 @@ class CodexRunner:
             await self._server.close()
             self._server = None
 
+    async def shutdown(self) -> None:
+        """A39: the app-server child is this device's own, so closing it ends the thread."""
+        await self.close()
+
     # ------------------------------------------------------------- streaming
 
     async def _on_notification(self, method: str, params: dict[str, Any]) -> None:
