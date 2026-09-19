@@ -1020,16 +1020,6 @@ public final class ChatStore {
         }
     }
 
-    public func setArchived(_ archived: Bool) async {
-        do {
-            let result = try await channel.request(.archive(sessionID: sessionID, archived: archived),
-                                                   as: SessionResult.self)
-            update(session: result.session)
-        } catch {
-            errorMessage = describe(error)
-        }
-    }
-
     private func perform(_ operation: @escaping () async throws -> Void) async {
         do { try await operation() } catch { errorMessage = describe(error) }
     }

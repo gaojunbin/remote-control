@@ -392,6 +392,32 @@ func run() async -> (passed: Int, failures: [String]) {
            "groups open and archives closed, until the reader says otherwise")
     equal(groups.first?.active.first?.agentLabel, "Codex", "a row can name its agent")
 
+    // MARK: - Amendment A39: Close, then the Archive
+    //
+    // `docs/DESIGN.md` § "Close, then the Archive": one action on one kind of
+    // row, and a question only where an unfinished turn is lost.
+    for control in [SessionControl.remote, .terminal, .shared, .none] {
+        for archived in [false, true] {
+            let row = Session(sessionID: "s", deviceID: DemoFixtures.macDeviceID, agent: "claude",
+                              title: "Work", cwd: "/src", state: .running, control: control,
+                              archived: archived)
+            equal(SessionListLayout.offersClose(row), control == .remote && !archived,
+                  "\(control) and archived \(archived) decide whether the row offers Close")
+        }
+    }
+    expect(SessionListLayout.offersClose(helloSessions.first { $0.sessionID == DemoFixtures.liveSessionID }!),
+           "the demo's running remote session is a row that closes")
+    expect(!SessionListLayout.offersClose(helloSessions.first { $0.sessionID == DemoFixtures.sharedSessionID }!),
+           "a session a terminal is in offers nothing: the terminal owns it")
+    expect(!SessionListLayout.offersClose(helloSessions.first { $0.sessionID == DemoFixtures.revivedSessionID }!),
+           "and neither does a row already in the Archive")
+    expect(SessionClose.asksFirst(helloSessions.first { $0.sessionID == DemoFixtures.liveSessionID }!,
+                                  online: true),
+           "a working agent is asked about before it is closed")
+    expect(!SessionClose.asksFirst(helloSessions.first { $0.sessionID == DemoFixtures.piSessionID }!,
+                                   online: true),
+           "an idle one closes on the tap, because there is nothing to lose")
+
     sessions.agentFilter = "claude"
     let claudeOnly = sessions.groups(helloSessions, devices: model.connection.devices)
     equal(claudeOnly.count, 2, "the agent filter drops a machine with nothing left")

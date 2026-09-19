@@ -519,15 +519,16 @@ public final class ConnectionStore {
         }
     }
 
-    /// Archive a session from the list, which stops it on the device. The reply
-    /// updates the list, and a failure surfaces instead of disappearing into a
-    /// `try?`. The flag is cleared by the device when the session comes back to
-    /// life (A15), never by a control in the app.
-    public func setArchived(_ archived: Bool, session: Session) async {
+    /// Close a session from the list: the device interrupts its turn, ends what
+    /// it holds for the agent and files the row, and the one reply carries all
+    /// three (A39). A failure surfaces instead of disappearing into a `try?`.
+    /// Nothing here ever clears the flag — the device does that when the
+    /// session comes back to life (A15).
+    public func close(session: Session) async {
         guard let channel else { return }
         let scope = self.scope
         do {
-            let result = try await channel.request(.archive(sessionID: session.sessionID, archived: archived),
+            let result = try await channel.request(.archive(sessionID: session.sessionID, archived: true),
                                                    as: SessionResult.self)
             guard isCurrent(scope) else { return }
             apply(.sessionUpdated(result.session))

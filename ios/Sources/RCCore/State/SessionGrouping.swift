@@ -41,13 +41,14 @@ public enum SessionListLayout {
         session.archived || session.control == .none
     }
 
-    /// Archiving is offered on exactly one kind of row: a session the device is
+    /// Close is offered on exactly one kind of row: a session the device is
     /// driving — `control == .remote`, whoever created it — that is not
     /// archived. A row a terminal holds offers none, because the terminal owns
     /// it and it leaves Active by itself the moment the terminal exits; a row
     /// already in the Archive offers none either, because writing to it is what
-    /// brings it back (A15).
-    public static func offersArchive(_ session: Session) -> Bool {
+    /// brings it back (A15). Closing ends the session on the machine and only
+    /// then files it (A39; `docs/DESIGN.md` § "Close, then the Archive").
+    public static func offersClose(_ session: Session) -> Bool {
         session.control == .remote && !session.archived
     }
 
