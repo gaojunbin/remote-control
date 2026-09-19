@@ -263,6 +263,51 @@ async def test_a_registered_session_never_has_its_session_closed(
     assert "session/close" not in peer.methods()
 
 
+# ------------------------------------------------ A39: closing the session
+
+
+async def test_closing_a_session_cancels_the_turn_and_unloads_it(
+    home: Path, tmp_path: Path
+) -> None:
+    """The one place `session/close` is sent: a session no terminal is in (A39)."""
+    register(home)
+    binary, peer = leader_peer(tmp_path, mode="leader-cancel")
+    hub, recorder, service = build(tmp_path)
+    await service.tick(binary)
+    entry = hub.entries[SESSION]
+    unregister(home)
+    assert isinstance(entry.runner, GrokRunner)
+    await entry.runner.send("keep going")
+    await wait_for(lambda: recorder.events("thinking"))
+    await service.tick(binary)
+    assert control_of(entry) == "remote"
+
+    result = await hub.archive({"session_id": SESSION, "archived": True})
+
+    assert "session/cancel" in peer.methods()
+    assert peer.params("session/close")["sessionId"] == SESSION
+    assert hub.entries[SESSION].runner is None
+    session = result["session"]
+    assert (session["archived"], session["control"], session["state"]) == (True, "none", "stopped")
+    await service.stop()
+
+
+async def test_closing_never_unloads_a_session_a_terminal_is_in(home: Path, tmp_path: Path) -> None:
+    """`session/close` unloads for every client of the leader, the TUI included."""
+    register(home)
+    binary, peer = leader_peer(tmp_path)
+    hub, _, service = build(tmp_path)
+    await service.tick(binary)
+    entry = hub.entries[SESSION]
+    assert control_of(entry) == "shared"
+
+    await hub.archive({"session_id": SESSION, "archived": True})
+
+    assert "session/close" not in peer.methods()
+    assert hub.entries[SESSION].runner is None
+    await service.stop()
+
+
 # -------------------------------------------------------------------- replay
 
 

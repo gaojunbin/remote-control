@@ -89,7 +89,21 @@ class SessionRunner(Protocol):
         """
         ...
 
-    async def close(self) -> None: ...
+    async def close(self) -> None:
+        """Let go of the session here. What runs elsewhere runs on."""
+        ...
+
+    async def shutdown(self) -> None:
+        """End the session for good, then let go of it (amendment A39).
+
+        `close` is the device stepping back from something that may not be
+        only its own — a Codex thread a terminal could still be in, a Grok
+        session the leader holds for every client. `shutdown` is the person
+        closing the session: the turn is stopped and what the device holds for
+        the agent is ended before `close` runs, so nothing of the session is
+        left running on the machine.
+        """
+        ...
 
     @property
     def busy(self) -> bool: ...

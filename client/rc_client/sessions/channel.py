@@ -41,6 +41,10 @@ class SessionChannel:
         self._pending: dict[str, dict[str, Any]] = {}
         self._flusher: asyncio.Task[None] | None = None
         self._closed = False
+        # Set while the session is being closed on the person's word (A39). The
+        # agent's last words arrive during it — a turn ending, a status going
+        # idle — and none of them is a session coming back to life.
+        self.closing = False
         # Set by the hub to the resume scheduler (amendment A35, 7.2). A channel
         # nobody wired one into simply ends its turns.
         self.on_turn_end: TurnEndHook | None = None
@@ -158,8 +162,12 @@ class SessionChannel:
         right up to the moment something drives it; leaving that behind would
         show a live session as a dead one. Publishing the summary is what moves
         the row out of the Archive in the apps, so it is not optional.
+
+        A session being closed is the one thing this never speaks for (A39):
+        what the agent says while it is being stopped is the end of it, not a
+        session coming back to life.
         """
-        if not self.session.archived:
+        if self.closing or not self.session.archived:
             return
         self.session.archived = False
         if self.session.state == "stopped":

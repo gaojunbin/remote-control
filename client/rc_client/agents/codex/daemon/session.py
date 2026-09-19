@@ -37,14 +37,30 @@ log = logger("rc_client.codex.daemon.session")
 APPROVAL_TIMEOUT = 300.0
 OUTPUT_THROTTLE = 0.2
 DRAIN_TIMEOUT = 15.0
+# How long a close waits for the interrupted turn to settle before archiving
+# the thread anyway (A39). Shorter than `DRAIN_TIMEOUT`: the person is closing
+# the session, so the archive matters more than the last words of the turn.
+CLOSE_DRAIN_TIMEOUT = 5.0
 BACKFILL_ITEMS = 200
 BACKFILL_PAGE = 100
 # Notifications that mean something has moved on this thread, so a resume the
 # daemon refused before may be accepted now.
 TURN_BOUNDARIES = frozenset({"turn/started", "turn/completed", "thread/status/changed"})
 
+
 ControlCallback = Callable[[], Awaitable[None]]
 TurnEndCallback = Callable[[], Awaitable[None]]
+ThreadIdCallback = Callable[[str], Awaitable[None]]
+
+
+def archived_refusal(message: str) -> bool:
+    """Whether Codex refused a resume because the thread is archived (A39).
+
+    Codex answers "session <id> is archived. Run `codex unarchive <id>` …", and
+    the word is the only signal there is: the error code is the same one an
+    unresumable young thread gets.
+    """
+    return "archived" in message.lower()
 
 
 @dataclass(slots=True)
@@ -81,7 +97,8 @@ class CodexDaemonSession:
         created_here: bool | None = None,
         on_turn_end: TurnEndCallback | None = None,
         on_control_change: ControlCallback | None = None,
-        on_thread_id: Callable[[str], Awaitable[None]] | None = None,
+        on_thread_id: ThreadIdCallback | None = None,
+        on_closing: ThreadIdCallback | None = None,
     ) -> None:
         self.channel = channel
         self._client = client
@@ -97,6 +114,7 @@ class CodexDaemonSession:
         self._on_turn_end = on_turn_end
         self._on_control_change = on_control_change
         self._on_thread_id = on_thread_id
+        self._on_closing = on_closing
         self._translator = CodexTranslator(cwd=cwd, mirror_user_messages=True)
         self._turn_id: str | None = None
         self._turn_started_at = 0
@@ -270,18 +288,37 @@ class CodexDaemonSession:
             # Never rewrite the configuration of a thread somebody else started:
             # a `config` on resume applies to the thread, not to our view of it.
             params["config"] = self._thread_config
-        try:
-            result = await self._client.request("thread/resume", params)
-        except RcError as exc:
+        result = await self._resume_thread(thread_id, params)
+        if result is None:
             self._subscribed = False
             self._resume_refused = True
-            log.info("codex thread not resumable yet", error=exc.message[:120])
             return False
         self._subscribed = True
         self._resume_refused = False
         self._adopt_settings(result)
         await self.backfill()
         return True
+
+    async def _resume_thread(self, thread_id: str, params: dict[str, Any]) -> dict[str, Any] | None:
+        """`thread/resume`, unarchiving the thread first when that is what it wants.
+
+        A session the person closed is archived in Codex (A39), and Codex
+        refuses to resume an archived thread by name — `codex unarchive` is what
+        it tells a person to run. Writing to a closed session is what brings it
+        back (A15), so the unarchive belongs to the same step.
+        """
+        try:
+            return await self._client.request("thread/resume", params)
+        except RcError as exc:
+            if not archived_refusal(exc.message):
+                log.info("codex thread not resumable yet", error=exc.message[:120])
+                return None
+        try:
+            await self._client.request("thread/unarchive", {"threadId": thread_id})
+            return await self._client.request("thread/resume", params)
+        except RcError as exc:
+            log.warning("could not unarchive a closed codex thread", error=exc.message[:200])
+            return None
 
     def _adopt_settings(self, result: dict[str, Any]) -> None:
         sandbox = result.get("sandbox")
@@ -321,6 +358,28 @@ class CodexDaemonSession:
             with contextlib.suppress(RcError):
                 await self._client.request("thread/unsubscribe", {"threadId": thread_id})
         self._subscribed = False
+
+    async def shutdown(self) -> None:
+        """End the thread for good (A39): stop the turn, archive it, then let go.
+
+        Unsubscribing alone leaves the thread loaded in the daemon with its turn
+        still running, and its next word would take the session back out of the
+        Archive. Archiving it in Codex is what ends it for every client, so the
+        service is told first: nothing the thread says on its way out is a
+        reason to adopt or revive it.
+        """
+        thread_id = self._thread_id
+        if thread_id is not None and self._on_closing is not None:
+            await self._on_closing(thread_id)
+        if self.busy:
+            with contextlib.suppress(TimeoutError, RcError):
+                await asyncio.wait_for(self.interrupt(), CLOSE_DRAIN_TIMEOUT)
+        if thread_id is not None and self._client.connected:
+            try:
+                await self._client.request("thread/archive", {"threadId": thread_id})
+            except RcError as exc:
+                log.warning("codex refused to archive a closed thread", error=exc.message[:200])
+        await self.close()
 
     # -------------------------------------------------------------- backfill
 

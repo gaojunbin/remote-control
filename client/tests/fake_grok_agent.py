@@ -127,8 +127,8 @@ class FakePeer:
         elif method == "session/list":
             self.result(message_id, {"sessions": [{"sessionId": self.loaded_id()}]})
         elif method == "session/close":
-            # Never sent for a session a terminal registered (A28); a test that
-            # sees this in `requests.jsonl` has caught a real fault.
+            # Sent only by the close of a session no terminal is in (A39); for a
+            # session a terminal registered it is a real fault (A28).
             self.result(message_id, {})
         elif method == "session/new":
             self.result(message_id, self.new_session(handshake["session/new"]))

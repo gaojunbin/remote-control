@@ -169,6 +169,10 @@ class ClaudeRunner:
                 await self._client.disconnect()
             self._client = None
 
+    async def shutdown(self) -> None:
+        """A39: the CLI is this device's own, so letting go of it ends it."""
+        await self.close()
+
     async def _reconnect(self) -> None:
         """Rebuild the SDK connection, resuming the same transcript."""
         resume = self._translator.session_id or self._resume

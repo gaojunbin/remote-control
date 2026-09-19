@@ -142,6 +142,10 @@ class PiRunner:
         if process is not None:
             await process.close()
 
+    async def shutdown(self) -> None:
+        """A39: the pi process is this device's own, so letting go of it ends it."""
+        await self.close()
+
     async def _on_closed(self) -> None:
         await self.approvals.expire()
         await self._stream.torn_down("the pi process exited before the turn completed")

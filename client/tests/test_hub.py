@@ -32,6 +32,8 @@ class FakeRunner:
         self.block_ids: list[str | None] = []
         self.commands_run: list[tuple[str, str | None, str]] = []
         self.closed = False
+        self.shut_down = False
+        self.order: list[str] = []
         self._busy = False
         self._steer = steer
 
@@ -58,6 +60,7 @@ class FakeRunner:
 
     async def interrupt(self) -> bool:
         self.interrupts += 1
+        self.order.append("interrupt")
         self._busy = False
         return True
 
@@ -78,6 +81,12 @@ class FakeRunner:
 
     async def close(self) -> None:
         self.closed = True
+        self.order.append("close")
+
+    async def shutdown(self) -> None:
+        self.shut_down = True
+        self.order.append("shutdown")
+        await self.close()
 
     @property
     def busy(self) -> bool:

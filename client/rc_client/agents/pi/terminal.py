@@ -62,6 +62,15 @@ class PiTerminalSession:
         await self.approvals.expire()
         self.link.detach()
 
+    async def shutdown(self) -> None:
+        """A39: the session is the terminal's, so letting go of it is all there is.
+
+        The person is at the pi TUI that owns this session; the apps offer no
+        close on a row a terminal holds, and ending their CLI for them is not
+        this device's to do.
+        """
+        await self.close()
+
     async def gone(self) -> None:
         """pi exited or reloaded: finish anything that was still streaming."""
         await self.approvals.expire()
