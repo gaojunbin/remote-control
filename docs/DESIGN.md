@@ -430,15 +430,23 @@ A non-empty search overrides both stored choices without writing either: it open
 that still holds a match and every Archive a match landed in. Clearing the query hands the list back
 to what was stored.
 
-Archiving stays a row action and `session.archive` stays in the protocol, but the action is offered
-on exactly one kind of row: a session the device is driving — `control: "remote"`, whoever created
-it — that is not archived. Archiving it stops it, and the row moves to the Archive by the rule
-above. A row a terminal holds (`terminal` or `shared`) offers no archive at all: the terminal owns
-it, and it leaves Active by itself the moment the terminal exits. A row already in the Archive
-offers nothing either, not even "unarchive" — writing to it, or a terminal coming back to it, is what
-brings it back (A15). There is no global "show archived" switch: it only ever toggled the
-hand-archived rows, which were already folded inside the collapsed Archive, so it read as a control
-that did nothing.
+**Close, then the Archive** (owner's ruling 2026-09-19, A39). The row action on a session the
+device is driving — `control: "remote"`, whoever created it, not archived — is **Close** (zh
+关闭), not Archive. The person's intent is to end the session; a row that merely moved into the
+Archive while its agent ran on in the machine's background, and then climbed back out the moment
+that agent spoke, was the bug this replaces. Close stops the agent's work and ends what the device
+holds for it — Claude's CLI, pi's process, the Codex thread (archived in Codex too), the Grok
+leader session — and only then does the row move to the Archive, marked "Archived", by the rule
+above; `session.archive` stays the frame. While the session is working (its dot green) the app asks
+first — "Close this session?" over "The agent is still working; what it has not finished is lost."
+with Close and Cancel — and an idle one closes on the tap, because there is nothing to lose. The
+web row's trailing button and the phone's swipe and context menu carry it, with a circled cross
+(lucide `CircleX`, SF `xmark.circle`); it is the row's only action. A row a terminal holds
+(`terminal` or `shared`) offers no close at all: the terminal owns it, and it leaves Active by
+itself the moment the terminal exits. A row already in the Archive offers nothing either, not even
+"unarchive" — writing to it, or a terminal coming back to it, is what brings it back (A15). There
+is no global "show archived" switch: it only ever toggled the hand-archived rows, which were
+already folded inside the collapsed Archive, so it read as a control that did nothing.
 
 **Agents are visible and filterable.** Every row carries an agent chip on its meta line — the
 agent's name from § "Agents", falling back to the raw agent id, in the one quiet tint every agent
