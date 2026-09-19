@@ -2777,12 +2777,16 @@ Normative for the device and invisible to apps.
 }
 ```
 
-`session.archive` with `archived: true` records the user's choice and stops the session when the
-device is driving it, so the row goes to `control: "none"` in the same publish. The device clears `archived` on its own the moment
-the session comes back to life — a turn starts in it, from an app or from a terminal, or a terminal
-attaches to it again — and publishes the session with `archived: false` (amendment A15). An
-archived session therefore never runs, and apps need no rule of their own for it: the row moves
-out of the Archive when the device's `session.updated` arrives.
+`session.archive` with `archived: true` **closes** a session the device is driving (amendment A39):
+the device interrupts the turn if one is running, ends what it holds for the agent — Claude's CLI
+process, pi's process, the Codex thread (archived in Codex as well), the Grok leader session — and
+only then records the choice, so the reply and the publish carry `archived: true`, `control:
+"none"` and `state: "stopped"` together, and nothing of the session runs on the machine afterwards.
+A message the agent still sends while it is being closed does not revive it. The device clears
+`archived` on its own the moment the session comes back to life — a turn starts in it, from an app
+or from a terminal, or a terminal attaches to it again — and publishes the session with `archived:
+false` (amendment A15). An archived session therefore never runs, and apps need no rule of their
+own for it: the row moves out of the Archive when the device's `session.updated` arrives.
 
 `fixtures/app/session.archive.json`
 
@@ -3451,6 +3455,15 @@ one app connection that asked. The gateway relays bytes and never reads them.
     shell, and says plainly when the shell has exited or the device is gone. A phone's terminal
     carries a key bar above the keyboard — Esc, Tab, a sticky Ctrl, the arrows, Ctrl-C, Ctrl-D and
     the characters a shell needs — and a way to paste, copy a selection and change the type size.
+21. **Closing a session the device drives, then the Archive.** On a row whose `control` is
+    `remote` and that is not archived, the app's action is **Close**, not Archive: `session.archive
+    {archived: true}` asks the device to end the session — interrupt a running turn, end what it
+    holds for the agent (Claude's CLI, pi's process, the Codex thread, the Grok leader session) —
+    and only then to mark it `archived: true`, `control: "none"`, `state: "stopped"`, in one reply
+    and one publish. Nothing the agent says while it is being closed revives it. While the session
+    is working the app asks first ("Close this session?"); an idle one closes on the tap. A row a
+    terminal holds offers nothing, a row already in the Archive offers nothing, and writing to a
+    closed session brings it back as before (A15).
 
 ## 9. Conformance checklist
 
@@ -3639,6 +3652,13 @@ one app connection that asked. The gateway relays bytes and never reads them.
       reschedules up to three times when the resumed turn hits the limit again, publishes each step
       as a `resume` event, and answers `session.resume_set` and `session.resume_cancel` (A35).
 
+- [ ] Closes a `remote` session on `session.archive {archived: true}`: interrupts a running turn,
+      ends what it holds for the agent — the Claude CLI process, the pi process, the Codex thread
+      (`turn/interrupt`, then `thread/archive`), the Grok leader session (`session/cancel`, then
+      `session/close`, safe because no terminal is in a `remote` session) — and replies and
+      publishes only when that is done, with `archived: true`, `control: "none"`, `state:
+      "stopped"`; nothing the agent says while the close is in progress revives the session (A39).
+
 ### 9.3 App
 
 - [ ] Ignores unknown fields, unknown event kinds and unknown agent ids.
@@ -3713,6 +3733,10 @@ one app connection that asked. The gateway relays bytes and never reads them.
       the `resume` rows and a turn's `limit` end in the timeline, draws a `source: "resume"`
       message in the person's bubble with its caption, and treats `trigger: "resume"` like
       `remote` in the status line (A35).
+- [ ] Offers **Close** — not Archive — on a row whose `control` is `remote` and that is not
+      archived, asks first only while the session is working, and offers nothing on a row a terminal
+      holds or a row already in the Archive (A39).
+
 - [ ] Decodes every fixture under `fixtures/` in its test suite.
 
 ---
@@ -4133,3 +4157,14 @@ for an `attach`; `hello.terminal` and `Device.terminal`. Four terminals per devi
 64 KiB scrollback. Rule 20 says what the apps do: tapping a device row opens it, the row's menu
 reads Rename · Retry update · Show quota · Revoke, and a phone's terminal carries a key bar. This
 reverses the v1 decision not to ship a terminal emulator. See 4.1, 6.3, 7, 7.3, 8 and 9.
+
+**2026-09-19 A39 — archiving a session the device drives closes it.** `session.archive {archived:
+true}` was documented as stopping the session, and did so for a Claude or pi session, whose process
+the device owns; a Codex thread on the shared daemon was only unsubscribed and a Grok session on
+the leader only unrouted, so both stayed loaded, a running turn ran on, and the thread's next word
+pulled the row back out of the Archive (A15). The frame is unchanged. Its meaning is now the whole
+of it: the device interrupts the turn, ends what it holds for the agent — the Codex thread is
+archived in Codex as well, the Grok session closed on the leader, which is safe because no
+terminal is in a `remote` session — and only then marks the session archived, stopped and unowned,
+in one reply and one publish; nothing the agent says meanwhile revives it. The apps call the
+action **Close** and ask first only while the session is working. See 6.3, rule 21, 9.2 and 9.3.
