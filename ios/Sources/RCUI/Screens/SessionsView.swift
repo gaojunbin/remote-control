@@ -6,6 +6,8 @@ import RCCore
 struct SessionsView: View {
     @Environment(AppModel.self) private var model
     @State private var isCreating = false
+    /// The working session whose Close is waiting on an answer (A39).
+    @State private var closing: Session?
 
     var body: some View {
         @Bindable var sessions = model.sessions
@@ -85,6 +87,20 @@ struct SessionsView: View {
         }
         .sheet(isPresented: $isCreating) {
             NewSessionSheet().environment(model)
+        }
+        // Closing a working session throws away the part of the turn it has
+        // not finished, so that is the one row the tap asks about. It asks in
+        // an alert, the way Revoke does on the Devices screen: both answers are
+        // drawn, where a confirmation dialog on this OS draws the destructive
+        // one alone and leaves Cancel to a tap on the canvas.
+        .alert("Close this session?",
+               isPresented: Binding(get: { closing != nil },
+                                    set: { if !$0 { closing = nil } }),
+               presenting: closing) { session in
+            Button("Cancel", role: .cancel) { closing = nil }
+            Button("Close", role: .destructive) { close(session) }
+        } message: { _ in
+            Text(L10n.string("The agent is still working; what it has not finished is lost."))
         }
     }
 
@@ -174,20 +190,35 @@ struct SessionsView: View {
         .buttonStyle(.plain)
         .sessionRowLayout()
         .accessibilityIdentifier("session.\(session.sessionID)")
-        // Only a session this device is driving can be archived from here.
-        // A terminal's row leaves Active when the terminal exits, and an
-        // archived row comes back by being written to.
-        .swipeActions(edge: .trailing) {
-            if SessionListLayout.offersArchive(session) {
-                Button {
-                    Task { await model.connection.setArchived(true, session: session) }
-                } label: {
-                    Label("Archive", systemImage: "archivebox")
+        .contextMenu { closeAction(session, online: online) }
+        .swipeActions(edge: .trailing) { closeAction(session, online: online) }
+    }
+
+    /// The row's one action (`docs/DESIGN.md` § "Close, then the Archive",
+    /// A39): Close ends the session on the machine and files it. Only a session
+    /// this device is driving offers it — a terminal's row leaves Active when
+    /// the terminal exits, and an archived row comes back by being written to.
+    /// A working agent is asked about first, because its unfinished turn is
+    /// what the tap throws away.
+    @ViewBuilder
+    private func closeAction(_ session: Session, online: Bool) -> some View {
+        if SessionListLayout.offersClose(session) {
+            Button(role: .destructive) {
+                if SessionClose.asksFirst(session, online: online) {
+                    closing = session
+                } else {
+                    close(session)
                 }
-                .tint(Theme.inkSecondary)
-                .accessibilityIdentifier("session.archive.\(session.sessionID)")
+            } label: {
+                Label("Close", systemImage: "xmark.circle")
             }
+            .accessibilityIdentifier("session.close.\(session.sessionID)")
         }
+    }
+
+    private func close(_ session: Session) {
+        closing = nil
+        Task { await model.connection.close(session: session) }
     }
 
     /// The machine's name exactly as it reported it, its online dot, and a

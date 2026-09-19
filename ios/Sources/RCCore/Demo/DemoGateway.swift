@@ -1024,10 +1024,24 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         return try JSONValue.encode(SessionResult(session: try session(id)))
     }
 
+    /// Amendment A39: `archived: true` on a session the device drives closes
+    /// it. The scripted turn stops the way a real interrupt stops one, what the
+    /// device held is gone, and the row is published once — archived, unowned
+    /// and stopped together, so nothing of it can speak again and pull it back
+    /// out of the Archive. `archived: false` only clears the flag.
     private func archive(_ request: GatewayRequest) throws -> JSONValue {
         let id = try requireSessionID(request)
         let archived = request.body["archived"]?.boolValue ?? true
-        update(sessionID: id) { $0.archived = archived }
+        let closes = try archived && session(id).control == .remote
+        if closes { scripted?.cancel(); scripted = nil }
+        update(sessionID: id) {
+            $0.archived = archived
+            guard closes else { return }
+            $0.control = .none
+            $0.state = .stopped
+            $0.stateDetail = nil
+            $0.turn = nil
+        }
         return try JSONValue.encode(SessionResult(session: try session(id)))
     }
 

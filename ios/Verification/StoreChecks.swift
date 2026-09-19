@@ -11,6 +11,7 @@ enum StoreChecks {
         await chat(checks)
         sessionsList(checks)
         await revivedSession(checks)
+        await closesSession(checks)
         dotTones(checks)
         settings(checks)
         await pairing(checks)
@@ -917,17 +918,24 @@ enum StoreChecks {
         checks.equal(groups.first?.archive.map(\.sessionID), [DemoFixtures.revivedSessionID],
                      "and the one row it has archived is the session waiting to be resumed")
 
-        // Archiving is offered on one kind of row, over the whole demo list:
-        // a session the device drives that is not already archived.
-        let offered = sessions.filter(SessionListLayout.offersArchive)
+        // Close is offered on one kind of row, over the whole demo list: a
+        // session the device drives that is not already archived (A39).
+        let offered = sessions.filter(SessionListLayout.offersClose)
         checks.expect(offered.allSatisfy { $0.control == .remote && !$0.archived },
-                      "the archive action is offered only on a row the device is driving")
+                      "Close is offered only on a row the device is driving")
         checks.expect(!offered.isEmpty, "and the demo list has such a row")
         checks.expect(sessions.filter { $0.control != .remote }.allSatisfy {
-            !SessionListLayout.offersArchive($0)
+            !SessionListLayout.offersClose($0)
         }, "a row a terminal holds, or that nothing holds, offers none")
-        checks.expect(sessions.filter(\.archived).allSatisfy { !SessionListLayout.offersArchive($0) },
+        checks.expect(sessions.filter(\.archived).allSatisfy { !SessionListLayout.offersClose($0) },
                       "and a row already in the Archive offers nothing either, not even unarchive")
+
+        // The dialog is the working row's alone: it is the only one with an
+        // unfinished turn to throw away.
+        let asked = sessions.filter { SessionClose.asksFirst($0, online: true) }
+        checks.equal(asked.map(\.state).allSatisfy { $0 == .running || $0 == .starting }, true,
+                     "Close asks first only where a turn is under way")
+        checks.expect(!asked.isEmpty, "and the demo list has one of those too")
 
         guard let quiet = groups.last else { return checks.expect(false, "the third machine is listed") }
         checks.equal(quiet.active.count, 0, "the machine whose CLI exited holds nothing live")
@@ -1054,6 +1062,47 @@ enum StoreChecks {
                       "archiving it again folds the row straight back")
         checks.equal(refolded.archive.count, archivedBefore, "the Archive count is what it was")
         checks.equal(refolded.active.count, activeBefore, "and so is the live count")
+    }
+
+    /// Amendment A39: Close ends the session on the machine and files it, and
+    /// the one reply says all three things at once. The row is then in the
+    /// Archive with nothing owning it, so nothing about it can run on.
+    @MainActor
+    private static func closesSession(_ checks: CheckRunner) async {
+        let gateway = DemoGateway()
+        let connection = ConnectionStore()
+        await connection.enterDemo(api: gateway, channel: gateway)
+        await settle { connection.hasSnapshot }
+        let store = SessionStore(defaults: UserDefaults(suiteName: "rc-verify-\(UUID().uuidString)")!)
+
+        guard let live = connection.sessions.first(where: {
+            $0.sessionID == DemoFixtures.liveSessionID
+        }) else {
+            return checks.expect(false, "the hello carries the running session the device drives")
+        }
+        checks.expect(SessionListLayout.offersClose(live), "whose row offers Close")
+        checks.expect(SessionClose.asksFirst(live, online: true), "and is asked about first")
+
+        await connection.close(session: live)
+        guard let closed = connection.sessions.first(where: { $0.sessionID == live.sessionID }) else {
+            return checks.expect(false, "the closed session is still listed")
+        }
+        checks.expect(closed.archived, "closing files the row")
+        checks.equal(closed.control, .none, "with nothing owning it any more")
+        checks.equal(closed.state, .stopped, "and the agent stopped")
+        checks.expect(closed.turn == nil, "the turn it was running is over")
+        checks.expect(connection.errorMessage == nil, "and the close reported no failure")
+        checks.expect(!SessionListLayout.offersClose(closed),
+                      "a closed row offers nothing further, not even unarchive")
+
+        guard let group = store.groups(connection.sessions, devices: connection.devices)
+            .first(where: { $0.id == closed.deviceID }) else {
+            return checks.expect(false, "its machine is listed")
+        }
+        checks.expect(group.archive.contains { $0.sessionID == closed.sessionID },
+                      "and the row is in that machine's Archive")
+        checks.expect(!group.active.contains { $0.sessionID == closed.sessionID },
+                      "out of the live rows")
     }
 
     @MainActor

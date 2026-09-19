@@ -854,6 +854,84 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "16-archive-search")
     }
 
+    /// Amendment A39, `docs/DESIGN.md` § "Close, then the Archive": the row
+    /// action is Close, not Archive. A working session is asked about first and
+    /// Cancel really cancels; an idle one closes on the tap; either way the row
+    /// lands in that machine's Archive, marked "Archived", and offers nothing
+    /// further.
+    func testClosingASessionAsksOnlyWhileTheAgentIsWorking() {
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
+
+        // A running session this app drives. Its swipe carries one action.
+        let live = app.buttons["session.demo-session-auth"]
+        XCTAssertTrue(live.waitForExistence(timeout: 10), "the running remote session is listed")
+        revealRowActions(of: live)
+        let close = app.buttons["session.close.demo-session-auth"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "one swipe offers Close")
+        XCTAssertEqual(close.label, "Close", "by that word, and no longer Archive")
+        close.tap()
+
+        // The agent is working, so the tap asks before it throws the turn away.
+        let dialog = app.alerts["Close this session?"]
+        XCTAssertTrue(dialog.waitForExistence(timeout: 10), "a working session is asked about first")
+        XCTAssertTrue(dialog.staticTexts["The agent is still working; what it has not finished is lost."]
+            .exists, "over the sentence that says what is lost")
+        XCTAssertTrue(dialog.buttons["Close"].exists, "with the same word the row used")
+        XCTAssertTrue(dialog.buttons["Cancel"].exists, "and a way out")
+        attach(name: "61-session-close-dialog")
+
+        dialog.buttons["Cancel"].tap()
+        XCTAssertTrue(dialog.waitForNonExistence(timeout: 10), "Cancel closes the dialog")
+        XCTAssertTrue(live.exists, "and leaves the session where it was")
+        XCTAssertFalse(live.label.contains("archived"), "unarchived, and still live")
+
+        // The same swipe, answered this time.
+        revealRowActions(of: live)
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "the action is still there")
+        close.tap()
+        XCTAssertTrue(dialog.waitForExistence(timeout: 10), "it asks again")
+        dialog.buttons["Close"].tap()
+        XCTAssertTrue(live.waitForNonExistence(timeout: 15),
+                      "the row leaves the live rows for the machine's collapsed Archive")
+
+        // An idle session the device drives has nothing to lose, so it goes on
+        // the tap, with no dialog in between.
+        let idle = app.buttons["session.demo-session-parser"]
+        XCTAssertTrue(scrollDown(to: idle), "the idle session this app drives is listed")
+        revealRowActions(of: idle)
+        let closeIdle = app.buttons["session.close.demo-session-parser"]
+        XCTAssertTrue(closeIdle.waitForExistence(timeout: 10), "its swipe offers Close as well")
+        closeIdle.tap()
+        XCTAssertFalse(app.alerts.firstMatch.waitForExistence(timeout: 3),
+                       "and nothing is asked, because nothing is lost")
+        XCTAssertTrue(idle.waitForNonExistence(timeout: 15), "the row goes straight to the Archive")
+
+        // Both are in that machine's Archive, marked and finished with.
+        let archive = app.buttons["sessions.archive.demo-mac-studio"]
+        XCTAssertTrue(scrollDown(to: archive), "the machine's Archive has grown")
+        archive.tap()
+        XCTAssertTrue(scrollDown(to: live), "the session that was working is inside it")
+        XCTAssertTrue(live.label.contains("archived"), "marked as filed by hand — \(live.label)")
+        XCTAssertTrue(scrollDown(to: idle), "and so is the one that was idle")
+        XCTAssertTrue(idle.label.contains("archived"), "with the same mark — \(idle.label)")
+        attach(name: "62-session-closed-archive")
+
+        revealRowActions(of: live)
+        XCTAssertFalse(app.buttons["session.close.demo-session-auth"].exists,
+                       "a row in the Archive offers nothing, not even unarchive")
+    }
+
+    /// Reveal a list row's trailing actions without crossing SwiftUI's
+    /// full-swipe threshold, which would run the first action instead of
+    /// offering it. A third of the row's width is enough to open them.
+    private func revealRowActions(of row: XCUIElement) {
+        let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5))
+        start.press(forDuration: 0.1,
+                    thenDragTo: row.coordinate(withNormalizedOffset: CGVector(dx: 0.58, dy: 0.5)),
+                    withVelocity: .slow, thenHoldForDuration: 0.3)
+    }
+
     /// A device header folds its whole group away and brings it back.
     func testDeviceGroupCollapses() {
         app.launch()

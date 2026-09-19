@@ -987,23 +987,6 @@
         }
       }
     },
-    "Archive": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Archive"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "归档"
-          }
-        }
-      }
-    },
     "Archive · %lld": {
       "extractionState": "manual",
       "localizations": {
@@ -1374,6 +1357,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "关闭"
+          }
+        }
+      }
+    },
+    "Close this session?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close this session?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭此会话？"
           }
         }
       }
@@ -5862,6 +5862,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Agent 有一个问题"
+          }
+        }
+      }
+    },
+    "The agent is still working; what it has not finished is lost.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent is still working; what it has not finished is lost."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理仍在工作，未完成的部分会丢失。"
           }
         }
       }
