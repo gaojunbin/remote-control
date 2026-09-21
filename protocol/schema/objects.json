@@ -472,6 +472,16 @@
           "description": "Whether session.set for model, permission_mode and effort works on a session with control \"shared\". False when absent.",
           "type": "boolean"
         },
+        "shared_settings_keys": {
+          "description": "With shared_settings true, the subset of the four settings that session.set changes on a session with control \"shared\"; the others stay what the terminal set. Absent means all four (A40).",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["model", "permission_mode", "effort", "speed"]
+          }
+        },
         "shared_attachments": {
           "description": "Whether session.send attachments are delivered on a session with control \"shared\". False when absent.",
           "type": "boolean"

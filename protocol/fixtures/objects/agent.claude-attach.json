@@ -63,12 +63,17 @@
     "queue",
     "attachments",
     "effort",
-    "history"
+    "history",
+    "commands"
   ],
   "attach": "channel",
   "attach_ready": true,
   "shared_interrupt": false,
-  "shared_settings": false,
+  "shared_settings": true,
+  "shared_settings_keys": [
+    "model",
+    "effort"
+  ],
   "shared_attachments": false,
   "accounts": [
     {

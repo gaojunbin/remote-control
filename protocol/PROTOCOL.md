@@ -740,6 +740,7 @@ The agent and option arrays are shortened here; the fixture holds the full objec
 | `attach_ready` | boolean | no | Whether the device is prepared to attach: for Claude the `claude` shim is installed and on `PATH`, for Codex a handshake on the shared daemon socket succeeds, for pi the device's extension is installed in pi's global extension directory at the current build, for Grok Build the person's own `~/.grok/config.toml` turns `[cli] use_leader` on and requests no sandbox profile, so the next `grok` started on that machine joins the leader (A28). Apps use it only to word the hint on a `terminal` session. |
 | `shared_interrupt` | boolean | no | Whether the attachment can interrupt a running turn. `session.stop` on a `shared` session needs this **and** capability `interrupt`. False when absent. |
 | `shared_settings` | boolean | no | Whether `session.set` for `model`, `permission_mode`, `effort` and `speed` works on a `shared` session. False when absent. |
+| `shared_settings_keys` | string[] | no | With `shared_settings` true, the subset of `model`, `permission_mode`, `effort` and `speed` that `session.set` changes on a `shared` session; the others stay what the terminal set and an app draws them as values (A17). Absent means all four. Never present when `shared_settings` is false or absent (A40). |
 | `shared_attachments` | boolean | no | Whether `session.send` attachments are delivered on a `shared` session. False when absent. |
 | `accounts` | `AgentAccount[]` | no | How the agent is signed in on this device: one entry per vendor credential it holds, with the vendor's plan and, in a `device.agents` reply, the rate-limit windows the device could read (A33). Absent when the device did not look; empty when the agent is installed but signed in nowhere. |
 
@@ -790,10 +791,14 @@ decides whether the app can page backwards.
 `control: "terminal"` only; `attach`, `attach_ready`, `shared_interrupt`, `shared_settings` and
 `shared_attachments` describe `control: "shared"` instead (4.4).
 
-The five attachment fields are the whole story an app needs: nothing in this protocol is specific to
-one agent's attachment mechanism. Claude reports `attach: "channel"` with `shared_interrupt`,
-`shared_settings` and `shared_attachments` all false, because a channel can neither interrupt a turn
-nor change settings nor carry bytes. Codex reports `attach: "daemon"`, `attach_ready` true once a
+The attachment fields are the whole story an app needs: nothing in this protocol is specific to
+one agent's attachment mechanism. Claude reports `attach: "channel"` with `shared_interrupt` and
+`shared_attachments` false, because a channel can neither interrupt a turn nor carry bytes, and
+`shared_settings` true with `shared_settings_keys: ["model", "effort"]` (A40): the device's shim runs
+the CLI inside a pseudo-terminal the device owns and types the change into it as the person would —
+the terminal shows `/model` or `/effort` and the answer — so the model and the effort are the
+device's to change while the permission mode stays the terminal's; the same typing runs `/compact`,
+so Claude carries the `commands` capability (A27). Codex reports `attach: "daemon"`, `attach_ready` true once a
 WebSocket handshake on the shared daemon socket succeeds rather than merely because the socket file
 is there, and `shared_interrupt`, `shared_settings` and `shared_attachments` all true, because the
 shared app-server accepts interrupts, settings updates and image inputs from every attached client.
@@ -2492,6 +2497,13 @@ The result's `accepted` field reports what actually happened: `sent`, `queued` o
 - `session.set` with `effort` on Claude may need the SDK connection restarted before the next turn.
   The device replies immediately with the updated `Session` and applies the change lazily. The same
   applies to `permission_mode` when the agent cannot change it live.
+- On a `shared` Claude session, `session.set` for a key in `shared_settings_keys` and
+  `session.command` are typed into the CLI's terminal (A40). The device types only into an idle
+  terminal — no turn running, no dialog open, nobody typing there — and otherwise answers
+  `conflict` ("the terminal is busy; try again in a moment") without queueing anything. It replies
+  to `session.set` only once the transcript confirms the change, so the `Session` it returns is what
+  the terminal now runs; the change is for this session only, and no settings file of the person's
+  is written. A key outside `shared_settings_keys` is refused with `unsupported` as before.
 
 #### Slash commands (A27)
 
@@ -3658,6 +3670,13 @@ one app connection that asked. The gateway relays bytes and never reads them.
       `session/close`, safe because no terminal is in a `remote` session) — and replies and
       publishes only when that is done, with `archived: true`, `control: "none"`, `state:
       "stopped"`; nothing the agent says while the close is in progress revives the session (A39).
+- [ ] On a `shared` Claude session, applies `session.set` for `model` and `effort`, and
+      `session.command` for `compact`, by typing into the CLI's terminal; types only when the
+      terminal is idle and nobody is typing there, answers `conflict` otherwise and queues nothing;
+      confirms a settings change from the transcript before replying and before `meta` says so;
+      writes no settings file of the person's; reports `shared_settings: true` with
+      `shared_settings_keys: ["model", "effort"]` and the `commands` capability only when the shim
+      that provides the pseudo-terminal is installed (A40).
 
 ### 9.3 App
 
@@ -3736,6 +3755,9 @@ one app connection that asked. The gateway relays bytes and never reads them.
 - [ ] Offers **Close** — not Archive — on a row whose `control` is `remote` and that is not
       archived, asks first only while the session is working, and offers nothing on a row a terminal
       holds or a row already in the Archive (A39).
+- [ ] Reads `shared_settings_keys`: on a `shared` session the settings it names are pickers and the
+      others are the values the terminal set (A17), never a control that fails when tapped; a
+      `conflict` from `session.set` or `session.command` is shown in the reply's words (A40).
 
 - [ ] Decodes every fixture under `fixtures/` in its test suite.
 
@@ -4168,3 +4190,16 @@ archived in Codex as well, the Grok session closed on the leader, which is safe 
 terminal is in a `remote` session — and only then marks the session archived, stopped and unowned,
 in one reply and one publish; nothing the agent says meanwhile revives it. The apps call the
 action **Close** and ask first only while the session is working. See 6.3, rule 21, 9.2 and 9.3.
+
+**2026-09-21 A40 — the device types into an attached Claude Code terminal.** A `shared` Claude
+session could only take messages and answer prompts: the channel has no method for settings or
+commands (A17, A27 left Claude out), and a phone could not change the model, the effort, or compact
+the context of a session running in the terminal. The shim that already starts every attachable
+Claude Code now runs it inside a pseudo-terminal the device owns, and the device types into that
+terminal what the person would type — `/model` and `/effort` through their own pickers, confirmed
+for this session only, and `/compact` — only while the terminal is idle and nobody is typing there,
+confirming each change from the transcript before it replies. `AgentInfo` gains
+`shared_settings_keys`, so an agent can say that some settings are the device's to change on a
+`shared` session and others still the terminal's; Claude reports `shared_settings: true` with
+`["model", "effort"]` and the `commands` capability. Apps draw a listed setting as a picker and an
+unlisted one as the value the terminal set. See 4.2, 4.4, 6.3, 9.2 and 9.3.
