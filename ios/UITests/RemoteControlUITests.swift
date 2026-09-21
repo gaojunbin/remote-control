@@ -1183,9 +1183,11 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "95-command-output")
     }
 
-    /// An agent that lists no `commands` capability draws no panel, and nothing
-    /// on the screen explains the difference: `/` is a character there.
-    func testClaudeSessionDrawsNoCommandPanel() {
+    /// Amendment A40: Claude offers one command, `/compact` — sent as prompt text
+    /// on a session the device drives, typed into the terminal on an attached
+    /// one — so the panel lists that row and no other, with no sections to
+    /// draw for a single source.
+    func testClaudeSessionOffersOnlyCompact() {
         app.launch()
         let row = app.buttons["session.demo-session-auth"]
         XCTAssertTrue(row.waitForExistence(timeout: 20), "the Claude demo session is listed")
@@ -1194,15 +1196,23 @@ final class RemoteControlUITests: XCTestCase {
         let field = promptField()
         XCTAssertTrue(field.waitForExistence(timeout: 15), "the composer is on screen")
         field.tap()
-        field.typeText("/compact")
+        field.typeText("/")
 
-        XCTAssertFalse(app.descendants(matching: .any)["composer.commands"].firstMatch
-            .waitForExistence(timeout: 3), "a Claude session never opens the card")
-        XCTAssertFalse(app.descendants(matching: .any)["composer.commandHint"].firstMatch.exists,
-                       "and nothing under the field explains why")
-        XCTAssertTrue(app.buttons["composer.send"].isEnabled,
-                      "what was typed is an ordinary message")
-        attach(name: "96-no-command-panel")
+        let panel = app.descendants(matching: .any)["composer.commands"].firstMatch
+        XCTAssertTrue(panel.waitForExistence(timeout: 10), "a Claude session opens the card since A40")
+        let compact = app.descendants(matching: .any)["command.compact"].firstMatch
+        XCTAssertTrue(compact.waitForExistence(timeout: 10), "with /compact on it")
+        XCTAssertFalse(app.descendants(matching: .any)["command.review"].firstMatch.exists,
+                       "and nothing Claude does not offer")
+        XCTAssertFalse(app.staticTexts["Built-in"].exists, "one source draws no section header")
+        attach(name: "96-claude-command-panel")
+
+        // `/compact` takes no argument, so taking the row leaves the command
+        // ready to run on Send, with no space and no hint line to hand over to.
+        compact.tap()
+        XCTAssertTrue(app.buttons["composer.send"].waitForExistence(timeout: 10))
+        XCTAssertEqual(field.value as? String, "/compact", "the field holds the command, ready to run")
+        XCTAssertTrue(app.buttons["composer.send"].isEnabled, "and Send runs it")
     }
 
     /// Amendment A25: Grok Build writes its own update log, so a session a
