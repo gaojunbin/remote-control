@@ -133,6 +133,33 @@ describe('Composer send mode', () => {
     expect(onSend).toHaveBeenCalledWith('first\nsecond', [], 'auto');
   });
 
+  it("leaves the Enter that confirms an input method's text to the input method", async () => {
+    const user = userEvent.setup();
+    const { onSend } = setup();
+    const input = screen.getByLabelText('Message the agent…');
+    await user.click(input);
+    await user.keyboard('hello');
+
+    // Chrome and Firefox: the keydown itself says it is part of the composition.
+    fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+    fireEvent.compositionEnd(input);
+    expect(onSend).not.toHaveBeenCalled();
+
+    // WebKit: compositionend first, then a keydown that no longer says so.
+    fireEvent.compositionStart(input);
+    fireEvent.compositionEnd(input);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue('hello');
+
+    // The next press, in a later task, is Send.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(onSend).toHaveBeenCalledWith('hello', [], 'auto');
+  });
+
   it('refuses to send an empty message', async () => {
     const { onSend } = setup();
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();

@@ -28,6 +28,7 @@ import type {
 } from '../../protocol/types';
 import { draftOf as answerDraftOf, useAnswers } from '../../stores/answers';
 import { draftOf, useDrafts } from '../../stores/drafts';
+import { useImeGuard } from './useImeGuard';
 import { sessionKey } from '../../stores/sessions';
 import { VoiceControls } from '../voice/VoiceControls';
 import { WorkingPill } from '../voice/WorkingPill';
@@ -135,7 +136,7 @@ export function Composer({
   const [highlight, setHighlight] = useState(0);
   const [menuClosed, setMenuClosed] = useState(false);
   const menuId = useId();
-  const composing = useRef(false);
+  const ime = useImeGuard();
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const textRef = useRef(text);
@@ -508,7 +509,7 @@ export function Composer({
       takeCommand(highlighted);
       return true;
     }
-    if (e.key === 'Enter' && !e.shiftKey && !composing.current && !e.nativeEvent.isComposing) {
+    if (e.key === 'Enter' && !e.shiftKey && !ime.ownsEnter(e)) {
       e.preventDefault();
       if (highlighted && completionFor(highlighted) !== text) takeCommand(highlighted);
       else primarySubmit();
@@ -647,8 +648,8 @@ export function Composer({
             aria-activedescendant={
               menuOpen ? optionId(Math.min(highlight, rows.length - 1)) : undefined
             }
-            onCompositionStart={() => (composing.current = true)}
-            onCompositionEnd={() => (composing.current = false)}
+            onCompositionStart={ime.onCompositionStart}
+            onCompositionEnd={ime.onCompositionEnd}
             onPointerDown={takeFieldBack}
             onChange={(e) => {
               takeFieldBack();
@@ -672,7 +673,7 @@ export function Composer({
             }}
             onKeyDown={(e) => {
               if (onCommandKey(e)) return;
-              if (e.key !== 'Enter' || e.shiftKey || composing.current || e.nativeEvent.isComposing) return;
+              if (e.key !== 'Enter' || e.shiftKey || ime.ownsEnter(e)) return;
               e.preventDefault();
               primarySubmit();
             }}
