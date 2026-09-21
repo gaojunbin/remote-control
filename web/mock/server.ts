@@ -68,6 +68,7 @@ import {
 } from './typing';
 import { ServedSends, needsResync, replayFor } from './replay';
 import { dirEntries, makeDir } from './dirs';
+import { emptyPreferences, patchPreferences } from './preferences';
 import { FakeShell } from './shell';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -194,7 +195,7 @@ function broadcastTo(username: string, frame: unknown): void {
 
 /** A35: the account's preferences; an account that chose nothing reads off. */
 const preferencesOf = (username: string): Preferences =>
-  state.preferences.get(username) ?? { resume_after_limit: false };
+  state.preferences.get(username) ?? emptyPreferences();
 
 /**
  * A35 §6.3: a message the person sends into a session with a pending resume
@@ -687,10 +688,12 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
 
   if (path === '/api/preferences' && method === 'PATCH') {
     const body = await readBody(req);
-    const next = { ...preferencesOf(account.username) };
-    if (typeof body.resume_after_limit === 'boolean') {
-      next.resume_after_limit = body.resume_after_limit;
+    const outcome = patchPreferences(preferencesOf(account.username), body);
+    if ('error' in outcome) {
+      json(res, 400, failure('bad_request', `${outcome.error} is not one of the values allowed`));
+      return;
     }
+    const next = outcome.preferences;
     state.preferences.set(account.username, next);
     broadcastTo(account.username, { type: 'preferences.updated', preferences: next });
     json(res, 200, { preferences: next });

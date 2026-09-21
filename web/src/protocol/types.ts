@@ -290,11 +290,31 @@ export interface SessionResume {
 }
 
 /**
- * A35 (3.2): the switches that read the same on every app and device of the
- * account, so they live on the gateway rather than in this browser.
+ * A41 (3.2): the words the app speaks about itself. A wire value since the
+ * Settings screen's choices became the account's.
+ */
+export type InterfaceLanguage = 'en' | 'zh-Hans';
+
+/** A41 (3.2): how much of a transcript is drawn. */
+export type TimelineDetail = 'simple' | 'detailed';
+
+/**
+ * A35, A41 (3.2): the Settings values that read the same on every app and
+ * device of the account, so they live on the gateway rather than in this
+ * browser. Every field but `resume_after_limit` is absent until somebody has
+ * set it: an app then keeps the value it has and writes it up the first time
+ * it connects, so an account that arrives at A41 keeps what its first app had.
  */
 export interface Preferences {
   resume_after_limit: boolean;
+  language?: InterfaceLanguage;
+  /** The dictation language: `auto`, or a code from `stt.languages`. */
+  stt_language?: string;
+  polish_enabled?: boolean;
+  /** Chosen from `GET /api/polish/models`; empty when none. */
+  polish_model?: string;
+  polish_strength?: PolishStrength;
+  timeline_detail?: TimelineDetail;
 }
 
 export interface Session {

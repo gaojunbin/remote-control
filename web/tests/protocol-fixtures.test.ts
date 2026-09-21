@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { PROTOCOL_VERSION } from '../src/protocol/types';
+import { readPreferences, unsetKeys } from '../src/stores/preferenceFields';
 import type {
   AgentInfo,
   Command,
@@ -596,6 +597,36 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
     // `hello` carries the same object; a gateway older than A35 sends none.
     const hello = readFixture<HelloFrame>('app/hello.json');
     expect(typeof hello.preferences?.resume_after_limit).toBe('boolean');
+  });
+
+  /**
+   * A41 — the Settings screen's own values in that same object, every one of
+   * them optional: what the fixtures carry is what the settings store reads,
+   * and what they leave out is what this app writes up once.
+   */
+  it('reads the six Settings preferences of A41 off the account', () => {
+    const response = readFixture<PreferencesResponse>('http/preferences.response.json');
+    expect(readPreferences(response.preferences)).toEqual({
+      language: 'zh-Hans',
+      sttLanguage: 'auto',
+      polishEnabled: true,
+      polishModel: 'gpt-5.4-mini',
+      polishStrength: 'moderate',
+      timelineDetail: 'detailed',
+    });
+
+    const updated = readFixture<{ preferences: Preferences }>('app/preferences.updated.json');
+    expect(readPreferences(updated.preferences).polishStrength).toBe('moderate');
+
+    // `hello`'s object is a partial one: three fields nobody has set yet.
+    const hello = readFixture<HelloFrame>('app/hello.json');
+    const preferences = hello.preferences as Preferences;
+    expect(readPreferences(preferences)).toEqual({
+      language: 'en',
+      polishEnabled: false,
+      timelineDetail: 'simple',
+    });
+    expect(unsetKeys(preferences)).toEqual(['sttLanguage', 'polishModel', 'polishStrength']);
   });
 
   it('decodes the resume requests, the session they answer with, and its rows', () => {

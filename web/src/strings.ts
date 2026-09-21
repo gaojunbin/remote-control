@@ -8,9 +8,8 @@
  * device names, paths, branches, model and permission ids, and the agent labels
  * below all stay as they arrived.
  */
+import type { InterfaceLanguage, TimelineDetail } from './protocol/types';
 import { useSettings } from './stores/settings';
-import type { InterfaceLanguage } from './stores/settings';
-import type { TimelineDetail } from './stores/timeline';
 import { zhHans } from './strings.zh-Hans';
 
 export const en = {

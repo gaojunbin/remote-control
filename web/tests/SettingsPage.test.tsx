@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { SettingsPage } from '../src/features/settings/SettingsPage';
@@ -526,6 +526,52 @@ describe('settings: the versions line', () => {
 
     expect(document.querySelector('.settings-versions')?.textContent).toBe(
       strings.settings.versions('1.4.9', 'v1'),
+    );
+  });
+});
+
+/**
+ * A41 — the six Settings values are the account's, and nothing on the screen
+ * says "syncing": a change made on the phone moves the control in place while
+ * the screen is open. `docs/DESIGN.md` § "Paused by the usage limit" →
+ * "Settings are the account's, not the device's".
+ */
+describe('settings: a change another app of the account made', () => {
+  afterEach(() => {
+    usePreferences.getState().reset();
+    useConnection.setState({ polish: { enabled: false } });
+  });
+
+  it('moves the polish switch where the reader is looking', () => {
+    useConnection.setState({ polish: { enabled: true } });
+    useSettings.setState({ polishEnabled: false });
+    renderPage();
+    expect(screen.getByRole('switch', { name: strings.settings.polish })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+
+    act(() =>
+      usePreferences.getState().apply({ resume_after_limit: false, polish_enabled: true }),
+    );
+
+    expect(screen.getByRole('switch', { name: strings.settings.polish })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+  });
+
+  it('moves the timeline detail segment the same way', () => {
+    useSettings.setState({ timelineDetail: 'simple' });
+    renderPage();
+
+    act(() =>
+      usePreferences.getState().apply({ resume_after_limit: false, timeline_detail: 'detailed' }),
+    );
+
+    expect(screen.getByRole('button', { name: 'Detailed' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
     );
   });
 });
