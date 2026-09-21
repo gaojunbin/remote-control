@@ -552,7 +552,9 @@ confirmed the change, not before. Two rules keep the device a polite typist: it 
 a draft — while a turn runs, a dialog is open, or someone has been typing in the terminal, the change
 is refused with "the terminal is busy; try again in a moment", and nothing is queued — and it never
 writes the person's settings: a change from the phone is for this session only, exactly like
-pressing `s` in the terminal's own picker.
+pressing `s` in the terminal's own picker. Stop is the same keystroke the person would use, Escape,
+typed only while a turn is running and nothing is asked on screen (A42): an approval or a question
+is answered from its card, never escaped, and Stop says so when tapped then.
 
 **The model card: model, effort and speed are one control.** The composer row does not spend three
 chips on what runs and how hard: one chip reads the model label and the effort label side by side
