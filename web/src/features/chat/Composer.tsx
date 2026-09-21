@@ -10,7 +10,7 @@ import {
 import { ArrowUp, ChevronRight, Mic, Paperclip, X, Zap } from 'lucide-react';
 import { Menu, Popover } from '../../components/Popover';
 import { api } from '../../lib/api';
-import { errorText } from '../../lib/errors';
+import { errorText, refusalText } from '../../lib/errors';
 import { bytes } from '../../lib/format';
 import { cx } from '../../lib/cx';
 import { agentLabel, languageLabel, strings } from '../../strings';
@@ -25,6 +25,7 @@ import type {
   QuestionEvent,
   QueuedMessage,
   Session,
+  SharedSettingKey,
 } from '../../protocol/types';
 import { draftOf as answerDraftOf, useAnswers } from '../../stores/answers';
 import { draftOf, useDrafts } from '../../stores/drafts';
@@ -69,8 +70,8 @@ interface Props {
   polishContext?: () => PolishContextItem[];
   /**
    * A27: the slash commands this session offers now. Empty for an agent
-   * without capability `commands` — every Claude session — and the panel is
-   * then never drawn: `/` is an ordinary character there.
+   * without capability `commands`, and the panel is then never drawn: `/` is
+   * an ordinary character there.
    */
   commands?: Command[];
   onSend: (text: string, attachments: AttachmentDraft[], mode: SendMode) => Promise<void>;
@@ -219,11 +220,14 @@ export function Composer({
   // control the attachment cannot drive is hidden, never disabled with a
   // caption, so nothing in the composer explains an absence.
   //
-  // A17: where the pickers cannot go — a terminal session, which refuses
-  // `session.set` outright, and a shared one whose agent does not carry the
-  // settings — the values the device read from the transcript are shown
-  // instead, so the person can at least see what the terminal chose.
-  const showOptions = !terminalControlled && (!shared || canSetShared(agent));
+  // A17/A40: where a picker cannot go — a terminal session, which refuses
+  // `session.set` outright, and a shared one whose agent does not carry that
+  // setting — the value the device read from the transcript is shown instead,
+  // so the person can at least see what the terminal chose. The question is
+  // asked one setting at a time: an attached Claude takes a typed `/model` and
+  // `/effort` and leaves the permission mode where the terminal put it.
+  const canSet = (key: SharedSettingKey): boolean =>
+    !terminalControlled && (!shared || canSetShared(agent, key));
   const showAttach = !shared || canAttachShared(agent);
 
   // A20: while a question is pending the field is that question's free-text
@@ -304,7 +308,9 @@ export function Composer({
         setDraft('');
         setErrors([]);
         onRunCommand(command.command.name, command.argument).catch((err: unknown) => {
-          setErrors([errorText(err, strings.commands.failed)]);
+          // A40: a command the device has to type reaches a busy terminal
+          // sometimes, and only the device can say so.
+          setErrors([refusalText(err, strings.commands.failed)]);
           if (textRef.current.length === 0) setDraft(value);
         });
         return;
@@ -782,7 +788,7 @@ export function Composer({
       <ComposerBottomRow
         agent={agent}
         session={session}
-        showOptions={showOptions}
+        canSet={canSet}
         language={language}
         sttEnabled={sttEnabled}
         sttLanguages={sttLanguages}
@@ -825,7 +831,7 @@ function labelOf(options: Choice[], value: string | null | undefined): string | 
 function ComposerBottomRow({
   agent,
   session,
-  showOptions,
+  canSet,
   language,
   sttEnabled,
   sttLanguages,
@@ -835,12 +841,13 @@ function ComposerBottomRow({
   agent: AgentInfo | null;
   session: Session;
   /**
-   * A10/A11/A17: false when the model, permission mode and effort belong to a
-   * terminal — a `terminal` session, or a shared one whose agent does not
-   * report `shared_settings`. The card is then replaced by what the device read
-   * from the transcript, drawn as chips that open nothing.
+   * A10/A11/A17/A40: whether this one setting is the device's to change. False
+   * for every setting of a `terminal` session, and for the ones a shared
+   * session's attachment does not carry. What the device cannot change it
+   * shows: the card and the picker give way to what the transcript said, drawn
+   * as chips that open nothing.
    */
-  showOptions: boolean;
+  canSet: (key: SharedSettingKey) => boolean;
   language: string;
   sttEnabled: boolean;
   sttLanguages: string[];
@@ -858,10 +865,13 @@ function ComposerBottomRow({
   // "Opus 4.6 High": what runs, and how hard, in one line of the composer row.
   const cardText = [modelText, effortText].filter((part) => part !== null).join(' ');
   const hasCard = models.length > 0 || efforts.length > 0 || speeds.length > 0;
+  // A40: the card is the one control for three settings, so it opens as soon
+  // as one of them is the device's. The rows inside it answer for themselves.
+  const cardLive = canSet('model') || canSet('effort') || canSet('speed');
 
   return (
     <div className="composer-bottom">
-      {showOptions ? (
+      {cardLive ? (
         hasCard ? (
           <Popover
             side="top"
@@ -889,6 +899,7 @@ function ComposerBottomRow({
                 models={models}
                 efforts={efforts}
                 speeds={speeds}
+                canSet={canSet}
                 onSetOption={onSetOption}
               />
             )}
@@ -902,7 +913,7 @@ function ComposerBottomRow({
           glyph={speedText !== null}
         />
       )}
-      {showOptions ? (
+      {canSet('permission_mode') ? (
         modes.length > 0 ? (
           <Menu
             side="top"
@@ -946,12 +957,15 @@ function ModelCard({
   models,
   efforts,
   speeds,
+  canSet,
   onSetOption,
 }: {
   session: Session;
   models: Choice[];
   efforts: Choice[];
   speeds: Choice[];
+  /** A40: a row the device cannot change is not drawn as a control. */
+  canSet: (key: SharedSettingKey) => boolean;
   onSetOption: (patch: SessionOptions) => void;
 }) {
   const [picking, setPicking] = useState(false);
@@ -1010,10 +1024,10 @@ function ModelCard({
   return (
     <div className="model-card">
       <div className="model-card-top">
-        {speeds.length > 0 ? (
+        {speeds.length > 0 && canSet('speed') ? (
           <SpeedToggle session={session} speeds={speeds} onSetOption={onSetOption} />
         ) : null}
-        {models.length > 0 ? (
+        {models.length > 0 && canSet('model') ? (
           <button
             type="button"
             className="model-card-name"
@@ -1027,7 +1041,7 @@ function ModelCard({
           <span className="model-card-name static">{nameRow}</span>
         )}
       </div>
-      {efforts.length > 0 ? (
+      {efforts.length > 0 && canSet('effort') ? (
         <EffortSlider
           session={session}
           efforts={efforts}

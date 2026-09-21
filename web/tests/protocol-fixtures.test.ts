@@ -148,6 +148,17 @@ function assertAgent(agent: AgentInfo): void {
     const value = agent[key];
     expect(value === undefined || typeof value === 'boolean').toBe(true);
   }
+  // A40 §4.2: the subset is one of the four settings names, it never appears
+  // without `shared_settings`, and it is never the empty list — an agent that
+  // carries no setting says so with the boolean.
+  const keys = agent.shared_settings_keys;
+  if (keys !== undefined) {
+    expect(agent.shared_settings).toBe(true);
+    expect(keys.length).toBeGreaterThan(0);
+    for (const key of keys) {
+      expect(['model', 'permission_mode', 'effort', 'speed']).toContain(key);
+    }
+  }
 }
 
 function assertDevice(device: Device): void {

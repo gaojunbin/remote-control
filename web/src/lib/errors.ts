@@ -29,3 +29,18 @@ export function errorText(error: unknown, fallback: string = strings.errors.gene
   if (error instanceof Error && error.message) return error.message;
   return fallback;
 }
+
+/**
+ * A40: what `session.set` and `session.command` say when they are refused.
+ * A `conflict` from either is the device explaining why it could not reach the
+ * session — the terminal it types into is running a turn, or somebody is
+ * typing there — and only the device knows which. Its sentence is shown as it
+ * arrived; the canned one, about taking the session over, would be wrong.
+ * Every other code keeps the app's own words.
+ */
+export function refusalText(error: unknown, fallback: string): string {
+  if (error instanceof RequestError && error.code === 'conflict' && error.message) {
+    return error.message;
+  }
+  return errorText(error, fallback);
+}

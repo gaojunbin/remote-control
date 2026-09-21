@@ -376,16 +376,15 @@ describe('Composer settings a terminal holds', () => {
   const chip = (name: string, value: string) =>
     screen.queryByLabelText(strings.composer.setInTerminal(name, value));
 
-  it('shows the model card and the permission mode on a shared Claude session', () => {
+  it('shows only the setting A40 leaves the terminal on a shared Claude session', () => {
     renderComposer({ control: 'shared' });
 
-    expect(chip(strings.composer.modelCard, 'Sonnet 4.5 High')).toBeInTheDocument();
+    // The device types `/model` and `/effort` into the terminal, so the card
+    // opens; it has nothing to type for the permission mode, which stays a
+    // chip that opens nothing.
+    expect(screen.getByRole('button', { name: strings.composer.modelCard })).toBeEnabled();
     expect(chip(strings.composer.permissionMode, 'Ask before edits')).toBeInTheDocument();
-    // Chips, not pickers: nothing in the row opens a card.
-    expect(
-      screen.queryByRole('button', { name: strings.composer.modelCard }),
-    ).not.toBeInTheDocument();
-    expect(document.querySelectorAll('.composer-chip.readonly')).toHaveLength(2);
+    expect(document.querySelectorAll('.composer-chip.readonly')).toHaveLength(1);
   });
 
   it('shows them on a terminal session too, whose composer is disabled', () => {
@@ -403,8 +402,9 @@ describe('Composer settings a terminal holds', () => {
   });
 
   it('shows an id the agent does not advertise by its id', () => {
-    // `auto` is a real Claude permission mode the device does not list.
-    renderComposer({ control: 'shared', permission_mode: 'auto', model: 'claude-opus-5[1m]' });
+    // `auto` is a real Claude permission mode the device does not list, and
+    // the chip that shows it is the terminal's (A40).
+    renderComposer({ control: 'terminal', permission_mode: 'auto', model: 'claude-opus-5[1m]' });
 
     expect(chip(strings.composer.permissionMode, 'auto')).toBeInTheDocument();
     expect(chip(strings.composer.modelCard, 'claude-opus-5[1m] High')).toBeInTheDocument();
@@ -450,8 +450,13 @@ describe('Composer settings a terminal holds', () => {
     expect(document.querySelectorAll('.composer-chip.readonly')).toHaveLength(0);
   });
 
+  /**
+   * A17 for a session the terminal holds, and A40 for the shared one: either
+   * way the row reads what the terminal last confirmed, never what an app
+   * wishes were true.
+   */
   it('follows a meta event that changes the model', () => {
-    const session = { ...baseSession, control: 'shared' as const };
+    const session = { ...baseSession, control: 'terminal' as const };
     const { rerender } = renderComposer(session);
     expect(chip(strings.composer.modelCard, 'Sonnet 4.5 High')).toBeInTheDocument();
 

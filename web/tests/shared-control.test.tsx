@@ -25,12 +25,15 @@ import {
 import { addOptimistic, applyEvent, emptyTimeline, selectView } from '../src/stores/timeline';
 import { foldChat, foldSession, type ChatSession } from '../src/stores/chat';
 import { emptyDraft, useAnswers } from '../src/stores/answers';
-import { sessionOriginLabel } from '../src/strings';
+import { refusalText } from '../src/lib/errors';
+import { RequestError } from '../src/lib/ws';
+import { sessionOriginLabel, strings } from '../src/strings';
 import { useSettings } from '../src/stores/settings';
 import {
   claudeAgent,
   claudeNoShim,
   codexAgent,
+  commandsFor,
   codexNoDaemon,
   grokAgent,
   grokNoLeader,
@@ -45,11 +48,16 @@ import type {
   QuestionSpec,
   Session,
   SessionEvent,
+  SharedSettingKey,
   UserMessageEvent,
 } from '../src/protocol/types';
 
 const CONTROLS = ['remote', 'terminal', 'shared', 'none'];
 const DELIVERIES = ['delivered', 'absorbed'];
+/** A40 §4.2: the four settings an attachment may carry one by one. */
+const SETTING_KEYS: SharedSettingKey[] = ['model', 'permission_mode', 'effort', 'speed'];
+/** A40 §6.3: what the device answers when it cannot type into the terminal. */
+const BUSY = 'the terminal is busy; try again in a moment';
 
 const sharedIdle = fixtureOrEmpty<Session>('objects/session.shared-idle.json');
 const sharedRunning = fixtureOrEmpty<Session>('objects/session.shared-running.json');
@@ -166,13 +174,17 @@ describe.runIf(fixturesAvailable())('A10 composer on a shared session', () => {
     expect(document.querySelector('.takeover-bar')).toBeNull();
   });
 
-  it('hides the model card and the permission-mode picker', () => {
-    render(<Composer {...composerProps(sharedIdle, attachAgent)} />);
+  it('hides the model card and the permission-mode picker on an agent that carries neither', () => {
+    // A11: the shape of a shared session before any of its settings are the
+    // device's. A40 gives Claude two of them; this is the other case.
+    const noSettings: AgentInfo = { ...attachAgent, shared_settings: false };
+    delete noSettings.shared_settings_keys;
+    render(<Composer {...composerProps(sharedIdle, noSettings)} />);
     for (const name of ['Model and effort', 'Permission mode', 'Model', 'Effort']) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
     }
-    // Hidden, never disabled with a reason: nothing explains the absence.
-    expect(screen.queryByText(/in the terminal/)).not.toBeInTheDocument();
+    // A17: what the terminal chose is still shown, as chips that open nothing.
+    expect(document.querySelectorAll('.composer-chip.readonly')).toHaveLength(2);
   });
 
   it('hides the attachment button, which cannot reach a terminal session', () => {
@@ -411,8 +423,11 @@ describe.runIf(fixturesAvailable())('A11 fixtures', () => {
     expect(agent.capabilities).not.toContain('takeover');
   });
 
-  it('leaves the Claude channel agent with both booleans false', () => {
-    expect(attachAgent.shared_settings).toBe(false);
+  it('leaves the Claude channel agent without images, and with two of four settings', () => {
+    // A40 replaced A11's flat "no settings" with a named subset; a channel
+    // still carries no bytes, so images stay out.
+    expect(attachAgent.shared_settings).toBe(true);
+    expect(attachAgent.shared_settings_keys).toEqual(['model', 'effort']);
     expect(attachAgent.shared_attachments).toBe(false);
   });
 
@@ -458,14 +473,14 @@ describe.runIf(fixturesAvailable())('A11 fixtures', () => {
 
 describe.runIf(fixturesAvailable())('A11 composer on a shared Codex session', () => {
   it('reads the two booleans off the agent', () => {
-    expect(canSetShared(daemonAgent)).toBe(true);
+    // The daemon names no subset, so every setting is the device's.
+    for (const key of SETTING_KEYS) expect(canSetShared(daemonAgent, key)).toBe(true);
     expect(canAttachShared(daemonAgent)).toBe(true);
-    expect(canSetShared(attachAgent)).toBe(false);
     expect(canAttachShared(attachAgent)).toBe(false);
     // Both default to false when the device says nothing.
-    expect(canSetShared(codexNoDaemon)).toBe(false);
+    expect(canSetShared(codexNoDaemon, 'model')).toBe(false);
     expect(canAttachShared({ ...claudeAgent, shared_attachments: undefined })).toBe(false);
-    expect(canSetShared(null)).toBe(false);
+    expect(canSetShared(null, 'model')).toBe(false);
   });
 
   it('shows the pickers when the device reports shared_settings', () => {
@@ -836,7 +851,8 @@ describe('A28 Grok Build on the leader', () => {
   it('leaves the composer and both pickers live on a shared Grok session', () => {
     expect(grokShared.control).toBe('shared');
     expect(grokShared.origin).toBe('terminal');
-    expect(canSetShared(grokAgent)).toBe(true);
+    expect(canSetShared(grokAgent, 'model')).toBe(true);
+    expect(canSetShared(grokAgent, 'permission_mode')).toBe(true);
     render(<Composer {...composerProps(grokShared, grokAgent)} />);
     expect(screen.getByLabelText('Message the agent…')).toBeEnabled();
     for (const name of ['Model and effort', 'Permission mode']) {
@@ -868,5 +884,155 @@ describe('A28 Grok Build on the leader', () => {
       </MemoryRouter>,
     );
     expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+  });
+});
+
+/**
+ * A40 — the device types into an attached Claude Code terminal. The shim runs
+ * the CLI inside a pseudo-terminal the device owns, so `/model`, `/effort` and
+ * `/compact` can be typed in as the person would. `shared_settings_keys` says
+ * which settings that covers; the rest stay the terminal's (A17). Nothing here
+ * is Claude-specific in the app: it reads the list and draws each setting one
+ * way or the other.
+ */
+describe.runIf(fixturesAvailable())('A40 the device types into a Claude terminal', () => {
+  const claudeShared = (agent: AgentInfo) => render(<Composer {...composerProps(sharedIdle, agent)} />);
+
+  it('decodes the two settings the terminal gives up, and the command capability', () => {
+    expect(attachAgent.attach).toBe('channel');
+    expect(attachAgent.shared_settings).toBe(true);
+    expect(attachAgent.shared_settings_keys).toEqual(['model', 'effort']);
+    expect(attachAgent.capabilities).toContain('commands');
+    // The channel itself is unchanged: no interrupt, no images.
+    expect(attachAgent.shared_interrupt).toBe(false);
+    expect(attachAgent.shared_attachments).toBe(false);
+  });
+
+  it('answers per key, and falls back to all four when the list is absent', () => {
+    expect(canSetShared(attachAgent, 'model')).toBe(true);
+    expect(canSetShared(attachAgent, 'effort')).toBe(true);
+    expect(canSetShared(attachAgent, 'permission_mode')).toBe(false);
+    expect(canSetShared(attachAgent, 'speed')).toBe(false);
+
+    const noList: AgentInfo = { ...attachAgent };
+    delete noList.shared_settings_keys;
+    for (const key of SETTING_KEYS) expect(canSetShared(noList, key)).toBe(true);
+
+    // The boolean still decides first: a list without it carries nothing.
+    const off: AgentInfo = { ...attachAgent, shared_settings: false };
+    for (const key of SETTING_KEYS) expect(canSetShared(off, key)).toBe(false);
+  });
+
+  it('opens the model card and leaves the permission mode a value', () => {
+    claudeShared(attachAgent);
+    expect(screen.getByRole('button', { name: 'Model and effort' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Permission mode' })).not.toBeInTheDocument();
+    expect(
+      screen.getByLabelText('Permission mode · Ask before edits · set in the terminal'),
+    ).toBeInTheDocument();
+    // The channel still carries no bytes, so there is no attachment button.
+    expect(screen.queryByRole('button', { name: 'Attach files' })).not.toBeInTheDocument();
+  });
+
+  it('gives the card a live model list and a live effort slider', async () => {
+    claudeShared(attachAgent);
+    await userEvent.click(screen.getByRole('button', { name: 'Model and effort' }));
+    expect(screen.getByRole('slider', { name: 'Effort' })).toBeEnabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Model, Sonnet 4.5' }));
+    expect(screen.getByRole('listbox', { name: 'Model' })).toBeInTheDocument();
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Opus 4.6',
+      'Sonnet 4.5',
+      'Haiku 4.5',
+    ]);
+  });
+
+  it('sends the model the card picked', async () => {
+    const props = composerProps(sharedIdle, attachAgent);
+    render(<Composer {...props} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Model and effort' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Model, Sonnet 4.5' }));
+    await userEvent.click(screen.getByRole('option', { name: 'Haiku 4.5' }));
+    expect(props.onSetOption).toHaveBeenCalledWith({ model: 'claude-haiku-4-5' });
+  });
+
+  it('reads what the terminal confirmed, not what was asked for', () => {
+    const shown = () => document.querySelector('.model-card-chip .sized-box-shown')?.textContent;
+    const { rerender } = claudeShared(attachAgent);
+    expect(shown()).toBe('Sonnet 4.5 Medium');
+
+    // What the socket carries once the typed `/model` is in the transcript.
+    const next = foldSession(sharedIdle, [
+      { seq: 12, ts: 1788946200012, kind: 'meta', model: 'claude-haiku-4-5' },
+    ]);
+    rerender(<Composer {...composerProps(next, attachAgent)} />);
+    expect(shown()).toBe('Haiku 4.5 Medium');
+  });
+
+  it('draws only the rows the agent named, never a control that would fail', async () => {
+    const modelOnly: AgentInfo = { ...attachAgent, shared_settings_keys: ['model'] };
+    const { unmount } = claudeShared(modelOnly);
+    await userEvent.click(screen.getByRole('button', { name: 'Model and effort' }));
+    expect(screen.getByRole('button', { name: 'Model, Sonnet 4.5' })).toBeEnabled();
+    expect(screen.queryByRole('slider', { name: 'Effort' })).not.toBeInTheDocument();
+    unmount();
+
+    const effortOnly: AgentInfo = { ...attachAgent, shared_settings_keys: ['effort'] };
+    claudeShared(effortOnly);
+    await userEvent.click(screen.getByRole('button', { name: 'Model and effort' }));
+    expect(screen.getByRole('slider', { name: 'Effort' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Model, Sonnet 4.5' })).not.toBeInTheDocument();
+  });
+
+  it('keeps every setting the terminal\'s on a session no attachment reaches', () => {
+    render(<Composer {...composerProps(terminalSession(), attachAgent)} />);
+    expect(screen.queryByRole('button', { name: 'Model and effort' })).not.toBeInTheDocument();
+    expect(document.querySelectorAll('.composer-chip.readonly')).toHaveLength(2);
+  });
+
+  it('offers the one command the terminal can be typed', () => {
+    expect(commandsFor('claude')).toEqual([
+      {
+        name: 'compact',
+        description: 'Summarise the conversation so far to free context',
+        group: 'Built-in',
+      },
+    ]);
+    // A40: the shim is what provides the terminal, so a device without it
+    // offers neither the commands nor the settings.
+    expect(claudeAgent.capabilities).toContain('commands');
+    expect(claudeNoShim.capabilities).not.toContain('commands');
+    expect(claudeNoShim.shared_settings).toBe(false);
+    expect(claudeNoShim.shared_settings_keys).toBeUndefined();
+  });
+
+  it('shows a busy terminal in the device\'s own words', () => {
+    const busy = new RequestError({ code: 'conflict', message: BUSY });
+    expect(refusalText(busy, strings.errors.setFailed)).toBe(BUSY);
+    // Every other code keeps the app's sentence, in the app's language.
+    expect(refusalText(new RequestError({ code: 'timeout', message: 'gone' }), 'fallback')).toBe(
+      strings.errors.timeout,
+    );
+    // A conflict with nothing to say still gets one.
+    expect(refusalText(new RequestError({ code: 'conflict', message: '' }), 'fallback')).toBe(
+      strings.errors.conflictTerminal,
+    );
+  });
+
+  it('reports a refused command under the field, as the device worded it', async () => {
+    const props = composerProps(sharedIdle, attachAgent);
+    const onRunCommand = vi.fn().mockRejectedValue(
+      new RequestError({ code: 'conflict', message: BUSY }),
+    );
+    render(
+      <Composer {...props} commands={commandsFor('claude')} onRunCommand={onRunCommand} />,
+    );
+    const field = screen.getByLabelText('Message the agent…');
+    await userEvent.click(field);
+    await userEvent.keyboard('/compact');
+    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    expect(onRunCommand).toHaveBeenCalledWith('compact', undefined);
+    expect(await screen.findByText(BUSY)).toBeInTheDocument();
   });
 });

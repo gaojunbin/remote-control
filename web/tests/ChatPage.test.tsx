@@ -1,7 +1,9 @@
 /**
  * `docs/DESIGN.md` § "The composer": every change made from the model card is
  * drawn the moment it is made, and the device's reply confirms it or a refusal
- * puts the previous value back. The card never waits for the round trip.
+ * puts the previous value back. The card never waits for the round trip —
+ * except on a session a terminal shares, where A40 has it follow the terminal
+ * rather than run ahead of it.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -13,6 +15,7 @@ import { useConnection } from '../src/stores/connection';
 import { useDevices } from '../src/stores/devices';
 import { useOutbox } from '../src/stores/outbox';
 import { keyOf, useSessions } from '../src/stores/sessions';
+import { RequestError } from '../src/lib/ws';
 import { strings } from '../src/strings';
 import { codexAgent, devices as deviceFixtures } from '../mock/fixtures';
 import type { Session } from '../src/protocol/types';
@@ -139,6 +142,59 @@ describe('the model card writes before the device answers', () => {
     await waitFor(() => expect(screen.getByText('too late')).toBeInTheDocument());
     expect(stored()?.model).toBe('gpt-5.4');
     expect(stored()?.speed).toBe('priority');
+  });
+});
+
+/**
+ * A40 — a session a terminal shares. The device may have to type the change
+ * into that terminal, so the card follows the reply rather than running ahead
+ * of the screen beside it, and a refusal is shown in the device's own words.
+ * `docs/DESIGN.md` § "The composer" → "The device types into a Claude
+ * terminal".
+ */
+describe('the model card on a shared session waits for the terminal', () => {
+  const attached: Session = {
+    ...session,
+    control: 'shared',
+    origin: 'terminal',
+    effort: 'medium',
+  };
+
+  const shareSession = () => {
+    useSessions.setState({ sessions: { [key]: attached }, loaded: true, agentFilter: null });
+  };
+
+  it('leaves the value alone until the device answers', async () => {
+    let answer: (result: { session: Session }) => void = () => undefined;
+    rpcMock.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    shareSession();
+    renderChat();
+    await toggleSpeed();
+
+    expect(rpcMock).toHaveBeenCalledWith('session.set', {
+      session_id: session.session_id,
+      speed: 'priority',
+    });
+    // The terminal has not taken it yet, so neither has the card.
+    expect(stored()?.speed).toBeNull();
+
+    answer({ session: { ...attached, speed: 'priority' } });
+    await waitFor(() => expect(stored()?.speed).toBe('priority'));
+  });
+
+  it('says the terminal is busy in the words the device used', async () => {
+    rpcMock.mockRejectedValue(
+      new RequestError({ code: 'conflict', message: 'the terminal is busy; try again in a moment' }),
+    );
+    shareSession();
+    renderChat();
+    await toggleSpeed();
+
+    expect(
+      await screen.findByText('the terminal is busy; try again in a moment'),
+    ).toBeInTheDocument();
+    // Nothing was guessed on the way out, so nothing has to be put back.
+    expect(stored()?.speed).toBeNull();
   });
 });
 
