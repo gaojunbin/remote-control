@@ -1,22 +1,25 @@
-"""Amendment A35 on the gateway: the account's switches, and what the device does about a limit.
+"""Amendments A35 and A41: the account's preferences, and what a device does about a limit.
 
 Four things are checked here — the store, the two REST paths, the fan-out to every app and device
 of the account, and the three pushes a ``resume`` event cues — plus the frozen fixtures for each.
+A41 added the Settings screen's own preferences to the object, each absent until it is set.
 """
 
 from __future__ import annotations
 
 import json
+import sqlite3
 import time
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from rc_gateway.apns import ApnsProvider, ApnsResponse
 from rc_gateway.frames import FORWARDED_BY_SESSION
 from rc_gateway.hub import SessionResumeNotice
-from rc_gateway.preference_store import DEFAULTS, Preferences, PreferenceStore
+from rc_gateway.preference_store import DEFAULTS, FIELDS, Preferences, PreferenceStore
 from rc_gateway.push import (
     KIND_LIMIT_REACHED,
     KIND_RESUME_DROPPED,
@@ -26,6 +29,7 @@ from rc_gateway.push import (
     resume_kind,
 )
 from rc_gateway.push_store import ApnsRegistration, PushStore, WebPushSubscription
+from rc_gateway.routes.preference_routes import CHECKS
 
 from .conftest import (
     FIXTURE_DIR,
@@ -47,6 +51,11 @@ def fixture(*parts: str) -> Any:
     return json.loads((FIXTURE_DIR.joinpath(*parts)).read_text(encoding="utf-8"))
 
 
+def all_preferences() -> dict[str, Any]:
+    """Every field the object can hold, as the frozen A41 fixtures carry them."""
+    return dict(fixture("http", "preferences.response.json")["preferences"])
+
+
 # ---- the store ----
 
 
@@ -66,6 +75,70 @@ async def test_a_switch_is_stored_per_account_and_survives_a_reopen(tmp_path: Pa
     assert await reopened.get("ada") == Preferences(True)
     assert (await reopened.patch("ada", {})) == Preferences(True)
     assert await reopened.patch("ada", {"resume_after_limit": False}) == DEFAULTS
+
+
+async def test_every_preference_round_trips_and_an_unset_one_is_absent(tmp_path: Path) -> None:
+    path = tmp_path / "preferences.sqlite3"
+    store = PreferenceStore(path)
+    assert DEFAULTS.view() == {"resume_after_limit": False}
+
+    stored = await store.patch("ada", all_preferences())
+    assert stored.view() == all_preferences()
+    assert await PreferenceStore(path).get("ada") == stored
+
+    # An account that has set one preference reads that one and no more.
+    grace = await store.patch("grace", {"timeline_detail": "detailed"})
+    assert grace.view() == {"resume_after_limit": False, "timeline_detail": "detailed"}
+
+
+async def test_a_preference_set_to_its_off_value_is_still_set(tmp_path: Path) -> None:
+    """A41 hangs on the difference: absent is what makes an app write its own value up."""
+    store = PreferenceStore(tmp_path / "preferences.sqlite3")
+    assert (await store.get("ada")).polish_enabled is None
+    set_off = await store.patch("ada", {"polish_enabled": False, "polish_model": ""})
+    assert set_off.polish_enabled is False
+    assert set_off.view() == {
+        "resume_after_limit": False,
+        "polish_enabled": False,
+        "polish_model": "",
+    }
+
+
+async def test_a_database_from_before_the_settings_preferences_gains_the_columns(
+    tmp_path: Path,
+) -> None:
+    """A column added to CREATE TABLE IF NOT EXISTS never reaches an existing DATA_DIR."""
+    path = tmp_path / "preferences.sqlite3"
+    legacy = sqlite3.connect(path)
+    legacy.executescript(
+        """
+        CREATE TABLE preferences (
+            username TEXT PRIMARY KEY,
+            resume_after_limit INTEGER NOT NULL DEFAULT 0,
+            updated_at REAL NOT NULL);
+        INSERT INTO preferences VALUES ('ada', 1, 1788948000.0);
+        """
+    )
+    legacy.commit()
+    legacy.close()
+
+    store = PreferenceStore(path)
+    # The row written before A41 keeps the switch it had, with no Settings preference set.
+    assert await store.get("ada") == Preferences(resume_after_limit=True)
+    # And the columns the migration added are usable, on that row and after a reopen.
+    written = await store.patch("ada", {"language": "zh-Hans"})
+    assert written == Preferences(resume_after_limit=True, language="zh-Hans")
+    assert await PreferenceStore(path).get("ada") == written
+
+
+def test_the_settings_columns_are_added_once(tmp_path: Path) -> None:
+    path = tmp_path / "preferences.sqlite3"
+    PreferenceStore(path)
+    PreferenceStore(path)
+    with sqlite3.connect(path) as connection:
+        columns = [row[1] for row in connection.execute("PRAGMA table_info(preferences)")]
+    assert columns.count("language") == 1
+    assert set(FIELDS) <= set(columns)
 
 
 async def test_a_deleted_account_leaves_no_switches(tmp_path: Path) -> None:
@@ -124,10 +197,72 @@ def test_one_account_never_reads_or_writes_another(
     }
 
 
+def test_the_settings_preferences_are_stored_and_returned(
+    client: TestClient, auth: dict[str, str]
+) -> None:
+    response = client.patch("/api/preferences", json=all_preferences(), headers=auth)
+    assert response.status_code == 200
+    assert response.json() == fixture("http", "preferences.response.json")
+    assert client.get("/api/preferences", headers=auth).json()["preferences"] == all_preferences()
+
+
+def test_a_patch_sets_only_the_fields_it_names(client: TestClient, auth: dict[str, str]) -> None:
+    client.patch("/api/preferences", json={"language": "zh-Hans"}, headers=auth)
+    # The empty model is a value, not an absence: it is how the person chooses no polish model.
+    response = client.patch("/api/preferences", json={"polish_model": ""}, headers=auth)
+    assert response.json()["preferences"] == {
+        "resume_after_limit": False,
+        "language": "zh-Hans",
+        "polish_model": "",
+    }
+
+
+def test_the_longest_values_the_schema_allows_are_accepted(
+    client: TestClient, auth: dict[str, str]
+) -> None:
+    body = {"stt_language": "x" * 32, "polish_model": "m" * 128}
+    response = client.patch("/api/preferences", json=body, headers=auth)
+    assert response.json()["preferences"] == {"resume_after_limit": False, **body}
+
+
 def test_a_non_boolean_switch_is_a_bad_request(client: TestClient, auth: dict[str, str]) -> None:
     response = client.patch("/api/preferences", json={"resume_after_limit": "yes"}, headers=auth)
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "bad_request"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"language": "fr"},
+        {"language": "zh"},
+        {"language": True},
+        {"polish_strength": "gentle"},
+        {"timeline_detail": "full"},
+        {"timeline_detail": None},
+        {"polish_enabled": "yes"},
+        {"resume_after_limit": 1},
+        {"stt_language": ""},
+        {"stt_language": "x" * 33},
+        {"stt_language": 3},
+        {"polish_model": "m" * 129},
+        {"polish_model": ["gpt-5.4-mini"]},
+    ],
+)
+def test_a_value_the_schema_does_not_allow_is_refused_and_stores_nothing(
+    client: TestClient, auth: dict[str, str], body: dict[str, Any]
+) -> None:
+    response = client.patch("/api/preferences", json=body, headers=auth)
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "bad_request"
+    assert client.get("/api/preferences", headers=auth).json()["preferences"] == {
+        "resume_after_limit": False
+    }
+
+
+def test_every_preference_on_the_wire_has_a_check() -> None:
+    """A field added to `FIELDS` with no rule would be stored unread or fail at runtime."""
+    assert set(CHECKS) == set(FIELDS)
 
 
 def test_a_field_this_gateway_does_not_know_is_ignored(
@@ -154,17 +289,29 @@ def test_a_deleted_account_takes_its_switches_with_it(
 
 
 def test_hello_carries_the_account_preferences(client: TestClient, auth: dict[str, str]) -> None:
-    client.patch("/api/preferences", json={"resume_after_limit": True}, headers=auth)
+    client.patch("/api/preferences", json=all_preferences(), headers=auth)
     with client.websocket_connect("/ws/app", headers=auth) as app:
         hello = drain_until(app, "hello")
-    assert hello["preferences"] == {"resume_after_limit": True}
+    assert hello["preferences"] == all_preferences()
+
+
+def test_hello_carries_only_the_preferences_that_have_been_set(
+    client: TestClient, auth: dict[str, str]
+) -> None:
+    """A41: `hello.json` is a partial object, and absent is how an app knows to write its own up."""
+    partial = fixture("app", "hello.json")["preferences"]
+    assert set(partial) < set(FIELDS)
+    client.patch("/api/preferences", json=partial, headers=auth)
+    with client.websocket_connect("/ws/app", headers=auth) as app:
+        hello = drain_until(app, "hello")
+    assert hello["preferences"] == partial
 
 
 def test_a_device_is_told_the_preferences_right_after_the_ack(
     client: TestClient, auth: dict[str, str]
 ) -> None:
     enrolled = enroll_device(client, auth)
-    client.patch("/api/preferences", json={"resume_after_limit": True}, headers=auth)
+    client.patch("/api/preferences", json=all_preferences(), headers=auth)
     headers = {"Authorization": f"Bearer {enrolled['device_token']}"}
     with client.websocket_connect("/ws/device", headers=headers) as device:
         device.send_json(device_hello())
@@ -189,7 +336,7 @@ def test_a_change_reaches_every_app_and_device_of_the_account(
         ):
             drain_until(app, "hello")
             drain_until(stranger, "hello")
-            client.patch("/api/preferences", json={"resume_after_limit": True}, headers=auth)
+            client.patch("/api/preferences", json=all_preferences(), headers=auth)
             announced = drain_until(app, "preferences.updated")
             pushed = drain_until(device, "preferences")
             # A switch is one account's (A24). The PATCH returns only after its broadcast, so a
@@ -202,9 +349,42 @@ def test_a_change_reaches_every_app_and_device_of_the_account(
             theirs = drain_until(stranger, "preferences.updated")
 
     assert announced == fixture("app", "preferences.updated.json")
-    assert pushed == {"type": "preferences", "preferences": {"resume_after_limit": True}}
+    assert pushed == fixture("device", "preferences.json")
     assert [frame["type"] for frame in quiet] == ["reply"]
     assert theirs["preferences"] == {"resume_after_limit": True}
+
+
+def test_a_one_field_change_announces_the_whole_object(
+    client: TestClient, auth: dict[str, str]
+) -> None:
+    """A41: an app takes every `preferences.updated` as the truth, so all of it goes out."""
+    client.patch("/api/preferences", json={"polish_model": "gpt-5.4-mini"}, headers=auth)
+    with client.websocket_connect("/ws/app", headers=auth) as app:
+        drain_until(app, "hello")
+        client.patch("/api/preferences", json={"polish_strength": "strong"}, headers=auth)
+        announced = drain_until(app, "preferences.updated")
+    assert announced["preferences"] == {
+        "resume_after_limit": False,
+        "polish_model": "gpt-5.4-mini",
+        "polish_strength": "strong",
+    }
+
+
+def test_the_last_write_to_arrive_is_the_one_everyone_reads(
+    client: TestClient, auth: dict[str, str]
+) -> None:
+    """A41: the gateway is the one writer, and the order of arrival is the order of truth."""
+    with client.websocket_connect("/ws/app", headers=auth) as app:
+        drain_until(app, "hello")
+        client.patch("/api/preferences", json={"timeline_detail": "detailed"}, headers=auth)
+        client.patch("/api/preferences", json={"timeline_detail": "simple"}, headers=auth)
+        announced = [
+            drain_until(app, "preferences.updated")["preferences"]["timeline_detail"],
+            drain_until(app, "preferences.updated")["preferences"]["timeline_detail"],
+        ]
+    assert announced == ["detailed", "simple"]
+    stored = client.get("/api/preferences", headers=auth).json()["preferences"]
+    assert stored["timeline_detail"] == "simple"
 
 
 def test_a_patch_that_changes_nothing_announces_nothing(
