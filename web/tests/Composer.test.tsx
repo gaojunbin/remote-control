@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Composer } from '../src/features/chat/Composer';
+import { SEND_DELAY_MS } from '../src/features/chat/useImeGuard';
 import { foldSession } from '../src/stores/chat';
 import { useSettings } from '../src/stores/settings';
 import { strings } from '../src/strings';
@@ -146,14 +147,24 @@ describe('Composer send mode', () => {
     fireEvent.compositionEnd(input);
     expect(onSend).not.toHaveBeenCalled();
 
-    // WebKit: compositionend first, then a keydown that no longer says so.
+    // WebKit, one order: compositionend first, then a keydown that no longer says so.
     fireEvent.compositionStart(input);
     fireEvent.compositionEnd(input);
     fireEvent.keyDown(input, { key: 'Enter' });
+    await new Promise((resolve) => setTimeout(resolve, SEND_DELAY_MS * 2));
     expect(onSend).not.toHaveBeenCalled();
     expect(input).toHaveValue('hello');
 
-    // The next press, in a later task, is Send.
+    // WebKit, the other order: the keydown lands before the compositionend
+    // of the same press, so the send it scheduled is cancelled.
+    fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.compositionEnd(input);
+    await new Promise((resolve) => setTimeout(resolve, SEND_DELAY_MS * 2));
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue('hello');
+
+    // The next press, in a later task with nothing composing, is Send.
     await new Promise((resolve) => setTimeout(resolve, 0));
     fireEvent.keyDown(input, { key: 'Enter' });
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));

@@ -518,7 +518,7 @@ export function Composer({
     if (e.key === 'Enter' && !e.shiftKey && !ime.ownsEnter(e)) {
       e.preventDefault();
       if (highlighted && completionFor(highlighted) !== text) takeCommand(highlighted);
-      else primarySubmit();
+      else ime.sendUnlessComposing(primarySubmit);
       return true;
     }
     return false;
@@ -681,7 +681,7 @@ export function Composer({
               if (onCommandKey(e)) return;
               if (e.key !== 'Enter' || e.shiftKey || ime.ownsEnter(e)) return;
               e.preventDefault();
-              primarySubmit();
+              ime.sendUnlessComposing(primarySubmit);
             }}
           />
           {voiceBusy ? (

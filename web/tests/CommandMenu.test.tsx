@@ -4,7 +4,7 @@
  * reaches.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Composer } from '../src/features/chat/Composer';
 import { useSettings } from '../src/stores/settings';
@@ -203,9 +203,10 @@ describe('the keyboard', () => {
     // `compact` takes no argument, so nothing follows the name…
     expect(field()).toHaveValue('/compact');
     expect(onRunCommand).not.toHaveBeenCalled();
-    // …and the next Enter is the one that runs it.
+    // …and the next Enter is the one that runs it — a moment later, since a
+    // plain Enter waits out a possible compositionend before it acts.
     await user.keyboard('{Enter}');
-    expect(onRunCommand).toHaveBeenCalledWith('compact', undefined);
+    await waitFor(() => expect(onRunCommand).toHaveBeenCalledWith('compact', undefined));
     expect(onSend).not.toHaveBeenCalled();
   });
 
