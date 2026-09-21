@@ -13,7 +13,7 @@ change any of it; the long form is under `docs/`.
 | `gateway/` | FastAPI service on the VPS (`rc_gateway`), Docker Compose deployable | `cd gateway && uv run ruff check . && uv run ruff format --check . && uv run mypy rc_gateway tests && uv run pytest -q` |
 | `client/` | `rc-client`, the device daemon on every developer machine (`rc_client`), plus `install.sh` | `cd client && uv run ruff check . && uv run ruff format --check . && uv run mypy rc_client tests && uv run pytest -q` |
 | `web/` | React + TypeScript app the gateway serves, with a mock gateway for development | `cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build` |
-| `ios/` | SwiftUI app: `Sources/RCCore` (protocol, state), `Sources/RCUI` (screens), `App/`, `Verification*` | `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer swift run RCVerify && swift run RCUIVerify && swift test`, then `xcodegen generate` and the simulator build + UI tests (`docs/IOS.md`) |
+| `ios/` | SwiftUI app: `Sources/RCCore` (protocol, state), `Sources/RCUI` (screens), `App/`, `Verification*` | `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer swift run RCVerify && swift run RCUIVerify && swift test`, then `xcodegen generate`, the simulator build and the whole `RemoteControlUITests` target on a booted simulator (`docs/IOS.md`); CI runs everything but the UI tests |
 | `docs/` | `ARCHITECTURE`, `DESIGN` (UX rulings), `CLIENT`, `WEB`, `IOS`, `DEPLOY`, `VALIDATION`, `VALIDATION-APPS` | Keep them true; every round ends with a docs commit |
 
 ## The protocol is frozen; change it by amendment
@@ -48,7 +48,10 @@ they read `AgentInfo` capabilities and the five attachment fields, never the age
 ## Closing a round
 
 Every round — a feature, a fix batch, a merged pull request — ends with these steps, in this order,
-after every changed component's toolchain is green:
+after every changed component's toolchain is green. For the iOS app that includes the **whole**
+`RemoteControlUITests` target on a booted simulator, not only the tests the round added: CI builds
+and verifies but does not run UI tests (their snapshots time out on GitHub's shared simulators,
+round 46), so the local run is the only one, and a stale test found there is fixed before the tag.
 
 1. **Docs commit.** `docs/` tells the truth about what changed (`VALIDATION.md` gets a dated section
    on what was and was not verified), then commit it.
