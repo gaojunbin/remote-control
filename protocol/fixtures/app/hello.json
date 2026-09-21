@@ -326,7 +326,10 @@
     }
   },
   "preferences": {
-    "resume_after_limit": false
+    "resume_after_limit": false,
+    "language": "en",
+    "polish_enabled": false,
+    "timeline_detail": "simple"
   },
   "server_time": 1788944400000
 }

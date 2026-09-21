@@ -142,9 +142,17 @@
       "required": ["preferences"]
     },
     "PreferencesPatchRequest": {
-      "description": "PATCH /api/preferences: every field optional, the ones present are set (A35).",
+      "description": "PATCH /api/preferences: every field optional, the ones present are set (A35, A41).",
       "type": "object",
-      "properties": { "resume_after_limit": { "type": "boolean" } }
+      "properties": {
+        "resume_after_limit": { "type": "boolean" },
+        "language": { "type": "string", "enum": ["en", "zh-Hans"] },
+        "stt_language": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "polish_enabled": { "type": "boolean" },
+        "polish_model": { "type": "string", "maxLength": 128 },
+        "polish_strength": { "type": "string", "enum": ["moderate", "strong"] },
+        "timeline_detail": { "type": "string", "enum": ["simple", "detailed"] }
+      }
     },
     "ConfigResponse": {
       "description": "GET /api/config.",

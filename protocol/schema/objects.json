@@ -479,7 +479,12 @@
           "uniqueItems": true,
           "items": {
             "type": "string",
-            "enum": ["model", "permission_mode", "effort", "speed"]
+            "enum": [
+              "model",
+              "permission_mode",
+              "effort",
+              "speed"
+            ]
           }
         },
         "shared_attachments": {
@@ -967,11 +972,50 @@
       ]
     },
     "Preferences": {
-      "description": "An account's preferences: the switches that read the same on every app and device of the account (A35).",
+      "description": "An account's preferences: the settings that read the same on every app and device of the account (A35, A41). Every field but resume_after_limit is absent until somebody has set it.",
       "type": "object",
       "properties": {
         "resume_after_limit": {
           "type": "boolean"
+        },
+        "language": {
+          "type": "string",
+          "enum": [
+            "en",
+            "zh-Hans"
+          ],
+          "description": "The app's interface language (A41)."
+        },
+        "stt_language": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "description": "The dictation language: auto, or a code from stt.languages (A41)."
+        },
+        "polish_enabled": {
+          "type": "boolean",
+          "description": "Whether a finished dictation goes through the gateway's polish model (A29, A41)."
+        },
+        "polish_model": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "The polish model chosen from GET /api/polish/models; empty when none (A41)."
+        },
+        "polish_strength": {
+          "type": "string",
+          "enum": [
+            "moderate",
+            "strong"
+          ],
+          "description": "How far the polish may go (A29, A41)."
+        },
+        "timeline_detail": {
+          "type": "string",
+          "enum": [
+            "simple",
+            "detailed"
+          ],
+          "description": "How much of a transcript is drawn (A41)."
         }
       },
       "required": [

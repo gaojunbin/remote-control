@@ -260,6 +260,7 @@ INVALID_SCHEMAS = {
     "history": ("app_frames.json", "ReplySessionHistory"),
     "http.enroll": ("http.json", "EnrollRequest"),
     "http.login": ("http.json", "LoginRequest"),
+    "http.preferences": ("http.json", "PreferencesPatchRequest"),
     "objects.agent": ("objects.json", "AgentInfo"),
     "objects.user": ("objects.json", "User"),
 }

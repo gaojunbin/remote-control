@@ -323,20 +323,39 @@ gateway itself, as soon as it can (A36), or by an app retrying after a failure (
 }
 ```
 
-An account's preferences (amendment A35) are the switches that must read the same on the phone,
+An account's preferences (amendment A35) are the settings that must read the same on the phone,
 in the browser and on every device of the account, so they live on the gateway and not in an app.
-There is one today, `resume_after_limit`: whether a session that stopped because the vendor's usage
-limit was reached is resumed by its device once the limit resets (7.2). It is off until the person
-turns it on. `hello` on `/ws/app` carries the object as `preferences`; a gateway older than A35
-sends none, and an app shows the switch disabled with a note. Only the caller's own preferences
-are readable or writable.
+The first was `resume_after_limit`: whether a session that stopped because the vendor's usage limit
+was reached is resumed by its device once the limit resets (7.2); off until the person turns it on.
+Since A41 the Settings screen's own preferences are there too: `language` (the app's interface
+language, `en` or `zh-Hans`), `stt_language` (the dictation language, `auto` or a code from
+`stt.languages`), `polish_enabled`, `polish_model`, `polish_strength` (`moderate` or `strong`,
+A29) and `timeline_detail` (`simple` or `detailed`). Every field but `resume_after_limit` is
+optional: absent means nobody has set it yet, and an app then keeps the value it has and writes it
+up the first time it connects, so an account that arrives at A41 keeps what its first app had.
+The gateway is the one writer and the order of arrival is the order of truth: a `PATCH` sets the
+fields present, and the whole object goes out at once as `preferences.updated` to every app socket
+of the account and as `preferences` to its devices — the latest write to reach the gateway wins,
+on every screen, within the round trip. Apps take `hello.preferences` and every
+`preferences.updated` as the truth and keep a local copy only for the moments before `hello` and
+for a gateway older than the field. What stays on the device is what belongs to the device:
+notifications (a permission of that device), the app lock, the transcription backend, the terminal
+font size and which groups a list has folded. `hello` on `/ws/app` carries the object as
+`preferences`; a gateway older than A35 sends none, and an app shows the resume switch disabled
+with a note. Only the caller's own preferences are readable or writable.
 
 `fixtures/http/preferences.response.json`
 
 ```json
 {
   "preferences": {
-    "resume_after_limit": true
+    "resume_after_limit": true,
+    "language": "zh-Hans",
+    "stt_language": "auto",
+    "polish_enabled": true,
+    "polish_model": "gpt-5.4-mini",
+    "polish_strength": "moderate",
+    "timeline_detail": "detailed"
   }
 }
 ```
@@ -3549,6 +3568,11 @@ one app connection that asked. The gateway relays bytes and never reads them.
       sockets and `preferences` to its devices after `hello_ack` and on every change, forwards
       `session.resume_set` and `session.resume_cancel`, and pushes `limit_reached`, `resumed` and
       `resume_dropped` on the matching `resume` events (A35).
+- [ ] Stores the Settings preferences of A41 — `language`, `stt_language`, `polish_enabled`,
+      `polish_model`, `polish_strength`, `timeline_detail` — per account beside the switch; leaves a
+      field absent until it has been set; validates a `PATCH` value against the field's type and
+      words and answers `bad_request` otherwise; publishes the whole object on every change in the
+      order the writes arrived (A41).
 
 ### 9.2 Device
 
@@ -3746,6 +3770,12 @@ one app connection that asked. The gateway relays bytes and never reads them.
 - [ ] Opens a device from its row, lists the agents found on it with how each is signed in, draws a
       meter per `AgentLimit` for accounts only, asks `device.agents` for fresh limits when the page
       opens, and draws nothing where `plan`, `email`, `endpoint` or `limits` are absent (A33).
+- [ ] Binds the interface language, the dictation language, polish and its model and strength, and
+      the timeline detail to the account's `preferences` (A41): shows the value `hello` and
+      `preferences.updated` carry the moment they arrive, writes a change up with `PATCH` and takes
+      the reply as the value, writes its own value up once for a field the account has not set,
+      and keeps on the device only what belongs to it — notifications, the app lock, the
+      transcription backend, the terminal font size, list folds.
 - [ ] Offers the "Resume after the limit resets" switch in Settings bound to the account's
       `preferences` — disabled with a note when `hello` carries none — shows a session's pending
       `resume` above its transcript with the time, a way to change it and a way to cancel it, draws
@@ -4203,3 +4233,14 @@ confirming each change from the transcript before it replies. `AgentInfo` gains
 `shared` session and others still the terminal's; Claude reports `shared_settings: true` with
 `["model", "effort"]` and the `commands` capability. Apps draw a listed setting as a picker and an
 unlisted one as the value the terminal set. See 4.2, 4.4, 6.3, 9.2 and 9.3.
+
+**2026-09-22 A41 — the Settings preferences are the account's.** The Settings screens kept their
+choices in the browser and on the phone, so polish turned on in one place stayed off in another and
+the person set every device by hand. The account already had one preference on the gateway (A35);
+`Preferences` now carries the Settings screen's own — `language`, `stt_language`, `polish_enabled`,
+`polish_model`, `polish_strength`, `timeline_detail` — all optional, absent until set, written with
+the same `PATCH /api/preferences` and published with the same `preferences.updated`, the latest
+write to reach the gateway winning everywhere within the round trip. An app writes its own value
+up once for a field the account has not set, so nothing changes for the person on the day of the
+upgrade. What belongs to a device stays there: notifications, the app lock, the transcription
+backend, the terminal font size, list folds. See 3.2, 9.1 and 9.3.
