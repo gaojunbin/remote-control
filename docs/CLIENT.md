@@ -865,7 +865,9 @@ This table is the Claude channel. Codex on the shared daemon does more; see the 
 | Approve or deny a tool call | Yes, `allow` and `deny` only — the relay offers no session-scoped grant |
 | Answer a question | Yes, through the `PermissionRequest` hook; the terminal's dialog and the card are one question |
 | Stop the turn | No, `unsupported`: a channel cannot interrupt. Codex does |
-| Change model, permission mode or effort | No, `unsupported`: change it in the terminal. The values are shown, read from the transcript |
+| Change model or effort | Yes since A40, typed into the terminal through its pickers, this session only; `conflict` while the terminal is busy, and the reply waits for the transcript to confirm |
+| Change permission mode | No, `unsupported`: change it in the terminal. The value is shown, read from the transcript (A17) |
+| `/compact` | Yes since A40, typed into the terminal; other commands are `unsupported` |
 | Rename | Yes |
 | Take over | No, `conflict`: the session is already attached |
 | Attachments | No, `unsupported`: they cannot be delivered to a terminal session |
@@ -882,6 +884,70 @@ the attachment drops, pending approvals and a pending question
 become `expired`, and the session moves to `terminal` if the CLI process is still alive or to `none`
 if it exited. Messages still held in the queue stay there and go out through the ordinary resume
 path.
+
+### The device types into the terminal (A40)
+
+A channel carries user text and nothing else, so a `shared` Claude session used to refuse every
+settings change. The shim now starts the CLI inside a pseudo-terminal the device owns, and the
+device types into it what you would type yourself: `/model` and `/effort` through their pickers,
+and `/compact`.
+
+```
+your terminal → rc-client pty proxy → claude → rc-client channel bridge
+```
+
+The wrapper runs `"$RC_PYTHON" -m rc_client.channel.pty -- "$REAL" "$@"` for an invocation it
+attaches to, where `RC_PYTHON` is the interpreter this installation was written by. **If that
+interpreter is gone the wrapper runs the CLI directly**: a venv of ours that someone deleted must
+never stand between a person and Claude Code. Every non-attaching invocation is untouched.
+
+The proxy (`rc_client/channel/pty.py`) is a pseudo-terminal and nothing else. Bytes go both ways
+untouched, the window size follows, `SIGTERM`, `SIGHUP` and `SIGINT` are passed on, termios is
+restored on the way out and the exit status is the CLI's. It imports nothing but the standard
+library at startup — the device's configuration is read later, off the launch path — so the
+terminal starts as fast as before. It dials the channel socket with backoff on the same loop that
+relays bytes and registers the CLI's pid, which is the pid the channel bridge registers too
+(`os.getppid()`), so the terminal and the attachment find each other (`sessions/ptys.py`).
+**Relaying never waits for the daemon.**
+
+The daemon asks it three things: type this, what is on screen, and is anybody typing. The screen
+comes back with the escapes taken out and the horizontal jumps Claude Code lays its rows out with
+turned into spaces (`channel/screen.py`), so `1. Sonnet` and the picker's `❯` can be read out of a
+redraw; a `keys` frame may clear the screen buffer first, since a redrawn TUI leaves the previous
+picker's frames in it. The terminal's own answers to the CLI's queries (`CSI c` and the like) are
+not counted as typing. Nothing of what the person typed leaves the terminal: the proxy reports
+**how many** characters are in their unfinished line, never which.
+
+`sessions/typist.py` holds the scripts. Each one holds the session's lock, so a message from an app
+waits behind the keystrokes rather than landing between two of them. Three rules make this safe to
+do to somebody else's terminal:
+
+- **Only into an idle terminal.** No turn, no dialog, an empty draft, and a keyboard still for two
+  seconds. Anything else is `conflict` ("the terminal is busy; try again in a moment") and
+  **nothing is queued**.
+- **Never the argument form.** `/model opus` and `/effort low` apply at once and save the choice as
+  the person's default. The scripts walk the pickers — `/model` by row, `/effort` all the way left
+  and then right to the level — and press `s`, which is this session only and writes no settings
+  file.
+- **The transcript decides.** The reply to `session.set` waits for the CLI to write the command and
+  its answer (`Set model …` / `Set effort …`, matched loosely); until then the app's `Session` says
+  the old value. A picker that does not open, or an answer that does not come within eight seconds,
+  presses Escape and answers `conflict`. The rows the device typed are claimed, so A32 draws no
+  terminal bubble for them; `/compact` is echoed as the app's own `user_message` (A27) and the
+  compaction notice is A32's as before.
+
+`AgentInfo` gains `shared_settings_keys`. Claude reports `shared_settings: true` with
+`["model", "effort"]` and the `commands` capability **only while the shim is installed and first on
+`PATH`**; the permission mode has no command to type, so it stays what the terminal set and an app
+draws it as a value (A17). On a `remote` (SDK) Claude session the one command, `/compact`, is sent
+as prompt text with the same echo. A `shared` session started by an older shim has no proxy: the
+device answers `conflict` until the CLI is started again.
+
+Verified live against Claude Code 2.1.278 in a scratch home on 2026-09-21: both scripts walked
+their pickers and landed on Sonnet and `low`; the transcript recorded ``Set model to `Sonnet 5` for
+this session only`` and `Set effort level to low (this session only): …`; `/compact` was typed and
+answered "Not enough messages to compact."; no `settings.json` was written at all; and the terminal
+stayed usable throughout, a five-character draft reported as five.
 
 ## Codex on the shared daemon
 

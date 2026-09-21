@@ -75,7 +75,7 @@ round 46), so the local run is the only one, and a stale test found there is fix
 
 | Agent | Mechanism | Setup on the device |
 | --- | --- | --- |
-| Claude Code | Channels: a `claude` shim adds `--dangerously-load-development-channels`; the device's MCP channel bridge injects messages and relays permission prompts (A10) | `rc-client shim install` |
+| Claude Code | Channels: a `claude` shim adds `--dangerously-load-development-channels`; the device's MCP channel bridge injects messages and relays permission prompts (A10). The shim also runs the CLI in a pseudo-terminal the device types into — `/model`, `/effort` (their pickers, `s` for this session) and `/compact`, only while the terminal is idle (A40) | `rc-client shim install` |
 | Codex | The shared app-server daemon every bare `codex` runs inside; the device is a second client (`thread/resume` joins). The device starts and restarts the daemon itself (A11, round 20) | `rc-client codex setup` (installs the standalone build) |
 | Grok Build | Grok's leader process, joined with `agent agent --leader stdio`; `session/load` joins a TUI's session (A28). Needs `[cli] use_leader = true` in `~/.grok/config.toml`, edited in place | `rc-client grok setup` |
 | pi | The device's own extension copied into `~/.pi/agent/extensions/` (A26) | `rc-client pi setup` |

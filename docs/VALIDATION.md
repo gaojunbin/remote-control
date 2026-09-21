@@ -2376,6 +2376,84 @@ dispatch); whether GitHub's simulators would pass the UI target with longer wait
 target is deliberately local now. All four components 1.5.4 (a fix release), iOS build 20, tag
 v1.5.4.
 
+## 47. The device types into an attached Claude Code terminal (A40) (2026-09-22, 1.6.0)
+
+The owner asked for what the research round had found missing: on a Claude Code session running in
+the terminal, change the model and the effort and run `/compact` from the phone or the web. The
+channel cannot (three methods, injected text wrapped in `<channel>`), so the shim now starts the CLI
+inside a pseudo-terminal the device owns and the device types what the person would type. Frozen
+first as **A40** (1586a85: `AgentInfo.shared_settings_keys`; Claude reports `shared_settings: true`
+with `["model", "effort"]` and the `commands` capability; §6.3 busy rule; §9.2/§9.3 items) and
+`docs/DESIGN.md` § "The device types into a Claude terminal" (0f6e0c5: listed settings are pickers,
+the rest A17 values, never a control that fails; the card follows the terminal's confirmation, not
+before; the device never types over a draft and never writes the person's settings).
+
+**Verified before the design, in a scratch home (Claude Code 2.1.278, not logged in).** `/model`
+opens a numbered picker whose footer offers `s` for "this session only"; `/effort` with no argument
+opens a slider (`low medium high xhigh max ultracode`) with the same `s`; the argument forms
+`/model haiku` and `/effort low` apply at once but write `model` and
+`modelSettings.<model>.effortLevel` into `settings.json` ("saved as your default"); a running CLI
+keeps its session model after that key is removed from the file, so nothing is hot-reloaded; the
+transcript records each command as `<command-name>` + `<command-args>` rows and its answer as
+`<local-command-stdout>`. Both pickers work without being logged in, so the whole typing path can be
+checked without the API.
+
+**Client.** `rc_client/channel/pty.py` (stdlib-only pseudo-terminal proxy: bytes, window size,
+signals, exit status, a daemon link dialled with backoff that the relay never waits for),
+`channel/screen.py` (ANSI stripped screen text; the person's draft counted as characters since their
+last Enter/Escape/Ctrl-C/Ctrl-U, with the terminal's own answers to CSI queries not counted — the
+first live run found those made the draft never empty), `sessions/ptys.py` (`PtyLink` per CLI pid,
+paired with the channel bridge's `os.getppid()`), `sessions/typist.py` (the three scripts: `/model`
+by row and `s`, `/effort` six Lefts then Rights and `s`, `/compact`; gate = no turn, no dialog, empty
+draft, keyboard still 2 s, else `conflict` and nothing queued; confirmation from the transcript's
+`<command-name>` row within 8 s, else Escape and `conflict`; the device's own rows claimed so A32
+draws no terminal bubble), the shim rendering `RC_PYTHON -m rc_client.channel.pty -- REAL` with a
+fallback to the bare CLI when the interpreter is gone, `hub.set`/`command`/`commands` routed per
+`shared_settings_keys`, `/compact` on SDK sessions as prompt text. A pre-existing deadlock in
+`AttachServer.stop()` (`wait_closed` waiting on handlers that live as long as a terminal) was fixed
+on the way. Tests 1175 → 1203 (+3 skipped). **Live in a scratch home against the real CLI**: the
+model script landed on Sonnet and the effort script on `low`, both through `s`; the transcript read
+``Set model to `Sonnet 5` for this session only`` and `Set effort level to low (this session only):
+…`; `/compact` answered "Not enough messages to compact."; no `settings.json` was created; the
+keyboard stayed live throughout and a five-character draft was reported as five. The orchestrator repeated the check on the merged
+tree with a throwaway fake daemon (`live47/drive.py` in the session scratchpad): the proxy
+registered the CLI's pid, the picker parsed as `Default · Opus · Fable · Sonnet · Haiku` on
+`Default`, one Down landed on Sonnet, `s` answered "Set model to Sonnet 5 for this session only",
+the slider walk answered "Set effort level to low (this session only)", the header read "Sonnet 5
+with low effort", `/compact` answered "Not enough messages to compact.", `hello` typed at the
+keyboard appeared in the field, no `settings.json` was created and the owner's own settings file
+kept its September 16 mtime; the draft count on that second run was not read (the throwaway
+listener misfired), so it rests on the client agent's run and the unit tests.
+
+**Web.** `canSetShared(agent, key)` per key; the model card live when any of model, effort or speed
+is settable, the permission mode an A17 chip; a change on a `shared` session drawn only from the
+reply; `refusalText` shows a `conflict` in the device's words; the mock types (1.5 s, busy while its
+turn runs, `/compact` listed, echoed, compaction notice). Tests 726 → 747. Screenshots
+`web-round47-shared-claude-{1280,400}.png`.
+
+**iOS.** `SharedSetting` + `AgentInfo.shares(_:)`; two composer slots, each a control or a value;
+`ChatStore.set` skips the optimistic write on a `shared` session and marks `pendingSettings` — the
+card's row spins, the slider, list and chip are disabled, "Waiting for the terminal" / 等待终端确认
+— until the reply; `remote` keeps A21. Demo as the web mock. RCVerify 1449 → 1464, RCUIVerify 577 →
+582, unit tests 395 → 411; UI test `testSharedClaudeSessionTypesItsModelAndShowsItsPermissionMode`
+plus three shared-session regressions on 473CA51C. Screenshots `ios-round47-shared-claude{,-card,
+-typing,-typed}.png`. The whole UI target on 32BBA636 (the round's local gate): 74 tests, 4 skipped,
+one failure — `testClaudeSessionDrawsNoCommandPanel`, stale by this very round, since Claude now
+offers `/compact`; rewritten as `testClaudeSessionOffersOnlyCompact` (the panel opens with that one
+row, no section header, taking it leaves `/compact` ready on Send) and passed alone, as did the pi
+panel test beside it.
+
+**Counts.** Gateway 435 (untouched), client 1203 (+3 skipped), web 747, RCVerify 1464, RCUIVerify
+582, unit tests 411. All four components 1.6.0 (a feature release), iOS build 21, tag v1.6.0.
+GitHub "iOS checks": CI_RESULT.
+
+**Not verified.** The typing path end to end through a real gateway and a phone against the owner's
+own terminal (the scratch home is not logged in, so no turn ran after the change; the model and
+effort the next assistant row reports are what A17 already reads). `/compact` with a conversation
+long enough to compact. A terminal narrower than the picker's rows, or a theme that draws the
+highlight with another glyph — the row parser knows `❯` and the five model names. The owner's first
+`claude` after `install.sh`/Update is the first real run of the proxy.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

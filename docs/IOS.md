@@ -773,7 +773,7 @@ device that never heard of them grants nothing:
 
 | Field | What it opens on a `shared` session | `ChatStore` |
 | --- | --- | --- |
-| `shared_settings` | the model card and the permission-mode picker | `allowsSettingsChanges` |
+| `shared_settings` | the model card and the permission-mode picker — per setting since A40: `shared_settings_keys` names the ones the device can change, the rest stay A17 chips | `allowsSettingsChanges(for:)`, `allowsModelCardChanges`, `terminalSettings` |
 | `shared_attachments` | the attachment button, so photos and files go into the live thread | `allowsAttachments` |
 
 Both are read straight off `AgentInfo`; nothing in the app branches on the agent id. Stop is
@@ -783,8 +783,21 @@ permission picker are chips on the composer row and are drawn only where they ar
 ever opens on a session it could not change.
 
 Codex behind a running app-server daemon reports `attach: "daemon"`, `attach_ready: true` and all
-three booleans true; a Claude channel reports all three false. A device whose daemon is not running
-reports `attach_ready: false`, and the composer falls back to the `startDaemon` hint above.
+three booleans true. A Claude channel reports `shared_interrupt` and `shared_attachments` false and,
+since A40, `shared_settings` true with `shared_settings_keys: ["model", "effort"]`: the device types
+`/model` and `/effort` into the pseudo-terminal its shim owns, and has nothing to type for the
+permission mode. `SharedSetting` (`Sources/RCCore/Protocol/SharedSetting.swift`) is the key type;
+`AgentInfo.shares(_:)` answers per key, with a nil list meaning all four and `shared_settings`
+false meaning none. The composer row is two slots — the model card and the permission mode — each
+either a control or an A17 value, in a fixed order, so nothing on the row fails when tapped. A
+change on a `shared` session is not drawn optimistically: `ChatStore.set` skips `applyLocally`,
+records the keys in `pendingSettings`, the card's row swaps its chevron for a spinner and disables
+the slider, the list and the chip (`isSettingPending`, "Waiting for the terminal" / 等待终端确认),
+and the value follows the reply's `Session` — the terminal has confirmed it — while a `conflict`
+leaves the value and shows the reply's words in the notice banner. `remote` sessions keep A21's
+optimistic drawing, and a title is immediate on every session because it is never typed. A device
+whose daemon is not running reports `attach_ready: false`, and the composer falls back to the
+`startDaemon` hint above.
 
 Approval cards render whatever `options` arrive, so the daemon's four decisions (Allow, Allow for
 this session, Always allow commands like this, Deny) stack between the primary and the danger
@@ -808,8 +821,10 @@ included, is `bad_request`; the app never renders `elsewhere` as a choice.
 The demo carries `demo-session-typecheck` on `mac-studio-office`: a Codex thread the terminal
 started and the daemon shares, running, with Stop in the navigation bar, a live model card and
 permission chip, and a four-option request in the transcript. Changing the effort there goes
-through `session.set` and is applied; the same request on the attached Claude session is still
-refused. That agent is also the one with a speed tier (A21), so the card's lightning toggle has a
+through `session.set` and is applied; on the attached Claude session (`demo-session-shared`) the
+model and the effort are applied after the demo's 1.5 s of "typing", refused with "the terminal is
+busy; try again in a moment" while its scripted turn runs, and the permission mode is refused as
+before; `/compact` is listed, echoed and followed by a compaction notice (A40). That agent is also the one with a speed tier (A21), so the card's lightning toggle has a
 home in the demo. `ci-runner-01` keeps a
 Codex with no daemon running, so the daemon hint has a home too.
 

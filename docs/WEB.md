@@ -716,6 +716,25 @@ with `attach_ready` true every kind says the CLI was started without the attachm
 restarted. A shared Grok session needs nothing of its own: `shared_interrupt` shows Stop,
 `shared_settings` the pickers, and `shared_attachments: false` hides the attachment button.
 
+### Settings the device can type (A40)
+
+`shared_settings` used to be all or nothing, and for Claude it was nothing: the model card and the
+permission chip on a shared Claude session were A17 values. Since A40 the device types `/model`,
+`/effort` and `/compact` into the pseudo-terminal its shim owns, and `AgentInfo.shared_settings_keys`
+names what it can type — `["model", "effort"]` for Claude. `canSetShared(agent, key)` in
+`src/features/chat/attach.ts` is therefore per key: absent keys mean all four, `shared_settings`
+false means none. The composer draws each setting one way or the other — the model card is live
+when any of model, effort or speed is settable and decides row by row inside; the permission mode
+stays the read-only chip — so nothing on the row fails when tapped. A change on a shared session is
+drawn only once the device replies: the terminal has to confirm it, and the reply's `Session` is
+what it now runs; `remote` sessions keep the optimistic drawing (A21). A `conflict` from
+`session.set` or `session.command` is shown in the device's own words (`refusalText` in
+`src/lib/errors.ts`), because only the device knows whether a turn was running or someone was
+typing. The mock types too (`mock/typing.ts`): a change lands 1.5 s later, is refused with "the
+terminal is busy; try again in a moment" while the session's scripted turn runs, and `/compact` is
+listed, echoed and followed by a compaction notice. Round 47 screenshots
+`web-round47-shared-claude-{1280,400}.png`.
+
 ## Slash commands (A27)
 
 Typing `/` into the composer of a session whose agent carries capability `commands` opens the same

@@ -241,6 +241,25 @@ The cost is one dialog. Claude Code shows a development-channels warning once pe
 session, and it has to be answered before the session starts. There is no way to suppress it on a
 personal account, and pretending otherwise in the installer would only make the first run confusing.
 
+### The pseudo-terminal the shim owns (A40)
+
+The channel carries messages and permission verdicts and nothing else: three methods, and text
+injected through it arrives wrapped in a `<channel>` tag that the CLI never reads as a slash
+command. So a `shared` Claude session could show its model and effort (A17, read from the
+transcript) but not change them, and could not compact. What can do all of that is the keyboard,
+and the shim is already the process that starts the CLI. Since round 47 it starts the CLI inside a
+pseudo-terminal a small proxy owns (`rc_client/channel/pty.py`, stdlib only, so the terminal does
+not lag at launch): the proxy relays bytes and window sizes both ways, registers with the daemon
+under the CLI's pid — the same pid the channel bridge and the SessionStart hook report, which is
+how the daemon pairs the two — and types what the daemon asks it to. The daemon types exactly what
+the person would: `/model` and `/effort` open their own pickers and are confirmed with `s`, "this
+session only", so no settings file of the person's is written; `/compact` is typed as is. It types
+only into an idle terminal — no turn, no dialog, nobody typing (the proxy counts the person's
+keystrokes since their last Enter) — and answers `conflict` otherwise, queueing nothing; it reports a
+settings change only once the transcript's `<command-name>` row confirms it. `AgentInfo` says which
+settings this covers through `shared_settings_keys`: for Claude `model` and `effort`; the permission
+mode has no command to type and stays the terminal's.
+
 ### Transitions, and what takeover is still for
 
 Control moves `terminal → shared` when a bridge registers, `shared → terminal` when the bridge drops
@@ -305,7 +324,7 @@ branching on the agent id:
 
 | Agent | `attach` | `shared_interrupt` | `shared_settings` | `shared_attachments` |
 | --- | --- | --- | --- | --- |
-| Claude, through the channel shim | `channel` | false | false | false |
+| Claude, through the channel shim and its pseudo-terminal | `channel` | false | true — `model` and `effort` only (`shared_settings_keys`, A40) | false |
 | Codex, through the app-server daemon | `daemon` | true | true | true |
 | pi, through the device's extension | `extension` | true | true | true |
 | Grok Build, through its leader process | `leader` | true | true | false |
