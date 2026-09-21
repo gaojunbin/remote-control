@@ -21,11 +21,19 @@ SESSION_START = "session_start"
 SESSION_START_SOURCES = ("startup", "resume", "clear", "compact")
 # permission-request hook -> daemon: one frame, then the hook waits for `ANSWERS`
 QUESTION = "question"
+# pty proxy -> daemon: one frame naming the CLI it wraps, then request/response
+PTY = "pty"
 # daemon -> bridge
 INJECT = "inject"
 PERMISSION = "permission"
 REGISTERED = "registered"
 ANSWERS = "answers"
+# daemon -> pty proxy, each answered with the same `id` (amendment A40)
+KEYS = "keys"
+SCREEN = "screen"
+STATE = "state"
+# pty proxy -> daemon: the reply to `KEYS`; `SCREEN` and `STATE` answer in kind
+TYPED = "typed"
 
 
 def encode(message: dict[str, Any]) -> bytes:
@@ -113,3 +121,55 @@ def inject(message_id: str, text: str) -> dict[str, Any]:
 
 def permission(request_id: str, behavior: str) -> dict[str, Any]:
     return {"type": PERMISSION, "request_id": request_id, "behavior": behavior}
+
+
+def pty_register(pid: int) -> dict[str, Any]:
+    """What the pseudo-terminal proxy tells the daemon: the CLI it wraps (A40).
+
+    The pid is the Claude Code process itself, which is also what the channel
+    bridge registers with (`os.getppid()`), so the two meet on one session.
+    """
+    return {"type": PTY, "pid": pid}
+
+
+def keys(request_id: str, data: str, clear: bool = False) -> dict[str, Any]:
+    """Type these characters into the terminal, exactly as a person would.
+
+    `clear` forgets the screen first, so what a command draws can be read
+    without the frames that came before it getting in the way.
+    """
+    frame: dict[str, Any] = {"type": KEYS, "id": request_id, "data": data}
+    if clear:
+        frame["clear"] = True
+    return frame
+
+
+def screen_request(request_id: str) -> dict[str, Any]:
+    return {"type": SCREEN, "id": request_id}
+
+
+def state_request(request_id: str) -> dict[str, Any]:
+    return {"type": STATE, "id": request_id}
+
+
+def typed(request_id: str, draft: int, idle_for: float) -> dict[str, Any]:
+    """The reply to `keys`, carrying what the person is in the middle of doing.
+
+    `draft` counts the characters they have typed since their last Enter,
+    Escape, Ctrl-C or Ctrl-U; the text itself never leaves the terminal.
+    """
+    return {"type": TYPED, "id": request_id, "draft": draft, "idle_for": round(idle_for, 3)}
+
+
+def screen(request_id: str, text: str, draft: int, idle_for: float) -> dict[str, Any]:
+    return {
+        "type": SCREEN,
+        "id": request_id,
+        "text": text,
+        "draft": draft,
+        "idle_for": round(idle_for, 3),
+    }
+
+
+def state(request_id: str, draft: int, idle_for: float) -> dict[str, Any]:
+    return {"type": STATE, "id": request_id, "draft": draft, "idle_for": round(idle_for, 3)}

@@ -12,7 +12,7 @@ from claude_agent_sdk import SystemMessage, UserMessage
 
 from rc_client.agents.base import COMPACTION_NOTICE
 from rc_client.agents.claude import markers
-from rc_client.agents.claude.transcripts import TranscriptTailer
+from rc_client.agents.claude.transcripts import COMMAND_OUTPUT, TranscriptTailer
 from rc_client.agents.claude.translate import ClaudeTranslator
 
 SUMMARY_TEXT = (
@@ -195,10 +195,14 @@ def test_the_reply_to_a_command_ends_the_turn_it_left_running() -> None:
     reader = tailer()
     reader.translate(row("/compact", "row-compact"))
     busy = [reader.busy]
-    assert reader.translate(row(STDOUT_TEXT, "row-stdout")) == []
+    answered = reader.translate(row(STDOUT_TEXT, "row-stdout"))
     busy.append(reader.busy)
     assert busy == [True, False]
     assert reader.stop_reason == "completed"
+    # Amendment A40: never a block, but reported, because it is what confirms
+    # a command the device typed.
+    assert [emit.kind for emit in answered] == [COMMAND_OUTPUT]
+    assert answered[0].fields["text"] == STDOUT_TEXT
 
 
 def test_the_tags_a_command_leaves_behind_stay_out_of_the_timeline() -> None:

@@ -169,6 +169,10 @@ class AgentInfo:
     attach_ready: bool = False
     shared_interrupt: bool = False
     shared_settings: bool = False
+    # With `shared_settings` true, the settings an app may change on a `shared`
+    # session; the rest stay what the terminal chose (A17). `None` is "all
+    # four", which is what every agent but Claude reports (A40).
+    shared_settings_keys: list[str] | None = None
     shared_attachments: bool = False
     # How the agent is signed in here; `None` is "the device did not look",
     # which is what an agent that is not installed reports (A33).
@@ -194,6 +198,8 @@ class AgentInfo:
             "shared_settings": self.shared_settings,
             "shared_attachments": self.shared_attachments,
         }
+        if self.shared_settings_keys is not None:
+            result["shared_settings_keys"] = list(self.shared_settings_keys)
         if self.accounts is not None:
             result["accounts"] = [account.to_dict() for account in self.accounts]
         return result

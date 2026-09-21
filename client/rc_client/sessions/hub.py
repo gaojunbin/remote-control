@@ -37,6 +37,7 @@ from . import titles
 from .attach import Attachment, HookQuestion, SessionStart
 from .channel import SessionChannel
 from .limits import LimitStop
+from .ptys import PtyLinks
 from .resume import ResumeScheduler
 from .shared import EXIT_SETTLE, SharedControl, SharedState
 
@@ -93,6 +94,10 @@ class SessionHub:
         self._agents = agents
         self.entries: dict[str, SessionEntry] = {}
         self.shared = SharedControl(self)
+        # The pseudo-terminals the shim started, by CLI pid (A40). The daemon
+        # hands over the attach server's own registry; on its own the hub has
+        # an empty one, so nothing here depends on the socket being up.
+        self.ptys = PtyLinks()
         # Amendment A35: what the device does about a session the usage limit
         # stopped. Replaceable so a test can drive it from its own clock.
         self.resumes = ResumeScheduler(self)
@@ -591,12 +596,8 @@ class SessionHub:
         # only the key's absence means "leave it alone" (amendment A21).
         speed: SpeedSetting = params.get("speed") if "speed" in params else UNSET
         await self._check_speed(info, speed, model or entry.session.model)
-        if (
-            self._is_shared(entry)
-            and not self._agent_flag(entry, "shared_settings")
-            and (speed is not UNSET or any(v is not None for v in (model, permission_mode, effort)))
-        ):
-            raise RcError("unsupported", "change it in the terminal")
+        if self._is_shared(entry):
+            await self._set_shared(entry, info, model, permission_mode, effort, speed)
         if entry.runner is not None:
             await entry.runner.apply_settings(model, permission_mode, effort, speed)
         if title is not None:
@@ -615,6 +616,40 @@ class SessionHub:
                 meta[key] = value
         await entry.channel.set_meta(**meta)
         return {"session": entry.session.to_dict()}
+
+    async def _set_shared(
+        self,
+        entry: SessionEntry,
+        info: AgentInfo,
+        model: str | None,
+        permission_mode: str | None,
+        effort: str | None,
+        speed: SpeedSetting,
+    ) -> None:
+        """Apply what the attachment can, and refuse what the terminal keeps.
+
+        `shared_settings_keys` names the settings an agent's attachment can
+        change; absent, it can change all four (A40, 4.2). What it cannot is
+        still the terminal's, which is what an app draws as a value (A17).
+        """
+        asked = {
+            "model": model,
+            "permission_mode": permission_mode,
+            "effort": effort,
+            "speed": None if speed is UNSET else speed,
+        }
+        wanted = {key for key, value in asked.items() if value is not None}
+        if speed is not UNSET:
+            wanted.add("speed")
+        if not wanted:
+            return
+        allowed = set(info.shared_settings_keys or asked) if info.shared_settings else set()
+        if wanted - allowed:
+            raise RcError("unsupported", "change it in the terminal")
+        if entry.session.agent == "claude":
+            # A40: the device types the change into the terminal and answers
+            # only once the transcript says the CLI took it.
+            await self.shared.set_settings(entry, model, effort)
 
     # ------------------------------------------------------------- commands
 
@@ -648,9 +683,17 @@ class SessionHub:
         if not name:
             raise RcError("bad_request", "name is required")
         argument = str(params.get("argument") or "").strip() or None
+        if entry.shared is not None:
+            # A40: a Claude channel carries no commands, so the device types
+            # this one into the terminal instead, under the same lock.
+            if argument:
+                raise RcError("bad_request", f"/{name} takes no argument")
+            await self.shared.run_command(entry, name, request_id or str(uuid.uuid4()))
+            typed: dict[str, Any] = {}
+            if request_id:
+                self.registry.remember_request(session_id, request_id, typed)
+            return typed
         async with entry.lock:
-            if entry.shared is not None:
-                raise RcError("unsupported", f"{entry.session.agent} takes no commands from here")
             if entry.session.control == "terminal":
                 raise RcError("conflict", self._terminal_conflict_message(entry))
             if entry.runner is None:

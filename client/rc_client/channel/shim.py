@@ -11,6 +11,12 @@ bridge can only report the session id the CLI started with, and `/resume`,
 `/clear` and a compaction all move the terminal to a different one; the hook is
 what tells the daemon where it went. A caller who brings their own `--settings`
 keeps it, and the session still attaches - it just has no hook.
+
+An attaching invocation is started inside the pseudo-terminal proxy, which is
+what lets the device type into the session (amendment A40). The interpreter is
+the one this installation runs on, written in at install time; if it has gone -
+a venv rebuilt, a home deleted - the wrapper runs the CLI directly, because a
+broken installation of ours must never stand between a person and Claude Code.
 """
 
 from __future__ import annotations
@@ -82,6 +88,8 @@ def render(real: str) -> str:
         home=_quote(str(client_home())),
         mcp_config=_quote(str(paths.mcp_config_path())),
         settings=_quote(str(paths.settings_path())),
+        python=_quote(paths.python_executable()),
+        pty_module=paths.pty_module(),
         channel_flag=CHANNEL_FLAG,
         channel_value=CHANNEL_VALUE,
     )
@@ -158,9 +166,10 @@ SHIM_TEMPLATE = """#!/bin/sh
 #
 # Appends the Claude Code channel flags when a person starts an interactive
 # session, so the remote-control device can attach to it, plus a settings file
-# whose SessionStart hook says which session the terminal moved to. Every other
-# invocation - piped, --print, or already carrying channel flags - reaches the
-# real executable untouched. Managed by `rc-client shim install`.
+# whose SessionStart hook says which session the terminal moved to, and runs it
+# inside the device's pseudo-terminal proxy so the session can be typed into.
+# Every other invocation - piped, --print, or already carrying channel flags -
+# reaches the real executable untouched. Managed by `rc-client shim install`.
 set -u
 
 RC_SHIM_DIR={shim_dir}
@@ -168,6 +177,7 @@ RC_FALLBACK_CLAUDE={real}
 RC_CLIENT_HOME=${{RC_CLIENT_HOME:-{home}}}
 RC_MCP_CONFIG={mcp_config}
 RC_SETTINGS={settings}
+RC_PYTHON={python}
 export RC_CLIENT_HOME
 
 is_shim() {{
@@ -217,6 +227,11 @@ if [ "$attach" -eq 1 ]; then
     set -- "$@" {channel_flag} {channel_value} --mcp-config "$RC_MCP_CONFIG"
     if [ "$add_settings" -eq 1 ]; then
         set -- "$@" --settings "$RC_SETTINGS"
+    fi
+    # The pseudo-terminal the device types into. An interpreter that is gone
+    # means our installation is broken, and that must not cost you Claude Code.
+    if [ -x "$RC_PYTHON" ]; then
+        exec "$RC_PYTHON" -m {pty_module} -- "$REAL" "$@"
     fi
 fi
 exec "$REAL" "$@"

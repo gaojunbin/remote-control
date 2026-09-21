@@ -22,6 +22,7 @@ OPTIONAL_AGENT_FIELDS = {
     "attach_ready",
     "shared_interrupt",
     "shared_settings",
+    "shared_settings_keys",
     "shared_attachments",
     "speeds",
 }
@@ -87,6 +88,7 @@ def agent_info_from(payload: dict[str, Any]) -> AgentInfo:
         attach_ready=bool(payload.get("attach_ready")),
         shared_interrupt=bool(payload.get("shared_interrupt")),
         shared_settings=bool(payload.get("shared_settings")),
+        shared_settings_keys=payload.get("shared_settings_keys"),
         shared_attachments=bool(payload.get("shared_attachments")),
         accounts=[agent_account_from(item) for item in accounts] if accounts is not None else None,
     )
@@ -353,7 +355,10 @@ def test_the_codex_daemon_agent_fixture_matches_what_this_device_advertises() ->
     )
     assert "takeover" not in info.capabilities
     claude = agent_info_from(load_fixture("objects/agent.claude-attach.json"))
-    assert (claude.shared_settings, claude.shared_attachments) == (False, False)
+    # A40: Claude's attachment changes two of the four settings by typing them
+    # into the terminal, and carries no images.
+    assert (claude.shared_settings, claude.shared_attachments) == (True, False)
+    assert claude.shared_settings_keys == ["model", "effort"]
 
 
 def test_the_shared_codex_session_fixture_is_a_terminal_thread_we_are_attached_to() -> None:

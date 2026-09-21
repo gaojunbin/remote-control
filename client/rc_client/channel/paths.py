@@ -58,6 +58,21 @@ def entrypoint() -> list[str]:
     return [sys.executable, "-m", "rc_client.cli"]
 
 
+def python_executable() -> str:
+    """The interpreter this installation runs on, baked into the shim (A40).
+
+    The shim starts the pseudo-terminal proxy with it rather than with
+    `rc-client`, because the proxy runs before the CLI does and a console
+    script would add an import of the whole package to every terminal launch.
+    """
+    return sys.executable
+
+
+def pty_module() -> str:
+    """The proxy the shim runs Claude Code inside (A40)."""
+    return "rc_client.channel.pty"
+
+
 def channel_command() -> list[str]:
     """The stdio MCP server Claude Code spawns for the channel."""
     return [*entrypoint(), "channel"]

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from ...channel import shim
-from ...models import AgentInfo, Choice
+from ...models import AgentInfo, Choice, Command, Session
 from ..base import SessionRunner
 from ..registry import DetectContext, RunnerSpec
 from . import account, runtime
 from .adapter import ClaudeRunner
+from .commands import COMMANDS
 
 AGENT = "claude"
 
@@ -39,7 +40,15 @@ CAPABILITIES = [
     "effort",
     "history",
     "worktree",
+    # A40: `/compact` runs on a remote session as a prompt and on a shared one
+    # by being typed into the terminal.
+    "commands",
 ]
+
+# What an app may change on a `shared` session, because the device can type it
+# into the terminal (A40). The permission mode has no command to type, so it
+# stays what the terminal set and an app draws it as a value (A17).
+SHARED_SETTINGS_KEYS = ["model", "effort"]
 
 # `default` means "do not pass a model"; the real id arrives from the SDK init
 # message and is reported later as `meta.model`.
@@ -52,6 +61,9 @@ async def detect(context: DetectContext) -> AgentInfo:
     # An agent that is not here is not signed in anywhere either, and the wire
     # says "the device did not look" by leaving `accounts` out altogether (A33).
     accounts = await account.detect(context.limits) if path else None
+    # Typing into the terminal is the shim's doing, so what it can do depends
+    # on the shim being installed and first on PATH.
+    attachable = shim.status().ready
     return AgentInfo(
         agent=AGENT,
         available=bool(path),
@@ -65,12 +77,22 @@ async def detect(context: DetectContext) -> AgentInfo:
         default_effort=None,
         capabilities=list(CAPABILITIES),
         attach="channel",
-        attach_ready=shim.status().ready,
+        attach_ready=attachable,
         shared_interrupt=False,
-        shared_settings=False,
+        shared_settings=attachable,
+        shared_settings_keys=list(SHARED_SETTINGS_KEYS) if attachable else None,
         shared_attachments=False,
         accounts=accounts,
     )
+
+
+async def commands(session: Session) -> list[Command]:
+    """What a Claude session offers with no process running (A27, A40).
+
+    The list does not depend on the session, and typing `/compact` into an
+    attached terminal needs no process of the device's either.
+    """
+    return list(COMMANDS)
 
 
 async def build_runner(spec: RunnerSpec) -> SessionRunner:

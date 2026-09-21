@@ -72,6 +72,8 @@ async def test_claude_detection_reads_the_version_and_advertises_capabilities(
         "effort",
         "history",
         "worktree",
+        # A40: `/compact`, and nothing else Claude Code offers.
+        "commands",
     }
 
 
