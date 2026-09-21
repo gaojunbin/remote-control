@@ -68,7 +68,7 @@
   ],
   "attach": "channel",
   "attach_ready": true,
-  "shared_interrupt": false,
+  "shared_interrupt": true,
   "shared_settings": true,
   "shared_settings_keys": [
     "model",

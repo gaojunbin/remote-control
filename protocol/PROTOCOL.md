@@ -811,13 +811,16 @@ decides whether the app can page backwards.
 `shared_attachments` describe `control: "shared"` instead (4.4).
 
 The attachment fields are the whole story an app needs: nothing in this protocol is specific to
-one agent's attachment mechanism. Claude reports `attach: "channel"` with `shared_interrupt` and
-`shared_attachments` false, because a channel can neither interrupt a turn nor carry bytes, and
-`shared_settings` true with `shared_settings_keys: ["model", "effort"]` (A40): the device's shim runs
-the CLI inside a pseudo-terminal the device owns and types the change into it as the person would —
-the terminal shows `/model` or `/effort` and the answer — so the model and the effort are the
-device's to change while the permission mode stays the terminal's; the same typing runs `/compact`,
-so Claude carries the `commands` capability (A27). Codex reports `attach: "daemon"`, `attach_ready` true once a
+one agent's attachment mechanism. Claude reports `attach: "channel"` with `shared_attachments`
+false, because a channel cannot carry bytes, and `shared_settings` true with `shared_settings_keys:
+["model", "effort"]` (A40): the device's shim runs the CLI inside a pseudo-terminal the device owns
+and types the change into it as the person would — the terminal shows `/model` or `/effort` and
+the answer — so the model and the effort are the device's to change while the permission mode stays
+the terminal's; the same typing runs `/compact`, so Claude carries the `commands` capability (A27);
+and since A42 `shared_interrupt` is true for the same reason: `session.stop` types Escape into that
+terminal, which is how the person stops a turn there, only while a turn is running and no dialog is
+open — an approval or a question on screen is answered, not escaped, and the request answers
+`conflict` until it is. Codex reports `attach: "daemon"`, `attach_ready` true once a
 WebSocket handshake on the shared daemon socket succeeds rather than merely because the socket file
 is there, and `shared_interrupt`, `shared_settings` and `shared_attachments` all true, because the
 shared app-server accepts interrupts, settings updates and image inputs from every attached client.
@@ -880,7 +883,7 @@ worked examples of A25 and A26.
 | --- | --- |
 | `remote` | The device daemon runs the agent process for this session: one created with origin `remote`, or a terminal session that was resumed or taken over. |
 | `terminal` | A live CLI process owns the session and the device has **no** way in. The composer is disabled; "Take over" is offered only when the agent has capability `takeover`. |
-| `shared` | A live CLI process owns the session **and the device is attached to it**: for Claude through a channel the CLI loads, for Codex through the shared app-server. Apps enable the composer and approvals exactly as for `remote`, hide "Take over", and hide Stop unless the agent lists capability `interrupt` **and** reports `shared_interrupt: true` (4.2). Claude channels cannot interrupt a running turn; Codex can. |
+| `shared` | A live CLI process owns the session **and the device is attached to it**: for Claude through a channel the CLI loads, for Codex through the shared app-server. Apps enable the composer and approvals exactly as for `remote`, hide "Take over", and hide Stop unless the agent lists capability `interrupt` **and** reports `shared_interrupt: true` (4.2). Codex can through the daemon; Claude can since A42 through the pseudo-terminal its shim owns (Escape). |
 | `none` | No process owns the session; the next `session.send` resumes it under device control. |
 
 Control moves `terminal → shared` when the attachment registers, `shared → terminal` when the
@@ -2570,7 +2573,7 @@ are never listed either: they change a terminal the app cannot see.
 | `session.send` | Accepted whatever `mode` says; `steered` never applies. When the session is idle the device injects at once, replies `accepted: "sent"` and emits `user_message {delivery: "delivered"}`. When a turn is running, `auto` and `queue` alike, the device holds the message locally, replies `accepted: "queued"` with a `queued_id` and emits a `queue` event listing it — no `user_message` yet (A19) — then injects it once the transcript shows the turn ended and emits the block with `delivery: "delivered"`. `session.queue_remove` works on held items. Attachments are refused with `unsupported` ("attachments cannot be delivered to a terminal session"). |
 | `session.approve` | Relays the option the block offered. An `option_id` the block did not offer, `elsewhere` included, is `bad_request`. Replying to a request the terminal already answered is a no-op returning `{}`. |
 | `session.answer` | Supported for a `question` block the device raised through its `PermissionRequest` hook (A20): the answer goes to the CLI as the tool's own answers and the block resolves with `by: "remote"`. Answering a question the terminal already answered is a no-op returning `{}`. A question the device did not raise has no block to answer. |
-| `session.stop` | `unsupported` unless the agent lists capability `interrupt` **and** reports `shared_interrupt: true`. Message: "stop it in the terminal". |
+| `session.stop` | `unsupported` unless the agent lists capability `interrupt` **and** reports `shared_interrupt: true`. Message: "stop it in the terminal". Claude reports it since A42: the device types Escape into the CLI's terminal while a turn runs; with an approval or a question on screen it answers `conflict` ("answer the prompt first"), and with no turn running it returns `{}` and types nothing. |
 | `session.set` | `unsupported` for `model`, `permission_mode`, `effort` and `speed` ("change it in the terminal"). `title` works. |
 | `session.takeover` | `conflict` ("already attached"). |
 
@@ -3701,6 +3704,10 @@ one app connection that asked. The gateway relays bytes and never reads them.
       writes no settings file of the person's; reports `shared_settings: true` with
       `shared_settings_keys: ["model", "effort"]` and the `commands` capability only when the shim
       that provides the pseudo-terminal is installed (A40).
+- [ ] On a `shared` Claude session, applies `session.stop` by typing Escape into the CLI's
+      terminal only while a turn is running and no approval or question is on screen; answers
+      `conflict` while one is; types nothing and returns `{}` when no turn runs; reports
+      `shared_interrupt: true` with the same condition as `shared_settings` (A42).
 
 ### 9.3 App
 
@@ -4244,3 +4251,12 @@ write to reach the gateway winning everywhere within the round trip. An app writ
 up once for a field the account has not set, so nothing changes for the person on the day of the
 upgrade. What belongs to a device stays there: notifications, the app lock, the transcription
 backend, the terminal font size, list folds. See 3.2, 9.1 and 9.3.
+
+**2026-09-22 A42 — Stop on an attached Claude Code terminal.** A message the CLI has taken cannot be
+recalled, in the terminal or from a phone; what the terminal has is Escape, which stops the turn.
+A `shared` Claude session could not offer it — a channel cannot interrupt — so its Stop was the one
+control missing beside Codex, pi and Grok. The pseudo-terminal of A40 types Escape as the person
+would: `session.stop` on such a session presses it only while a turn is running and no approval or
+question is on screen (those are answered, not escaped; the request answers `conflict` until they
+are), and does nothing when no turn runs. Claude reports `shared_interrupt: true` whenever it
+reports `shared_settings`. Nothing new on the wire. See 4.4, 6.3 and 9.2.
