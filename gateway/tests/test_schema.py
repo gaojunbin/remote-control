@@ -129,6 +129,18 @@ def test_polish_bodies_match_the_schema(
     check(answered.json(), "http.json", "PolishResponse")
 
 
+def test_preferences_bodies_match_the_schema(client: TestClient, auth: dict[str, str]) -> None:
+    """A35 and A41: the object with nothing set, the body that sets every field, and the answer."""
+    check(client.get("/api/preferences", headers=auth).json(), "http.json", "PreferencesResponse")
+    request = json.loads(
+        (FIXTURE_DIR / "http" / "preferences.response.json").read_text(encoding="utf-8")
+    )["preferences"]
+    check(request, "http.json", "PreferencesPatchRequest")
+    answered = client.patch("/api/preferences", json=request, headers=auth)
+    assert answered.status_code == 200, answered.text
+    check(answered.json(), "http.json", "PreferencesResponse")
+
+
 def test_hello_ack_and_app_hello_match_the_schema(client: TestClient, auth: dict[str, str]) -> None:
     enrolled = enroll_device(client, auth)
     headers = {"Authorization": f"Bearer {enrolled['device_token']}"}
