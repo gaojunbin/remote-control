@@ -96,6 +96,12 @@ EFFORT_ORDER = ("low", "medium", "high", "xhigh", "max")
 EFFORT_STEPS = 6
 # The one line of the slider's footer that nothing else prints.
 EFFORT_HINT = "s for this session only"
+# On a conversation with cached history the CLI asks once more before it
+# switches ("Switch model? … 1. Yes, switch to … 2. No, go back"), with the yes
+# row highlighted. The round's scratch-home checks never had history, so the
+# owner met it first (round 48). Enter takes the highlighted yes.
+SWITCH_PROMPT = "Switch model?"
+PROMPT_TIMEOUT = 1.5
 
 
 @dataclass(slots=True)
@@ -170,7 +176,8 @@ class Typist:
         try:
             await self.link.keys(MODEL_COMMAND + ENTER, clear=True)
             await self._walk_to(name)
-            await self.link.keys(THIS_SESSION)
+            await self.link.keys(THIS_SESSION, clear=True)
+            await self._accept(SWITCH_PROMPT)
             await self._confirmed(pending)
         except RcError:
             await self._give_up(pending)
@@ -245,6 +252,19 @@ class Typist:
         if not picker.rows or picker.current is None:
             raise RcError("conflict", "the model picker did not open")
         return picker
+
+    async def _accept(self, prompt: str) -> None:
+        """Press Enter on a confirmation the CLI may put up, if it does.
+
+        The prompt's yes row is the highlighted one, so Enter is the answer;
+        a CLI that asks nothing is simply not waited on past the timeout.
+        """
+        deadline = time.monotonic() + PROMPT_TIMEOUT
+        while time.monotonic() < deadline:
+            if prompt in (await self.link.screen()).text:
+                await self.link.keys(ENTER)
+                return
+            await asyncio.sleep(POLL_INTERVAL)
 
     async def _wait_for_text(self, needle: str, failure: str) -> None:
         deadline = time.monotonic() + PICKER_TIMEOUT

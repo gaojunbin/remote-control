@@ -40,12 +40,21 @@ class _NoSocket:
 class FakeTerminal(PtyLink):
     """A terminal that walks its pickers exactly as Claude Code's do."""
 
-    def __init__(self, *, draft: int = 0, idle_for: float = 5.0, opens: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        draft: int = 0,
+        idle_for: float = 5.0,
+        opens: bool = True,
+        asks_to_switch: bool = False,
+    ) -> None:
         super().__init__(4242, cast(asyncio.StreamWriter, _NoSocket()))
         self.typed: list[str] = []
         self.draft = draft
         self.idle_for = idle_for
         self.opens = opens
+        # A conversation with cached history asks once more before switching.
+        self.asks_to_switch = asks_to_switch
         self.showing = "none"
         self.row = 5
         self.level = 4
@@ -70,12 +79,18 @@ class FakeTerminal(PtyLink):
             self.showing = "effort" if self.opens else "none"
         elif data == typist.ESCAPE:
             self.showing = "none"
+        elif data == typist.ENTER and self.showing == "switch":
+            self.applied_model = PICKER_ROWS[self.row - 1]
+            self.showing = "none"
         elif data == typist.THIS_SESSION:
-            if self.showing == "model":
+            if self.showing == "model" and self.asks_to_switch:
+                self.showing = "switch"
+            elif self.showing == "model":
                 self.applied_model = PICKER_ROWS[self.row - 1]
+                self.showing = "none"
             elif self.showing == "effort":
                 self.applied_effort = SLIDER_LEVELS[self.level]
-            self.showing = "none"
+                self.showing = "none"
         elif self.showing == "model":
             moved = self.row + data.count(typist.DOWN) - data.count(typist.UP)
             self.row = min(len(PICKER_ROWS), max(1, moved))
@@ -94,6 +109,11 @@ class FakeTerminal(PtyLink):
             return f"Select model\n{rows}\n{PICKER_FOOTER}\n"
         if self.showing == "effort":
             return f"Effort\n{'─' * 20}\n{SLIDER_FOOTER}\n"
+        if self.showing == "switch":
+            return (
+                "Switch model?\n Your next response will be slower and use more tokens\n"
+                f" {HIGHLIGHT} 1. Yes, switch to {PICKER_ROWS[self.row - 1]}\n   2. No, go back\n"
+            )
         return "> \n"
 
 
@@ -224,6 +244,26 @@ async def test_the_model_picker_is_walked_and_the_reply_waits_for_the_transcript
     assert harness.events("meta")[-1]["model"] == "sonnet"
     # A settings change is not a message: no bubble for the keystrokes.
     assert harness.events("user_message") == []
+
+
+async def test_a_cached_conversation_asks_once_more_and_the_device_says_yes(
+    harness: Harness,
+) -> None:
+    """Round 48: with history behind it the CLI puts up "Switch model?" after
+    `s`, yes highlighted; the device presses Enter and the change goes on."""
+    harness.terminal.asks_to_switch = True
+    entry = await harness.attach()
+    terminal = harness.terminal
+    change = asyncio.create_task(
+        harness.hub.set_options({"session_id": "sess-1", "model": "sonnet"})
+    )
+    await _until(lambda: terminal.applied_model is not None)
+    assert terminal.typed == ["/model\r", typist.UP, "s", typist.ENTER]
+    assert terminal.applied_model == "Sonnet"
+
+    await harness.confirm(entry, "/model", "Set model to `Sonnet 4.5` for this session")
+    await asyncio.wait_for(change, timeout=2)
+    assert entry.session.model == "sonnet"
 
 
 async def test_the_effort_slider_is_walked_from_the_left(harness: Harness) -> None:
