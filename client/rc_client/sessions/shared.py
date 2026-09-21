@@ -18,7 +18,8 @@ A Claude channel carries user text and nothing else, so a settings change and
 `/compact` are typed into the terminal instead, through the pseudo-terminal the
 shim started the CLI inside (amendment A40). The scripts live in `typist.py`;
 what is here is the claim on the transcript rows they leave behind, which is
-the only thing that confirms a change actually happened.
+the only thing that confirms a change actually happened. Stopping a turn takes
+the same route since amendment A42: Escape, the key the person would press.
 """
 
 from __future__ import annotations
@@ -123,6 +124,16 @@ class SharedState:
         return (time.monotonic() - self.inflight_at) < INFLIGHT_TIMEOUT
 
     @property
+    def busy(self) -> bool:
+        """Whether a turn is under way, as the apps are told it is.
+
+        An injection counts before its row reaches the transcript: the CLI has
+        the message, so the turn has started even though the tailer has not
+        caught up. What the apps see running is what Stop presses Escape on.
+        """
+        return self.running or self.waiting
+
+    @property
     def busy_typing(self) -> bool:
         """Whether a command the device typed is still running (A40)."""
         return self.typed is not None and not self.typed.expired
@@ -135,9 +146,7 @@ class SharedState:
         an injection would be read as an answer to it. Neither is a terminal the
         device is in the middle of typing a command into (A40).
         """
-        return (
-            not self.running and not self.waiting and self.question is None and not self.busy_typing
-        )
+        return not self.busy and self.question is None and not self.busy_typing
 
 
 def pending_item(text: str, request_id: str, source: str = "remote") -> dict[str, Any]:
@@ -286,7 +295,7 @@ class SharedControl:
         state = entry.shared
         if state is None:
             return
-        busy = state.running or state.waiting
+        busy = state.busy
         if busy and entry.session.turn is None:
             await entry.channel.begin_turn(state.trigger)
         if state.approvals:
@@ -467,6 +476,17 @@ class SharedControl:
                 await typist.set_model(model)
             if effort is not None:
                 await typist.set_effort(effort)
+
+    async def stop(self, entry: SessionEntry) -> None:
+        """Type Escape into the terminal to stop the turn running there (A42).
+
+        The lock is the same one the other scripts hold, so a Stop never lands
+        between two keystrokes of a settings change. Nothing is waited for: the
+        CLI files `[Request interrupted by user]` and the transcript reader
+        ends the turn from that row (A32).
+        """
+        async with entry.lock:
+            await Typist(entry, self.terminal(entry), self).interrupt()
 
     async def run_command(self, entry: SessionEntry, name: str, block_id: str) -> None:
         """Run one slash command by typing it (A27 through A40)."""

@@ -18,6 +18,13 @@ Three rules make that safe to do to somebody else's terminal.
 - **The transcript decides.** A script is done when the CLI has written the
   command and its answer, not when the keystrokes went out; until then the
   phone is told nothing and the session's `meta` says the old value.
+
+Stopping a turn (amendment A42) is the one script those rules do not fit. Escape
+is what the person would press, and a running turn is exactly when they want it
+pressed, so it has no idle gate and waits for no confirmation: the CLI files
+`[Request interrupted by user]` and the transcript reader ends the turn from
+that (A32). What it does keep is the dialog rule — an approval or a question on
+screen is answered, not escaped.
 """
 
 from __future__ import annotations
@@ -40,6 +47,8 @@ log = logger("rc_client.typist")
 
 BUSY = "the terminal is busy; try again in a moment"
 REFUSED = "the terminal did not take the change"
+# What a Stop says while the CLI is waiting on the person (A42).
+ANSWER_FIRST = "answer the prompt first"
 
 # How still the keyboard has to be before the device types.
 QUIET_SECONDS = 2.0
@@ -213,6 +222,25 @@ class Typist:
         await self.entry.channel.emit(
             "user_message", block_id=block_id, text=COMPACT_COMMAND, source="remote"
         )
+
+    async def interrupt(self) -> None:
+        """A42: Escape, which is how a turn is stopped in that terminal.
+
+        No idle gate: the point of Stop is a terminal that is not idle, and
+        one Escape on Claude Code does not clear a half-typed line (it asks
+        first). A dialog is the exception — it is answered, not escaped. What
+        counts as a turn is `busy`, the same thing the apps are shown: an
+        injection whose row has not reached the transcript yet is the CLI's
+        turn already. With no turn at all there is nothing to stop.
+        """
+        state = self.entry.shared
+        if state is None:
+            raise RcError("conflict", "the session is no longer attached")
+        if state.approvals or state.question is not None:
+            raise RcError("conflict", ANSWER_FIRST)
+        if not state.busy:
+            return
+        await self.link.keys(ESCAPE)
 
     # ----------------------------------------------------------------- gates
 

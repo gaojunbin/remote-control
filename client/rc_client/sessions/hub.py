@@ -535,8 +535,14 @@ class SessionHub:
 
     async def stop(self, params: dict[str, Any]) -> dict[str, Any]:
         entry = self.entry(str(params.get("session_id") or ""))
-        if self._is_shared(entry) and not self._agent_flag(entry, "shared_interrupt"):
-            raise RcError("unsupported", "stop it in the terminal")
+        if self._is_shared(entry):
+            if not self._agent_flag(entry, "shared_interrupt"):
+                raise RcError("unsupported", "stop it in the terminal")
+            if entry.shared is not None and entry.session.agent == "claude":
+                # A42: a channel cannot interrupt, so the device presses
+                # Escape in the terminal the shim owns instead.
+                await self.shared.stop(entry)
+                return {}
         if entry.runner is not None:
             await entry.runner.interrupt()
         return {}
