@@ -2444,8 +2444,12 @@ row, no section header, taking it leaves `/compact` ready on Send) and passed al
 panel test beside it.
 
 **Counts.** Gateway 435 (untouched), client 1203 (+3 skipped), web 747, RCVerify 1464, RCUIVerify
-582, unit tests 411. All four components 1.6.0 (a feature release), iOS build 21, tag v1.6.0.
-GitHub "iOS checks": CI_RESULT.
+582, unit tests 411, protocol 200 fixtures / 36 negative cases. All four components 1.6.0 (a
+feature release), iOS build 21, tag v1.6.0. On the bumped tree the web suite's two timing tests
+(`timeline` row cap, `voice-composer` caret) hit their 5 s limit twice under a load average of 34 —
+a Chrome for Testing left by the web agent's screenshots and the owner's own apps — and passed when
+their files ran alone, the same pattern as rounds 45 and 46. GitHub "iOS checks" on e242292 (run 35627560780) passed in 5 min 28 s: build, 411 unit tests,
+RCVerify 1464, RCUIVerify 582.
 
 **Not verified.** The typing path end to end through a real gateway and a phone against the owner's
 own terminal (the scratch home is not logged in, so no turn ran after the change; the model and
