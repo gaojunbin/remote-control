@@ -2,6 +2,9 @@ name: iOS checks
 
 on:
   push:
+    # Branches only: a tag push ignores `paths` and would run the same commit twice.
+    branches:
+      - master
     paths:
       - 'ios/**'
       - 'protocol/**'
@@ -37,7 +40,6 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       RC_XCODE_VERSION: '26.6'
       RC_IOS_RUNTIME: '26.5'
-      RC_SIMULATOR_NAME: iPhone 17
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

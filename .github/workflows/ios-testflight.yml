@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   checks:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/master'
     uses: ./.github/workflows/ios-check.yml
 
   upload:
