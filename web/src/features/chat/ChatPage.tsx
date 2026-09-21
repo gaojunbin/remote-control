@@ -172,11 +172,17 @@ export function ChatPage() {
     );
   }, [session, takeoverSession]);
 
+  /**
+   * A42: Stop on a terminal the device types into is an Escape, which the
+   * device refuses to type while the CLI has a prompt up. That `conflict` is
+   * the device's own sentence — the canned one, about taking the session over,
+   * would send the reader the wrong way.
+   */
   const onStop = useCallback(() => {
     setStopping(true);
     setActionError(null);
     void stopTurn(key)
-      .catch((err: unknown) => setActionError(errorText(err, strings.errors.stopFailed)))
+      .catch((err: unknown) => setActionError(refusalText(err, strings.errors.stopFailed)))
       .finally(() => setStopping(false));
   }, [stopTurn, key]);
 

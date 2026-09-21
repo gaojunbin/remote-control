@@ -55,7 +55,9 @@ export const claudeAgent: AgentInfo = {
   // session started through it can be attached instead of taken over.
   attach: 'channel',
   attach_ready: true,
-  shared_interrupt: false,
+  // A42: Stop is one Escape typed into the same pseudo-terminal, so the shim
+  // carries the interrupt as well as the two settings below.
+  shared_interrupt: true,
   // A40: the shim runs the CLI inside a pseudo-terminal the device owns, so
   // the device types `/model` and `/effort` into it as the person would. There
   // is no command to type for the permission mode, so it stays the terminal's.
@@ -89,6 +91,8 @@ export const claudeNoShim: AgentInfo = {
   // A40: no shim means no pseudo-terminal to type into, so there is nothing
   // the device could change or run on a session this machine's terminal holds.
   capabilities: claudeAgent.capabilities.filter((capability) => capability !== 'commands'),
+  // A42: and nothing to type an Escape into either.
+  shared_interrupt: false,
   shared_settings: false,
   shared_settings_keys: undefined,
   // A33: installed on this machine and signed in nowhere.

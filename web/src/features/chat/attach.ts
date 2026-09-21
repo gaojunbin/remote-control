@@ -7,9 +7,9 @@
  * `shared_interrupt`, `shared_settings` and `shared_attachments`, each
  * defaulting to false. The Codex app-server daemon and pi's extension carry
  * all three; Grok Build's leader carries the interrupt and the settings but
- * takes no images (A28); the Claude channel carries neither the interrupt nor
- * images, and the settings only as far as the device can type them into the
- * pseudo-terminal it owns — `shared_settings_keys` says which (A40).
+ * takes no images (A28); the Claude channel takes no images, and carries the
+ * interrupt (A42) and the settings only as far as the device can type them
+ * into the pseudo-terminal it owns — `shared_settings_keys` says which (A40).
  */
 import { strings } from '../../strings';
 import type { AgentInfo, Session, SharedSettingKey } from '../../protocol/types';
@@ -22,7 +22,8 @@ export const isTerminalOnly = (session: Session): boolean => session.control ===
 
 /**
  * A10 §4.4: Stop needs the `interrupt` capability *and* a device that reports
- * `shared_interrupt`. Claude channels cannot interrupt; the Codex daemon can.
+ * `shared_interrupt`. The Codex daemon calls it; an attached Claude terminal
+ * is typed an Escape (A42), and a device with no shim reports neither.
  */
 export function canInterruptShared(agent: AgentInfo | null): boolean {
   return agent?.shared_interrupt === true && agent.capabilities.includes('interrupt');
