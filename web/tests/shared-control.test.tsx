@@ -1,9 +1,9 @@
 /**
- * Amendments A10, A11, A19 and A20 — `control: "shared"`, a terminal session
- * the device is attached to. Covers the composer state, the Stop and takeover
- * rules, the delivery chip, the three `shared_*` agent booleans, a held message
- * that is a queue entry rather than a block, a question answered from here, and
- * the fixtures the contract describes.
+ * Amendments A10, A11, A19, A20, A40 and A42 — `control: "shared"`, a terminal
+ * session the device is attached to. Covers the composer state, the Stop and
+ * takeover rules, the delivery chip, the three `shared_*` agent booleans, a
+ * held message that is a queue entry rather than a block, a question answered
+ * from here, and the fixtures the contract describes.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -116,7 +116,9 @@ describe.runIf(fixturesAvailable())('A10 fixtures', () => {
     const agent: AgentInfo = attachAgent;
     expect(agent.attach).toBe('channel');
     expect(agent.attach_ready).toBe(true);
-    expect(agent.shared_interrupt).toBe(false);
+    // A42: the shim's pseudo-terminal takes a typed Escape, so the channel
+    // carries the interrupt after all.
+    expect(agent.shared_interrupt).toBe(true);
     expect(agent.capabilities).toContain('takeover');
   });
 
@@ -194,13 +196,13 @@ describe.runIf(fixturesAvailable())('A10 composer on a shared session', () => {
   });
 
   it('hides "Interrupt & send" while the attachment cannot interrupt', () => {
-    render(<Composer {...composerProps(sharedRunning, attachAgent)} />);
+    const agent: AgentInfo = { ...attachAgent, shared_interrupt: false };
+    render(<Composer {...composerProps(sharedRunning, agent)} />);
     expect(screen.queryByRole('button', { name: 'Send options' })).not.toBeInTheDocument();
   });
 
   it('offers "Interrupt & send" when the device reports shared_interrupt', () => {
-    const agent: AgentInfo = { ...attachAgent, shared_interrupt: true };
-    render(<Composer {...composerProps(sharedRunning, agent)} />);
+    render(<Composer {...composerProps(sharedRunning, attachAgent)} />);
     expect(screen.getByRole('button', { name: 'Send options' })).toBeInTheDocument();
   });
 
@@ -273,12 +275,12 @@ describe.runIf(fixturesAvailable())('A10 Stop', () => {
     );
 
   it('is hidden on a shared session the attachment cannot interrupt', () => {
-    header(sharedRunning, attachAgent);
+    header(sharedRunning, { ...attachAgent, shared_interrupt: false });
     expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
   });
 
   it('appears once the device reports shared_interrupt', () => {
-    header(sharedRunning, { ...attachAgent, shared_interrupt: true });
+    header(sharedRunning, attachAgent);
     expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
   });
 
@@ -903,8 +905,9 @@ describe.runIf(fixturesAvailable())('A40 the device types into a Claude terminal
     expect(attachAgent.shared_settings).toBe(true);
     expect(attachAgent.shared_settings_keys).toEqual(['model', 'effort']);
     expect(attachAgent.capabilities).toContain('commands');
-    // The channel itself is unchanged: no interrupt, no images.
-    expect(attachAgent.shared_interrupt).toBe(false);
+    // A42 added the interrupt to the same pseudo-terminal; images still have
+    // no keystroke to be typed as.
+    expect(attachAgent.shared_interrupt).toBe(true);
     expect(attachAgent.shared_attachments).toBe(false);
   });
 
@@ -1034,5 +1037,56 @@ describe.runIf(fixturesAvailable())('A40 the device types into a Claude terminal
 
     expect(onRunCommand).toHaveBeenCalledWith('compact', undefined);
     expect(await screen.findByText(BUSY)).toBeInTheDocument();
+  });
+});
+
+/**
+ * A42 — Stop on an attached Claude Code terminal. The pseudo-terminal the
+ * shim gave the CLI takes a typed Escape, so the channel now carries the
+ * interrupt like every other attachment, and the app draws Stop and
+ * "Interrupt & send" from the same flag it always read. The one thing the
+ * keystroke cannot do is talk over a prompt: the device refuses, in its own
+ * words. `docs/DESIGN.md` § "The device types into a Claude terminal (A40)".
+ */
+describe.runIf(fixturesAvailable())('A42 Stop on an attached Claude terminal', () => {
+  /** What the device answers when Escape would answer the prompt instead. */
+  const PROMPT = 'answer the prompt first';
+
+  it('reads the interrupt off the channel, the way it reads a daemon\'s', () => {
+    expect(canInterruptShared(attachAgent)).toBe(true);
+    expect(canInterruptShared(daemonAgent)).toBe(true);
+    // The shim is what provides the terminal, so a device without it carries
+    // no interrupt either.
+    expect(claudeNoShim.shared_interrupt).toBe(false);
+    expect(canInterruptShared(claudeNoShim)).toBe(false);
+  });
+
+  it('matches the mock gateway, so the demo session behaves like the contract', () => {
+    expect(claudeAgent.shared_interrupt).toBe(attachAgent.shared_interrupt);
+    expect(claudeAgent.attach).toBe('channel');
+  });
+
+  it('draws Stop while the turn the terminal started is running', () => {
+    render(
+      <MemoryRouter>
+        <ChatHeader
+          session={sharedRunning}
+          agent={attachAgent}
+          deviceName="mac-studio-office"
+          todos={[]}
+          stopping={false}
+          onStop={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+  });
+
+  it('keeps an open prompt in the device\'s words rather than the canned one', () => {
+    const refused = new RequestError({ code: 'conflict', message: PROMPT });
+    expect(refusalText(refused, strings.errors.stopFailed)).toBe(PROMPT);
+    expect(refusalText(refused, strings.errors.stopFailed)).not.toBe(
+      strings.errors.conflictTerminal,
+    );
   });
 });

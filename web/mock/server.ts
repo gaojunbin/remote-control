@@ -59,9 +59,11 @@ import {
   type Step,
 } from './script';
 import {
+  ANSWER_THE_PROMPT,
   TERMINAL_BUSY,
   TYPING_MS,
   lockedKeys,
+  promptOnScreen,
   settingKeys,
   terminalBusy,
   typedSession,
@@ -1261,9 +1263,17 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
 
     case 'session.stop': {
       const session = findSession(sessionId);
-      // A10 §6.3: the Claude channel cannot interrupt a running turn.
+      // A10 §6.3: an attachment that carries no interrupt leaves Stop to the
+      // terminal, whatever the agent's `interrupt` capability says.
       if (session?.control === 'shared' && agentFor(session)?.shared_interrupt !== true) {
         return replyError(conn, id, 'unsupported', 'stop it in the terminal');
+      }
+      // A42: on a terminal the device types into, Stop is a single Escape, and
+      // the CLI would spend it on the prompt it has up rather than on the turn.
+      // Idle, the Escape is not worth typing: the reply is `{}` and nothing
+      // else happens, because `interruptTurn` has no turn to end.
+      if (session && typedSession(session, agentFor(session)) && promptOnScreen(session)) {
+        return replyError(conn, id, 'conflict', ANSWER_THE_PROMPT);
       }
       interruptTurn(sessionId);
       reply(conn, id, {});

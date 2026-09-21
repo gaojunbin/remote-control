@@ -1,15 +1,18 @@
 /**
- * A40 — the rules the mock device applies to a change it has to type into a
- * terminal, so what `npm run dev:mock` does can be read without a socket: the
- * per-key gate of `shared_settings_keys`, which attachments type rather than
- * call, and when the terminal is too busy to be typed into.
+ * A40 and A42 — the rules the mock device applies to a change it has to type
+ * into a terminal, so what `npm run dev:mock` does can be read without a
+ * socket: the per-key gate of `shared_settings_keys`, which attachments type
+ * rather than call, when the terminal is too busy to be typed into, and what
+ * the Escape behind Stop will not talk over.
  */
 import { describe, expect, it } from 'vitest';
 import {
+  ANSWER_THE_PROMPT,
   SETTING_KEYS,
   TERMINAL_BUSY,
   TYPING_MS,
   lockedKeys,
+  promptOnScreen,
   settingKeys,
   terminalBusy,
   typedSession,
@@ -80,5 +83,34 @@ describe('A40 when the device types instead of calling', () => {
 
   it('takes a moment, the way typing does', () => {
     expect(TYPING_MS).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * A42 — Stop on the same terminal is one Escape. It has the opposite gate to
+ * a setting: a running turn is what it is for, while a prompt on screen is
+ * what the CLI would spend the keystroke on.
+ */
+describe('A42 the Escape behind Stop', () => {
+  it('refuses while the CLI is asking something', () => {
+    expect(promptOnScreen({ ...claudeShared, state: 'needs_approval' })).toBe(true);
+    expect(promptOnScreen({ ...claudeShared, state: 'needs_input' })).toBe(true);
+    expect(ANSWER_THE_PROMPT).toBe('answer the prompt first');
+  });
+
+  it('does not wait for an idle terminal, unlike a setting', () => {
+    const running: Session = { ...claudeShared, state: 'running' };
+    expect(terminalBusy(running)).toBe(true);
+    expect(promptOnScreen(running)).toBe(false);
+    // Idle: nothing to stop, and nothing to refuse either.
+    expect(promptOnScreen(claudeShared)).toBe(false);
+  });
+
+  it('is carried only where the shim gave the CLI a terminal', () => {
+    expect(claudeAgent.shared_interrupt).toBe(true);
+    expect(claudeNoShim.shared_interrupt).toBe(false);
+    // The daemon does not type at all, so nothing here gates it.
+    expect(typedSession(codexShared, codexAgent)).toBe(false);
+    expect(codexAgent.shared_interrupt).toBe(true);
   });
 });

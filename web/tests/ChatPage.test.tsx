@@ -11,13 +11,14 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { ChatPage } from '../src/features/chat/ChatPage';
 import { useChat } from '../src/stores/chat';
+import { emptyTimeline } from '../src/stores/timeline';
 import { useConnection } from '../src/stores/connection';
 import { useDevices } from '../src/stores/devices';
 import { useOutbox } from '../src/stores/outbox';
 import { keyOf, useSessions } from '../src/stores/sessions';
 import { RequestError } from '../src/lib/ws';
 import { strings } from '../src/strings';
-import { codexAgent, devices as deviceFixtures } from '../mock/fixtures';
+import { claudeAgent, codexAgent, devices as deviceFixtures } from '../mock/fixtures';
 import type { Session } from '../src/protocol/types';
 
 const { rpcMock } = vi.hoisted(() => ({ rpcMock: vi.fn() }));
@@ -287,3 +288,87 @@ function localValue(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
+
+/**
+ * A42 — Stop on a Claude Code terminal the device is attached to. The shim's
+ * pseudo-terminal takes a typed Escape, so the channel carries the interrupt
+ * and the header draws Stop from the same flag it reads for a daemon. The one
+ * thing the keystroke cannot do is talk over a prompt, and that refusal is the
+ * device's own sentence rather than the app's canned one.
+ */
+describe('Stop on an attached Claude terminal', () => {
+  const attachedClaude: Session = {
+    ...session,
+    agent: 'claude',
+    control: 'shared',
+    origin: 'terminal',
+    state: 'running',
+    model: 'claude-sonnet-4-5',
+    permission_mode: 'acceptEdits',
+    turn: { turn_id: 'trn-1', started_at: Date.now() },
+  };
+
+  /**
+   * Stop reaches the device through the open conversation, which the page
+   * only opens over a live socket. This suite has none, so the conversation
+   * is put in the store the way `open()` would leave it.
+   */
+  const shareRunning = () => {
+    useSessions.setState({
+      sessions: { [key]: attachedClaude },
+      loaded: true,
+      agentFilter: null,
+    });
+    useDevices.setState({
+      devices: [{ ...device, agents: [claudeAgent] }],
+      loaded: true,
+      updateErrors: {},
+    });
+    useChat.setState({
+      sessions: {
+        [key]: {
+          key,
+          deviceId: session.device_id,
+          sessionId: session.session_id,
+          timeline: emptyTimeline(),
+          todos: [],
+          queue: [],
+          usage: null,
+          ready: true,
+          historyLoading: false,
+          historyHasMore: false,
+          error: null,
+          closedSeq: null,
+        },
+      },
+    });
+  };
+
+  const pressStop = async () => {
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: strings.chat.stop }));
+  };
+
+  it('asks the device to stop the turn the terminal started', async () => {
+    rpcMock.mockResolvedValue({});
+    shareRunning();
+    renderChat();
+    await pressStop();
+
+    expect(rpcMock).toHaveBeenCalledWith('session.stop', { session_id: session.session_id });
+  });
+
+  it('says an open prompt has to be answered, in the device\'s words', async () => {
+    rpcMock.mockRejectedValue(
+      new RequestError({ code: 'conflict', message: 'answer the prompt first' }),
+    );
+    shareRunning();
+    renderChat();
+    await pressStop();
+
+    expect(await screen.findByText('answer the prompt first')).toBeInTheDocument();
+    // The canned conflict sentence would send the reader to Take over, which
+    // a shared session does not even offer.
+    expect(screen.queryByText(strings.errors.conflictTerminal)).not.toBeInTheDocument();
+  });
+});

@@ -3,11 +3,12 @@
  * a terminal rather than handed to a process.
  *
  * A Claude Code session the shim attached runs inside a pseudo-terminal the
- * device owns, so `session.set` for the settings the agent names, and
- * `session.command` for `/compact`, are keystrokes: they take a moment to
- * land, they need an idle terminal, and what the terminal will not take is
- * refused rather than queued. These are pure functions so the mock's behaviour
- * can be read and tested without a socket; `server.ts` holds the timers.
+ * device owns, so `session.set` for the settings the agent names,
+ * `session.command` for `/compact`, and `session.stop` (A42) are keystrokes:
+ * they take a moment to land, they need a terminal that will read them, and
+ * what the terminal will not take is refused rather than queued. These are
+ * pure functions so the mock's behaviour can be read and tested without a
+ * socket; `server.ts` holds the timers.
  */
 import type { AgentInfo, Session, SharedSettingKey } from '../src/protocol/types';
 
@@ -16,6 +17,9 @@ export const SETTING_KEYS: SharedSettingKey[] = ['model', 'permission_mode', 'ef
 
 /** What the device answers when it cannot get at the terminal. */
 export const TERMINAL_BUSY = 'the terminal is busy; try again in a moment';
+
+/** What the device answers when an Escape would land on an open prompt (A42). */
+export const ANSWER_THE_PROMPT = 'answer the prompt first';
 
 /** How long the device takes to type a change in and read the answer back. */
 export const TYPING_MS = 1_500;
@@ -56,3 +60,11 @@ export const terminalBusy = (session: Session): boolean =>
   session.state === 'running' ||
   session.state === 'needs_approval' ||
   session.state === 'needs_input';
+
+/**
+ * A42: the CLI is asking something, so the Escape that Stop types would answer
+ * the prompt instead of ending the turn. Unlike a setting, Stop does not wait
+ * for the terminal to fall idle — a running turn is exactly what it is for.
+ */
+export const promptOnScreen = (session: Session): boolean =>
+  session.state === 'needs_approval' || session.state === 'needs_input';
