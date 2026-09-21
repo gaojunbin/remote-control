@@ -9,7 +9,7 @@ import userEvent from '@testing-library/user-event';
 import { Composer } from '../src/features/chat/Composer';
 import { useSettings } from '../src/stores/settings';
 import { strings } from '../src/strings';
-import { claudeAgent, codexAgent, commandsFor, piAgent } from '../mock/fixtures';
+import { claudeNoShim, codexAgent, commandsFor, piAgent } from '../mock/fixtures';
 import type { AgentInfo, Command, Session, SessionState } from '../src/protocol/types';
 
 const baseSession: Session = {
@@ -95,8 +95,10 @@ describe('opening the panel', () => {
   });
 
   it('draws nothing for an agent without the capability', async () => {
-    const { user, onCommandsNeeded } = setup({ agent: claudeAgent, commands: [] });
-    expect(claudeAgent.capabilities).not.toContain('commands');
+    // A40: a Claude the shim never attached has no terminal to type into, so
+    // it is the agent with no command surface at all.
+    const { user, onCommandsNeeded } = setup({ agent: claudeNoShim, commands: [] });
+    expect(claudeNoShim.capabilities).not.toContain('commands');
     await user.click(field());
     await user.keyboard('/compact');
     expect(panel()).not.toBeInTheDocument();

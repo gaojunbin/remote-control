@@ -5,12 +5,14 @@
  * it, so the composer, approvals and the queue work exactly as for `remote`.
  * What else the attachment carries is per agent: the device reports
  * `shared_interrupt`, `shared_settings` and `shared_attachments`, each
- * defaulting to false. The Claude channel carries none of them; the Codex
- * app-server daemon and pi's extension carry all three; Grok Build's leader
- * carries the interrupt and the settings but takes no images (A28).
+ * defaulting to false. The Codex app-server daemon and pi's extension carry
+ * all three; Grok Build's leader carries the interrupt and the settings but
+ * takes no images (A28); the Claude channel carries neither the interrupt nor
+ * images, and the settings only as far as the device can type them into the
+ * pseudo-terminal it owns — `shared_settings_keys` says which (A40).
  */
 import { strings } from '../../strings';
-import type { AgentInfo, Session } from '../../protocol/types';
+import type { AgentInfo, Session, SharedSettingKey } from '../../protocol/types';
 
 /** True when the device is attached to a terminal-owned session. */
 export const isShared = (session: Session): boolean => session.control === 'shared';
@@ -27,11 +29,16 @@ export function canInterruptShared(agent: AgentInfo | null): boolean {
 }
 
 /**
- * A11 §4.2: the model, permission mode and effort pickers are shown on a
- * shared session only when the device can forward `session.set` to the CLI.
+ * A11/A40 §4.2: one setting's picker on a shared session. The device must
+ * forward `session.set` to the CLI at all, and the setting must be one it
+ * forwards: `shared_settings_keys` names the subset, and its absence means all
+ * four. Claude's pseudo-terminal takes a typed `/model` and `/effort` but has
+ * nothing to type for the permission mode, so that one stays the terminal's.
  */
-export function canSetShared(agent: AgentInfo | null): boolean {
-  return agent?.shared_settings === true;
+export function canSetShared(agent: AgentInfo | null, key: SharedSettingKey): boolean {
+  if (agent?.shared_settings !== true) return false;
+  const keys = agent.shared_settings_keys;
+  return keys === undefined || keys.includes(key);
 }
 
 /**

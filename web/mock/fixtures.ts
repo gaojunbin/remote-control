@@ -48,14 +48,19 @@ export const claudeAgent: AgentInfo = {
     'attachments',
     'effort',
     'history',
+    // A40: the shim's pseudo-terminal takes a typed `/compact`.
+    'commands',
   ],
   // Amendment A10: this device installs the `claude` shim, so a terminal
   // session started through it can be attached instead of taken over.
   attach: 'channel',
   attach_ready: true,
   shared_interrupt: false,
-  // A11: the channel relays prompts and approvals only.
-  shared_settings: false,
+  // A40: the shim runs the CLI inside a pseudo-terminal the device owns, so
+  // the device types `/model` and `/effort` into it as the person would. There
+  // is no command to type for the permission mode, so it stays the terminal's.
+  shared_settings: true,
+  shared_settings_keys: ['model', 'effort'],
   shared_attachments: false,
   // A33: the Max account this machine's Claude Code runs on, with the three
   // windows the OAuth usage endpoint reports — a session window, the week, and
@@ -81,6 +86,11 @@ export const claudeAgent: AgentInfo = {
 export const claudeNoShim: AgentInfo = {
   ...claudeAgent,
   attach_ready: false,
+  // A40: no shim means no pseudo-terminal to type into, so there is nothing
+  // the device could change or run on a session this machine's terminal holds.
+  capabilities: claudeAgent.capabilities.filter((capability) => capability !== 'commands'),
+  shared_settings: false,
+  shared_settings_keys: undefined,
   // A33: installed on this machine and signed in nowhere.
   accounts: [],
 };
@@ -366,8 +376,22 @@ const piCommands: Command[] = [
   },
 ];
 
+/**
+ * A40: the one command the device can type into a Claude terminal. Everything
+ * else the CLI offers behind `/` either opens a dialog the device has no way
+ * to answer or writes the person's settings, so the list is this alone.
+ */
+const claudeCommands: Command[] = [
+  {
+    name: 'compact',
+    description: 'Summarise the conversation so far to free context',
+    group: 'Built-in',
+  },
+];
+
 /** A27: the list for one agent. Empty for an agent with no command surface. */
 export function commandsFor(agent: AgentId): Command[] {
+  if (agent === 'claude') return claudeCommands;
   if (agent === 'codex') return codexCommands;
   if (agent === 'grok') return grokCommands;
   if (agent === 'pi') return piCommands;
@@ -551,9 +575,11 @@ export const sessions: Session[] = [
     origin: 'terminal',
     control: 'shared',
     // A17: read from the transcript, and `auto` is a real Claude permission
-    // mode the device does not advertise, so the app shows it by its id.
+    // mode the device does not advertise, so the app shows it by its id. A40
+    // leaves that one setting the terminal's; the model and the effort are
+    // the device's to type in, so they are ids the agent does list.
     permission_mode: 'auto',
-    effort: 'xhigh',
+    effort: 'high',
     updated_at: minutes(2),
   }),
   session({

@@ -58,6 +58,14 @@ import {
   turnScript,
   type Step,
 } from './script';
+import {
+  TERMINAL_BUSY,
+  TYPING_MS,
+  lockedKeys,
+  settingKeys,
+  terminalBusy,
+  typedSession,
+} from './typing';
 import { ServedSends, needsResync, replayFor } from './replay';
 import { dirEntries, makeDir } from './dirs';
 import { FakeShell } from './shell';
@@ -1206,8 +1214,9 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       return;
     }
 
-    // A27: what the session's agent offers now. Claude has no command surface
-    // at all, so it answers `unsupported` and the apps draw nothing.
+    // A27: what the session's agent offers now. An agent without the
+    // capability answers `unsupported` and the apps draw nothing; A40 gives
+    // an attached Claude the one command its terminal can be typed.
     case 'session.commands': {
       const session = findSession(sessionId);
       if (!session) return replyError(conn, id, 'not_found', 'no such session');
@@ -1233,7 +1242,11 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       if (!commandsFor(session.agent).some((command) => command.name === name)) {
         return replyError(conn, id, 'not_found', `no command named /${name}`);
       }
-      if (session.state === 'running' || session.state === 'needs_approval') {
+      // A40: on a session the device types into, a running turn is a busy
+      // terminal rather than a busy agent, and the words say so.
+      if (typedSession(session, agentFor(session))) {
+        if (terminalBusy(session)) return replyError(conn, id, 'conflict', TERMINAL_BUSY);
+      } else if (session.state === 'running' || session.state === 'needs_approval') {
         return replyError(conn, id, 'conflict', 'wait for the turn to finish');
       }
       const argument = typeof frame.argument === 'string' ? frame.argument : undefined;
@@ -1327,45 +1340,29 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
     case 'session.set': {
       const session = findSession(sessionId);
       if (!session) return replyError(conn, id, 'not_found', 'no such session');
-      // A10/A11 §6.3: the terminal owns the model, the permission mode and the
-      // effort unless the device reports that the attachment forwards them.
-      const optionKeys = ['model', 'permission_mode', 'effort'] as const;
-      const settingsLocked =
-        session.control === 'shared' && agentFor(session)?.shared_settings !== true;
-      const setsSpeed = 'speed' in frame;
-      if (settingsLocked && (optionKeys.some((k) => typeof frame[k] === 'string') || setsSpeed)) {
+      // A10/A11/A40 §6.3: on a shared session a setting is the device's only
+      // when the attachment carries that very key; the rest stay the
+      // terminal's, and an app that asks for one anyway is told so.
+      if (lockedKeys(session, agentFor(session), frame).length > 0) {
         return replyError(conn, id, 'unsupported', 'change it in the terminal');
       }
       // A21: a tier the agent does not list is a bad request, and null is the
       // standard speed rather than a missing value.
-      if (setsSpeed) {
+      if ('speed' in frame) {
         const speed = frame.speed;
         const tiers = agentFor(session)?.speeds ?? [];
         if (speed !== null && !tiers.some((tier) => tier.id === speed)) {
           return replyError(conn, id, 'bad_request', 'unknown speed tier');
         }
-        session.speed = speed as string | null;
       }
-      if (typeof frame.model === 'string') session.model = frame.model;
-      if (typeof frame.permission_mode === 'string') session.permission_mode = frame.permission_mode;
-      if (typeof frame.effort === 'string') session.effort = frame.effort;
-      if (typeof frame.title === 'string') session.title = frame.title;
-      session.updated_at = Date.now();
-      broadcast({ type: 'session.updated', session });
-      reply(conn, id, { session });
-      // The device publishes what it actually set as `meta` (5.11), so a second
-      // app on the same session sees the change without asking for it.
-      emit(sessionId, {
-        seq: nextSeq(sessionId),
-        ts: Date.now(),
-        kind: 'meta',
-        ...(typeof frame.model === 'string' ? { model: frame.model } : {}),
-        ...(typeof frame.permission_mode === 'string'
-          ? { permission_mode: frame.permission_mode }
-          : {}),
-        ...(typeof frame.effort === 'string' ? { effort: frame.effort } : {}),
-        ...(setsSpeed ? { speed: session.speed ?? null } : {}),
-      });
+      // A40: a setting the device has to type lands when the terminal has
+      // taken it, and only into a terminal that is idle. Nothing is queued.
+      if (typedSession(session, agentFor(session)) && settingKeys(frame).length > 0) {
+        if (terminalBusy(session)) return replyError(conn, id, 'conflict', TERMINAL_BUSY);
+        setTimeout(() => applySet(conn, id, sessionId, frame), TYPING_MS);
+        return;
+      }
+      applySet(conn, id, sessionId, frame);
       return;
     }
 
@@ -1673,6 +1670,43 @@ function historyEvents(all: readonly SessionEvent[], beforeSeq: number): Session
   const out = [...latestByBlock.values(), ...rest];
   if (latestTodos) out.push(latestTodos);
   return out.sort((a, b) => a.seq - b.seq);
+}
+
+/* ----------------------------------------------- A40 settings and commands */
+
+/**
+ * Apply what `session.set` asked for, answer with the session, and publish the
+ * change as `meta` (5.11) so a second app on it sees the change without
+ * asking. For a typed session this runs once the terminal has taken it.
+ */
+function applySet(
+  conn: AppConn,
+  id: unknown,
+  sessionId: string,
+  frame: Record<string, unknown>,
+): void {
+  const session = findSession(sessionId);
+  if (!session) return replyError(conn, id, 'not_found', 'no such session');
+  const setsSpeed = 'speed' in frame;
+  if (setsSpeed) session.speed = frame.speed as string | null;
+  if (typeof frame.model === 'string') session.model = frame.model;
+  if (typeof frame.permission_mode === 'string') session.permission_mode = frame.permission_mode;
+  if (typeof frame.effort === 'string') session.effort = frame.effort;
+  if (typeof frame.title === 'string') session.title = frame.title;
+  session.updated_at = Date.now();
+  broadcast({ type: 'session.updated', session });
+  reply(conn, id, { session });
+  emit(sessionId, {
+    seq: nextSeq(sessionId),
+    ts: Date.now(),
+    kind: 'meta',
+    ...(typeof frame.model === 'string' ? { model: frame.model } : {}),
+    ...(typeof frame.permission_mode === 'string'
+      ? { permission_mode: frame.permission_mode }
+      : {}),
+    ...(typeof frame.effort === 'string' ? { effort: frame.effort } : {}),
+    ...(setsSpeed ? { speed: session.speed ?? null } : {}),
+  });
 }
 
 /* --------------------------------------------------- A10/A11 shared sessions */

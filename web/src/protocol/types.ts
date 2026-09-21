@@ -118,6 +118,12 @@ export interface AgentAccount {
   limits_checked_at?: number;
 }
 
+/**
+ * A40: the four settings `session.set` carries, which an attachment may drive
+ * one by one rather than all or none.
+ */
+export type SharedSettingKey = 'model' | 'permission_mode' | 'effort' | 'speed';
+
 export interface AgentInfo {
   agent: AgentId;
   available: boolean;
@@ -147,6 +153,13 @@ export interface AgentInfo {
    * works on `shared` sessions. Defaults to false.
    */
   shared_settings?: boolean;
+  /**
+   * A40: with `shared_settings` true, the subset of the four settings the
+   * device changes on a `shared` session. The rest stay what the terminal set
+   * and are drawn as values (A17). Absent means all four; never present when
+   * `shared_settings` is false.
+   */
+  shared_settings_keys?: SharedSettingKey[];
   /**
    * A11: whether `session.send.attachments` are delivered on `shared`
    * sessions. Defaults to false.

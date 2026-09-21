@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { errorText } from '../../lib/errors';
+import { errorText, refusalText } from '../../lib/errors';
 import { rpc } from '../../lib/gateway';
 import { strings } from '../../strings';
 import { useChat } from '../../stores/chat';
@@ -145,14 +145,21 @@ export function ChatPage() {
       const store = useSessions.getState();
       const previous = store.sessions[key];
       if (!previous) return;
-      const optimistic = applyOptions(previous, patch);
-      store.upsert(optimistic);
+      /**
+       * A40: a shared session has a terminal showing the same thing, and the
+       * device may have to type the change into it. The card follows the
+       * reply there — which comes once the terminal has taken it — rather
+       * than running ahead of the screen beside it. Everywhere else the
+       * change is drawn the moment it is made.
+       */
+      const optimistic = previous.control === 'shared' ? null : applyOptions(previous, patch);
+      if (optimistic) store.upsert(optimistic);
       void rpc('session.set', { session_id: sessionId, ...patch })
         .then((result) => useSessions.getState().upsert(result.session))
         .catch((err: unknown) => {
           const sessions = useSessions.getState();
-          if (sessions.sessions[key] === optimistic) sessions.upsert(previous);
-          setActionError(errorText(err, strings.errors.setFailed));
+          if (optimistic && sessions.sessions[key] === optimistic) sessions.upsert(previous);
+          setActionError(refusalText(err, strings.errors.setFailed));
         });
     },
     [key, sessionId],
