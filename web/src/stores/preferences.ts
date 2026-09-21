@@ -6,10 +6,15 @@
  * `undefined` is a gateway that predates them, which is not the same as "off":
  * the switch is disabled with a note rather than drawn as a choice the reader
  * could make (`docs/DESIGN.md` § "Paused by the usage limit").
+ *
+ * A41 put the Settings screen's own six values in the same object. They are
+ * read from the settings store, which the whole app reads already, so every
+ * object that arrives here is handed to it as well.
  */
 import { create } from 'zustand';
 import { api } from '../lib/api';
 import type { Preferences } from '../protocol/types';
+import { useSettings } from './settings';
 
 interface PreferencesState {
   preferences: Preferences | undefined;
@@ -25,9 +30,15 @@ interface PreferencesState {
 export const usePreferences = create<PreferencesState>((set, get) => ({
   preferences: undefined,
 
-  fromHello: (preferences) => set({ preferences }),
+  fromHello: (preferences) => {
+    set({ preferences });
+    useSettings.getState().fromHello(preferences);
+  },
 
-  apply: (preferences) => set({ preferences }),
+  apply: (preferences) => {
+    set({ preferences });
+    useSettings.getState().fromAccount(preferences);
+  },
 
   setResumeAfterLimit: async (value) => {
     const previous = get().preferences;
@@ -43,5 +54,10 @@ export const usePreferences = create<PreferencesState>((set, get) => ({
     }
   },
 
-  reset: () => set({ preferences: undefined }),
+  reset: () => {
+    set({ preferences: undefined });
+    // A41: and there is nothing to write the six up to any more, until the
+    // next account's `hello` says there is.
+    useSettings.getState().fromHello(undefined);
+  },
 }));

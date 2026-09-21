@@ -1,32 +1,33 @@
-/** Local, per-browser preferences. Persisted in localStorage when available. */
+/**
+ * What Settings holds. Six of the values are the account's since A41 — the
+ * interface language, the dictation language, polish with its model and its
+ * strength, and the timeline detail — and for those this store is the cache of
+ * what the gateway holds: `hello` and every `preferences.updated` frame land
+ * here, and a change made here goes up at once. The rest is this browser's
+ * alone: which device groups a list has folded, and which Archives are open.
+ *
+ * Persisted in localStorage when available, under the signed-in account's key,
+ * so the moments before `hello` read what this browser last saw rather than
+ * the defaults.
+ */
 import { create } from 'zustand';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
-import type { PolishStrength } from '../protocol/types';
-import type { TimelineDetail } from './timeline';
+import type {
+  InterfaceLanguage,
+  PolishStrength,
+  Preferences,
+  TimelineDetail,
+} from '../protocol/types';
+import {
+  changesFrom,
+  readPreferences,
+  unsetKeys,
+  type SyncedKey,
+  type SyncedSettings,
+} from './preferenceFields';
+import { sendPreferences, setPreferencesHeld } from './preferenceWrite';
 
-/**
- * The language the app speaks its own words in. It is English until the reader
- * asks for something else — never guessed from `navigator.language`, because a
- * developer whose system is Chinese still reads the agent in English and a
- * surprise translation at first launch reads as a different product.
- */
-export type InterfaceLanguage = 'en' | 'zh-Hans';
-
-export const INTERFACE_LANGUAGES: InterfaceLanguage[] = ['en', 'zh-Hans'];
-
-interface SettingsState {
-  /** The app's own words. Never applied to anything a device reported. */
-  language: InterfaceLanguage;
-  sttLanguage: string;
-  /**
-   * A29: whether a finished dictation is passed through the gateway's polish
-   * model. Off until the reader turns it on, and useless without a model.
-   */
-  polishEnabled: boolean;
-  polishModel: string;
-  polishStrength: PolishStrength;
-  /** How much of a transcript is drawn. Simple by default, and never sent. */
-  timelineDetail: TimelineDetail;
+interface SettingsState extends SyncedSettings {
   /** Device groups the user folded shut in a session list. Expanded by default. */
   collapsedDevices: string[];
   /** Devices whose Archive sub-group is open. Collapsed by default. */
@@ -39,6 +40,14 @@ interface SettingsState {
   setTimelineDetail: (detail: TimelineDetail) => void;
   toggleDeviceCollapsed: (deviceId: string) => void;
   toggleArchiveExpanded: (deviceId: string) => void;
+  /**
+   * A41: what `hello` carried, which is nothing at all on a gateway older than
+   * A35. The fields it names win here, and the ones it leaves out are this
+   * browser's to write up, once.
+   */
+  fromHello: (preferences: Preferences | undefined) => void;
+  /** A41: a change made here or in another app of the same account. */
+  fromAccount: (preferences: Preferences) => void;
 }
 
 const toggle = (list: string[], id: string): string[] =>
@@ -111,16 +120,44 @@ export const useSettings = create<SettingsState>()(
   persist(
     (set) => ({
       ...defaults(),
-      setLanguage: (language) => set({ language }),
-      setSttLanguage: (sttLanguage) => set({ sttLanguage }),
-      setPolishEnabled: (polishEnabled) => set({ polishEnabled }),
-      setPolishModel: (polishModel) => set({ polishModel }),
-      setPolishStrength: (polishStrength) => set({ polishStrength }),
-      setTimelineDetail: (timelineDetail) => set({ timelineDetail }),
+      // A41: the value moves under the finger first and goes up after, so a
+      // control never waits on the round trip; the reply and the frame that
+      // follows it carry the same value, and change nothing here.
+      setLanguage: (language) => {
+        set({ language });
+        writeUp(['language']);
+      },
+      setSttLanguage: (sttLanguage) => {
+        set({ sttLanguage });
+        writeUp(['sttLanguage']);
+      },
+      setPolishEnabled: (polishEnabled) => {
+        set({ polishEnabled });
+        writeUp(['polishEnabled']);
+      },
+      setPolishModel: (polishModel) => {
+        set({ polishModel });
+        writeUp(['polishModel']);
+      },
+      setPolishStrength: (polishStrength) => {
+        set({ polishStrength });
+        writeUp(['polishStrength']);
+      },
+      setTimelineDetail: (timelineDetail) => {
+        set({ timelineDetail });
+        writeUp(['timelineDetail']);
+      },
       toggleDeviceCollapsed: (deviceId) =>
         set((s) => ({ collapsedDevices: toggle(s.collapsedDevices, deviceId) })),
       toggleArchiveExpanded: (deviceId) =>
         set((s) => ({ archiveExpanded: toggle(s.archiveExpanded, deviceId) })),
+      fromHello: (preferences) => {
+        setPreferencesHeld(preferences !== undefined);
+        if (preferences === undefined) return;
+        settle(readPreferences(preferences));
+        writeUp(unsetKeys(preferences));
+      },
+      fromAccount: (preferences) => settle(readPreferences(preferences)),
     }),
     {
       name: SIGNED_OUT_KEY,
@@ -138,6 +175,27 @@ export const useSettings = create<SettingsState>()(
     },
   ),
 );
+
+/**
+ * A41: what the account holds, applied in place. Only what differs is set, so
+ * the gateway's echo of a change made here moves nothing on the screen and
+ * writes nothing back.
+ */
+function settle(read: Partial<SyncedSettings>): void {
+  const changes = changesFrom(read, useSettings.getState());
+  if (Object.keys(changes).length > 0) useSettings.setState(changes);
+}
+
+/**
+ * A41: send some of this app's values to the account — the one field the
+ * reader just changed, or, right after `hello`, every field the account has
+ * not set. What the gateway answers is what the store then holds.
+ */
+function writeUp(keys: SyncedKey[]): void {
+  void sendPreferences(keys, useSettings.getState()).then((read) => {
+    if (read) settle(read);
+  });
+}
 
 /** The account the store is currently reading and writing. */
 let account: string | null = null;

@@ -130,10 +130,11 @@ export interface PreferencesResponse {
   preferences: Preferences;
 }
 
-/** A35: every field is optional and the ones present are set. */
-export interface PreferencesPatch {
-  resume_after_limit?: boolean;
-}
+/**
+ * A35, A41: every field is optional and the ones present are set, so one
+ * request carries one changed switch or the whole of what an app has to say.
+ */
+export type PreferencesPatch = Partial<Preferences>;
 
 export const api = {
   health: () => get<HealthResponse>('/api/health'),

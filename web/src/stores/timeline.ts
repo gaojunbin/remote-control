@@ -17,7 +17,12 @@
  * move the replay cursor, and always sort after everything the device sent.
  */
 import { eventKey } from '../lib/ids';
-import type { Attachment, QuestionEvent, SessionEvent } from '../protocol/types';
+import type {
+  Attachment,
+  QuestionEvent,
+  SessionEvent,
+  TimelineDetail,
+} from '../protocol/types';
 
 export interface TimelineItem {
   key: string;
@@ -378,9 +383,9 @@ export interface TimelineView {
 /**
  * How much of the timeline is drawn (`docs/DESIGN.md` § "The timeline"). Simple
  * shows only what is written to the person; Detailed adds everything the agent
- * did on the way. The level is local to the app and never reaches the wire.
+ * did on the way. A41 made the level the account's, so it is a wire value and
+ * lives with the protocol's own types.
  */
-export type TimelineDetail = 'simple' | 'detailed';
 
 /** Kinds Simple never draws: not collapsed, not summarised, not counted. */
 const WORKINGS = new Set(['thinking', 'tool_call']);
