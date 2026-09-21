@@ -303,7 +303,7 @@ class ShellStubTests(unittest.TestCase):
             path.write_text("#!" + sys.executable + "\n" + STUB_SOURCE)
             path.chmod(0o700)
         env = environment(runner)
-        env.update({"PATH": str(binaries) + ":/usr/bin:/bin", "GITHUB_ACTIONS": "true", "RUNNER_OS": "macOS", "GITHUB_EVENT_NAME": event, "GITHUB_REF": "refs/heads/main", "GITHUB_OUTPUT": str(root / "output"), "TEST_FIXTURE_ROOT": str(root)})
+        env.update({"PATH": str(binaries) + ":/usr/bin:/bin", "GITHUB_ACTIONS": "true", "RUNNER_OS": "macOS", "GITHUB_EVENT_NAME": event, "GITHUB_REF": "refs/heads/master", "GITHUB_OUTPUT": str(root / "output"), "TEST_FIXTURE_ROOT": str(root)})
         if failure:
             env["TEST_FAIL_UPLOAD"] = "1"
         result = subprocess.run(["/bin/bash", str(repository / "scripts/ci-testflight.sh")], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
@@ -329,7 +329,7 @@ class ShellStubTests(unittest.TestCase):
     def test_non_manual_event_is_rejected_before_tools_or_private_files(self) -> None:
         result, root, _ = self.run_shell(event="pull_request")
         self.assertEqual(result.returncode, 2)
-        self.assertIn("workflow_dispatch on main", result.stderr)
+        self.assertIn("workflow_dispatch on master", result.stderr)
         self.assertEqual(list((root / "runner").iterdir()), [])
         self.assertFalse((root / "overlay.json").exists())
 

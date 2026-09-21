@@ -25,7 +25,7 @@ esac
 # Missing/invalid values are reported by name, never by their secret contents.
 build_number="$(python3 "$helper" preflight)"
 [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_OS:-}" == macOS ]] || fail 'Signing/upload requires a GitHub Actions macOS runner.'
-[[ "${GITHUB_EVENT_NAME:-}" == workflow_dispatch && "${GITHUB_REF:-}" == refs/heads/main ]] || fail 'Signing/upload is restricted to workflow_dispatch on main.'
+[[ "${GITHUB_EVENT_NAME:-}" == workflow_dispatch && "${GITHUB_REF:-}" == refs/heads/master ]] || fail 'Signing/upload is restricted to workflow_dispatch on master.'
 for tool in security xcodebuild xcodegen codesign openssl python3; do
   command -v "$tool" >/dev/null || fail "Missing required runner tool: $tool"
 done

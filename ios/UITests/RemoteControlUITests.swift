@@ -709,10 +709,10 @@ final class RemoteControlUITests: XCTestCase {
     /// whose agent stopped on an error, and one nothing owns any more on a
     /// machine that is no longer there.
     ///
-    /// The four on the live machine are in frame together, which is what the
-    /// screenshot is for. The grey one is not: it lives in another machine's
-    /// Archive, and since the demo grew to four agents (A26) the rows in
-    /// between are taller than a phone. It is reached by scrolling instead.
+    /// Since round 43 a row is three lines tall and the demo has a dozen
+    /// sessions, so no screen holds the five together, nor even the four on
+    /// the live machine: each is scrolled to and must be reachable there. The
+    /// grey one lives in another machine's Archive.
     func testSessionsListShowsEveryStatusTone() {
         app.launch()
         XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
@@ -730,8 +730,6 @@ final class RemoteControlUITests: XCTestCase {
             XCTAssertTrue(scrollDown(to: archived),
                           "the list carries a session nothing owns, on a machine that is gone")
         }
-        XCTAssertTrue(app.buttons["session.demo-session-toolchain"].exists,
-                      "and one whose agent stopped on an error")
 
         // The machine in between holds nothing this is about, and the five
         // together are taller than the screen, so its group is folded away for
@@ -743,33 +741,14 @@ final class RemoteControlUITests: XCTestCase {
                       "one tap folds it away")
 
         for _ in 0..<8 { app.swipeDown() }
-        for (id, what) in [("demo-session-vite", "a request waiting for the user"),
-                           ("demo-session-auth", "a running turn"),
-                           ("demo-session-shared", "an attached session that is quiet")] {
-            XCTAssertTrue(app.buttons["session.\(id)"].waitForExistence(timeout: 10),
-                          "the list carries \(what)")
+        for (id, tone) in [("demo-session-vite", "pulsing amber, waiting on the user"),
+                           ("demo-session-auth", "steady green, a turn running"),
+                           ("demo-session-toolchain", "red, stopped on an error"),
+                           ("demo-session-shared", "steady amber, attached to a terminal and quiet")] {
+            XCTAssertTrue(scrollDown(to: app.buttons["session.\(id)"]),
+                          "the list carries the \(tone) row, and it is reachable")
+            attach(name: "30-status-tone-\(id.replacingOccurrences(of: "demo-session-", with: ""))")
         }
-
-        // One measured drag to lift the first row towards the top of the list,
-        // then short ones until every row is reachable. The four rows and the
-        // bar below them are together about as tall as this screen, so the
-        // first row is taken right up under the search field and there is no
-        // pixel margin left to spare; what "in frame together" means is that
-        // the reader can see and reach all four, and a fling would land
-        // anywhere.
-        let list = sessionList()
-        let tones = [("demo-session-vite", "pulsing amber, waiting on the user"),
-                     ("demo-session-auth", "steady green, a turn running"),
-                     ("demo-session-toolchain", "red, stopped on an error"),
-                     ("demo-session-shared", "steady amber, attached to a terminal and quiet")]
-        let rows = tones.map { app.buttons["session.\($0.0)"] }
-        drag(list, by: rows[0].frame.minY - list.frame.minY - 52)
-        for _ in 0..<6 where !rows.allSatisfy({ $0.isHittable }) { drag(list, by: 24) }
-
-        for (row, tone) in zip(rows, tones) {
-            XCTAssertTrue(row.isHittable, "the \(tone.1) row is in frame with the rest")
-        }
-        attach(name: "30-status-tones")
 
         // And the fifth, further down than a screen reaches.
         XCTAssertTrue(scrollDown(to: archived), "the grey row, owned by nothing, is still reachable")
@@ -980,10 +959,15 @@ final class RemoteControlUITests: XCTestCase {
 
     /// Moves a scrolling view up by a measured distance, slowly enough that it
     /// stops where it was put rather than carrying on under its own momentum.
+    /// Moves the content up by `distance` points (down for a negative distance),
+    /// slowly and with a hold at the end, so the list stops where the finger did.
+    /// The finger goes down in the list's own margin, beside the rows: a press
+    /// on a Settings row that is a menu opens the menu, and the drag that
+    /// follows then scrolls nothing (round 46, the Settings headers).
     private func drag(_ view: XCUIElement, by distance: CGFloat) {
-        guard distance > 0 else { return }
+        guard abs(distance) >= 1 else { return }
         let start = view.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: view.frame.width / 2, dy: view.frame.height * 0.6))
+            .withOffset(CGVector(dx: 8, dy: view.frame.height * (distance > 0 ? 0.6 : 0.4)))
         start.press(forDuration: 0.2, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -distance)),
                     withVelocity: .slow, thenHoldForDuration: 0.4)
     }
@@ -1024,7 +1008,7 @@ final class RemoteControlUITests: XCTestCase {
     func testPiSessionDrawsItsPermissionChip() {
         app.launch()
         let row = app.buttons["session.demo-session-parser"]
-        XCTAssertTrue(row.waitForExistence(timeout: 20), "the pi demo session is listed")
+        XCTAssertTrue(scrollDown(to: row), "the pi demo session is listed")
         row.tap()
 
         let chip = app.buttons["composer.modelCard"]
@@ -1053,7 +1037,7 @@ final class RemoteControlUITests: XCTestCase {
     func testCommandPanelOpensFiltersAndRunsOnAPiSession() {
         app.launch()
         let row = app.buttons["session.demo-session-parser"]
-        XCTAssertTrue(row.waitForExistence(timeout: 20), "the pi demo session is listed")
+        XCTAssertTrue(scrollDown(to: row), "the pi demo session is listed")
         row.tap()
 
         let field = promptField()
@@ -1244,10 +1228,28 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "91-grok-shared-model")
     }
 
-    private func scrollDown(to element: XCUIElement, swipes: Int = 6) -> Bool {
-        for _ in 0..<swipes {
-            if element.exists && element.isHittable { return true }
-            app.swipeUp()
+    private func scrollDown(to element: XCUIElement, swipes: Int = 8) -> Bool {
+        let list = sessionList()
+        for _ in 0...swipes {
+            if element.waitForExistence(timeout: 1) { return clearOfBars(element, in: list) }
+            drag(list, by: 320)
+        }
+        return false
+    }
+
+    /// Rows are brought into reach with measured drags, never flings: a fling
+    /// carried the errored demo session on under the list's header, where the
+    /// accessibility hit-test still said "hittable" but the tap landed on the
+    /// header and opened nothing (round 46). A row found under the header or
+    /// under the bar at the foot is nudged clear before it is reported reachable.
+    private func clearOfBars(_ element: XCUIElement, in list: XCUIElement) -> Bool {
+        let top = list.frame.minY + 160
+        let bottom = list.frame.maxY - 140
+        let frame = element.frame
+        if frame.minY < top {
+            drag(list, by: -(top - frame.minY))
+        } else if frame.maxY > bottom {
+            drag(list, by: frame.maxY - bottom)
         }
         return element.exists && element.isHittable
     }
@@ -1615,7 +1617,7 @@ final class RemoteControlUITests: XCTestCase {
         app.tabBars.buttons["设置"].tap()
         XCTAssertTrue(app.staticTexts["账户"].waitForExistence(timeout: 15), "Settings is headed 账户")
         attach(name: "49-settings-chinese")
-        for header in ["通知", "语音", "语言", "时间线"] {
+        for header in ["你不在时", "语音", "阅读", "安全"] {
             XCTAssertTrue(scrollDown(to: app.staticTexts[header]), "the section is headed \(header)")
         }
         attach(name: "50-settings-language-chinese")

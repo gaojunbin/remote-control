@@ -225,10 +225,13 @@ func run() async -> (passed: Int, failures: [String]) {
     // MARK: - The status dot through the demo list
 
     // The five tones are all on the sessions screen at once, and each one comes
-    // from all three facts rather than from `state` alone.
+    // from all three facts rather than from `state` alone. Read from the hello's
+    // copy: the attached session was opened above, and the demo's question
+    // script moves it to `needs_input` and back on its own clock — on a slow
+    // runner that clock, not the rule, decided the third tone (round 46).
     let online = Dictionary(uniqueKeysWithValues: model.connection.devices.map { ($0.deviceID, $0.online) })
     func tone(_ sessionID: String) -> DotTone? {
-        model.connection.sessions.first { $0.sessionID == sessionID }
+        helloSessions.first { $0.sessionID == sessionID }
             .map { $0.dotTone(online: online[$0.deviceID] ?? false) }
     }
     equal(tone(DemoFixtures.liveSessionID), .working, "a running turn is a steady green")

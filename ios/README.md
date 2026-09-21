@@ -131,16 +131,20 @@ RGB PNG: App Store icons must not carry an alpha channel.
 
 ## Continuous integration
 
-`.github/workflows/ios-check.yml` runs on every push and pull request that
-touches `ios/` or `protocol/`. It pins `macos-26` with Xcode 26.6 and the iOS
-26.5 simulator runtime, then runs the signing-helper unit tests and
-`scripts/ci-check-ios.sh`, which asserts the pins, picks an available
-`iPhone 17` (failing rather than silently choosing another OS), and runs the
-unsigned simulator build, `swift test`, `RCVerify`, `RCUIVerify` and the whole
-`RemoteControlUITests` target. Logs and `.xcresult` bundles are uploaded as an
-artifact.
+`.github/workflows/ios-check.yml` runs on every push to `master` and every pull
+request that touches `ios/` or `protocol/` (branches only: a tag push ignores
+`paths` and would run the same commit a second time). It pins `macos-26` with
+Xcode 26.6 and the iOS 26.5 simulator runtime, then runs the signing-helper unit
+tests and `scripts/ci-check-ios.sh`, which asserts the pins and runs the unsigned
+simulator build, `swift test`, `RCVerify` and `RCUIVerify`. Logs and the build's
+`.xcresult` bundle are uploaded as an artifact. The `RemoteControlUITests` target
+is **not** run in CI: on GitHub's shared simulators its accessibility snapshots
+time out ("Timed out while evaluating UI query") and rows are not found within
+their waits, which failed every run from 2026-09-11 to round 46 while the same
+tests passed on the development Mac. The whole target runs locally on a booted
+simulator before every round is closed (`../CLAUDE.md` § "Closing a round").
 
-`.github/workflows/ios-testflight.yml` is `workflow_dispatch` on `main` only. It
+`.github/workflows/ios-testflight.yml` is `workflow_dispatch` on `master` only. It
 reuses the check workflow, then archives, signs and uploads.
 
 **Secrets** (repository settings → Secrets and variables → Actions):
@@ -158,7 +162,7 @@ reuses the check workflow, then archives, signs and uploads.
 `com.junbingao.remotecontrol`).
 
 The signing script refuses to run outside a `workflow_dispatch` GitHub Actions
-macOS job on `main`, creates a temporary keychain with a random password,
+macOS job on `master`, creates a temporary keychain with a random password,
 validates the profile and key before importing anything, unsets every secret
 environment variable before invoking `xcodegen`, and removes the keychain on
 exit. Signing and upload cannot be exercised locally by design.
