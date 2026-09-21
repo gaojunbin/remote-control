@@ -2324,6 +2324,58 @@ through the input method without taking over the owner's keyboard. The owner's o
 check, after the VPS deploy of 1.5.3. The iOS app was not touched; its text fields leave the
 confirming Return to the system keyboard.
 
+## 46. CI runs what it can run; the UI suite is the round's local gate (2026-09-21, 1.5.4)
+
+The owner asked why the GitHub "iOS checks" workflow failed after every push. It had: of 80 runs, 5
+passed, all on 2026-09-10/11, then 50 failed and 20 were cancelled by the next push. Three causes:
+
+- **The UI test target on GitHub's shared simulators.** Every push to `master` ran the whole
+  `RemoteControlUITests` target on the runner's iPhone 17 / iOS 26.5; seven to ten of its ~70 tests
+  failed on every run with "Failed to get matching snapshots: Timed out while evaluating UI query"
+  and rows not found within 20 s waits, while the same tests passed on the development Mac's own
+  iPhone 17 simulator. One test had also gone stale: `testChineseInterfaceIsUsedEverywhere` still
+  looked for the Settings headers 通知 · 语言 · 时间线 that round 43 replaced — a genuine failure
+  that would have shown locally too, had the whole target been run after round 43 rather than only
+  the tests each round added.
+- **The tag run.** A tag push ignores a workflow's `paths` filter, so every release ran the same
+  commit a second time for the tag, and that run lost one `RCUIVerify` check, "an attached session
+  that is quiet is a steady amber": the tones were read from the live demo list after the attached
+  session had been opened, and the demo's question script moves that session to `needs_input` and
+  back on its own clock (900 ms, then the terminal's answer). On a slow runner the check landed
+  inside that window; on the Mac it never did.
+- **The TestFlight workflow** gated on `refs/heads/main`; the repository's branch is `master`. It
+  had never run.
+
+**Done (owner's choice A + B + C + D).** The stale test names today's headers 你不在时 · 语音 ·
+阅读 · 安全. The tone check reads the hello's copy of the list, as the A17 check beside it already
+did. The first whole-target run on the Mac then failed three more tests that CI had also been
+failing, none of them a product defect: the pi tests waited for a row that was below the fold (a
+lazy `List` row off screen does not exist), the status-tone test asserted the errored row while
+scrolled to the foot of the list, and its "four tones in frame together" premise no longer holds
+with three-line rows; and `testSentMessageAppearsBeforeTheDeviceConfirmsIt` tapped a row a fling
+had carried under the list's header, where the accessibility hit-test still said "hittable" but
+the tap landed on the header and opened nothing (the screen recording in the result bundle showed
+it). `scrollDown(to:)` now finds a row with measured 320-point drags rather than flings, nudges it
+clear of the header and of the bar at the foot, and starts every drag in the list's margin — a
+press on a Settings row that is a menu opened the menu and scrolled nothing. The tone test scrolls
+to each of the five rows and screenshots each. `ios/scripts/ci-check-ios.sh` no longer selects or boots a simulator and no longer runs the UI
+test target: CI is the unsigned simulator build, `swift test`, `RCVerify` and `RCUIVerify`, about
+seven minutes. `ios-check.yml` runs on pushes to `master` and on pull requests only. The TestFlight
+workflow, `ci-testflight.sh` and its unit tests say `master` (14 tests pass). `CLAUDE.md`/`AGENTS.md`
+now state that closing a round includes the whole UI test target on a booted simulator, since no
+other run of it exists.
+
+**Verified.** The whole `RemoteControlUITests` target on the Mac's iPhone 17 simulator (32BBA636,
+English): the first run 73 tests, 4 skipped, 4 failures (the four named above); after the fixes, 73 tests,
+4 skipped, 0 failures in 1 574 s. RCVerify 1449, RCUIVerify 577, unit tests 395; gateway 435, client 1175
+(+3 skipped), web 726 (versions only). The first "iOS checks" run of this round on GitHub (b0ca3c9, run 35608056330) passed in 6 min 40 s:
+build, 395 unit tests, RCVerify 1449, RCUIVerify 577 — the workflow's first green since 2026-09-11.
+
+**Not verified.** The TestFlight workflow end to end (it needs the signing secrets and a manual
+dispatch); whether GitHub's simulators would pass the UI target with longer waits — not tried, the
+target is deliberately local now. All four components 1.5.4 (a fix release), iOS build 20, tag
+v1.5.4.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

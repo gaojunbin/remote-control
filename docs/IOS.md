@@ -1635,11 +1635,28 @@ than its end.
 
 ## TestFlight
 
-`.github/workflows/ios-check.yml` runs on every push touching `ios/` or `protocol/`. It pins
-`macos-26` with Xcode 26.6 and the iOS 26.5 simulator runtime, then runs the unsigned simulator
-build, `swift test`, both verification executables and the UI test target.
+`.github/workflows/ios-check.yml` runs on every push to `master` and every pull request touching
+`ios/` or `protocol/` — branches only, since a tag push ignores `paths` and ran the same commit a
+second time on every release. It pins `macos-26` with Xcode 26.6 and the iOS 26.5 simulator
+runtime, then runs the unsigned simulator build, `swift test` and both verification executables.
+**The UI test target is not run in CI.** On GitHub's shared simulators (iPhone 17, iOS 26.5) its
+accessibility snapshots time out and rows are not found within their waits — seven to ten of the
+target's tests failed on every run from 2026-09-11 to round 46, while the same tests passed on the
+development Mac's iPhone 17 simulator — so the whole target is the local gate of every round
+instead (`CLAUDE.md` § "Closing a round"). Round 46 also found the one check `RCUIVerify` lost on
+slow runners: the status-dot tones were read from the live demo list after the attached session
+had been opened, and the demo's question script moves that session to `needs_input` and back on
+its own clock; the tones are now read from the hello's copy of the list.
 
-`.github/workflows/ios-testflight.yml` is `workflow_dispatch` on `main` only. It reuses the check
+**Reaching a row in a UI test.** Three facts the round's whole-target run taught: a lazy `List`
+row that is off screen does not exist, so a row below the fold is scrolled to, never awaited; a
+fling (`swipeUp()`) carries a row on under the list's translucent header, where `isHittable` still
+holds but a tap lands on the header and opens nothing — `scrollDown(to:)` therefore moves the list
+with measured 320-point drags and nudges the row clear of the header and of the bar at the foot
+before reporting it reachable; and a drag must start in the list's margin (`x = 8`), because a press
+on a Settings row that is a `Menu` opens the menu and the drag then scrolls nothing.
+
+`.github/workflows/ios-testflight.yml` is `workflow_dispatch` on `master` only. It reuses the check
 workflow, then archives, signs and uploads. The signing script refuses to run outside that context,
 creates a temporary keychain with a random password, validates the profile and key before importing
 anything, and removes the keychain on exit. Signing cannot be exercised locally by design.
