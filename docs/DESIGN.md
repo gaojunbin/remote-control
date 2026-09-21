@@ -935,6 +935,16 @@ so once, and the person can see and end every such resume where the session is.*
   phone and every device read the same value, and turning it off anywhere cancels every pending
   resume everywhere. A gateway that predates the switch shows it disabled with "Your gateway does
   not offer this yet."
+- **Settings are the account's, not the device's (A41).** The same rule now covers the Settings
+  screen: the interface language, the dictation language, polish with its model and strength, and
+  the timeline detail belong to the person, so a switch turned on in the browser is on when the
+  phone is picked up, and off everywhere when it is turned off anywhere — within the round trip,
+  the latest change winning. Nothing on the screen says "syncing": the value simply reads the
+  same, and a change made elsewhere moves the control in place while the screen is open. What
+  belongs to the device stays on it and its sentence says so where it matters: Notify me is this
+  device's permission, Require Face ID is this phone's lock, Transcribe is this phone's recogniser,
+  the terminal font size is this screen's. On the day the gateway learns the rule, nothing
+  changes for the person: the first app to connect writes the values it already had.
 - **The prompt is one plain sentence** — "The usage limit has reset. Continue where you left off,
   and let any subagents you started continue their work." — the same everywhere and never edited
   per session. It asks for nothing else on purpose: the agent already knows what it was doing, and

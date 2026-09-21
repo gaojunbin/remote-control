@@ -18,7 +18,7 @@ change any of it; the long form is under `docs/`.
 
 ## The protocol is frozen; change it by amendment
 
-`protocol/PROTOCOL.md` is v1 plus numbered amendments (A1…A40 so far, dated entries at the end). A
+`protocol/PROTOCOL.md` is v1 plus numbered amendments (A1…A41 so far, dated entries at the end). A
 change to the wire is an amendment: edit the section, the schema, the fixtures and the checklist,
 append the entry, run the validator, commit `protocol/` first, and only then let anyone implement
 it. Components consume the contract; nobody edits it mid-implementation. Apps stay agent-agnostic —
