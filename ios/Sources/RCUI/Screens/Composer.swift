@@ -346,16 +346,17 @@ struct Composer: View {
     ///
     /// Amendment A17: the session's own settings are offered only where they
     /// can be changed from here. On a session a terminal holds they are shown
-    /// instead, in the same three positions, as chips that open nothing.
+    /// instead, in the same positions, as chips that open nothing.
+    ///
+    /// Amendment A40: one setting at a time, because a shared Claude session
+    /// is typed into for the model and the effort but has no command for the
+    /// permission mode. Each slot is a control or a value, never a control
+    /// that fails when tapped, and the two keep their order either way.
     private var chips: some View {
         ScrollView(.horizontal) {
             HStack(spacing: Theme.Space.tight) {
-                if chat.allowsSettingsChanges {
-                    ModelCardChip(chat: chat, agent: agent)
-                    permissionChip
-                } else {
-                    ForEach(chat.terminalSettings) { setting in terminalChip(setting) }
-                }
+                modelSlot
+                permissionSlot
 
                 Menu {
                     Picker("Dictation language", selection: languageBinding) {
@@ -396,6 +397,28 @@ struct Composer: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// What runs and how hard: the card where this app may change it, the
+    /// value the terminal set where it may not (A17, A40).
+    @ViewBuilder
+    private var modelSlot: some View {
+        if chat.allowsModelCardChanges {
+            ModelCardChip(chat: chat, agent: agent)
+        } else if let setting = chat.terminalSetting(.modelCard) {
+            terminalChip(setting)
+        }
+    }
+
+    /// The same two ways for the permission mode, which on a shared Claude
+    /// session is the one the terminal keeps.
+    @ViewBuilder
+    private var permissionSlot: some View {
+        if chat.allowsSettingsChanges(for: .permissionMode) {
+            permissionChip
+        } else if let setting = chat.terminalSetting(.permissionMode) {
+            terminalChip(setting)
+        }
     }
 
     /// What the session may do, as a plain list of the agent's own modes with

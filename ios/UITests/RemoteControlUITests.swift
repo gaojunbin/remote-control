@@ -512,22 +512,26 @@ final class RemoteControlUITests: XCTestCase {
                        "nothing is printed above the field")
         XCTAssertFalse(app.buttons["composer.attach"].exists,
                        "a channel cannot hand bytes to a live CLI, so there is no attach button")
-        XCTAssertFalse(app.buttons["composer.modelCard"].exists,
-                       "and the settings live in the terminal, so no control is offered")
-        XCTAssertFalse(app.buttons["composer.permissions"].exists)
         XCTAssertTrue(app.buttons["composer.send"].exists, "what is left still sends")
 
-        // Amendment A17: the values themselves are shown where the controls
-        // would be, so the phone can say which model that terminal is running.
-        // Amendment A21: model and effort are one control, so one chip.
-        for field in ["modelCard", "permissionMode"] {
-            XCTAssertTrue(app.descendants(matching: .any)["composer.readonly.\(field)"].exists,
-                          "the \(field) the terminal chose is shown")
-        }
-        // The terminal switches model on this session a moment after it opens
-        // (A17), so the assertion is on the shape of the value rather than on
-        // which model happened to be current when it was read.
-        let shown = app.descendants(matching: .any)["composer.readonly.modelCard"].value as? String ?? ""
+        // Amendment A40: the device types `/model` and `/effort` into the
+        // pseudo-terminal the shim gave it, so the card is a control here.
+        XCTAssertTrue(app.buttons["composer.modelCard"].exists,
+                      "the model and the effort are typed into the terminal, so the card is live")
+        XCTAssertFalse(app.descendants(matching: .any)["composer.readonly.modelCard"].exists,
+                       "and nothing stands in for a control that works (A17)")
+        // Amendment A17: the permission mode has no command the device could
+        // type, so the value is shown where the picker would be.
+        XCTAssertFalse(app.buttons["composer.permissions"].exists,
+                       "the permission mode stays the terminal's")
+        let mode = app.descendants(matching: .any)["composer.readonly.permissionMode"]
+        XCTAssertTrue(mode.exists, "and is shown as the value the terminal set")
+        XCTAssertEqual(mode.value as? String, "auto",
+                       "by its raw id, because the agent's list does not know it")
+        // The terminal switches model on this session a moment after it opens,
+        // so the assertion is on the shape of the value rather than on which
+        // model happened to be current when it was read.
+        let shown = app.buttons["composer.modelCard"].value as? String ?? ""
         XCTAssertTrue(shown.hasSuffix(" High"),
                       "the model and the effort read as one value, not as two chips")
 
@@ -620,6 +624,63 @@ final class RemoteControlUITests: XCTestCase {
         send.tap()
         XCTAssertTrue(waitFor(timeout: 15) { send.label == "Send" },
                       "and answering it gives the composer back")
+    }
+
+    /// Amendment A40: the shim runs the Claude CLI inside a pseudo-terminal the
+    /// device owns, so the device types `/model` and `/effort` into it as the
+    /// person at that keyboard would. The card is a control again; the
+    /// permission mode, which no command sets, is still the value the terminal
+    /// chose (A17). `docs/DESIGN.md` § "The composer".
+    func testSharedClaudeSessionTypesItsModelAndShowsItsPermissionMode() {
+        app.launch()
+        openSharedSession()
+        answerTheSharedQuestion(with: "the device types it in")
+
+        let card = app.buttons["composer.modelCard"]
+        XCTAssertTrue(card.waitForExistence(timeout: 15),
+                      "the model and the effort are the device's to type")
+        XCTAssertFalse(app.descendants(matching: .any)["composer.readonly.modelCard"].exists,
+                       "so nothing stands in for a control that works")
+        XCTAssertFalse(app.buttons["composer.permissions"].exists,
+                       "while no command sets the permission mode")
+        let mode = app.descendants(matching: .any)["composer.readonly.permissionMode"]
+        XCTAssertTrue(mode.exists, "which is shown as the value the terminal chose")
+        XCTAssertEqual(mode.value as? String, "auto",
+                       "by its raw id, because the agent's own list does not know it")
+        attach(name: "ios-round47-shared-claude")
+
+        card.tap()
+        XCTAssertTrue(app.buttons["composer.model"].waitForExistence(timeout: 10),
+                      "the card opens on a session the shim shares")
+        XCTAssertTrue(app.descendants(matching: .any)["composer.effort"].firstMatch.exists,
+                      "with the slider the device would type /effort for")
+        XCTAssertFalse(app.buttons["composer.speed"].exists,
+                       "and no tier, because Claude names none")
+        attach(name: "ios-round47-shared-claude-card")
+
+        // Choosing one sends `session.set`; the device types it into the
+        // terminal and answers once the transcript has confirmed it.
+        let row = app.buttons["composer.model"]
+        XCTAssertEqual(row.value as? String, "Opus 4.1", "the terminal is on Opus to begin with")
+        row.tap()
+        let sonnet = app.buttons["composer.model.claude-sonnet-4-5"]
+        XCTAssertTrue(sonnet.waitForExistence(timeout: 10), "the agent's own models are listed")
+        sonnet.tap()
+
+        // Amendment A40: nothing is drawn before the terminal has taken it.
+        // The control waits, disabled, while the device types the change in.
+        XCTAssertTrue(waitFor(timeout: 5) { !row.isEnabled },
+                      "the control waits rather than drawing the change")
+        XCTAssertEqual(row.value as? String, "Opus 4.1",
+                       "and still reads the model that terminal is running")
+        attach(name: "ios-round47-shared-claude-typing")
+
+        XCTAssertTrue(waitFor(timeout: 20) { row.value as? String == "Sonnet 4.5" },
+                      "the reply is what the card follows")
+        XCTAssertTrue(row.isEnabled, "and the wait ends with it")
+        XCTAssertEqual(app.buttons["composer.modelCard"].value as? String, "Sonnet 4.5 High",
+                       "so the chip reads what that terminal now runs")
+        attach(name: "ios-round47-shared-claude-typed")
     }
 
     /// Amendment A11: a Codex thread shared through the app-server daemon. The

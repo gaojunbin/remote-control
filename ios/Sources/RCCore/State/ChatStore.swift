@@ -216,20 +216,26 @@ public final class ChatStore {
         return agent?.sharedAttachments == true
     }
 
-    /// Amendment A17: a live CLI chose this session's model, permission mode
-    /// and effort, and no request this app can send would change them — either
-    /// `control` is `terminal`, or the attachment does not carry settings.
-    public var isTunedByTerminal: Bool {
-        if isReadOnly { return true }
-        guard isAttached else { return false }
-        return agent?.sharedSettings != true
+    /// Amendment A40: whether one setting of this session is the app's to
+    /// change. A session a terminal holds outright gives up all four; a
+    /// session this app drives keeps all four; an attached one keeps exactly
+    /// what its agent says `session.set` reaches (A11, A17).
+    public func allowsSettingsChanges(for setting: SharedSetting) -> Bool {
+        if isReadOnly { return false }
+        guard isAttached else { return true }
+        return agent?.shares(setting) == true
     }
 
-    /// Amendment A10: `session.set` is unsupported for model, permission mode
-    /// and effort while a live CLI owns the session. Amendment A11: an
-    /// attachment that can retune the live thread says so with
-    /// `shared_settings`, and the pickers open again.
-    public var allowsSettingsChanges: Bool { !isTunedByTerminal }
+    /// Amendment A21: model, effort and speed are one control, so the card is
+    /// live only where every setting it carries is the app's to change. A
+    /// setting the agent does not have — Claude names no speed tier — is not
+    /// on the card and does not decide anything.
+    public var allowsModelCardChanges: Bool {
+        var carried: [SharedSetting] = [.model]
+        if agent?.efforts.isEmpty == false { carried.append(.effort) }
+        if agent?.speeds.isEmpty == false { carried.append(.speed) }
+        return carried.allSatisfy(allowsSettingsChanges(for:))
+    }
 
     /// Amendment A21: where one tap on the speed control moves this session —
     /// standard, then each tier the agent lists, then standard again. Nil when
@@ -244,11 +250,24 @@ public final class ChatStore {
     }
 
     /// Amendment A17: what the terminal chose, for the composer to show where
-    /// it cannot offer. Empty on a session this app drives, because there the
-    /// controls carry the same values and are live.
+    /// it cannot offer. Amendment A40: one setting at a time — a shared Claude
+    /// session is typed into for the model and the effort, so its card is a
+    /// control and only the permission mode is left standing as a value.
     public var terminalSettings: [TerminalSetting] {
-        guard isTunedByTerminal else { return [] }
-        return TerminalSetting.all(for: session, agent: agent)
+        TerminalSetting.all(for: session, agent: agent).filter { setting in
+            switch setting.field {
+            case .modelCard: !allowsModelCardChanges
+            case .permissionMode: !allowsSettingsChanges(for: .permissionMode)
+            }
+        }
+    }
+
+    /// The value standing in for one control, or nil where that control is
+    /// live. The composer reads it slot by slot so the two keep the order the
+    /// design fixes — the model card, then the permission picker — whichever
+    /// of them the terminal still owns.
+    public func terminalSetting(_ field: TerminalSetting.Field) -> TerminalSetting? {
+        terminalSettings.first { $0.field == field }
     }
 
     /// Amendment A20: a question is answered where you are. The device raises
@@ -929,19 +948,42 @@ public final class ChatStore {
         }
     }
 
-    /// `docs/DESIGN.md` § "The model card": every change made from the card is
-    /// drawn the moment it is made. The patch is applied before the request
-    /// leaves, the device's reply confirms it, and a refusal puts the previous
-    /// value back with the error — unless a newer session replaced the
-    /// optimistic one while the request was in flight, in which case the older
-    /// value must not be written over it.
+    /// Amendment A40: the settings a `session.set` is waiting on, on a session
+    /// this app does not drive alone. Empty everywhere else, and empty again
+    /// the moment the device answers. The card disables itself while it holds
+    /// anything, so the same setting is never in flight twice.
+    public private(set) var pendingSettings: Set<SharedSetting> = []
+
+    /// Whether the model card is waiting for a terminal to take a change.
+    public var isSettingPending: Bool { !pendingSettings.isEmpty }
+
+    /// `docs/DESIGN.md` § "The model card": a change made from the card is
+    /// drawn the moment it is made, the device's reply confirms it, and a
+    /// refusal puts the previous value back with the error — unless a newer
+    /// session replaced the optimistic one while the request was in flight, in
+    /// which case the older value must not be written over it.
+    ///
+    /// Amendment A40: not on a `shared` session. There the change is typed
+    /// into somebody else's terminal and the device answers only once the
+    /// transcript confirms it, so nothing is drawn ahead of that — the picker
+    /// waits instead, the card follows the reply's `Session`, and a `conflict`
+    /// leaves the value exactly where it was. The title is never typed and
+    /// stays the app's on every session.
     public func set(model: String? = nil, permissionMode: String? = nil,
                     effort: String? = nil, speed: SpeedChange? = nil,
                     title: String? = nil) async {
         let previous = session
-        applyLocally(model: model, permissionMode: permissionMode, effort: effort,
-                     speed: speed, title: title)
+        let waiting = isAttached ? Self.asked(model: model, permissionMode: permissionMode,
+                                              effort: effort, speed: speed) : []
+        if waiting.isEmpty {
+            applyLocally(model: model, permissionMode: permissionMode, effort: effort,
+                         speed: speed, title: title)
+        } else {
+            pendingSettings.formUnion(waiting)
+            applyLocally(model: nil, permissionMode: nil, effort: nil, speed: nil, title: title)
+        }
         let generation = sessionGeneration
+        defer { pendingSettings.subtract(waiting) }
         do {
             let result = try await channel.request(
                 .set(sessionID: sessionID, model: model, permissionMode: permissionMode,
@@ -950,9 +992,21 @@ public final class ChatStore {
             update(session: result.session)
         } catch {
             errorMessage = describe(error)
-            guard sessionGeneration == generation else { return }
+            guard waiting.isEmpty, sessionGeneration == generation else { return }
             update(session: previous)
         }
+    }
+
+    /// Which of the four settings one call carries, so the pending state names
+    /// the controls that are waiting rather than the whole card.
+    private static func asked(model: String?, permissionMode: String?,
+                              effort: String?, speed: SpeedChange?) -> Set<SharedSetting> {
+        var asked: Set<SharedSetting> = []
+        if model != nil { asked.insert(.model) }
+        if permissionMode != nil { asked.insert(.permissionMode) }
+        if effort != nil { asked.insert(.effort) }
+        if speed != nil { asked.insert(.speed) }
+        return asked
     }
 
     /// The card's own copy of the change, drawn before the round trip. Only the

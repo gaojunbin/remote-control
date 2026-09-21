@@ -74,8 +74,12 @@ enum TimelineChecks {
         checks.expect(attachedIdle.attachHint == nil, "and the terminal hint belongs to terminal sessions")
         checks.equal(attachedIdle.statusLine, nil,
                      "and the composer says nothing the header has already said")
-        checks.expect(!attachedIdle.allowsSettingsChanges,
-                      "model, permission mode and effort stay in the terminal")
+        // Amendment A40: the shim types `/model` and `/effort` into the
+        // terminal it owns, and has no command for the permission mode.
+        checks.expect(attachedIdle.allowsModelCardChanges,
+                      "the model card is typed into the terminal, so it is a control")
+        checks.expect(!attachedIdle.allowsSettingsChanges(for: .permissionMode),
+                      "and the permission mode stays what the terminal set")
         checks.expect(!attachedIdle.allowsAttachments, "and attachments cannot be relayed")
         // Amendment A20: a question is answered where you are. The device raises
         // the block from a hook beside the CLI's own dialog and takes whichever

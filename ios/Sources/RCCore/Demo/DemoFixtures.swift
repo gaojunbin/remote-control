@@ -60,21 +60,29 @@ public enum DemoFixtures {
             defaultPermissionMode: "acceptEdits",
             efforts: [AgentOption(id: "medium", label: "Medium"), AgentOption(id: "high", label: "High")],
             defaultEffort: "high",
-            capabilities: [.worktree, .takeover, .interrupt, .queue, .attachments, .effort, .history],
+            capabilities: [.worktree, .takeover, .interrupt, .queue, .attachments, .effort, .history,
+                           .commands],
             attach: .channel, attachReady: true, sharedInterrupt: false,
+            // Amendment A40: the shim runs the CLI inside a pseudo-terminal the
+            // device owns, so the device types `/model`, `/effort` and
+            // `/compact` into it as the person would. There is no command it
+            // could type for the permission mode, so that one stays the
+            // terminal's — which is exactly what the two keys say.
+            sharedSettings: true, sharedSettingsKeys: ["model", "effort"],
             accounts: [AgentAccount(provider: "anthropic", method: .account, plan: "max",
                                     tier: "Max 5x", email: "me@example.com")])
     }
 
     /// The same agent on a machine where the `claude` shim was never installed,
-    /// so its terminal sessions cannot be attached (amendment A10).
+    /// so its terminal sessions cannot be attached (amendment A10) and nothing
+    /// can be typed into them (A40): no shared settings and no commands.
     public static var claudeWithoutShim: AgentInfo {
         AgentInfo(
             agent: "claude", available: true, version: "2.1.266", path: "/usr/local/bin/claude",
             models: claude.models, defaultModel: claude.defaultModel,
             permissionModes: claude.permissionModes, defaultPermissionMode: "default",
             efforts: claude.efforts, defaultEffort: claude.defaultEffort,
-            capabilities: claude.capabilities,
+            capabilities: [.worktree, .takeover, .interrupt, .queue, .attachments, .effort, .history],
             attach: .channel, attachReady: false, sharedInterrupt: false,
             accounts: [AgentAccount(provider: "anthropic", method: .account, plan: "pro",
                                     email: "me@example.com")])
@@ -276,15 +284,25 @@ public enum DemoFixtures {
     /// reports it: Codex a fixed table with one source and so no groups, Grok
     /// Build the list its agent advertises over ACP, pi its prompt templates,
     /// its skills, its extension commands and the device's own `compact`.
-    /// Claude offers none at all and never lists the capability.
+    /// Amendment A40: Claude offers the one command the device can type into
+    /// the terminal the shim gives it, and nothing at all without the shim.
     public static func commands(for agent: String) -> [Command] {
         switch agent {
+        case "claude": claudeCommands
         case "codex": codexCommands
         case "grok": grokCommands
         case "pi": piCommands
         default: []
         }
     }
+
+    /// Amendment A40: the one command the device can type into a Claude
+    /// terminal. Everything else Claude offers changes something the shim
+    /// would have to read back out of a picker, so only this one is listed.
+    public static let claudeCommands = [
+        Command(name: "compact", description: "Summarise the conversation so far to free context",
+                group: "Built-in")
+    ]
 
     public static let codexCommands = [
         Command(name: "compact", description: "Summarise the conversation to free up context"),

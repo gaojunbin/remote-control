@@ -155,11 +155,32 @@ struct SlashCommandTests {
         #expect(chat.draft == "/changelog", "one that takes nothing is left ready to run")
     }
 
-    @Test("Claude draws no panel at all, and a slash is a character there")
+    /// Amendment A40: Claude's panel holds exactly the one command the device
+    /// can type into the terminal the shim gives it.
+    @Test("Claude offers /compact and nothing else")
     @MainActor
-    func claudeOffersNothing() async throws {
+    func claudeOffersOneCommand() async throws {
         let gateway = DemoGateway()
         let chat = try Self.chat(DemoFixtures.liveSessionID, agent: DemoFixtures.claude, gateway: gateway)
+        #expect(chat.offersCommands)
+        await chat.loadCommands()
+        #expect(chat.commands.map(\.name) == ["compact"])
+        #expect(chat.commands.first?.takesArgument == false, "and it takes no argument")
+
+        chat.draft = "/comp"
+        #expect(chat.commandRows.map(\.name) == ["compact"], "which the panel names")
+        chat.draft = "/compact"
+        #expect(chat.draftCommand?.name == "compact", "and Send runs")
+    }
+
+    /// The capability is the shim's, not the agent's: a machine without it has
+    /// no terminal of the device's own to type into (A40).
+    @Test("The same agent without the shim draws no panel at all")
+    @MainActor
+    func claudeWithoutShimOffersNothing() async throws {
+        let gateway = DemoGateway()
+        let chat = try Self.chat(DemoFixtures.liveSessionID,
+                                 agent: DemoFixtures.claudeWithoutShim, gateway: gateway)
         #expect(!chat.offersCommands)
         await chat.loadCommands()
         #expect(chat.commands.isEmpty, "the app never even asks")
@@ -168,10 +189,6 @@ struct SlashCommandTests {
         #expect(chat.commandDraft == nil)
         #expect(chat.commandRows.isEmpty)
         #expect(chat.draftCommand == nil)
-
-        await #expect(throws: GatewayErrorBody.self) {
-            _ = try await gateway.request(.commands(sessionID: DemoFixtures.liveSessionID))
-        }
     }
 
     @Test("A session the terminal holds draws no panel either")

@@ -291,14 +291,24 @@ enum ProtocolChecks {
             checks.equal(agent.attach, .channel, "Claude attaches through a channel")
             checks.expect(agent.attachReady, "the device says the shim is installed")
             checks.expect(!agent.sharedInterrupt, "a channel cannot interrupt a running turn")
-            checks.expect(!agent.sharedSettings, "nor retune the thread it relays into")
             checks.expect(!agent.sharedAttachments, "nor hand it bytes")
+            // Amendment A40: the shim's pseudo-terminal is typed into, so two
+            // of the four settings are the device's and the other two are not.
+            checks.expect(agent.sharedSettings, "but the terminal it owns can be typed into")
+            checks.equal(agent.sharedSettingsKeys, ["model", "effort"],
+                         "for the two settings a command sets")
+            checks.expect(agent.shares(.model) && agent.shares(.effort),
+                          "which are the two an app draws as pickers")
+            checks.expect(!agent.shares(.permissionMode) && !agent.shares(.speed),
+                          "and the rest stay what the terminal set (A17)")
+            checks.expect(agent.supports(.commands), "the same typing runs /compact (A27)")
             checks.expect(agent.supports(.takeover), "takeover is unchanged by the attachment")
             checks.noThrow("the attachment fields survive a re-encode") {
                 let again = try JSONValue.encode(agent).decode(AgentInfo.self)
                 guard again.attach == agent.attach, again.attachReady == agent.attachReady,
                       again.sharedInterrupt == agent.sharedInterrupt,
                       again.sharedSettings == agent.sharedSettings,
+                      again.sharedSettingsKeys == agent.sharedSettingsKeys,
                       again.sharedAttachments == agent.sharedAttachments else {
                     throw ProtocolFailure.malformed("attachment fields changed")
                 }
@@ -391,6 +401,11 @@ enum ProtocolChecks {
             checks.expect(agent.sharedInterrupt, "the daemon relays an interrupt")
             checks.expect(agent.sharedSettings, "and the thread settings")
             checks.expect(agent.sharedAttachments, "and image inputs")
+            // Amendment A40: an attachment that names no subset carries all
+            // four settings, which is how every attachment but Claude's reads.
+            checks.equal(agent.sharedSettingsKeys, nil, "it names no subset of the settings")
+            checks.expect(SharedSetting.allCases.allSatisfy(agent.shares),
+                          "so all four of them are the app's to change")
             checks.expect(!agent.supports(.takeover), "there is nothing to take over from")
             checks.expect(agent.supports(.effort), "effort is one of the settings it relays")
             checks.noThrow("the two booleans survive a re-encode") {
@@ -408,6 +423,8 @@ enum ProtocolChecks {
         if let bare = try? JSONValue.object(["agent": "codex", "available": true])
             .decode(AgentInfo.self) {
             checks.expect(!bare.sharedSettings, "an agent that says nothing keeps its settings local")
+            checks.expect(!SharedSetting.allCases.contains(where: bare.shares),
+                          "so none of the four is shared, whatever the keys would have said")
             checks.expect(!bare.sharedAttachments, "and takes no attachments")
         }
 
@@ -1003,9 +1020,11 @@ enum ProtocolChecks {
             checks.expect(false, "events/tool_call.command.json decodes as a tool call")
         }
 
-        // The capability, from the protocol's own worked examples.
+        // The capability, from the protocol's own worked examples. Amendment
+        // A40 put it on Claude too, once the shim gives the device a terminal
+        // it can type `/compact` into.
         for (file, offers) in [("agent.codex-daemon.json", true), ("agent.grok.json", true),
-                               ("agent.pi.json", true), ("agent.claude-attach.json", false)] {
+                               ("agent.pi.json", true), ("agent.claude-attach.json", true)] {
             guard let agent = try? (FixtureSource.json("objects/\(file)") ?? .null).decode(AgentInfo.self)
             else {
                 checks.expect(false, "objects/\(file) decodes")

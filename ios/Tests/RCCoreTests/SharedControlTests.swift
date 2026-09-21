@@ -119,11 +119,14 @@ struct SharedControlTests {
         #expect(!store(state: .running, control: .shared, agent: nil).canStop)
     }
 
-    @Test("The terminal keeps the model, the permission mode and the effort")
+    /// Amendment A40: the terminal keeps only what nothing can be typed for.
+    @Test("The terminal keeps the permission mode, and gives up the model card")
     @MainActor
     func attachedSettingsStayInTheTerminal() {
-        #expect(!store(state: .idle, control: .shared).allowsSettingsChanges)
-        #expect(store(state: .idle, control: .remote).allowsSettingsChanges)
+        let shared = store(state: .idle, control: .shared)
+        #expect(!shared.allowsSettingsChanges(for: .permissionMode))
+        #expect(shared.allowsModelCardChanges)
+        #expect(store(state: .idle, control: .remote).allowsSettingsChanges(for: .permissionMode))
     }
 
     @Test("Attachments cannot be relayed into a live CLI")

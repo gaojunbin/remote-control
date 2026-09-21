@@ -178,7 +178,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         case "session.stop":
             return try stop(request)
         case "session.set":
-            return try applySet(request)
+            return try await applySet(request)
         case "session.takeover":
             return try takeover(request)
         case "session.archive":
@@ -624,8 +624,12 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             .first(where: { $0.name == name }) else {
             throw GatewayErrorBody(code: .notFound, message: "There is no /\(name) on this session.")
         }
+        // Amendment A40: a command on a shared Claude session is typed into
+        // the terminal, so a busy one is refused in the device's own words
+        // rather than in the words for a turn this app is waiting behind.
         guard !session.state.isWorking else {
-            throw GatewayErrorBody(code: .conflict, message: "Wait for the turn to finish.")
+            throw GatewayErrorBody(code: .conflict, message: isTypedInto(session)
+                                   ? Self.terminalIsBusy : "Wait for the turn to finish.")
         }
         let argument = request.body["argument"]?.stringValue
         emit(sessionID: id, blockID: request.id,
@@ -979,21 +983,31 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         update(sessionID: sessionID) { $0.state = .idle }
     }
 
-    private func applySet(_ request: GatewayRequest) throws -> JSONValue {
+    private func applySet(_ request: GatewayRequest) async throws -> JSONValue {
         let id = try requireSessionID(request)
         // Amendment A10: only the title is ours to change on an attached
         // session, unless amendment A11's `shared_settings` says the
-        // attachment retunes the live thread.
+        // attachment retunes the live thread — and amendment A40's
+        // `shared_settings_keys` says which of the four it carries.
         let existing = try session(id)
         let speed = request.body["speed"]
-        let retunes = request.body["model"] != nil || request.body["permission_mode"] != nil
-            || request.body["effort"] != nil || speed != nil
-        if existing.isAttached, retunes, agent(for: existing)?.sharedSettings != true {
+        let asked = Self.settingsAsked(for: request)
+        if existing.isAttached,
+           asked.contains(where: { agent(for: existing)?.shares($0) != true }) {
             throw GatewayErrorBody(code: .unsupported, message: "Change it in the terminal.")
         }
         // Amendment A21: an agent with no faster tier has nothing to set.
         if speed != nil, agent(for: existing)?.speeds.isEmpty != false {
             throw GatewayErrorBody(code: .unsupported, message: "This model has no faster tier.")
+        }
+        // Amendment A40: a Claude terminal takes this as typing, so it lands
+        // only while nobody else is at that keyboard, and it takes as long as
+        // typing a command and reading the answer back does.
+        if !asked.isEmpty, isTypedInto(existing) {
+            guard !existing.state.isWorking else {
+                throw GatewayErrorBody(code: .conflict, message: Self.terminalIsBusy)
+            }
+            try? await Task.sleep(for: Self.typingDelay)
         }
         update(sessionID: id) { session in
             if let model = request.body["model"]?.stringValue { session.model = model }
@@ -1012,6 +1026,27 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             speed: speed.map { SpeedChange(id: $0.stringValue) })))
         return try JSONValue.encode(SessionResult(session: try session(id)))
     }
+
+    /// Which of the four settings one `session.set` carries. The title is not
+    /// among them: it is the app's on every session, attached or not.
+    private static func settingsAsked(for request: GatewayRequest) -> [SharedSetting] {
+        SharedSetting.allCases.filter { request.body[$0.rawValue] != nil }
+    }
+
+    /// Amendment A40: whether a change to this session is typed into a
+    /// terminal rather than handed to a daemon. A channel carries user text
+    /// and nothing else, so the shim's pseudo-terminal is the only way in.
+    private func isTypedInto(_ session: Session) -> Bool {
+        session.isAttached && agent(for: session)?.attach == .channel
+    }
+
+    /// The device's own words for a terminal it will not type over: a turn is
+    /// running, a dialog is open, or somebody is typing there.
+    private static let terminalIsBusy = "the terminal is busy; try again in a moment"
+
+    /// How long the device takes to type a command and read the answer back
+    /// out of the transcript before it replies.
+    private static let typingDelay = Duration.milliseconds(1_500)
 
     private func takeover(_ request: GatewayRequest) throws -> JSONValue {
         let id = try requireSessionID(request)

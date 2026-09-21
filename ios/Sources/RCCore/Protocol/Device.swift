@@ -41,6 +41,12 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
     /// session. The Codex daemon applies model, permission mode and effort to
     /// the running thread; a Claude channel cannot.
     public let sharedSettings: Bool
+    /// Amendment A40: with `sharedSettings` true, which of the four settings
+    /// `session.set` really changes on a `shared` session. Claude's shim types
+    /// `/model` and `/effort` into the terminal it owns and has no command for
+    /// the permission mode, so it names the two it can do. Nil — what every
+    /// other attachment reports — means all four.
+    public let sharedSettingsKeys: [String]?
     /// Amendment A11: whether `session.send` attachments are delivered on a
     /// `shared` session. The Codex daemon takes image inputs; a Claude channel
     /// has no way to hand bytes to a live CLI.
@@ -58,6 +64,17 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
     public var displayName: String { AgentLabel.name(agent) }
 
     public func supports(_ capability: AgentCapability) -> Bool { capabilities.contains(capability) }
+
+    /// Amendment A40: whether `session.set` changes one setting on a `shared`
+    /// session of this agent. An attachment that carries nothing shares
+    /// nothing; one that names no keys shares all four; one that names them
+    /// shares exactly those, so a key this build does not know about is not
+    /// offered as a control that would be refused when tapped.
+    public func shares(_ setting: SharedSetting) -> Bool {
+        guard sharedSettings else { return false }
+        guard let sharedSettingsKeys else { return true }
+        return sharedSettingsKeys.contains(setting.rawValue)
+    }
 
     public func modelLabel(_ id: String?) -> String? {
         guard let id else { return nil }
@@ -87,6 +104,7 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
                 speeds: [AgentOption] = [], capabilities: [AgentCapability] = [],
                 attach: AgentAttach? = nil, attachReady: Bool = false,
                 sharedInterrupt: Bool = false, sharedSettings: Bool = false,
+                sharedSettingsKeys: [String]? = nil,
                 sharedAttachments: Bool = false, accounts: [AgentAccount]? = nil) {
         self.agent = agent
         self.available = available
@@ -104,6 +122,7 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
         self.attachReady = attachReady
         self.sharedInterrupt = sharedInterrupt
         self.sharedSettings = sharedSettings
+        self.sharedSettingsKeys = sharedSettingsKeys
         self.sharedAttachments = sharedAttachments
         self.accounts = accounts
     }
@@ -118,6 +137,7 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
                   efforts: efforts, defaultEffort: defaultEffort, speeds: speeds,
                   capabilities: capabilities, attach: attach, attachReady: attachReady,
                   sharedInterrupt: sharedInterrupt, sharedSettings: sharedSettings,
+                  sharedSettingsKeys: sharedSettingsKeys,
                   sharedAttachments: sharedAttachments, accounts: accounts)
     }
 
@@ -130,6 +150,7 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
         case attachReady = "attach_ready"
         case sharedInterrupt = "shared_interrupt"
         case sharedSettings = "shared_settings"
+        case sharedSettingsKeys = "shared_settings_keys"
         case sharedAttachments = "shared_attachments"
     }
 
@@ -151,6 +172,7 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
         attachReady = try values.decodeIfPresent(Bool.self, forKey: .attachReady) ?? false
         sharedInterrupt = try values.decodeIfPresent(Bool.self, forKey: .sharedInterrupt) ?? false
         sharedSettings = try values.decodeIfPresent(Bool.self, forKey: .sharedSettings) ?? false
+        sharedSettingsKeys = try values.decodeIfPresent([String].self, forKey: .sharedSettingsKeys)
         sharedAttachments = try values.decodeIfPresent(Bool.self, forKey: .sharedAttachments) ?? false
         accounts = try values.decodeIfPresent([AgentAccount].self, forKey: .accounts)
     }
