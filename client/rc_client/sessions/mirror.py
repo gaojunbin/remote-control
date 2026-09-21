@@ -652,6 +652,12 @@ class MirrorService:
             if entry.shared is not None:
                 await self.hub.shared.question_answered(entry, emit.fields.get("answers"))
             return
+        if emit.kind == transcripts.COMMAND_OUTPUT:
+            # Amendment A40: what the CLI said back, which is what confirms a
+            # command the device typed. Never a block, whoever typed it.
+            if entry.shared is not None:
+                await self.hub.shared.command_output(entry, str(emit.fields.get("text") or ""))
+            return
         if entry.shared is not None and emit.kind == "tool_call":
             status = str(emit.fields.get("status") or "")
             if status in {"succeeded", "failed"}:
@@ -660,6 +666,16 @@ class MirrorService:
                 )
         if emit.kind == "todos":
             await entry.channel.publish_todos(list(emit.fields.get("items") or []))
+            return
+        # Amendment A40: a `terminal` row may be the device's own keystrokes
+        # coming back. A command it typed is not the person speaking, and the
+        # app already has the bubble it asked for.
+        if (
+            emit.kind == "user_message"
+            and emit.fields.get("source") == "terminal"
+            and entry.shared is not None
+            and await self.hub.shared.typed_command(entry, str(emit.fields.get("text") or ""))
+        ):
             return
         if emit.kind == "user_message" and emit.fields.get("source") != "agent":
             # A session is named after its first message, and a teammate's

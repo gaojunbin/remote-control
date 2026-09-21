@@ -40,6 +40,12 @@ _MESSAGE_ID_RE = re.compile(r'message_id="([^"]{1,64})"')
 CHANNEL_DELIVERED = "channel_delivered"
 CHANNEL_ABSORBED = "channel_absorbed"
 
+# Amendment A40: what the CLI printed back after a typed command. It is never
+# published — it carries terminal escapes no app can show — but it is the only
+# record that a command the device typed actually did anything, so it is
+# reported as a signal of its own rather than dropped where it is read.
+COMMAND_OUTPUT = "command_output"
+
 # Amendment A20: the result row of an `AskUserQuestion` is how the device hears
 # that the person answered the CLI's own dialog. `toolUseResult` carries what
 # they chose, under the question's own prompt.
@@ -440,10 +446,11 @@ class TranscriptTailer:
         if markers.is_command_output(said):
             # The CLI answered the command, which is the end of what it did —
             # and the end of the keystroke the next tag could be a repeat of,
-            # so the same command typed again is a message of its own.
+            # so the same command typed again is a message of its own. The
+            # answer itself is never published, only reported (A40).
             self.awaiting_reply = False
             self.last_message = ""
-            return []
+            return [Emit(COMMAND_OUTPUT, {"text": said})]
         command = markers.typed_command(said)
         if command is not None:
             return self._command(row, command)

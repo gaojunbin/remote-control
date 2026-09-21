@@ -1,12 +1,13 @@
 """The daemon end of the channel: a Unix socket the `rc-client channel` bridges dial.
 
-A connection is one of three things: an attached CLI session, held open for as
+A connection is one of four things: an attached CLI session, held open for as
 long as that session lives; a single `session_start` frame from the hook Claude
-Code runs when a terminal enters a session; or a `question` frame from the hook
+Code runs when a terminal enters a session; a `question` frame from the hook
 it runs beside an `AskUserQuestion` dialog, which stays open until the question
-is answered somewhere (amendment A20). The socket lives inside the device home
-with owner-only permissions, because anything that can write to it can inject
-prompts into a live agent and approve its tool calls.
+is answered somewhere (amendment A20); or the pseudo-terminal proxy the shim
+starts the CLI inside, which the device types into (A40). The socket lives
+inside the device home with owner-only permissions, because anything that can
+write to it can inject prompts into a live agent and approve its tool calls.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from typing import Any, Protocol
 
 from ..channel import wire
 from ..logging_setup import logger
+from .ptys import PtyLink, PtyLinks
 
 log = logger("rc_client.attach")
 
@@ -139,6 +141,9 @@ class AttachServer:
         self._sink = sink
         self._server: asyncio.AbstractServer | None = None
         self._connections: set[asyncio.Task[None]] = set()
+        # The pseudo-terminals the shim started, by the pid of the CLI in each
+        # one (A40). The hub reads them; nothing here needs the sink.
+        self.ptys = PtyLinks()
 
     async def start(self) -> None:
         self._prepare_directory()
@@ -164,17 +169,26 @@ class AttachServer:
                 self.path.unlink()
 
     async def stop(self) -> None:
+        """Close the socket and everything on it, in that order.
+
+        `wait_closed` waits for the handlers, and ours are held open for the
+        life of a terminal, so the connections are cancelled before it is
+        awaited: otherwise the daemon cannot shut down while anyone has an
+        attached Claude Code open.
+        """
         server, self._server = self._server, None
         if server is not None:
             server.close()
-            with contextlib.suppress(Exception):
-                await server.wait_closed()
         for task in list(self._connections):
             task.cancel()
         for task in list(self._connections):
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
         self._connections.clear()
+        self.ptys.clear()
+        if server is not None:
+            with contextlib.suppress(Exception):
+                await server.wait_closed()
         with contextlib.suppress(FileNotFoundError, OSError):
             self.path.unlink()
 
@@ -204,6 +218,9 @@ class AttachServer:
             return
         if message.get("type") == wire.QUESTION:
             await self._question(message, reader, writer)
+            return
+        if message.get("type") == wire.PTY:
+            await self._pty(message, reader, writer)
             return
         attachment = await self._register(message, writer)
         if attachment is None:
@@ -240,6 +257,31 @@ class AttachServer:
         finally:
             question.close()
             await self._sink.attach_question_closed(question)
+
+    async def _pty(
+        self, message: dict[str, Any], reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        """Hold a pseudo-terminal proxy open and answer nothing but its replies.
+
+        The proxy speaks only when spoken to, so the read loop exists to learn
+        that the terminal has gone: end-of-file is the CLI exiting, and the
+        link is dropped so nothing types into a terminal that is not there.
+        """
+        try:
+            pid = int(message.get("pid") or 0)
+        except (TypeError, ValueError):
+            return
+        if pid <= 0:
+            return
+        link = PtyLink(pid, writer)
+        self.ptys.add(link)
+        try:
+            async for line in reader:
+                answer = wire.decode(line)
+                if answer is not None:
+                    link.resolve(answer)
+        finally:
+            self.ptys.remove(link)
 
     @staticmethod
     async def _opening_frame(reader: asyncio.StreamReader) -> dict[str, Any] | None:

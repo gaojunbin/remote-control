@@ -13,10 +13,17 @@ A question the CLI asks is the one thing here that both sides can answer at the
 same moment (amendment A20). The terminal's dialog and the block raised from the
 `PermissionRequest` hook are one question; whichever answers first wins, and the
 other side is told what happened.
+
+A Claude channel carries user text and nothing else, so a settings change and
+`/compact` are typed into the terminal instead, through the pseudo-terminal the
+shim started the CLI inside (amendment A40). The scripts live in `typist.py`;
+what is here is the claim on the transcript rows they leave behind, which is
+the only thing that confirms a change actually happened.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -35,6 +42,8 @@ from ..models import now_ms
 from . import titles
 from .attach import Attachment, HookQuestion
 from .limits import TurnEnd
+from .ptys import PtyLink
+from .typist import COMPACT_COMMAND, TypedCommand, Typist
 
 if TYPE_CHECKING:  # pragma: no cover - imported for types only
     from .hub import SessionEntry, SessionHub
@@ -94,6 +103,8 @@ class SharedState:
     by_channel: dict[str, str] = field(default_factory=dict)
     # One question at a time: the CLI asks the person one thing and waits.
     question: SharedQuestion | None = None
+    # The command the device is typing into the terminal right now (A40).
+    typed: TypedCommand | None = None
 
     def remember(self, item: dict[str, Any]) -> None:
         self.sent[str(item["message_id"])] = item
@@ -112,13 +123,21 @@ class SharedState:
         return (time.monotonic() - self.inflight_at) < INFLIGHT_TIMEOUT
 
     @property
+    def busy_typing(self) -> bool:
+        """Whether a command the device typed is still running (A40)."""
+        return self.typed is not None and not self.typed.expired
+
+    @property
     def injectable(self) -> bool:
         """Whether a message can go into the CLI right now.
 
         A question on screen is not an idle CLI: its dialog owns the prompt, and
-        an injection would be read as an answer to it.
+        an injection would be read as an answer to it. Neither is a terminal the
+        device is in the middle of typing a command into (A40).
         """
-        return not self.running and not self.waiting and self.question is None
+        return (
+            not self.running and not self.waiting and self.question is None and not self.busy_typing
+        )
 
 
 def pending_item(text: str, request_id: str, source: str = "remote") -> dict[str, Any]:
@@ -196,6 +215,7 @@ class SharedControl:
             await self._emit_approval(entry, approval, status="expired")
         state.approvals.clear()
         state.by_channel.clear()
+        self._drop_typed(state)
         await self._expire_question(entry, state)
         entry.session.control = control  # type: ignore[assignment]
         await entry.channel.emit("meta", control=control)
@@ -221,6 +241,7 @@ class SharedControl:
         if state.question is not None:
             await state.question.hook.answer(None)
             state.question = None
+        self._drop_typed(state)
         state.attachment.detach()
 
     # ------------------------------------------------------------ transcript
@@ -391,6 +412,96 @@ class SharedControl:
             source=str(item.get("source") or "remote"),
             delivery=delivery,
         )
+
+    # ---------------------------------------------------------------- typing
+
+    def terminal(self, entry: SessionEntry) -> PtyLink:
+        """The pseudo-terminal this session's CLI runs in, or the refusal (A40)."""
+        state = entry.shared
+        link = self.hub.ptys.get(state.attachment.pid) if state is not None else None
+        if link is None:
+            raise RcError(
+                "conflict", "this terminal cannot be typed into; start it again to attach"
+            )
+        return link
+
+    @staticmethod
+    def _drop_typed(state: SharedState) -> None:
+        """The terminal went away mid-script: whoever is waiting gets a refusal."""
+        pending, state.typed = state.typed, None
+        if pending is not None:
+            pending.resolve(False)
+
+    def expect(self, entry: SessionEntry, command: str, confirms: str = "") -> TypedCommand:
+        """Claim the transcript rows the command about to be typed will leave."""
+        state = entry.shared
+        if state is None:
+            raise RcError("conflict", "the session is no longer attached")
+        pending = TypedCommand(
+            command=command,
+            confirms=confirms,
+            done=asyncio.get_running_loop().create_future() if confirms else None,
+        )
+        state.typed = pending
+        return pending
+
+    def unclaim(self, entry: SessionEntry, pending: TypedCommand) -> None:
+        """Give up the claim: the script failed, or nothing is coming."""
+        state = entry.shared
+        if state is not None and state.typed is pending:
+            state.typed = None
+        pending.resolve(False)
+
+    async def set_settings(
+        self, entry: SessionEntry, model: str | None, effort: str | None
+    ) -> None:
+        """Type the settings change into the terminal and wait for it to take.
+
+        The lock is what keeps a person's message from being injected between
+        two of the device's keystrokes; the reply to `session.set` waits for
+        the transcript, so the `Session` an app receives is what runs now.
+        """
+        async with entry.lock:
+            typist = Typist(entry, self.terminal(entry), self)
+            if model is not None:
+                await typist.set_model(model)
+            if effort is not None:
+                await typist.set_effort(effort)
+
+    async def run_command(self, entry: SessionEntry, name: str, block_id: str) -> None:
+        """Run one slash command by typing it (A27 through A40)."""
+        if name != COMPACT_COMMAND.lstrip("/"):
+            raise RcError("not_found", f"/{name} is not a command this session offers")
+        async with entry.lock:
+            await Typist(entry, self.terminal(entry), self).compact(block_id)
+
+    async def typed_command(self, entry: SessionEntry, text: str) -> bool:
+        """A `<command-name>` row: ours, or the person's own keystrokes (A32).
+
+        True means the device typed it, so the row is not published: the app
+        has its own bubble for a command it asked for, and a settings change
+        is not a message at all.
+        """
+        state = entry.shared
+        pending = state.typed if state is not None else None
+        if pending is None or pending.expired:
+            return False
+        if text.split(" ", 1)[0] != pending.command:
+            return False
+        pending.seen = True
+        if not pending.confirms and state is not None:
+            state.typed = None
+        return True
+
+    async def command_output(self, entry: SessionEntry, text: str) -> None:
+        """What the CLI printed back: the only thing that confirms a change."""
+        state = entry.shared
+        pending = state.typed if state is not None else None
+        if pending is None or not pending.confirms or not pending.seen:
+            return
+        if state is not None:
+            state.typed = None
+        pending.resolve(pending.confirms in text.lower())
 
     # ------------------------------------------------------------- approvals
 

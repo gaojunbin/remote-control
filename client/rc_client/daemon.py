@@ -61,6 +61,8 @@ class Daemon:
             self.hub, config.mirror, codex_daemon=self.codex, grok_leader=self.grok
         )
         self.attach = AttachServer(channel_paths.socket_path(), self.hub)
+        # A40: the terminals the shim started, which the hub types into.
+        self.hub.ptys = self.attach.ptys
         self.pi = PiExtensionService(self.hub)
         self.hub.pi_extensions = self.pi
         self.pi_socket = PiExtensionServer(pi_paths.socket_path(), self.pi)

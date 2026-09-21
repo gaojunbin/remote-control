@@ -172,7 +172,9 @@ def test_transcript_meta_and_placeholder_rows_are_skipped() -> None:
     tailer = TranscriptTailer(path="/dev/null", cwd="/repo")
     meta = dict(user_row("<command-name>/clear</command-name>"), isMeta=True)
     assert tailer.translate(meta) == []
-    assert tailer.translate(user_row("<local-command-stdout>done")) == []
+    answered = tailer.translate(user_row("<local-command-stdout>done"))
+    # A40: reported to the device, never published to an app.
+    assert [emit.kind for emit in answered] == [claude_transcripts.COMMAND_OUTPUT]
     assert tailer.translate(user_row("No response requested.")) == []
     assert tailer.awaiting_reply is False
     typed = user_row("<command-name>/clear</command-name>", uuid="u-clear")

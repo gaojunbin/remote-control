@@ -33,6 +33,7 @@ from ...sessions.channel import SessionChannel
 from ...sessions.limits import LimitStop, claude_transcript_limit
 from ..base import Emit
 from . import subagents, transcripts
+from .commands import COMMANDS, COMPACT
 from .questions import QUESTION_TOOL, answers_by_prompt, normalise_questions
 from .translate import ClaudeTranslator
 
@@ -434,10 +435,13 @@ class ClaudeRunner:
         return True
 
     async def commands(self) -> list[Command]:
-        return []
+        return list(COMMANDS)
 
     async def command(self, name: str, argument: str | None, block_id: str) -> None:
-        raise RcError("not_found", f"/{name} is not a command this session offers")
+        """A27: the CLI interprets its own commands, so the text is the turn."""
+        if name != COMPACT.name:
+            raise RcError("not_found", f"/{name} is not a command this session offers")
+        await self.send(f"/{name}", block_id=block_id)
 
     async def apply_settings(
         self,
