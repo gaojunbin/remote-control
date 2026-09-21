@@ -2296,6 +2296,34 @@ agents (the Grok path is tested against the fake agent; Claude's and pi's `shutd
 `close` that already ended their processes). The first real Grok close is the VPS deploy of 1.5.2
 with a device updated to it.
 
+## 45. The Enter that confirms an input method's text does not send (2026-09-21, 1.5.3)
+
+The owner found that, typing English under a Chinese IME on the web, the Enter that confirms the
+composed letters sent the message instead of putting the letters in the field for a second Enter to
+send. The composer already refused an Enter while `isComposing` was set or a composition was open,
+which is how Chrome and Firefox report the confirming keystroke. WebKit — Safari on the Mac and on
+iOS — orders the events the other way round: `compositionend` first, then a keydown for the same
+press with `isComposing` false (WebKit bug 165004), so the check saw an ordinary Enter. Ruled in
+`docs/DESIGN.md` § "The composer" (the input method's Enter is never Send) and explained in
+`docs/WEB.md` § "Behaviour worth knowing".
+
+**Web.** `src/features/chat/useImeGuard.ts` replaces the bare ref in the composer: it tracks the
+open composition, reads `isComposing`, and lets a composition that ended in the current task keep
+the Enter that follows it, dropping the claim on a zero timer before the next task — the two
+events come out of one key press and are dispatched synchronously, and a person's next press is
+tasks away. Both Enter handlers (the command menu's and the field's) ask the one predicate. The new
+test plays both orderings against the composer and then sends with a later Enter; it fails without
+the same-task claim. Tests 725 → 726.
+
+**Counts.** Gateway 435 and client 1175 (+3 skipped) untouched, web 726, RCVerify 1449, RCUIVerify
+577, unit tests 395. All four components 1.5.3 (a fix release), iOS build 19, tag v1.5.3.
+
+**Not verified.** The fix against a real Safari with a Chinese IME: the event order it corrects is
+WebKit's documented one and the test reproduces it, but no browser on this machine can be driven
+through the input method without taking over the owner's keyboard. The owner's own browser is the
+check, after the VPS deploy of 1.5.3. The iOS app was not touched; its text fields leave the
+confirming Return to the system keyboard.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

@@ -394,6 +394,18 @@ Nothing of this reaches the gateway.
   already recognised are in that session's draft. Nothing typed for one session can reach another,
   and a question waiting in the session being opened never sees the words meant for the one being
   left. A refused send hands the words and the files back to the session they were meant for.
+- **The Enter that confirms an input method's text is not Send** (`docs/DESIGN.md` § "The
+  composer"). `src/features/chat/useImeGuard.ts` owns the composition state the composer's two
+  Enter handlers ask before sending. Chrome and Firefox mark the keydown itself (`isComposing`),
+  and the composition events bracket it. WebKit — Safari on the Mac and on iOS — fires
+  `compositionend` *before* the keydown of the Enter that confirmed the text, with `isComposing`
+  already false (WebKit bug 165004), so that keydown alone cannot tell; both events come out of
+  one key press, dispatched synchronously in one task, so the hook lets a composition that ended
+  in the current task keep the Enter that follows it and drops the claim on a zero timer before
+  the next task. A microtask would not do: React's delegated `compositionend` listener returns
+  before the keydown is dispatched, and the microtask checkpoint runs between the two. Round 45:
+  the owner found the bare `isComposing` check sending on the confirming Enter under a Chinese
+  IME.
 - **The transcript is bounded.** `MAX_TIMELINE_ITEMS` in `src/stores/timeline.ts` caps a live
   timeline at 3 000 rows: past it the oldest go, `oldestSeq` moves forward with them and `dropped`
   counts them, which is how the chat store knows to set `historyHasMore` again — scrolling back

@@ -703,7 +703,11 @@ and Send offered while the model was still writing, was exactly that. Typing int
 the spinner is up ends the wait: the person's words win, the request out is dropped, and Send comes
 back. The rule is the composer's, on both apps. On the web, Enter is Send and waits with it — a
 keystroke that sent while the spinner is up would be the button in another guise — and the "⋯"
-menu beside Send, whose only item is a send, is not drawn while the spinner is.
+menu beside Send, whose only item is a send, is not drawn while the spinner is. The one Enter
+that is never Send is the input method's: under a Chinese or Japanese IME the letters are
+composed first and Enter confirms them, and that press only puts the words in the field — the
+next one sends. A confirmation that sent would be a message the person had not finished
+writing.
 
 **A draft belongs to its session.** Words typed and files attached for one session stay with it
 when another is opened, and are found again on return, on both apps. Nothing typed for one session
