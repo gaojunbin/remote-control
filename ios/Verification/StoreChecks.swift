@@ -81,14 +81,19 @@ enum StoreChecks {
         checks.expect(pi.commandDraft == nil, "a slash inside a sentence is prose")
         checks.expect(pi.draftCommand == nil, "and Send treats it as the message it is")
 
-        // Claude lists no capability, so `/` is an ordinary character and the
-        // app never asks the device anything.
+        // Amendment A40: the same typing that sets the model runs one command,
+        // so Claude carries the capability and offers exactly `/compact`.
         guard let claude = chat(DemoFixtures.liveSessionID, DemoFixtures.claude) else { return }
         await claude.loadCommands()
-        checks.expect(!claude.offersCommands, "Claude takes no commands")
-        checks.expect(claude.commands.isEmpty, "so nothing is fetched for it")
-        claude.draft = "/compact"
-        checks.expect(claude.commandRows.isEmpty, "and no panel is drawn")
+        checks.expect(claude.offersCommands, "Claude takes the one command it can be typed")
+        checks.equal(claude.commands.map(\.name), ["compact"], "which is /compact and nothing else")
+        claude.draft = "/comp"
+        checks.equal(claude.commandRows.map(\.name), ["compact"], "and the panel names it")
+
+        // A machine with no shim has no pseudo-terminal to type into, so that
+        // same agent takes no commands there.
+        guard let bare = chat(DemoFixtures.liveSessionID, DemoFixtures.claudeWithoutShim) else { return }
+        checks.expect(!bare.offersCommands, "and without the shim it takes none")
 
         // A session a terminal holds takes nothing typed here, whatever it
         // offers, so the panel stays shut on it too.
@@ -132,17 +137,30 @@ enum StoreChecks {
         func shown(_ chat: ChatStore) -> [String] { chat.terminalSettings.map(\.text) }
 
         let terminal = store(control: .terminal)
-        checks.expect(terminal.isTunedByTerminal, "a terminal session is tuned where the app cannot reach")
-        checks.expect(!terminal.allowsSettingsChanges, "so the controls are not offered")
+        checks.expect(!terminal.allowsModelCardChanges, "a terminal session offers no model card")
+        checks.expect(!terminal.allowsSettingsChanges(for: .permissionMode),
+                      "and no permission picker either")
         checks.equal(terminal.terminalSettings.map(\.id), ["modelCard", "permissionMode"],
                      "and the values stand in the order the live controls stand in")
         checks.equal(shown(terminal), ["Sonnet 4.5 High", "auto"],
                      "labelled by the agent's own lists, and by the raw id where they do not know it")
 
-        checks.equal(shown(store(control: .shared)), ["Sonnet 4.5 High", "auto"],
-                     "a Claude channel cannot retune the thread either, so it shows the same two")
+        // Amendment A40: the shim types `/model` and `/effort` into the
+        // terminal, so the card is a control on a shared Claude session and
+        // only the permission mode is left standing as a value.
+        let typed = store(control: .shared)
+        checks.expect(typed.allowsModelCardChanges, "what the device can type is a control again")
+        checks.expect(!typed.isSettingPending,
+                      "and it waits for the device only while a change is being typed in")
+        checks.expect(!typed.allowsSettingsChanges(for: .permissionMode),
+                      "and what it has no command for is not")
+        checks.equal(shown(typed), ["auto"],
+                     "so one value stands where two did, and the card is live beside it")
+        checks.expect(store(control: .shared, agent: DemoFixtures.claudeWithoutShim)
+                        .allowsModelCardChanges == false,
+                      "a machine with no shim has no pseudo-terminal to type into")
         checks.expect(store(control: .shared, agent: DemoFixtures.codex).terminalSettings.isEmpty,
-                      "an attachment that carries settings keeps its controls and shows nothing")
+                      "an attachment that carries every setting keeps its controls and shows nothing")
         checks.expect(store(control: .remote).terminalSettings.isEmpty,
                       "and a session this app drives shows nothing")
 
@@ -168,12 +186,19 @@ enum StoreChecks {
 
         // The terminal switches model mid-session. The device publishes it as
         // `meta`; the chip follows without a reload and without a `session.set`.
-        let live = store(control: .shared)
+        let live = store(control: .terminal)
         let meta = SessionEvent(seq: 9, ts: 1, kind: SessionEvent.metaKind,
                                 body: .meta(MetaPayload(model: "claude-opus-4-1")))
         live.receive(.sessionEvent(sessionID: "s", deviceID: "d", event: meta))
         checks.equal(live.session.model, "claude-opus-4-1", "a meta with a model reaches the session")
         checks.equal(shown(live), ["Opus 4.1 High", "auto"], "and the chip says what the terminal chose")
+
+        // Amendment A40: the card the app may open reads the same session the
+        // same way, so a model somebody typed in the terminal reaches it too.
+        let shared = store(control: .shared)
+        shared.receive(.sessionEvent(sessionID: "s", deviceID: "d", event: meta))
+        checks.equal(TerminalSetting.modelCardText(for: shared.session, agent: shared.agent),
+                     "Opus 4.1 High", "and the live card words it identically")
     }
 
     /// Amendment A21: a speed tier beside the model and the effort. One control
@@ -695,8 +720,11 @@ enum StoreChecks {
         checks.expect(!chat.isReadOnly, "an attached session is not read-only")
         checks.expect(chat.isAttached, "and reports itself as attached")
         checks.expect(!chat.canTakeover, "takeover is never offered on an attached session")
-        checks.expect(!chat.allowsSettingsChanges,
-                      "model, permission mode and effort belong to the terminal")
+        // Amendment A40: the device types the model and the effort into the
+        // terminal; the permission mode has no command it could type.
+        checks.expect(chat.allowsModelCardChanges, "the model card is a control again")
+        checks.expect(!chat.allowsSettingsChanges(for: .permissionMode),
+                      "and the permission mode belongs to the terminal")
         checks.expect(!chat.allowsAttachments, "and attachments cannot reach a live CLI")
 
         // Amendment A20: an earlier question the person at the terminal answered
@@ -794,7 +822,8 @@ enum StoreChecks {
         await settle { chat.timeline.entries.count >= 3 }
 
         checks.expect(chat.isAttached, "the daemon shares the thread with the terminal")
-        checks.expect(chat.allowsSettingsChanges, "the pickers open because shared_settings is true")
+        checks.expect(chat.allowsModelCardChanges && chat.allowsSettingsChanges(for: .permissionMode),
+                      "the pickers open because shared_settings names no subset")
         checks.expect(chat.allowsAttachments, "and the attachment button because shared_attachments is")
         checks.expect(chat.canStop, "a running shared thread offers Stop")
         checks.expect(!chat.canTakeover, "and still never a takeover")
@@ -878,7 +907,8 @@ enum StoreChecks {
         checks.equal(chat.agent?.attach, .leader, "the agent attaches through the leader")
         checks.expect(chat.isAttached, "the leader shares the session with the terminal")
         checks.equal(chat.session.origin, .terminal, "which is where it was started")
-        checks.expect(chat.allowsSettingsChanges, "the pickers open because shared_settings is true")
+        checks.expect(chat.allowsModelCardChanges && chat.allowsSettingsChanges(for: .permissionMode),
+                      "the pickers open because shared_settings names no subset")
         checks.expect(!chat.allowsAttachments, "and the attachment button is gone, because it is not")
         checks.expect(chat.canStop, "session/cancel from here stops the terminal's turn")
         checks.expect(!chat.canTakeover, "and an attached session never offers a takeover")

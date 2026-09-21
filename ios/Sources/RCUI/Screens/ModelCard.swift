@@ -58,8 +58,14 @@ struct ModelCardChip: View {
             }
         }
         .buttonStyle(ChipButtonStyle())
+        // Amendment A40: while a change is being typed into a terminal the
+        // chip is the waiting control. It takes no second change, and it
+        // dims, so a card dismissed mid-wait still says one is in flight.
+        .disabled(chat.isSettingPending)
+        .opacity(chat.isSettingPending ? 0.5 : 1)
         .accessibilityLabel("Model")
         .accessibilityValue(ModelCardText.spoken(for: chat.session, agent: agent))
+        .accessibilityHint(chat.isSettingPending ? L10n.string("Waiting for the terminal") : "")
         .accessibilityIdentifier("composer.modelCard")
         .popover(isPresented: $isOpen, arrowEdge: .bottom) {
             ModelCard(chat: chat, agent: agent)
@@ -170,13 +176,21 @@ private struct ModelCard: View {
         .frame(minWidth: 280)
         .onAppear { stop = currentEffortIndex }
         .onChange(of: chat.session.effort) { _, _ in stop = currentEffortIndex }
+        // Amendment A40: the thumb is where the finger left it while the
+        // device types the level in. When the answer lands the row reads the
+        // session again, so a refused level slides back rather than standing
+        // as a level the terminal never took.
+        .onChange(of: chat.isSettingPending) { _, pending in
+            if !pending { stop = currentEffortIndex }
+        }
     }
 
     // MARK: - Row one
 
-    /// A tap cycles standard → each tier the agent lists → standard. The
-    /// lightning fills on the tap, because the store draws the change before
-    /// the request leaves.
+    /// A tap cycles standard → each tier the agent lists → standard. On a
+    /// session this app drives the lightning fills on the tap, because the
+    /// store draws the change before the request leaves; on a shared one it
+    /// fills when the device says the tier took (A40).
     private var speedToggle: some View {
         Button {
             guard let next = chat.nextSpeed else { return }
@@ -190,6 +204,7 @@ private struct ModelCard: View {
                             in: Circle())
         }
         .buttonStyle(.plain)
+        .disabled(chat.isSettingPending)
         .accessibilityLabel("Speed")
         .accessibilityValue(speedValue)
         .accessibilityIdentifier("composer.speed")
@@ -204,17 +219,26 @@ private struct ModelCard: View {
                     ModelNameLabel(model: modelLabel, effort: effortLabel)
                 }
                 Spacer(minLength: Theme.Space.tight)
-                Image(systemName: showsModels ? "chevron.up" : "chevron.down")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Theme.inkSecondary)
+                // Amendment A40: the change is being typed into a terminal and
+                // the answer comes from its transcript. The spinner takes the
+                // chevron's place rather than standing beside it, so nothing
+                // on the row moves while the device types.
+                if chat.isSettingPending {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: showsModels ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.inkSecondary)
+                }
             }
             .frame(minHeight: Theme.Touch.minimum)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(models.isEmpty)
+        .disabled(models.isEmpty || chat.isSettingPending)
         .accessibilityLabel("Model")
         .accessibilityValue(modelLabel)
+        .accessibilityHint(chat.isSettingPending ? L10n.string("Waiting for the terminal") : "")
         .accessibilityIdentifier("composer.model")
     }
 
@@ -229,6 +253,9 @@ private struct ModelCard: View {
         }
         .accessibilityLabel("Effort")
         .accessibilityIdentifier("composer.effort")
+        // The thumb must not move while the last level is still being typed
+        // in, or it would show a level the terminal is not on (A40).
+        .disabled(chat.isSettingPending)
     }
 
     private var modelList: some View {
@@ -253,6 +280,7 @@ private struct ModelCard: View {
                 .accessibilityIdentifier("composer.model.\(option.id)")
             }
         }
+        .disabled(chat.isSettingPending)
     }
 
     // MARK: - Values

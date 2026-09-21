@@ -96,7 +96,8 @@ func run() async -> (passed: Int, failures: [String]) {
             expect(!chat.showsTodos, "and the header carries no todo chip")
             // Amendment A17: this session is the app's own, so its settings are
             // offered rather than shown.
-            expect(chat.allowsSettingsChanges, "a session this app drives keeps its pickers")
+            expect(chat.allowsModelCardChanges, "a session this app drives keeps its model card")
+            expect(chat.allowsSettingsChanges(for: .permissionMode), "and its permission picker")
             expect(chat.terminalSettings.isEmpty, "and shows no read-only chips beside them")
 
             // Nothing is fetched: the same transcript is filtered, both ways.
@@ -144,8 +145,8 @@ func run() async -> (passed: Int, failures: [String]) {
         // Amendment A17: the composer cannot retune this session, so it shows
         // the three values the device read out of the terminal's transcript
         // where the pickers would be.
-        expect(locked.isTunedByTerminal, "a terminal session is tuned where this app cannot reach")
-        expect(!locked.allowsSettingsChanges, "so no control is offered")
+        expect(!locked.allowsModelCardChanges, "a terminal session is tuned where this app cannot reach")
+        expect(!locked.allowsSettingsChanges(for: .permissionMode), "so no control is offered")
         equal(locked.terminalSettings.map(\.id), ["modelCard", "permissionMode"],
               "and the chips stand in the order the live controls stand in (A21)")
         equal(locked.terminalSettings.map(\.text), ["Sonnet 4.5 High", "Ask before edits"],
@@ -172,7 +173,14 @@ func run() async -> (passed: Int, failures: [String]) {
         expect(!chat.canTakeover, "takeover is never offered on an attached session")
         expect(!chat.canStop, "and a Claude channel cannot interrupt the turn")
         expect(!chat.allowsAttachments, "attachments cannot reach a live CLI")
-        expect(!chat.allowsSettingsChanges, "model, permission mode and effort stay in the terminal")
+        // Amendment A40: the shim runs that CLI inside a pseudo-terminal the
+        // device owns, so the model and the effort are typed in from here and
+        // only the permission mode is left where the terminal put it.
+        expect(chat.allowsModelCardChanges, "the model and the effort are typed into the terminal")
+        expect(!chat.allowsSettingsChanges(for: .permissionMode),
+               "and the permission mode stays the terminal's, because nothing types it")
+        expect(chat.offersCommands, "and the command panel opens, because /compact can be typed")
+        expect(!chat.isSettingPending, "with nothing waiting on that terminal yet")
         equal(chat.statusLine, nil, "and the composer repeats none of it")
         equal(shared.statusLabel, "terminal · attached", "the chat header names the terminal")
         equal(shared.originLabel, "Terminal", "and its row says only where it came from")
@@ -186,11 +194,13 @@ func run() async -> (passed: Int, failures: [String]) {
         equal(TerminalSetting.all(for: shared, agent: model.agent(for: shared)).map(\.text),
               ["Sonnet 4.5 High", "auto"],
               "a Claude channel shows what the device read, and `auto` by its raw id")
-        // Somebody types `/model` in that terminal. There is no picker here to
-        // keep in step, only the chip, and it follows the `meta` in place.
+        equal(chat.terminalSettings.map(\.text), ["auto"],
+              "but only the one it cannot type stands as a value (A40)")
+        // Somebody types `/model` in that terminal. The card here is a live
+        // control and follows the `meta` in place, without a reload.
         await settle { chat.session.model == "claude-opus-4-1" }
-        equal(chat.terminalSettings.map(\.text), ["Opus 4.1 High", "auto"],
-              "and a model changed in the terminal reaches the chip without a reload")
+        equal(TerminalSetting.modelCardText(for: chat.session, agent: chat.agent), "Opus 4.1 High",
+              "and a model changed in the terminal reaches the card without a reload")
         await model.closeChat()
     } else {
         expect(false, "the demo has an attached session")
@@ -208,7 +218,8 @@ func run() async -> (passed: Int, failures: [String]) {
             return (passed, failures)
         }
         expect(chat.isAttached, "the daemon shares the thread with the terminal")
-        expect(chat.allowsSettingsChanges, "shared_settings reopens the model and effort pickers")
+        expect(chat.allowsModelCardChanges && chat.allowsSettingsChanges(for: .permissionMode),
+               "shared_settings names no subset, so every picker reopens")
         expect(chat.terminalSettings.isEmpty,
                "and A17 draws no read-only chips where the pickers are live")
         expect(chat.allowsAttachments, "shared_attachments reopens the attachment button")
@@ -450,7 +461,8 @@ func run() async -> (passed: Int, failures: [String]) {
         equal(chat.agent?.permissionModes.map(\.id), ["untrusted", "on-request", "never"],
               "A26: pi's permission modes are the device's own, enforced by the extension")
         equal(chat.agent?.attach, AgentAttach.extension, "which pi loads into every session")
-        expect(chat.allowsSettingsChanges, "a pi session the app started keeps its live controls")
+        expect(chat.allowsModelCardChanges && chat.allowsSettingsChanges(for: .permissionMode),
+               "a pi session the app started keeps its live controls")
         equal(ModelCardText.words(for: piSession, agent: chat.agent), "Claude Sonnet 4.5 Medium",
               "and its model card carries the model and the thinking level")
         equal(ModelCardSizing.pairs(for: chat.agent, model: "pi").count, 8,
@@ -463,7 +475,7 @@ func run() async -> (passed: Int, failures: [String]) {
         let chat = ChatStore(session: grokSession, channel: DemoGateway())
         chat.agent = model.agent(for: grokSession)
         expect(chat.isReadOnly, "a Grok session mirrored from a terminal is read-only")
-        expect(chat.isTunedByTerminal, "and is tuned where this app cannot reach")
+        expect(!chat.allowsModelCardChanges, "and is tuned where this app cannot reach")
         equal(chat.terminalSettings.map(\.id), ["modelCard"],
               "its update log carries no permission mode, so one chip stands where two would")
         equal(chat.terminalSettings.map(\.text), ["Grok 4.6 High"],
@@ -505,7 +517,7 @@ func run() async -> (passed: Int, failures: [String]) {
             expect(!chat.isReadOnly, "so the composer takes what is typed into it")
             equal(chat.session.origin, EventSource.terminal, "though the terminal started it")
             expect(chat.canStop, "shared_interrupt and the capability together offer Stop")
-            expect(chat.allowsSettingsChanges, "shared_settings keeps the model card live")
+            expect(chat.allowsModelCardChanges, "shared_settings keeps the model card live")
             expect(!chat.allowsAttachments, "and shared_attachments is false, so there is no `+`")
             expect(chat.attachHint == nil, "an attached session explains nothing; it works")
             equal(ModelCardText.words(for: chat.session, agent: chat.agent), "Grok 4.6 High",

@@ -94,14 +94,15 @@ struct AgentsTests {
         }
     }
 
-    /// Amendment A27: three of the four agents take slash commands from an app,
-    /// and Claude never does — a channel carries user text and nothing else.
-    @Test("Three agents take commands, and Claude does not")
+    /// Amendment A27 gave three of the four agents slash commands from an app.
+    /// Amendment A40 gave Claude one: the shim's pseudo-terminal is typed into,
+    /// so `/compact` can be run there — and only where the shim is installed.
+    @Test("All four agents take commands, and Claude only behind its shim")
     func commandCapability() {
         #expect(DemoFixtures.codex.supports(.commands))
         #expect(DemoFixtures.grok.supports(.commands))
         #expect(DemoFixtures.pi.supports(.commands))
-        #expect(!DemoFixtures.claude.supports(.commands))
+        #expect(DemoFixtures.claude.supports(.commands))
         #expect(!DemoFixtures.claudeWithoutShim.supports(.commands))
         // The capability belongs to the agent, not to its attachment: a device
         // whose daemon is not running still takes commands on a session it runs.

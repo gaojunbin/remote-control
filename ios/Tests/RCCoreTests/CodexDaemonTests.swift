@@ -57,12 +57,14 @@ struct CodexDaemonTests {
     @Test("shared_settings decides whether the pickers open on a shared session")
     @MainActor
     func settingsFollowTheBoolean() {
-        #expect(store(agent: daemon).allowsSettingsChanges)
-        #expect(!store(agent: DemoFixtures.claude).allowsSettingsChanges)
+        #expect(store(agent: daemon).allowsSettingsChanges(for: .permissionMode))
+        #expect(!store(agent: DemoFixtures.claude).allowsSettingsChanges(for: .permissionMode))
         // An agent the device did not describe grants nothing.
-        #expect(!store(agent: nil).allowsSettingsChanges)
+        #expect(!store(agent: nil).allowsSettingsChanges(for: .permissionMode))
+        #expect(!store(agent: nil).allowsModelCardChanges)
         // And a session no CLI owns is unaffected either way.
-        #expect(store(agent: DemoFixtures.claude, control: .remote).allowsSettingsChanges)
+        #expect(store(agent: DemoFixtures.claude, control: .remote)
+                    .allowsSettingsChanges(for: .permissionMode))
     }
 
     @Test("shared_attachments decides whether the attachment button opens")
@@ -280,7 +282,8 @@ struct CodexDaemonTests {
         #expect(chat.session.effort == "high")
         #expect(chat.errorMessage == nil)
 
-        // The same request on a Claude channel is still refused.
+        // Amendment A40: the same request on a Claude channel is typed into
+        // the terminal instead, and lands once the transcript confirms it.
         guard let claudeShared = DemoFixtures.sessions.first(where: {
             $0.sessionID == DemoFixtures.sharedSessionID
         }) else {
@@ -290,9 +293,13 @@ struct CodexDaemonTests {
         let relayed = ChatStore(session: claudeShared, channel: gateway)
         relayed.agent = DemoFixtures.claude
         await relayed.set(effort: "low")
-        // Amendment A17: the channel session has an effort of its own, read
-        // from the transcript, and a refused request leaves it exactly as it was.
-        #expect(relayed.session.effort == claudeShared.effort)
+        #expect(relayed.session.effort == "low")
+        #expect(relayed.errorMessage == nil)
+
+        // The permission mode is not in `shared_settings_keys`, so it is still
+        // refused, and a refused request leaves the value exactly as it was.
+        await relayed.set(permissionMode: "plan")
+        #expect(relayed.session.permissionMode == claudeShared.permissionMode)
         #expect(relayed.errorMessage != nil)
     }
 
