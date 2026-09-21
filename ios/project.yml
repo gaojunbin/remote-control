@@ -39,8 +39,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.junbingao.remotecontrol
         CODE_SIGN_ENTITLEMENTS: App/RemoteControl.entitlements
-        MARKETING_VERSION: '1.6.0'
-        CURRENT_PROJECT_VERSION: 21
+        MARKETING_VERSION: '1.6.1'
+        CURRENT_PROJECT_VERSION: 22
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: App/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: Remote Control
