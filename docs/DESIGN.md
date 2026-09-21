@@ -540,6 +540,20 @@ be, as plain chips that open nothing, named "set in the terminal" for assistive 
 the agent's lists do not know is shown by its raw id; nothing is drawn for a value the device has not
 seen. Sessions the device drives keep the pickers.
 
+**The device types into a Claude terminal (A40).** A Claude Code session attached through the shim
+runs inside a pseudo-terminal the device owns, so the device can type into it exactly as the person
+at the keyboard would. On such a `shared` session the model and the effort are pickers again, and
+`/compact` is in the command menu; the permission mode stays a chip, because the terminal has no
+command the device could type for it — `shared_settings_keys` says which is which, and an app draws
+each setting one way or the other, never as a control that fails when tapped. The terminal shows
+what happened the way it shows the person's own commands: `/model` or `/effort` and the answer
+appear in the transcript there, and the model card on the phone follows once the terminal has
+confirmed the change, not before. Two rules keep the device a polite typist: it never types over
+a draft — while a turn runs, a dialog is open, or someone has been typing in the terminal, the change
+is refused with "the terminal is busy; try again in a moment", and nothing is queued — and it never
+writes the person's settings: a change from the phone is for this session only, exactly like
+pressing `s` in the terminal's own picker.
+
 **The model card: model, effort and speed are one control.** The composer row does not spend three
 chips on what runs and how hard: one chip reads the model label and the effort label side by side
 ("Opus Extra high"), with a small lightning glyph before them while a faster tier is on. Tapping
