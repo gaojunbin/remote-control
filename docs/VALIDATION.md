@@ -2458,6 +2458,23 @@ long enough to compact. A terminal narrower than the picker's rows, or a theme t
 highlight with another glyph — the row parser knows `❯` and the five model names. The owner's first
 `claude` after `install.sh`/Update is the first real run of the proxy.
 
+## 48. The switch-model confirmation on a cached conversation (2026-09-22, 1.6.1)
+
+The owner updated to 1.6.0 and changed the model of a terminal session from the phone: the
+terminal showed "Switch model? Your next response will be slower and use more tokens. This
+conversation is cached for the current model. Switching to Sonnet 5 means the full history gets
+re-read on your next message. ❯ 1. Yes, switch to Sonnet 5 · 2. No, go back", and without a hand
+at the keyboard the change never landed. Claude Code asks this only when the conversation has
+cached history, so every round 47 check — scratch homes with no turn behind them — went straight
+from `s` to "Set model to … for this session only". Fix in `sessions/typist.py`: after `s` the
+screen buffer is cleared and read for up to 1.5 s; "Switch model?" on it is answered with Enter
+(the yes row is the highlighted one), and the script then waits for the transcript as before.
+`test_a_cached_conversation_asks_once_more_and_the_device_says_yes` plays the prompt through the
+fake terminal. **Not verified live**: producing the prompt needs a logged-in session with a cached
+turn, which the scratch homes cannot have; the owner's next attempt after the device updates is the
+check. Counts: client 1204 (+3 skipped); nothing else changed. All four components 1.6.1, iOS
+build 22, tag v1.6.1.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

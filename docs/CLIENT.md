@@ -929,6 +929,10 @@ do to somebody else's terminal:
   the person's default. The scripts walk the pickers — `/model` by row, `/effort` all the way left
   and then right to the level — and press `s`, which is this session only and writes no settings
   file.
+  On a conversation with cached history the CLI asks once more after `s` — "Switch model? Your
+  next response will be slower and use more tokens … 1. Yes, switch to … 2. No, go back", yes
+  highlighted — and the device presses Enter; a fresh session asks nothing, which is why the
+  round's scratch-home checks never met the prompt (the owner did, round 48).
 - **The transcript decides.** The reply to `session.set` waits for the CLI to write the command and
   its answer (`Set model …` / `Set effort …`, matched loosely); until then the app's `Session` says
   the old value. A picker that does not open, or an answer that does not come within eight seconds,
