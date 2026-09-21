@@ -278,7 +278,8 @@ def test_the_attachable_agent_fixture_matches_what_this_device_advertises() -> N
     info = agent_info_from(load_fixture("objects/agent.claude-attach.json"))
     assert info.attach == "channel"
     assert info.attach_ready is True
-    assert info.shared_interrupt is False
+    # A42: the device stops the turn by typing Escape into the terminal.
+    assert info.shared_interrupt is True
     assert [option["id"] for option in APPROVAL_OPTIONS] == ["allow", "deny"]
 
 

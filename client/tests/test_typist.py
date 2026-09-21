@@ -1,4 +1,4 @@
-"""Amendment A40: the device types into an attached Claude Code terminal."""
+"""Amendments A40 and A42: the device types into an attached Claude terminal."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from rc_client.sessions.hub import SessionEntry, SessionHub
 from rc_client.sessions.ptys import PtyLink, TerminalState
 from rc_client.sessions.typist import HIGHLIGHT, read_picker
 
-from .test_shared_control import FakeAttachment
+from .test_shared_control import FakeAttachment, FakeHookQuestion
 
 REQUEST = "5c1d7e2a-9b3f-4a8c-8d6e-0f1a2b3c4d5e"
 # The picker as Claude Code 2.1.278 draws it, verified live on 2026-09-21.
@@ -117,7 +117,8 @@ class FakeTerminal(PtyLink):
         return "> \n"
 
 
-def agents() -> list[AgentInfo]:
+def agents(stops: bool = True) -> list[AgentInfo]:
+    """This device's Claude, with `stops` for what A42's Escape needs."""
     return [
         AgentInfo(
             agent="claude",
@@ -130,7 +131,7 @@ def agents() -> list[AgentInfo]:
             capabilities=["takeover", "interrupt", "queue", "history", "commands"],
             attach="channel",
             attach_ready=True,
-            shared_interrupt=False,
+            shared_interrupt=stops,
             shared_settings=True,
             shared_settings_keys=["model", "effort"],
         )
@@ -140,14 +141,14 @@ def agents() -> list[AgentInfo]:
 class Harness:
     """A hub with one attached session and the terminal it runs in."""
 
-    def __init__(self, tmp_path: Path) -> None:
+    def __init__(self, tmp_path: Path, stops: bool = True) -> None:
         self.frames: list[dict[str, Any]] = []
         self.registry = Registry(tmp_path / "state.sqlite3")
 
         async def publish(frame: dict[str, Any]) -> None:
             self.frames.append(frame)
 
-        self.hub = SessionHub(self.registry, publish, "dev-1", agents)
+        self.hub = SessionHub(self.registry, publish, "dev-1", lambda: agents(stops))
         self.attachment = FakeAttachment()
         self.terminal = FakeTerminal()
 
@@ -336,10 +337,19 @@ async def test_a_command_that_answered_with_something_else_is_refused(harness: H
 
 
 async def test_a_terminal_the_device_cannot_type_into_says_so(harness: Harness) -> None:
-    await harness.attach()
+    entry = await harness.attach()
     harness.hub.ptys.clear()
     with pytest.raises(RcError) as caught:
         await harness.hub.set_options({"session_id": "sess-1", "model": "opus"})
+    assert caught.value.code == "conflict"
+    assert "start it again" in caught.value.message
+
+    # And Stop is the same keystroke route, so it is refused the same way (A42).
+    state = entry.shared
+    assert state is not None
+    state.running = True
+    with pytest.raises(RcError) as caught:
+        await harness.hub.stop({"session_id": "sess-1"})
     assert caught.value.code == "conflict"
     assert "start it again" in caught.value.message
 
@@ -421,6 +431,96 @@ async def test_a_message_waits_behind_the_keystrokes(harness: Harness) -> None:
     assert [text for _, text in harness.attachment.injected] == ["go"]
 
 
+# ---------------------------------------------------------------- stopping
+
+
+async def running(harness: Harness, terminal: FakeTerminal | None = None) -> SessionEntry:
+    """An attached session whose transcript says a turn is under way."""
+    entry = await harness.attach(terminal)
+    state = entry.shared
+    assert state is not None
+    state.running = True
+    return entry
+
+
+async def test_stop_presses_escape_while_a_turn_is_running(harness: Harness) -> None:
+    """A42: the key the person would press, and nothing is waited for."""
+    await running(harness)
+    assert await harness.hub.stop({"session_id": "sess-1"}) == {}
+    assert harness.terminal.typed == [typist.ESCAPE]
+
+
+async def test_stop_does_not_wait_for_the_terminal_to_be_idle(harness: Harness) -> None:
+    """The point of Stop is a terminal that is busy, half-typed line and all."""
+    await running(harness, FakeTerminal(draft=7, idle_for=0.1))
+    assert await harness.hub.stop({"session_id": "sess-1"}) == {}
+    assert harness.terminal.typed == [typist.ESCAPE]
+
+
+async def test_a_dialog_on_screen_is_answered_and_not_escaped(harness: Harness) -> None:
+    entry = await running(harness)
+    state = entry.shared
+    assert state is not None
+
+    await harness.hub.shared.permission_request(
+        entry, {"request_id": "chan-1", "tool_name": "Bash", "input_preview": '{"command": "ls"}'}
+    )
+    with pytest.raises(RcError) as caught:
+        await harness.hub.stop({"session_id": "sess-1"})
+    assert (caught.value.code, caught.value.message) == ("conflict", typist.ANSWER_FIRST)
+
+    state.approvals.clear()
+    state.by_channel.clear()
+    await harness.hub.shared.question(entry, FakeHookQuestion())
+    with pytest.raises(RcError) as caught:
+        await harness.hub.stop({"session_id": "sess-1"})
+    assert (caught.value.code, caught.value.message) == ("conflict", typist.ANSWER_FIRST)
+    assert harness.terminal.typed == []
+
+
+async def test_stop_presses_escape_while_an_injection_is_still_in_flight(
+    harness: Harness,
+) -> None:
+    """The message the device just injected is the CLI's turn already: the
+    apps draw it as running, and Stop presses Escape rather than pass."""
+    entry = await harness.attach()
+    sent = await harness.hub.send({"id": "req-1", "session_id": "sess-1", "text": "go"})
+    assert sent == {"accepted": "sent"}
+    state = entry.shared
+    assert state is not None
+    assert (state.running, state.waiting) == (False, True)
+
+    assert await harness.hub.stop({"session_id": "sess-1"}) == {}
+    assert harness.terminal.typed == [typist.ESCAPE]
+
+
+async def test_stop_on_a_session_with_no_turn_at_all_types_nothing(harness: Harness) -> None:
+    entry = await harness.attach()
+    state = entry.shared
+    assert state is not None
+    # Idle is neither of the two: no turn in the transcript, nothing in flight.
+    assert (state.running, state.waiting) == (False, False)
+
+    assert await harness.hub.stop({"session_id": "sess-1"}) == {}
+    assert harness.terminal.typed == []
+
+
+async def test_an_agent_that_cannot_be_stopped_still_says_so(tmp_path: Path) -> None:
+    """Without the shim there is no terminal to type into, so no Stop either."""
+    built = Harness(tmp_path, stops=False)
+    try:
+        await running(built)
+        with pytest.raises(RcError) as caught:
+            await built.hub.stop({"session_id": "sess-1"})
+        assert (caught.value.code, caught.value.message) == (
+            "unsupported",
+            "stop it in the terminal",
+        )
+        assert built.terminal.typed == []
+    finally:
+        built.close()
+
+
 # ------------------------------------------------------- what the agent says
 
 
@@ -455,10 +555,13 @@ async def test_claude_reports_what_it_can_type_only_when_the_shim_is_there(
     info = await claude_plugin.detect(DetectContext())
     assert (info.shared_settings, info.shared_settings_keys) == (True, ["model", "effort"])
     assert "commands" in info.capabilities
+    # A42: Escape goes through the same terminal, so Stop rides on the shim too.
+    assert (info.shared_interrupt, "interrupt" in info.capabilities) == (True, True)
 
     monkeypatch.setattr(shim, "status", ready(False))
     info = await claude_plugin.detect(DetectContext())
     assert (info.shared_settings, info.shared_settings_keys) == (False, None)
+    assert info.shared_interrupt is False
 
 
 async def test_the_sdk_session_runs_compact_as_a_prompt(tmp_path: Path) -> None:
