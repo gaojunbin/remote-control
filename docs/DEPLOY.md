@@ -323,9 +323,12 @@ local server, not against MiMo: the machine that wrote this had no MiMo key.
 `qwen3-asr-flash-realtime` speaks it: the gateway holds one WebSocket to the vendor per utterance,
 forwards each 100 ms frame as `input_audio_buffer.append`, turns every incremental
 `conversation.item.input_audio_transcription.text` into `stt.partial` the moment it arrives, and on
-`stt.stop` commits and finishes the session for the last sentence. Server VAD (500 ms of silence
-ends a sentence) segments long dictations; the sentences are joined Chinese-style, without spaces
-between CJK characters. Chinese with English mixed in is what the model is for.
+`stt.stop` finishes the session, committing the last sentence only when one is still in progress —
+server VAD (500 ms of silence ends a sentence) has usually committed it already, and Alibaba answers
+a commit on an empty buffer with an error, which is what every Done showed on the owner's first day
+(round 51); anything the vendor says while the session is being finished no longer fails the
+utterance. Long dictations are segmented by that VAD; the sentences are joined Chinese-style,
+without spaces between CJK characters. Chinese with English mixed in is what the model is for.
 
 ```sh
 STT_PROVIDER=realtime

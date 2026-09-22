@@ -2594,6 +2594,22 @@ All four components 1.8.0 (a feature release), iOS build 24, tag v1.8.0. GitHub 
 UI target was not rerun; the web suite's caret test timed out once more under the parallel toolchains
 and passed alone.
 
+## 51. Done on the realtime backend no longer fails (2026-09-23, 1.8.1)
+
+The owner connected Alibaba Model Studio's `qwen3-asr-flash-realtime` on 1.8.0: words appeared as
+spoken, but every Done ended in `stt.error` "speech-to-text backend refused: Error committing input
+audio buffer, maybe no invalid audio stream." Cause: `finish()` always sent
+`input_audio_buffer.commit`; with server VAD the vendor had committed the sentence itself at the
+pause, the buffer was empty, and Alibaba answers that with an `error` event, which the session
+treated as fatal and pushed to the app before the final. Fix in `stt_realtime.py`: a commit goes
+out only while a sentence is still in progress (a partial without its `completed`), and an `error`
+that arrives while the session is being finished is logged and ends the wait rather than failing
+the utterance — the words heard so far are the result. The fake vendor now completes sentences on
+its own after a pause and refuses a commit on an empty buffer, as Alibaba does. Gateway tests
+473 → 475. **Verified against Alibaba only through the owner's report of the error text**; the fix
+reproduces that behaviour in the fake and the owner's next Done is the check. All four components
+1.8.1 (a fix release), iOS build 25, tag v1.8.1. GitHub "iOS checks": CI_RESULT_51.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
