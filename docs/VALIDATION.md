@@ -2475,6 +2475,89 @@ turn, which the scratch homes cannot have; the owner's next attempt after the de
 check. Counts: client 1204 (+3 skipped); nothing else changed. All four components 1.6.1, iOS
 build 22, tag v1.6.1.
 
+## 49. Settings are the account's (A41); the input method's Enter, again (2026-09-22, 1.7.0)
+
+Three asks from the owner. **Settings sync**: every Settings choice kept in the browser or on the
+phone should read the same on every device of the account, live, the latest change winning.
+**The IME Enter**: typing English under a Chinese IME and pressing Enter still sent the message on
+1.6.x, so the round-45 guard (a claim on the Enter that follows a `compositionend` in the same
+task) does not cover the owner's browser. **Recall**: whether a message sent from the phone can be
+taken back or its re-send stopped, as Esc or Ctrl-C stops the terminal.
+
+**Recall, as found.** A message the device still holds — queued behind a turn, or re-queued after
+the CLI took an injection as data (A19/A34: the re-send is the item at the head of the queue) — is
+in the session's queue and both apps remove one with `session.queue_remove`; removing it is what
+stops the re-send. A message the CLI has taken cannot be recalled, as in the terminal; the turn
+can be stopped — `session.stop` on `remote` sessions and on shared Codex, pi and Grok — except on
+a shared Claude session, where the channel cannot interrupt. A40's pseudo-terminal could: Escape
+interrupts a running turn, and a scratch-home probe showed one Escape on an idle TUI leaves a
+typed draft alone ("Esc again to clear"), so typing Escape only while a turn runs is safe. Offered
+to the owner as a follow-up (`shared_interrupt: true` for Claude); not built this round.
+
+**The Enter.** `useImeGuard` keeps the `isComposing`, composition-open and same-task checks, adds
+`keyCode === 229`, and makes a plain Enter send 60 ms later unless a composition starts or ends in
+that moment (`sendUnlessComposing`), which covers the keydown-before-compositionend order the
+earlier guard could not see. The composer test plays both WebKit orders and Chrome's; the command
+menu test waits for the deferred run. The owner's browser is Safari with the system Pinyin input
+method, which is the WebKit path the new guard exists for. **Not verified** on that browser with
+the real IME — no browser here can be driven through one without taking the keyboard; the owner's
+next try on 1.7.0 is the check.
+
+**Settings sync (A41).** Frozen first (46e436b, 6e0bd19): `Preferences` gains `language`,
+`stt_language`, `polish_enabled`, `polish_model`, `polish_strength`, `timeline_detail`, all optional
+and absent until set, written with the A35 `PATCH /api/preferences` and published whole with
+`preferences.updated`; the gateway is the one writer and arrival order is truth; an app writes its
+own value up once for a field the account has not set; notifications, the app lock, the
+transcription backend, the terminal font size and list folds stay on the device (`docs/DESIGN.md`
+"Settings are the account's, not the device's"). Built by three subagents in worktrees.
+*Gateway*: six nullable columns through the store's `MIGRATIONS` (an old database gains them on
+start, tested), per-field validation (`bad_request` on a wrong type or word, unknown fields
+ignored), the broadcast unchanged; tests 435 → 460. *Web*: the settings store is the cache of the
+account's values (`fromHello`/`fromAccount` apply only what differs, so an echo writes nothing
+back), the six setters `PATCH` one field each through `preferenceWrite.ts`, a field the account has
+not set is written up once after `hello`, the mock stores per account and broadcasts to every
+socket; tests 747 → 775; screenshot `web-round49-settings-sync.png` (two tabs, one switch).
+*iOS*: `Preferences` decodes the six optional fields leniently, `PreferenceSync` applies
+`hello` and `preferencesUpdated` in place, writes one `PATCH` per change and takes the reply, offers
+this phone's value once for a field the account has never set, echoes nothing back; two bugs the
+first build had were fixed on the way (writes raced, so an older change could land last — chained
+now; applying an arriving object fired the store's change hook mid-pass — suppressed as a whole);
+the demo plays a change from another device (`--demo-preference-change`); RCVerify 1464 → 1486,
+RCUIVerify 582 → 605, unit tests 411 → 419; the whole UI target ran in the worktree (75 tests, the
+new `testAPreferenceChangedElsewhereMovesTheSwitchInPlace` fixed and passed alone, the jump-to-tail
+test flaked under a load of 30). Screenshot `ios-round49-settings-sync.png`. The subagent then hit
+the account's session limit; the orchestrator finished the iOS side of A42 itself.
+
+**Stop on an attached Claude terminal (A42).** The owner took the recall finding's offer. Frozen
+(e59feb0): Claude reports `shared_interrupt: true` on the same condition as `shared_settings`;
+`session.stop` types Escape while the session is busy — the mirror's turn or an injection the
+transcript has not shown yet — answers `conflict` ("answer the prompt first") while an approval or
+a question is on screen, and types nothing when idle. *Client*: `Typist.interrupt`,
+`SharedControl.stop`, `SharedState.busy` (`running or waiting`, now also what `_settle` and
+`injectable` read), `hub.stop` routing; tests 1204 → 1210. Not verified live: a running turn
+needs a logged-in session. *Web*: the mock's Claude attach agent reports the flag, `session.stop` on the shared Claude session
+ends the scripted turn as `interrupted`, answers `conflict` while a prompt is on screen and `{}`
+when idle, and the chat page shows a Stop refusal in the device's words rather than the canned
+take-over sentence; tests 775 → 784; screenshot `stop-web/web-round49b-stop-400.png` (Stop in the
+header of the shared Claude session). *iOS* (by the orchestrator, the subagent having hit the session limit): the demo's Claude attach
+agent reports the flag, `canStop` needed no change, the demo answers Stop as the device does and
+streams the shared session's reply at 450 ms a word so Stop can be tapped; the verifier and
+unit-test expectations that said a channel cannot interrupt flipped (RCVerify 1486 → 1487, unit
+tests 419); `testSharedClaudeSessionStopsFromThePhone` — Stop refused in the device's words over
+the approval, then ending the turn once it is answered — passed on 32BBA636. Whole UI target on
+master (the round's local gate, 32BBA636, English): 76 tests, 4 skipped, 0 failures in 1 832 s.
+
+
+**Counts.** Gateway 435 → 460, client 1204 → 1210 (+3 skipped), web 747 → 784, RCVerify 1464 →
+1487, RCUIVerify 582 → 605, unit tests 411 → 419, UI 76 (4 skipped), protocol 200 fixtures / 37
+negative cases. All four components 1.7.0 (a feature release), iOS build 23, tag v1.7.0. GitHub
+"iOS checks": CI_RESULT_49.
+
+**Not verified.** Settings sync and Stop end to end through a real gateway, a phone and the owner's
+terminal — the gateway migration ran on test databases, the apps against their mocks and the demo;
+the owner's VPS upgrade to 1.7.0 is the first real run of the six new columns. Stop's Escape against
+a real running turn (a logged-in session is needed). The Safari Enter fix on the owner's machine.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

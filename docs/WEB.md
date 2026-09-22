@@ -405,7 +405,28 @@ Nothing of this reaches the gateway.
   the next task. A microtask would not do: React's delegated `compositionend` listener returns
   before the keydown is dispatched, and the microtask checkpoint runs between the two. Round 45:
   the owner found the bare `isComposing` check sending on the confirming Enter under a Chinese
-  IME.
+  IME. Round 49: it still sent for the owner, so the order must not be the same everywhere — and
+  the same-task claim cannot see a keydown that lands *before* its compositionend. A plain Enter
+  therefore no longer sends at once: `sendUnlessComposing` runs the send `SEND_DELAY_MS` (60 ms)
+  later, and a `compositionstart` or `compositionend` arriving in that moment cancels it. The
+  command menu's Enter takes the same path, so a command runs a moment after the keystroke; the
+  tests wait for it. `keyCode === 229` joins the checks for good measure.
+- **Settings are the account's (A41).** `src/stores/settings.ts` keeps its shape, because the
+  rest of the app reads it, but for the six preferences of A41 — interface language, dictation
+  language, polish on/off, model and strength, timeline detail — it is the cache of the account's
+  value, not the source. `src/stores/preferences.ts` hands `hello.preferences` and every
+  `preferences.updated` to the settings store (`fromHello`, `fromAccount`), which applies a field
+  only when it differs, so a frame that echoes the store's own write changes nothing and writes
+  nothing back; the six setters write locally and then `PATCH` that one field through
+  `src/stores/preferenceWrite.ts`, the one place that talks to `/api/preferences`; right after
+  `hello`, a field the account has not set is written up once from the local value, so an account
+  upgraded to A41 keeps what its first tab had. `src/stores/preferenceFields.ts` maps the wire
+  names to the store's and validates against the schema's word lists, dropping anything unknown.
+  `collapsedDevices` and `archiveExpanded` stay local. A gateway without `preferences`, or without
+  the six fields, leaves the store as it was. `InterfaceLanguage` and `TimelineDetail` live in
+  `src/protocol/types.ts` now, being wire values. The mock stores preferences per account and
+  broadcasts to every socket of it (`mock/preferences.ts`), which is what the round-49 screenshot
+  of two tabs shows.
 - **The transcript is bounded.** `MAX_TIMELINE_ITEMS` in `src/stores/timeline.ts` caps a live
   timeline at 3 000 rows: past it the oldest go, `oldestSeq` moves forward with them and `dropped`
   counts them, which is how the chat store knows to set `historyHasMore` again — scrolling back
@@ -734,6 +755,16 @@ typing. The mock types too (`mock/typing.ts`): a change lands 1.5 s later, is re
 terminal is busy; try again in a moment" while the session's scripted turn runs, and `/compact` is
 listed, echoed and followed by a compaction notice. Round 47 screenshots
 `web-round47-shared-claude-{1280,400}.png`.
+
+### Stop on a shared Claude session (A42)
+
+`canInterruptShared` needed no change: Claude's agent object now reports `shared_interrupt` (the
+device types Escape into the pseudo-terminal, A42), so Stop appears in the header of a shared
+Claude session exactly as on a shared Codex one. What changed is the refusal: a `conflict` from
+Stop — "answer the prompt first" while an approval or a question is on screen — is shown in the
+device's words through `refusalText`, because the canned sentence about taking the session over
+names an action a shared session does not offer. The mock ends the scripted turn as `interrupted`,
+refuses while its prompt is up and returns `{}` when idle (`mock/typing.ts` `promptOnScreen`).
 
 ## Slash commands (A27)
 

@@ -554,19 +554,32 @@ they draw "Updating…", "Update failed · <reason>" and a Retry, and nothing el
 ## Account preferences
 
 Some choices cannot live in an app. Whether a session the vendor's usage limit stopped resumes
-itself once the limit resets (amendment A35) is acted on by a device while no app is running, and
-it has to read the same in the browser and on the phone, so the gateway keeps it: one row per
-account in a sixth SQLite file, `preferences.sqlite3`, with one switch in it today,
-`resume_after_limit`, off until the person turns it on. An account with no row reads the defaults,
-so nothing is seeded, and a deleted account's row goes with its push registrations.
+itself once the limit resets (A35) is acted on by a device while no app is running, and it has to
+read the same in the browser and on the phone, so the gateway keeps it: one row per account in a
+sixth SQLite file, `preferences.sqlite3`. A41 put the Settings screen's own choices in the same
+row — `language`, `stt_language`, `polish_enabled`, `polish_model`, `polish_strength` and
+`timeline_detail` beside `resume_after_limit`. An account with no row reads the defaults, so
+nothing is seeded, and a deleted account's row goes with its push registrations.
+
+Only `resume_after_limit` always has a value, off until the person turns it on. The other six live
+in nullable columns, added to an existing `DATA_DIR` by the store's own migrations on the first
+start of the new release, and are left out of the object until somebody sets one: absent is how an
+app tells "nobody has chosen" from "chosen, and this is the value", and it is what makes an app
+write its own value up once on the day of the upgrade. The gateway validates what it stores — the
+word lists of `language`, `polish_strength` and `timeline_detail`, booleans for the two switches,
+a non-empty `stt_language` of at most 32 characters, a `polish_model` of at most 128 where empty
+means no model — and answers `bad_request` to anything else. The device client reads the switch
+and ignores the rest.
 
 `GET` and `PATCH /api/preferences` read and write the caller's own account and nothing else: no
-path here names a username, so there is nothing to scope wrongly. A `PATCH` that changes something
-is published at once — `preferences.updated` to every app socket of the account, the `preferences`
-frame to every device of it — and every device is told again right after `hello_ack`, so a daemon
-that was offline while the switch moved acts on the current value without asking for it. A `PATCH`
-that changes nothing announces nothing. `hello` on `/ws/app` carries the object too; a gateway
-older than A35 sends none, which is how an app knows to show the switch disabled.
+path here names a username. A `PATCH` sets the fields it names and leaves the others alone; if
+anything changed, the whole object goes out at once — `preferences.updated` to every app socket of
+the account, `preferences` to every device of it — and every device is told again right after
+`hello_ack`, so a daemon that was offline while a switch moved acts on the current value without
+asking for it. The gateway is the single writer and the order the writes arrive in is the order of
+truth, so the last write wins on every screen within the round trip. A `PATCH` that changes nothing
+announces nothing. `hello` on `/ws/app` carries the object; a gateway older than A35 sends none,
+which is how an app knows to show the resume switch disabled.
 
 What a device does with a paused session is the device's own business (`docs/CLIENT.md`). The
 gateway forwards `session.resume_set` and `session.resume_cancel` like any other request, relays
@@ -618,7 +631,7 @@ sessions delivered to that person's phone.
 
 | Where | What |
 | --- | --- |
-| Gateway `DATA_DIR` | `auth.sqlite3` (issued login sessions), `devices.sqlite3` (devices, pairing codes — both hashed), `sessions.sqlite3` (the latest summary per session), `push.sqlite3` (Web Push subscriptions, APNs tokens, a delivery journal), `users.sqlite3` (the accounts and their hashed passwords), `preferences.sqlite3` (one row of switches per account, A35), `session_secret` and `vapid_private.pem`. The databases and both secrets are created at 0600 |
+| Gateway `DATA_DIR` | `auth.sqlite3` (issued login sessions), `devices.sqlite3` (devices, pairing codes — both hashed), `sessions.sqlite3` (the latest summary per session), `push.sqlite3` (Web Push subscriptions, APNs tokens, a delivery journal), `users.sqlite3` (the accounts and their hashed passwords), `preferences.sqlite3` (one row of preferences per account, A35, A41), `session_secret` and `vapid_private.pem`. The databases and both secrets are created at 0600 |
 | Gateway memory | Live connections, the per-session replay buffer, and a cache in front of the login-session store that also holds the event which closes a socket the moment its session is signed out |
 | Device `~/.rc-client` | `config.toml` at 0600 (gateway origin, device id, device token, name), `state/rc-client.sqlite3` (sessions, events, a key-value table, and request ids for `session.send` idempotency), `state/attachments/`, `state/channel.sock` and `state/claude-mcp.json` for the attachment, `bin/claude` when the shim is installed, `logs/` |
 | iOS | The bearer token in the Keychain, device-only and never synchronised; a session list and per-session draft cache in Application Support, versioned separately from the wire protocol |

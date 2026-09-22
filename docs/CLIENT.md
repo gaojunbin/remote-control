@@ -864,7 +864,7 @@ This table is the Claude channel. Codex on the shared daemon does more; see the 
 | Send a message | Yes, injected at the next idle point |
 | Approve or deny a tool call | Yes, `allow` and `deny` only — the relay offers no session-scoped grant |
 | Answer a question | Yes, through the `PermissionRequest` hook; the terminal's dialog and the card are one question |
-| Stop the turn | No, `unsupported`: a channel cannot interrupt. Codex does |
+| Stop the turn | Yes since A42: Escape typed into the terminal while a turn runs (or a just-injected message is still on its way into the transcript); `conflict` ("answer the prompt first") while an approval or a question is on screen; nothing typed when no turn runs |
 | Change model or effort | Yes since A40, typed into the terminal through its pickers, this session only; `conflict` while the terminal is busy, and the reply waits for the transcript to confirm |
 | Change permission mode | No, `unsupported`: change it in the terminal. The value is shown, read from the transcript (A17) |
 | `/compact` | Yes since A40, typed into the terminal; other commands are `unsupported` |
@@ -939,6 +939,17 @@ do to somebody else's terminal:
   presses Escape and answers `conflict`. The rows the device typed are claimed, so A32 draws no
   terminal bubble for them; `/compact` is echoed as the app's own `user_message` (A27) and the
   compaction notice is A32's as before.
+
+**Stop is the fourth script, and the one the rules above do not fit (A42).** `session.stop` on a
+`shared` Claude session presses Escape, which is how a turn is stopped in that terminal. It keeps
+the lock and the dialog rule — an approval or a question is answered, not escaped, so the request is
+`conflict` ("answer the prompt first") until it is — and drops the other two: there is no idle
+gate, because a busy terminal is the whole point and one Escape does not clear a half-typed line
+(Claude Code asks "Esc again to clear" first), and nothing is waited for, because the CLI files
+`[Request interrupted by user]` and the transcript reader ends the turn from that row (A32). Busy
+means the mirror's turn or an injection the transcript has not shown yet; with neither the device
+types nothing and answers `{}`. Claude reports `shared_interrupt: true` on the same condition as
+`shared_settings`: the shim is installed and first on `PATH`.
 
 `AgentInfo` gains `shared_settings_keys`. Claude reports `shared_settings: true` with
 `["model", "effort"]` and the `commands` capability **only while the shim is installed and first on

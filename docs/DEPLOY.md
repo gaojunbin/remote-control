@@ -250,7 +250,8 @@ Each of the six databases applies its own additive migrations when it is opened,
 `DATA_DIR` is brought up to the new schema in place and an upgrade needs no manual step. A release
 that adds a database — `preferences.sqlite3` in 1.4.0 — creates it on the first start and needs no
 manual step either, and brings no new environment variable with it; a release that adds a column —
-`devices.update_failed_build` in 1.4.7 (A36), `devices.terminal` in 1.5.0 (A38) — is applied the
+`devices.update_failed_build` in 1.4.7 (A36), `devices.terminal` in 1.5.0 (A38), the six Settings
+columns of `preferences` in 1.7.0 (A41) — is applied the
 same way. From 1.4.7 the gateway also
 brings every connected device to the wheel it serves by itself (A36), so an image update is followed
 by the devices updating themselves, one `Updating…` at a time on the device rows; a device whose

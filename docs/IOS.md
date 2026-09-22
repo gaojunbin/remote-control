@@ -828,6 +828,38 @@ before; `/compact` is listed, echoed and followed by a compaction notice (A40). 
 home in the demo. `ci-runner-01` keeps a
 Codex with no daemon running, so the daemon hint has a home too.
 
+## Settings are the account's (A41)
+
+`Preferences` (`Sources/RCCore/Protocol/Preferences.swift`) decodes the six optional fields
+leniently — an unknown word is nil, an absent field is nil — beside `resumeAfterLimit`, and
+`PreferencePatch` is what a change sends. `SettingsStore` keeps its per-account `UserDefaults`
+scoping and is the cache; `Sources/RCCore/State/PreferenceSync.swift` is the account's side of it:
+`hello.preferences` and every `preferencesUpdated` frame move `language`, `voiceLanguage`,
+`polishEnabled`, `polishModel`, `polishStrength` and `timelineDetail` in place, a change made on
+the screen goes up as one `PATCH /api/preferences` (`GatewayHTTPClient.patchPreferences(_:)`) whose
+reply is taken as the value, a field the account has never been told is offered this phone's value
+once per sign-in, and nothing that arrives is echoed back. Two things the first build got wrong and
+the second fixed: writes raced, so of two changes a moment apart the older could land last — they
+are chained now; and applying an arriving object fired the store's change hook mid-pass and wrote a
+stale field back over an incoming one — the pass is suppressed as a whole. `notificationsEnabled`,
+`appLockEnabled`, `voiceBackend` and `terminalFontSize` stay on the device. A gateway carrying no
+preferences changes nothing. The demo gateway stores preferences per account; the launch argument
+`--demo-preference-change` plays a change from another device a few seconds after Settings opens,
+which is what `testAPreferenceChangedElsewhereMovesTheSwitchInPlace` and the round-49 screenshot
+show. RCUIVerify's demo model keeps its preferences in a `UserDefaults` suite of its own, emptied
+per run, because A41 writes the account's values back into the store and earlier runs had leaked
+into the Mac's global defaults.
+
+## Stop on a shared Claude session (A42)
+
+`ChatStore.canStop` needed no change — capability `interrupt` plus `sharedInterrupt`, which the
+Claude agent now reports whenever the shim is installed: the device types Escape into the
+pseudo-terminal it owns (A40). The demo's shared Claude session (`demo-session-shared`) answers
+`session.stop` as the device does: `conflict` "answer the prompt first" while its scripted approval
+or question is on screen (shown in the notice banner, in the device's words), the turn ended as
+`interrupted` while it runs, `{}` when idle; its scripted reply streams slowly enough for Stop to
+be tapped. `testSharedClaudeSessionStopsFromThePhone` walks all three.
+
 ## Reading position
 
 The transcript follows the newest content only while the reader is at the foot of it, and
