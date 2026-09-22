@@ -2551,7 +2551,8 @@ master (the round's local gate, 32BBA636, English): 76 tests, 4 skipped, 0 failu
 **Counts.** Gateway 435 → 460, client 1204 → 1210 (+3 skipped), web 747 → 784, RCVerify 1464 →
 1487, RCUIVerify 582 → 605, unit tests 411 → 419, UI 76 (4 skipped), protocol 200 fixtures / 37
 negative cases. All four components 1.7.0 (a feature release), iOS build 23, tag v1.7.0. GitHub
-"iOS checks": CI_RESULT_49.
+"iOS checks" on 4f6aa80 (run 35719591145) passed in 4 min 50 s: build, 419 unit tests, RCVerify 1487,
+RCUIVerify 605.
 
 **Not verified.** Settings sync and Stop end to end through a real gateway, a phone and the owner's
 terminal — the gateway migration ran on test databases, the apps against their mocks and the demo;
