@@ -474,10 +474,21 @@ two seconds, sending back `stt.partial`. On `stt.stop` it transcribes everything
 utterance.
 
 The backend is anything that implements `POST {STT_BASE_URL}/audio/transcriptions`: OpenAI itself,
-or a local Whisper server on the compose network so audio never leaves the VPS. iOS can skip the
-gateway entirely and use `SFSpeechRecognizer` on-device instead, which is a different privacy story
-and is labelled as such in its settings. Either way the transcript lands in the composer as an
-editable draft; sending is always a separate, explicit action.
+or a local Whisper server on the compose network so audio never leaves the VPS; Xiaomi MiMo is
+reached through a chat completion carrying the audio. All of those answer a whole utterance, so
+their "partials" are the whole buffer transcribed again — two seconds behind, and costlier the
+longer the dictation runs. The `realtime` provider (`rc_gateway/stt_realtime.py`, round 50) is the
+one that streams: it holds a WebSocket to the vendor for the life of the utterance over the OpenAI
+Realtime transcription protocol in the dialect Alibaba Model Studio documents for
+`qwen3-asr-flash-realtime` (`session.update` with `input_audio_format: pcm` at 16 kHz and server
+VAD; `input_audio_buffer.append` per frame; incremental
+`conversation.item.input_audio_transcription.text` events with a tentative `stash`; `….completed`
+per sentence; `session.finish`/`session.finished` to end), forwards each frame as it lands and
+sends `stt.partial` on every vendor event. The app protocol did not change: the same `stt.partial`
+and `stt.final` frames, only sooner. iOS can skip the gateway entirely and use `SFSpeechRecognizer`
+on-device instead, which is a different privacy story and is labelled as such in its settings, and
+which was always live. Either way the transcript lands in the composer as an editable draft;
+sending is always a separate, explicit action.
 
 There is also a non-streaming `POST /api/stt/transcribe` for a recorded file. Both return `503`
 when `STT_PROVIDER` is `none`.

@@ -2559,6 +2559,39 @@ terminal — the gateway migration ran on test databases, the apps against their
 the owner's VPS upgrade to 1.7.0 is the first real run of the six new columns. Stop's Escape against
 a real running turn (a logged-in session is needed). The Safari Enter fix on the owner's machine.
 
+## 50. Words as they are said: the `realtime` speech backend (2026-09-22, 1.8.0)
+
+The owner asked whether MiMo streams (it does not: one OpenAI-compatible HTTP call, audio as base64
+under 10 MB, `stream` only streams the answer) and what would give "words appear as you speak" in
+Chinese. Research (`recon/reports/asr-streaming.md` in the session scratchpad, every claim sourced):
+OpenAI streams only through its Realtime API (`gpt-live-transcribe`, 24 kHz, $0.017/min); Alibaba
+Model Studio's `qwen3-asr-flash-realtime` speaks the OpenAI Realtime protocol, is Chinese-first with
+English mixed in, and is the fit; FunASR's `paraformer-zh-streaming` is the self-hosted fallback.
+The owner chose Alibaba and asked for a provider speaking that protocol.
+
+**Gateway.** `STT_PROVIDER=realtime` with `STT_REALTIME_URL` (the model appended as `?model=` when
+the URL lacks it; a non-`ws(s)://` value stops the gateway). `rc_gateway/stt_realtime.py`:
+`LiveTranscription` opens the socket with `Authorization: Bearer` and `OpenAI-Beta: realtime=v1`,
+sends `session.update` (`modalities: ["text"]`, `input_audio_format: "pcm"`, `sample_rate: 16000`,
+server VAD at 500 ms, `input_audio_transcription.language` unless `auto`), forwards frames as
+`input_audio_buffer.append`, turns `….text` (+ `stash`) and OpenAI's `….delta` into partials and
+`….completed` into finished sentences, and on `stt.stop` sends `input_audio_buffer.commit` and
+`session.finish`, waiting up to 8 s for `session.finished`; sentences are joined without spaces at
+CJK boundaries. A vendor `error` or a dropped socket reaches the app as `stt.error` at once. The
+`/ws/stt` handler forwards each frame as it arrives instead of re-transcribing every two seconds;
+`POST /api/stt/transcribe` plays a WAV (16 kHz mono PCM16) or raw PCM upload into a session and
+refuses anything else with `bad_request`. Tests 460 → 473, including a fake vendor speaking the
+documented dialect on a loop of its own (headers, `session.update` shape, partials, final, the
+language hint, an error event, an unreachable host, both upload paths, both config rules).
+
+**Not verified.** Against Alibaba itself: the machine has no Model Studio key, so the wire shape
+rests on the documentation read on 2026-09-22 (Beijing and Singapore endpoints, the event names
+above, 16 kHz PCM, `stash`, `session.finish`). The owner's first dictation on 1.8.0 is the check;
+the gateway log line "realtime stt failed" names what the vendor said if it refuses. Latency and
+Chinese quality in use. Apps unchanged: `stt.partial`/`stt.final` are the frames they already read.
+All four components 1.8.0 (a feature release), iOS build 24, tag v1.8.0. GitHub "iOS checks":
+CI_RESULT_50.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

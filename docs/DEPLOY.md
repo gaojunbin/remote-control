@@ -127,8 +127,9 @@ names the missing one.
 | `GATEWAY_BIND` | `0.0.0.0` | The host address that port binds to. A proxy running as a container reaches the host over the Docker bridge, so loopback only works when the proxy is on the host network |
 | `RC_SECRET` | generated | Signs login tokens. Left empty, one is generated into `DATA_DIR` on first start. Set it explicitly to pin the signing key instead of depending on a file inside the volume |
 | `DATA_DIR` | `/data` | Where SQLite databases and generated keys live. Backed by the `rc-data` volume |
-| `STT_PROVIDER` | `none` | One of `none`, `openai`, `mimo`. `none` disables voice input, `openai` targets any OpenAI-compatible transcription server, `mimo` targets Xiaomi MiMo. Any other value stops the gateway at startup |
-| `STT_BASE_URL` | `https://api.openai.com/v1` | Base URL. `openai` posts to `{STT_BASE_URL}/audio/transcriptions`, `mimo` to `{STT_BASE_URL}/chat/completions` |
+| `STT_PROVIDER` | `none` | One of `none`, `openai`, `mimo`, `realtime`. `none` disables voice input, `openai` targets any OpenAI-compatible transcription server, `mimo` targets Xiaomi MiMo, `realtime` keeps a live session over the OpenAI Realtime transcription protocol (Alibaba Model Studio's `qwen3-asr-flash-realtime`) — the only one whose words appear as they are said. Any other value stops the gateway at startup |
+| `STT_BASE_URL` | `https://api.openai.com/v1` | Base URL. `openai` posts to `{STT_BASE_URL}/audio/transcriptions`, `mimo` to `{STT_BASE_URL}/chat/completions`; `realtime` ignores it |
+| `STT_REALTIME_URL` | empty | The `wss://` endpoint of the `realtime` provider, required with it. The model goes in its query; a bare URL gets `?model={STT_MODEL}` appended |
 | `STT_API_KEY` | empty | Bearer token for that server. Not needed by most local servers |
 | `STT_MODEL` | `whisper-1` | Model name the backend expects |
 | `STT_LANGUAGES` | `auto,zh,en` | The languages offered in the composer's picker. `auto` lets the backend detect |
@@ -289,7 +290,9 @@ orphaned along with the VAPID key.
 
 ## Speech to text
 
-Voice input is off until `STT_PROVIDER` names a backend. Three ways to provide one.
+Voice input is off until `STT_PROVIDER` names a backend. Four ways to provide one; only the last
+streams words as they are said — the other three answer whole utterances, and the gateway fakes
+partials by re-sending everything every two seconds.
 
 **A hosted OpenAI-compatible provider.** Any server implementing
 `POST {STT_BASE_URL}/audio/transcriptions`:
@@ -315,6 +318,30 @@ MiMo accepts only `auto`, `zh` and `en`, so `STT_LANGUAGES` must list no others.
 utterance at 10 MB of base64; the gateway refuses anything larger before it sends the request, which
 no recording under the protocol's 120 s limit reaches. The request shape was checked against a fake
 local server, not against MiMo: the machine that wrote this had no MiMo key.
+
+**Live, over the OpenAI Realtime protocol (round 50).** Alibaba Model Studio's
+`qwen3-asr-flash-realtime` speaks it: the gateway holds one WebSocket to the vendor per utterance,
+forwards each 100 ms frame as `input_audio_buffer.append`, turns every incremental
+`conversation.item.input_audio_transcription.text` into `stt.partial` the moment it arrives, and on
+`stt.stop` commits and finishes the session for the last sentence. Server VAD (500 ms of silence
+ends a sentence) segments long dictations; the sentences are joined Chinese-style, without spaces
+between CJK characters. Chinese with English mixed in is what the model is for.
+
+```sh
+STT_PROVIDER=realtime
+STT_REALTIME_URL=wss://<workspace-id>.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime
+STT_MODEL=qwen3-asr-flash-realtime
+STT_API_KEY=sk-…          # the Model Studio API key
+STT_LANGUAGES=auto,zh,en
+```
+
+The Singapore region is `ap-southeast-1.maas.aliyuncs.com`; the workspace id and the key come from
+the Model Studio console. `POST /api/stt/transcribe` works with this provider for WAV (16 kHz mono
+PCM16) and raw PCM uploads only — the live protocol has no decoder behind it — and plays the file
+into a session frame by frame. The wire shape was checked against a fake local server speaking
+Alibaba's documented dialect, not against Alibaba: the machine that wrote this had no Model Studio
+key. OpenAI's own Realtime transcription uses different `session.update` fields (24 kHz audio,
+`gpt-live-transcribe`); this provider does not target it.
 
 **On the VPS.** The compose file carries an optional `stt` service on the internal network, so audio
 never leaves the host:
