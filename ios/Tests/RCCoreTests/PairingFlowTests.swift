@@ -103,7 +103,7 @@ private actor HeldGateway: GatewayAPI {
     func logout() async throws {}
     func config() async throws -> GatewayConfig { throw TransportError.notConnected }
     func preferences() async throws -> PreferencesResponse { throw TransportError.notConnected }
-    func patchPreferences(resumeAfterLimit: Bool?) async throws -> PreferencesResponse {
+    func patchPreferences(_ changes: PreferencePatch) async throws -> PreferencesResponse {
         throw TransportError.notConnected
     }
     func polishModels() async throws -> PolishModelsResponse { throw TransportError.notConnected }

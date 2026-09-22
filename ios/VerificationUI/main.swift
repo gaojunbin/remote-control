@@ -3,6 +3,10 @@ import RCCore
 import RCUI
 import SwiftUI
 
+/// Where the demo app model of these checks keeps its preferences: one
+/// suite of its own, emptied at the start of every run.
+let checkSuite = "com.junbingao.remotecontrol.uiverify"
+
 /// Checks that need SwiftUI or the main actor. Everything that can live without
 /// them is in `RCVerify`, which runs with plain Command Line Tools.
 @MainActor
@@ -28,7 +32,13 @@ func run() async -> (passed: Int, failures: [String]) {
 
     // MARK: - The demo app model
 
-    let model = AppModel(arguments: ["--demo"])
+    // Its settings are its own: a run of the checks must not read or write the
+    // preferences of whoever is signed in on this Mac, and must start where
+    // the last run did not leave off. Amendment A41 made that matter — what
+    // the demo account holds is now written back into the store.
+    UserDefaults().removePersistentDomain(forName: checkSuite)
+    let model = AppModel(settings: SettingsStore(defaults: UserDefaults(suiteName: checkSuite)!),
+                         arguments: ["--demo"])
     expect(model.isResuming, "the demo is an account, so the first frame is the app and not the form")
     await model.restoreOrPrompt()
     expect(!model.isResuming, "and the wait ends once the account is up")
@@ -1139,6 +1149,113 @@ func run() async -> (passed: Int, failures: [String]) {
     preferences.attach(api: nil)
     expect(!preferences.isOffered, "signing out forgets the account's value")
 
+    // MARK: - Amendment A41: the Settings preferences are the account's
+    //
+    // `docs/DESIGN.md` § "Settings are the account's, not the device's". The
+    // gateway keeps them, `SettingsStore` caches them, and `PreferenceSync`
+    // keeps the two equal in both directions. Nothing on the screen says so.
+
+    /// What one demo gateway holds for the account it is serving.
+    func held(_ gateway: DemoGateway) async -> Preferences {
+        (try? await gateway.preferences().preferences) ?? Preferences()
+    }
+
+    // The running demo is the upgrade day itself: its hello carries the resume
+    // switch and none of the six, so this app has offered what it already had
+    // and the person's settings are now the account's.
+    await model.preferenceSync.settle()
+    if let api = model.connection.api, let account = try? await api.preferences() {
+        equal(account.preferences.language, model.settings.language,
+              "the app offers its own interface language for an account that has none")
+        equal(account.preferences.sttLanguage, model.settings.voiceLanguage,
+              "its dictation language")
+        equal(account.preferences.polishEnabled, model.settings.polishEnabled,
+              "whether it polishes dictation")
+        equal(account.preferences.polishStrength, model.settings.polishStrength,
+              "how far, and")
+        equal(account.preferences.timelineDetail, model.settings.timelineDetail,
+              "how much of a transcript it draws")
+        expect(account.preferences.resumeAfterLimit,
+               "and the switch the account already had is left alone")
+    } else {
+        expect(false, "the demo gateway answers for the account's preferences")
+    }
+
+    let syncGateway = DemoGateway()
+    let synced = SettingsStore(defaults: UserDefaults(suiteName: "rc-a41-\(UUID().uuidString)")!)
+    let sync = PreferenceSync(settings: synced)
+    sync.attach(api: syncGateway)
+
+    // Before `hello` there is nothing to compare against, so the store is the
+    // phone's own and nothing goes out.
+    synced.timelineDetail = .detailed
+    await sync.settle()
+    expect(await held(syncGateway).timelineDetail == nil,
+           "nothing is written before hello says what the account has")
+
+    // The account's object, arriving: every field it carries moves the control
+    // in place, and the three it does not are offered this phone's own values.
+    // Three of them were set from the browser, which is where this account has
+    // been read until now.
+    _ = try? await syncGateway.patchPreferences(
+        PreferencePatch(language: .zhHans, polishEnabled: true, polishStrength: .strong))
+    sync.receive(.hello(HelloFrame(
+        protocolVersion: RemoteProtocol.version, gatewayVersion: "0.1.0-demo",
+        user: UserIdentity(username: "admin"), devices: [], sessions: [], stt: .disabled,
+        preferences: await held(syncGateway), serverTime: DemoFixtures.now)))
+    equal(synced.language, .zhHans, "the account's interface language is the app's")
+    expect(synced.polishEnabled, "so is its polish switch")
+    equal(synced.polishStrength, .strong, "and its strength")
+    await sync.settle()
+    equal(await held(syncGateway).timelineDetail, .detailed,
+          "the field the account had none of is written up from this phone")
+    equal(await held(syncGateway).sttLanguage, "auto", "every such field, in one write")
+    equal(await held(syncGateway).polishStrength, .strong,
+          "and a field it did have is not written back over")
+
+    // A change made on this screen goes up, and the reply is the value.
+    synced.timelineDetail = .simple
+    await sync.settle()
+    equal(await held(syncGateway).timelineDetail, .simple, "a change made here is written up")
+    equal(synced.timelineDetail, .simple, "and the gateway's answer is what the screen reads")
+
+    // A change made on another device of the account arrives as a frame and
+    // moves the control. Nothing is echoed back: an echo would carry the value
+    // this app held a moment ago and undo the change on the way through.
+    _ = try? await syncGateway.patchPreferences(PreferencePatch(polishEnabled: false,
+                                                                timelineDetail: .detailed))
+    sync.receive(.preferencesUpdated(await held(syncGateway)))
+    expect(!synced.polishEnabled, "a switch turned off elsewhere is off here")
+    equal(synced.timelineDetail, .detailed, "and the detail changed with it")
+    await sync.settle()
+    expect(await held(syncGateway).polishEnabled == false, "with nothing written back")
+    equal(await held(syncGateway).timelineDetail, .detailed, "over either of them")
+
+    // A gateway older than A35 carries no preferences at all, and this layer
+    // then leaves the phone's own settings exactly as they were.
+    let older = SettingsStore(defaults: UserDefaults(suiteName: "rc-a41-old-\(UUID().uuidString)")!)
+    let olderGateway = DemoGateway()
+    let olderSync = PreferenceSync(settings: older)
+    olderSync.attach(api: olderGateway)
+    older.timelineDetail = .detailed
+    older.polishEnabled = true
+    olderSync.receive(.hello(HelloFrame(
+        protocolVersion: RemoteProtocol.version, gatewayVersion: "0.1.0-old",
+        user: UserIdentity(username: "admin"), devices: [], sessions: [], stt: .disabled,
+        serverTime: DemoFixtures.now)))
+    await olderSync.settle()
+    equal(older.timelineDetail, .detailed, "an older gateway changes nothing on the phone")
+    expect(older.polishEnabled, "which keeps every setting it had")
+    expect(await held(olderGateway).timelineDetail == nil, "and is asked for nothing")
+
+    // Signing out forgets the account's copy, so the next person's hello is the
+    // only thing that fills the screen.
+    sync.attach(api: nil)
+    synced.polishModel = "gpt-4.1"
+    await sync.settle()
+    expect(await held(syncGateway).polishModel != "gpt-4.1",
+           "a signed-out app writes nobody's preferences")
+
     // The paused demo session: the notice, both actions, and the rows.
     if let paused = helloSessions.first(where: { $0.sessionID == DemoFixtures.pausedSessionID }) {
         let gateway = DemoGateway()
@@ -2144,7 +2261,7 @@ actor StoredAccountGateway: GatewayAPI, GatewayChannel {
     }
     func polishModels() async throws -> PolishModelsResponse { throw TransportError.notConnected }
     func preferences() async throws -> PreferencesResponse { throw TransportError.notConnected }
-    func patchPreferences(resumeAfterLimit: Bool?) async throws -> PreferencesResponse {
+    func patchPreferences(_ changes: PreferencePatch) async throws -> PreferencesResponse {
         throw TransportError.notConnected
     }
     func polish(_ request: PolishRequest) async throws -> PolishResponse {

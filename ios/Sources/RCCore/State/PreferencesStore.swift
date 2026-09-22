@@ -1,13 +1,18 @@
 import Foundation
 import Observation
 
-/// Amendment A35: the account's preferences, as this app reads and writes them.
+/// Amendment A35: the account's resume switch, as this app reads and writes it.
 ///
-/// They are the gateway's, not the phone's, so nothing here is stored locally:
+/// It is the gateway's, not the phone's, so nothing here is stored locally:
 /// the value is seeded from `hello`, replaced by `preferences.updated` whenever
 /// another app or another device changes it, and written with
 /// `PATCH /api/preferences`. `nil` means the gateway sent none, which is a
 /// gateway older than the amendment, and the switch is shown disabled.
+///
+/// The same object carries the Settings preferences A41 moved to the account;
+/// those are `PreferenceSync`'s, which mirrors them into `SettingsStore`. This
+/// store reads and writes the one switch and leaves the rest of the object as
+/// it found it.
 @MainActor
 @Observable
 public final class PreferencesStore {
@@ -54,11 +59,14 @@ public final class PreferencesStore {
     public func setResumeAfterLimit(_ value: Bool) async {
         guard let api, let previous = preferences, !isWriting else { return }
         errorMessage = nil
-        preferences = Preferences(resumeAfterLimit: value)
+        // Only this field: the rest of the object is the account's Settings
+        // preferences (A41), which this switch neither reads nor disturbs.
+        let changes = PreferencePatch(resumeAfterLimit: value)
+        preferences = previous.applying(changes)
         isWriting = true
         defer { isWriting = false }
         do {
-            let answer = try await api.patchPreferences(resumeAfterLimit: value)
+            let answer = try await api.patchPreferences(changes)
             preferences = answer.preferences
         } catch {
             preferences = previous

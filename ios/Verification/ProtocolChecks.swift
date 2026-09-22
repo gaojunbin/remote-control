@@ -148,6 +148,15 @@ enum ProtocolChecks {
         if let json = FixtureSource.json("http/preferences.response.json"),
            let response = try? json.decode(PreferencesResponse.self) {
             checks.expect(response.preferences.resumeAfterLimit, "the account's switch decodes")
+            // Amendment A41: the Settings screen's own preferences ride in the
+            // same object, and a full one carries all six.
+            let preferences = response.preferences
+            checks.equal(preferences.language, .zhHans, "with the account's interface language")
+            checks.equal(preferences.sttLanguage, "auto", "its dictation language")
+            checks.equal(preferences.polishEnabled, true, "whether dictation is polished")
+            checks.equal(preferences.polishModel, "gpt-5.4-mini", "by which model")
+            checks.equal(preferences.polishStrength, .moderate, "how far it may go")
+            checks.equal(preferences.timelineDetail, .detailed, "and how much of a transcript is drawn")
         } else {
             checks.expect(false, "http/preferences.response.json decodes")
         }
@@ -160,19 +169,63 @@ enum ProtocolChecks {
         if let json = FixtureSource.json("app/preferences.updated.json"),
            case .preferencesUpdated(let preferences)? = try? AppFrame(json: json) {
             checks.expect(preferences.resumeAfterLimit, "preferences.updated carries the new value")
+            checks.equal(preferences.polishEnabled, true,
+                         "and every Settings preference beside it (A41)")
+            checks.equal(preferences.timelineDetail, .detailed, "as one whole object")
         } else {
             checks.expect(false, "app/preferences.updated.json decodes as an app frame")
         }
         if let json = FixtureSource.json("device/preferences.json"),
            let preferences = try? (json["preferences"] ?? .object([:])).decode(Preferences.self) {
             checks.expect(preferences.resumeAfterLimit, "and so does the device's own frame")
+            checks.equal(preferences.language, .zhHans, "with the same Settings fields on it")
         }
         if let hello = FixtureSource.json("app/hello.json"), let frame = try? AppFrame(json: hello),
            case .hello(let payload) = frame {
             checks.expect(payload.preferences != nil, "hello carries the account's preferences")
             checks.equal(payload.preferences?.resumeAfterLimit, false,
                          "and the switch is off until the person turns it on")
+            // A41: every field but the switch is optional, so a hello that
+            // names three of them says nothing about the other three, and
+            // those are the ones the app offers its own values for.
+            checks.equal(payload.preferences?.language, .en, "a partial object decodes what it has")
+            checks.equal(payload.preferences?.polishEnabled, false, "field by field")
+            checks.equal(payload.preferences?.timelineDetail, .simple, "as far as it goes")
+            checks.expect(payload.preferences?.sttLanguage == nil,
+                          "and what it leaves out is unset rather than defaulted")
+            checks.expect(payload.preferences?.polishModel == nil, "on every absent field")
+            checks.expect(payload.preferences?.polishStrength == nil, "including the enums")
         }
+        // A41: an unknown word in an enum field reads as unset. The gateway
+        // validates every write, so a word this build does not know is one a
+        // later build added, and the rest of the account's object still stands.
+        if var object = FixtureSource.json("http/preferences.response.json")?["preferences"]?
+            .objectValue {
+            object["language"] = .string("fr")
+            if let preferences = try? JSONValue.object(object).decode(Preferences.self) {
+                checks.expect(preferences.language == nil, "an interface language this build "
+                              + "does not know reads as unset")
+                checks.expect(preferences.resumeAfterLimit,
+                              "and the rest of the object is still the account's")
+            } else {
+                checks.expect(false, "a preferences object with an unknown word still decodes")
+            }
+        }
+        // The write is the fields it names and no others, under the wire's own
+        // spelling: a patch that carried a field nobody touched would undo
+        // somebody else's change on its way through the gateway.
+        if let encoded = try? JSONValue.encode(PreferencePatch(polishEnabled: true,
+                                                               polishStrength: .strong)),
+           let body = encoded.objectValue {
+            checks.equal(body.count, 2, "a patch carries only the fields it was given")
+            checks.equal(body["polish_enabled"], .bool(true), "under the wire's names")
+            checks.equal(body["polish_strength"], .string("strong"), "with the wire's words")
+        } else {
+            checks.expect(false, "PreferencePatch encodes as the PATCH body")
+        }
+        checks.expect(PreferencePatch().isEmpty, "a patch that changes nothing is not a request")
+        checks.expect(!PreferencePatch(timelineDetail: .simple).isEmpty,
+                      "and one that sets a field to its default is")
         // A gateway older than the amendment sends none, which is what the
         // app shows the switch disabled for.
         if let hello = FixtureSource.json("app/hello.json")?.objectValue {

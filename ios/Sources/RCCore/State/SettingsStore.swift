@@ -25,9 +25,10 @@ public enum VoiceBackend: String, Sendable, Codable, CaseIterable {
     }
 }
 
-/// How much of a transcript is drawn. The level is a reading preference: it is
-/// kept on this device, never sent to the gateway or the machine, and the store
-/// holds every block whichever level is chosen.
+/// How much of a transcript is drawn. Amendment A41 makes the level the
+/// account's rather than this phone's — it is a reading preference and the
+/// person reads on more than one screen — and the store holds every block
+/// whichever level is chosen.
 public enum TimelineDetail: String, Sendable, Codable, CaseIterable {
     /// Only what is written to the reader.
     case simple
@@ -66,6 +67,16 @@ public enum TimelineDetail: String, Sendable, Codable, CaseIterable {
 /// prefilled and there is nobody to scope it to until someone has signed in.
 /// The username is kept per gateway, so alternating between two of them
 /// prefills each with the account that was used there.
+///
+/// Amendment A41: six of them are the account's and not this phone's — the
+/// interface language, the dictation language, polish with its model and its
+/// strength, and the timeline detail. They are still read and written here,
+/// because every screen reads a preference from one place, but what is here is
+/// a cache of the gateway's copy: `PreferenceSync` applies what arrives and
+/// writes up what the person changes, and is told about a change through
+/// `onAccountPreferenceChange`. The rest — notifications, the app lock, the
+/// transcription backend, the terminal font size — belongs to the device and
+/// stays here alone.
 @MainActor
 @Observable
 public final class SettingsStore {
@@ -93,27 +104,54 @@ public final class SettingsStore {
     /// A launch argument fixes the language for the whole run, so a test reads
     /// the app in the language it asked for whichever account signs in.
     @ObservationIgnored private var pinnedLanguage: InterfaceLanguage?
+    /// Amendment A41: called whenever one of the six preferences the account
+    /// owns is changed on this phone, so `PreferenceSync` can write it up.
+    @ObservationIgnored public var onAccountPreferenceChange: (() -> Void)?
+    /// True while the store is re-reading one account's stored values into
+    /// itself. A change nobody made is not a change to write up.
+    @ObservationIgnored private var isAdopting = false
 
     public var lastOrigin: String { didSet { defaults.set(lastOrigin, forKey: Key.origin) } }
     public var notificationsEnabled: Bool { didSet { write(notificationsEnabled, Key.notifications) } }
     public var appLockEnabled: Bool { didSet { write(appLockEnabled, Key.appLock) } }
     public var voiceBackend: VoiceBackend { didSet { write(voiceBackend.rawValue, Key.voiceBackend) } }
     /// A BCP-47 code, or "auto" to let the gateway decide.
-    public var voiceLanguage: String { didSet { write(voiceLanguage, Key.voiceLanguage) } }
+    public var voiceLanguage: String {
+        didSet {
+            write(voiceLanguage, Key.voiceLanguage)
+            accountPreferenceChanged()
+        }
+    }
     /// Amendment A29: whether a finished dictation is passed through the
     /// gateway's polish model. Off by default — nothing leaves the phone for a
     /// model until the person asks for it.
-    public var polishEnabled: Bool { didSet { write(polishEnabled, Key.polishEnabled) } }
+    public var polishEnabled: Bool {
+        didSet {
+            write(polishEnabled, Key.polishEnabled)
+            accountPreferenceChanged()
+        }
+    }
     /// Which of the provider's models does the polishing. Empty until one is
     /// chosen, which is when the feature can take effect.
-    public var polishModel: String { didSet { write(polishModel, Key.polishModel) } }
+    public var polishModel: String {
+        didSet {
+            write(polishModel, Key.polishModel)
+            accountPreferenceChanged()
+        }
+    }
     public var polishStrength: PolishStrength {
-        didSet { write(polishStrength.rawValue, Key.polishStrength) }
+        didSet {
+            write(polishStrength.rawValue, Key.polishStrength)
+            accountPreferenceChanged()
+        }
     }
     /// How much of a transcript is drawn. Simple is the default: most of what an
     /// agent does is not addressed to the reader.
     public var timelineDetail: TimelineDetail {
-        didSet { write(timelineDetail.rawValue, Key.timelineDetail) }
+        didSet {
+            write(timelineDetail.rawValue, Key.timelineDetail)
+            accountPreferenceChanged()
+        }
     }
     /// Amendment A38: how large the terminal's type is, in points. A pinch on
     /// the terminal changes it and the next terminal opens at the same size —
@@ -128,6 +166,7 @@ public final class SettingsStore {
         didSet {
             write(language.rawValue, Key.language)
             L10n.use(language)
+            accountPreferenceChanged()
         }
     }
 
@@ -175,9 +214,20 @@ public final class SettingsStore {
 
     private func write(_ value: Any, _ name: String) { defaults.set(value, forKey: key(name)) }
 
+    /// Amendment A41: one of the account's six was changed here. Re-reading a
+    /// scope is not such a change, and neither is the value `PreferenceSync`
+    /// just applied — that one is reported and found equal, which writes
+    /// nothing.
+    private func accountPreferenceChanged() {
+        guard !isAdopting else { return }
+        onAccountPreferenceChange?()
+    }
+
     /// Read every preference from the current scope, falling back to the value
     /// a fresh install has. A launch-pinned language wins over what was stored.
     private func readScopedValues() {
+        isAdopting = true
+        defer { isAdopting = false }
         notificationsEnabled = defaults.bool(forKey: key(Key.notifications))
         appLockEnabled = defaults.bool(forKey: key(Key.appLock))
         voiceBackend = VoiceBackend(rawValue: defaults.string(forKey: key(Key.voiceBackend)) ?? "") ?? .onDevice

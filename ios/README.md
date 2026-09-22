@@ -102,9 +102,15 @@ in-memory gateway that serves the protocol from typed fixtures and scripts a
 live turn. It never constructs a transport, so the demo cannot reach the network
 even by accident. Every `#Preview` and the XCUITest smoke run on it.
 
-Launch arguments: `--demo`, `--ui-testing`, `--reset-state`, and (debug builds
-only) `--voice-preview`, which swaps a scripted speech platform in so the UI
-test never opens the microphone.
+Launch arguments: `--demo`, `--ui-testing`, `--reset-state`,
+`--demo-preference-change`, and (debug builds only) `--voice-preview`, which
+swaps a scripted speech platform in so the UI test never opens the microphone.
+
+Amendment A41: the demo account's other device turns dictation polish on a few
+seconds after Settings opens, so the switch is seen moving on its own. It is
+what the demo is for, so it happens on every run but a UI test's;
+`--demo-preference-change` asks for it in the one test that is about it, and no
+other test has a row appear under it.
 
 ## Voice
 
