@@ -103,6 +103,9 @@ class LiveTranscription:
         self._segments: list[str] = []
         self._pending = ""
         self._finished = asyncio.Event()
+        self._finishing = False
+        # Audio sent since the vendor last closed a sentence: what a commit on Done is for.
+        self._fresh_audio = False
         self._error: SttError | None = None
 
     async def open(self) -> None:
@@ -132,6 +135,7 @@ class LiveTranscription:
 
     async def append(self, pcm: bytes) -> None:
         self._raise_if_failed()
+        self._fresh_audio = True
         await self._send(
             {
                 "event_id": _event_id(),
@@ -141,13 +145,22 @@ class LiveTranscription:
         )
 
     async def finish(self) -> str:
-        """Ask for the last sentence and return everything heard."""
+        """Ask for the last sentence, if one is open, and return everything heard.
+
+        With server VAD the vendor commits each sentence itself once the speaker pauses, so a
+        commit sent after that meets an empty buffer and Alibaba answers it with an error ("Error
+        committing input audio buffer, maybe no invalid audio stream" — round 51, the owner's first
+        dictation). A commit therefore goes out only while a sentence is still in progress, and
+        whatever the vendor says while the session is being finished cannot fail the utterance:
+        the words heard so far are the result.
+        """
         self._raise_if_failed()
-        await self._send({"event_id": _event_id(), "type": "input_audio_buffer.commit"})
+        self._finishing = True
+        if self._pending or self._fresh_audio:
+            await self._send({"event_id": _event_id(), "type": "input_audio_buffer.commit"})
         await self._send({"event_id": _event_id(), "type": "session.finish"})
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._finished.wait(), FINISH_TIMEOUT_SECONDS)
-        self._raise_if_failed()
         return self.text
 
     @property
@@ -207,13 +220,22 @@ class LiveTranscription:
             if transcript:
                 self._segments.append(transcript)
             self._pending = ""
+            self._fresh_audio = False
             await self.on_partial(self.text)
+        elif kind == "input_audio_buffer.speech_stopped":
+            # The vendor's VAD closed the sentence; its own commit follows.
+            self._fresh_audio = False
         elif kind == "session.finished":
             self._finished.set()
         elif kind == "error":
             raw_error = event.get("error")
             detail: dict[str, Any] = raw_error if isinstance(raw_error, dict) else {}
             message = str(detail.get("message") or event.get("message") or "backend error")
+            if self._finishing:
+                # Nothing more was going to be heard anyway; the text so far is the answer.
+                log.info("realtime stt: the vendor complained while finishing", said=message[:200])
+                self._finished.set()
+                return
             await self._fail(SttError(f"speech-to-text backend refused: {message}"[:200]), None)
 
     async def _fail(self, error: SttError, cause: BaseException | None) -> None:

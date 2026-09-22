@@ -31,12 +31,19 @@ class FakeRealtimeServer:
     """A vendor that speaks the documented Alibaba dialect, run on a loop of its own.
 
     Every ``input_audio_buffer.append`` is answered with a partial naming the bytes heard so
-    far; ``input_audio_buffer.commit`` or ``session.finish`` completes the sentence and finishes
-    the session. With ``fail`` it answers the first frame with an ``error`` event instead.
+    far; ``input_audio_buffer.commit`` completes the sentence when audio is pending and, as
+    Alibaba does, answers an ``error`` when nothing is; ``session.finish`` finishes the session.
+    With ``vad_after`` the server completes the sentence itself after that many frames, the way
+    server VAD does at a pause. With ``fail`` it answers the first frame with an ``error`` instead.
     """
 
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(
+        self, *, fail: bool = False, vad_after: int = 0, commit_errors: bool = False
+    ) -> None:
         self.fail = fail
+        self.vad_after = vad_after
+        # A vendor that refuses every commit, whatever the buffer holds.
+        self.commit_errors = commit_errors
         self.requests: list[dict[str, Any]] = []
         self.headers: dict[str, str] = {}
         self.path = ""
@@ -76,6 +83,8 @@ class FakeRealtimeServer:
         self.headers = {key.lower(): value for key, value in request.headers.items()}
         self.path = request.path
         heard = 0
+        pending = 0
+        frames = 0
         await connection.send(json.dumps({"type": "session.created", "session": {"id": "s1"}}))
         async for raw in connection:
             event = json.loads(raw)
@@ -89,7 +98,10 @@ class FakeRealtimeServer:
                         json.dumps({"type": "error", "error": {"message": "quota exhausted"}})
                     )
                     continue
-                heard += len(base64.b64decode(event["audio"]))
+                size = len(base64.b64decode(event["audio"]))
+                heard += size
+                pending += size
+                frames += 1
                 await connection.send(
                     json.dumps(
                         {
@@ -99,17 +111,43 @@ class FakeRealtimeServer:
                         }
                     )
                 )
+                if self.vad_after and frames % self.vad_after == 0:
+                    await connection.send(json.dumps({"type": "input_audio_buffer.speech_stopped"}))
+                    await connection.send(json.dumps(_completed(heard)))
+                    pending = 0
             elif kind == "input_audio_buffer.commit":
-                await connection.send(
-                    json.dumps(
-                        {
-                            "type": "conversation.item.input_audio_transcription.completed",
-                            "transcript": f"final {heard} bytes.",
-                        }
+                if pending == 0 or self.commit_errors:
+                    await connection.send(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "error": {
+                                    "message": "Error committing input audio buffer, "
+                                    "maybe no invalid audio stream."
+                                },
+                            }
+                        )
                     )
-                )
+                    continue
+                pending = 0
+                await connection.send(json.dumps(_completed(heard)))
             elif kind == "session.finish":
                 await connection.send(json.dumps({"type": "session.finished"}))
+
+
+def _completed(heard: int) -> dict[str, Any]:
+    return {
+        "type": "conversation.item.input_audio_transcription.completed",
+        "transcript": f"final {heard} bytes.",
+    }
+
+
+@pytest.fixture
+def vad_vendor() -> Iterator[FakeRealtimeServer]:
+    server = FakeRealtimeServer(vad_after=2)
+    server.start()
+    yield server
+    server.stop()
 
 
 @pytest.fixture
@@ -186,6 +224,65 @@ async def test_a_live_session_streams_partials_and_returns_the_final(
     assert update["session"]["turn_detection"]["type"] == "server_vad"
     assert update["session"]["input_audio_transcription"] == {"language": "zh"}
     assert [event["type"] for event in vendor.requests[-2:]] == [
+        "input_audio_buffer.commit",
+        "session.finish",
+    ]
+
+
+async def test_a_sentence_the_vendor_already_completed_is_not_committed_again(
+    vad_vendor: FakeRealtimeServer,
+) -> None:
+    """Round 51: server VAD had committed the sentence at the pause; a second commit met an
+    empty buffer and Alibaba answered with an error the owner saw on every Done."""
+
+    async def ignore(_: str) -> None:
+        return None
+
+    session = LiveTranscription(vad_vendor.url, "sk", "zh", ignore)
+    await session.open()
+    try:
+        await session.append(SILENCE)
+        await session.append(SILENCE)
+        # Let the vendor's own completion land before Done is pressed.
+        for _ in range(50):
+            if session.text.startswith("final"):
+                break
+            await asyncio.sleep(0.02)
+        text = await session.finish()
+    finally:
+        await session.close()
+    assert text == f"final {2 * len(SILENCE)} bytes."
+    assert "input_audio_buffer.commit" not in [event["type"] for event in vad_vendor.requests]
+
+
+async def test_a_complaint_while_finishing_does_not_lose_the_words() -> None:
+    """A vendor that refuses the commit on Done: the words heard so far are still the answer,
+    and nothing reaches the app as an error."""
+    server = FakeRealtimeServer(commit_errors=True)
+    server.start()
+    errors: list[str] = []
+
+    async def ignore(_: str) -> None:
+        return None
+
+    async def on_error(error: SttError) -> None:
+        errors.append(str(error))
+
+    session = LiveTranscription(server.url, "sk", "zh", ignore, on_error)
+    try:
+        await session.open()
+        await session.append(SILENCE)
+        for _ in range(50):
+            if session.text:
+                break
+            await asyncio.sleep(0.02)
+        text = await session.finish()
+    finally:
+        await session.close()
+        server.stop()
+    assert text == f"heard {len(SILENCE)} bytes"
+    assert errors == []
+    assert [event["type"] for event in server.requests[-2:]] == [
         "input_audio_buffer.commit",
         "session.finish",
     ]
