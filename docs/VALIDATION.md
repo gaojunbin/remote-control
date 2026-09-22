@@ -2589,8 +2589,10 @@ rests on the documentation read on 2026-09-22 (Beijing and Singapore endpoints, 
 above, 16 kHz PCM, `stash`, `session.finish`). The owner's first dictation on 1.8.0 is the check;
 the gateway log line "realtime stt failed" names what the vendor said if it refuses. Latency and
 Chinese quality in use. Apps unchanged: `stt.partial`/`stt.final` are the frames they already read.
-All four components 1.8.0 (a feature release), iOS build 24, tag v1.8.0. GitHub "iOS checks":
-CI_RESULT_50.
+All four components 1.8.0 (a feature release), iOS build 24, tag v1.8.0. GitHub "iOS checks" on
+5c30c4f (run 35745204694) passed in 5 min 39 s. The iOS app was not touched this round, so the whole
+UI target was not rerun; the web suite's caret test timed out once more under the parallel toolchains
+and passed alone.
 
 ## Smoke procedure
 
