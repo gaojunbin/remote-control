@@ -343,7 +343,8 @@ enum ProtocolChecks {
            let agent = try? json.decode(AgentInfo.self) {
             checks.equal(agent.attach, .channel, "Claude attaches through a channel")
             checks.expect(agent.attachReady, "the device says the shim is installed")
-            checks.expect(!agent.sharedInterrupt, "a channel cannot interrupt a running turn")
+            // Amendment A42: the pseudo-terminal types Escape, so the turn can be stopped.
+            checks.expect(agent.sharedInterrupt, "the shim's pseudo-terminal can stop a running turn")
             checks.expect(!agent.sharedAttachments, "nor hand it bytes")
             // Amendment A40: the shim's pseudo-terminal is typed into, so two
             // of the four settings are the device's and the other two are not.

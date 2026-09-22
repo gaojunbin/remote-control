@@ -940,11 +940,20 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
 
     private func stop(_ request: GatewayRequest) throws -> JSONValue {
         let id = try requireSessionID(request)
-        // Amendment A10: a Claude channel cannot interrupt a running turn.
         // Amendment A11: the Codex daemon relays `turn/interrupt`, and says so.
+        // Amendment A42: a Claude terminal takes Escape from the device's
+        // pseudo-terminal — never over a prompt, which is answered from its
+        // card, and not at all when nothing is running.
         let existing = try session(id)
         if existing.isAttached, agent(for: existing)?.sharedInterrupt != true {
             throw GatewayErrorBody(code: .unsupported, message: "Stop it in the terminal.")
+        }
+        if isTypedInto(existing) {
+            if existing.state == .needsApproval || existing.state == .needsInput {
+                throw GatewayErrorBody(code: .conflict, message: "answer the prompt first")
+            }
+            guard existing.state.isWorking else { return .object([:]) }
+            injecting?.cancel(); injecting = nil
         }
         scripted?.cancel(); scripted = nil
         emit(sessionID: id, body: .turnCompleted(TurnCompletedPayload(turnID: "demo-turn",
@@ -1232,12 +1241,16 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
 
     private func startReplyScript(sessionID: String) {
         scripted?.cancel()
+        // A terminal the device types into replies slowly enough for Stop to
+        // be tapped while it runs (A42); the daemon's reply is quick as before.
+        let pace: Duration = (try? session(sessionID)).map(isTypedInto) == true
+            ? .milliseconds(450) : .milliseconds(110)
         scripted = Task { [weak self] in
             guard let self else { return }
             let blockID = "a-\(UUID().uuidString.prefix(6))"
             for word in ["Got", " it", " —", " running", " that", " now."] {
                 guard !Task.isCancelled else { return }
-                try? await Task.sleep(for: .milliseconds(110))
+                try? await Task.sleep(for: pace)
                 await self.emit(sessionID: sessionID, blockID: blockID,
                                 body: .assistantText(StreamTextPayload(delta: word, done: false)))
             }

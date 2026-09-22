@@ -24,8 +24,8 @@ struct TypedTerminalTests {
         #expect(agent.sharedSettingsKeys == ["model", "effort"])
         #expect(agent.shares(.model) && agent.shares(.effort))
         #expect(!agent.shares(.permissionMode) && !agent.shares(.speed))
-        // The two an attachment of this kind still cannot do.
-        #expect(!agent.sharedInterrupt && !agent.sharedAttachments)
+        // Stop rides the same pseudo-terminal (A42); bytes still cannot reach a live CLI.
+        #expect(agent.sharedInterrupt && !agent.sharedAttachments)
         // The same typing runs one command, so the capability is there (A27).
         #expect(agent.supports(.commands))
     }

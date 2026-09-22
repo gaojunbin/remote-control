@@ -329,7 +329,9 @@ struct CodexDaemonTests {
         try await settle(timeout: 10) { !chat.isRunning }
         #expect(!chat.isRunning)
 
-        // The same request on a channel that cannot interrupt is refused.
+        // On a Claude terminal the device types Escape (A42): idle, the demo has
+        // nothing to stop and refuses nothing. Without the shim the app offers no
+        // Stop at all, because the channel alone cannot interrupt.
         guard let relayedSession = DemoFixtures.sessions.first(where: {
             $0.sessionID == DemoFixtures.sharedSessionID
         }) else {
@@ -339,7 +341,9 @@ struct CodexDaemonTests {
         let relayed = ChatStore(session: relayedSession, channel: gateway)
         relayed.agent = DemoFixtures.claude
         await relayed.stop()
-        #expect(relayed.errorMessage != nil)
+        #expect(relayed.errorMessage == nil)
+        relayed.agent = DemoFixtures.claudeWithoutShim
+        #expect(!relayed.canStop)
     }
 
     @MainActor

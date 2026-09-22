@@ -796,7 +796,13 @@ enum StoreChecks {
         }
         checks.equal(approval.options.map(\.id), ["allow", "deny"],
                      "a relayed request offers exactly allow and deny")
-        checks.expect(!chat.canStop, "a Claude channel cannot interrupt the turn it is attached to")
+        // Amendment A42: Stop is offered, and over a prompt the device — and the
+        // demo — refuse it in their own words rather than escaping the dialog.
+        checks.expect(chat.canStop, "Stop is offered on the attached Claude session")
+        await chat.stop()
+        checks.equal(chat.errorMessage, "answer the prompt first",
+                     "and is refused in the device's words while the request is open")
+        chat.clearError()
         await chat.approve(requestID: approval.requestID, optionID: "allow")
         await settle(timeout: 10) { chat.timeline.pendingRequest == nil }
         checks.expect(chat.timeline.pendingRequest == nil, "answering here resolves the relayed request")

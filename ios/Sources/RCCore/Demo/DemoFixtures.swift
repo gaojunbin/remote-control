@@ -62,7 +62,8 @@ public enum DemoFixtures {
             defaultEffort: "high",
             capabilities: [.worktree, .takeover, .interrupt, .queue, .attachments, .effort, .history,
                            .commands],
-            attach: .channel, attachReady: true, sharedInterrupt: false,
+            // Amendment A42: Stop types Escape into the same pseudo-terminal.
+            attach: .channel, attachReady: true, sharedInterrupt: true,
             // Amendment A40: the shim runs the CLI inside a pseudo-terminal the
             // device owns, so the device types `/model`, `/effort` and
             // `/compact` into it as the person would. There is no command it

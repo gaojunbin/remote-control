@@ -606,6 +606,39 @@ final class RemoteControlUITests: XCTestCase {
         attach(name: "34-question-answered-here")
     }
 
+    /// Amendment A42: the device types Escape into the terminal, so a shared
+    /// Claude session has Stop — refused in the device's words while a prompt
+    /// is on screen, and ending the turn otherwise.
+    func testSharedClaudeSessionStopsFromThePhone() {
+        app.launch()
+        openSharedSession()
+        // The attached CLI asks its question the moment this opens (A20); the
+        // composer answers it first, so what is typed next is a message.
+        answerTheSharedQuestion(with: "Remote control for your terminal agents")
+        let field = promptField()
+        XCTAssertTrue(field.waitForExistence(timeout: 15), "the composer is on screen")
+        field.tap()
+        field.typeText("run the checks")
+        app.buttons["composer.send"].tap()
+
+        // The terminal asks for approval; Stop cannot escape a prompt.
+        let approval = app.buttons["approval.primary"]
+        XCTAssertTrue(approval.waitForExistence(timeout: 30), "the terminal's request reaches the card")
+        let stop = app.buttons["chat.stop"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 5), "Stop is offered on a shared Claude session (A42)")
+        stop.tap()
+        XCTAssertTrue(app.staticTexts["answer the prompt first"].waitForExistence(timeout: 10),
+                      "the refusal is the device's own sentence")
+        attach(name: "97-stop-refused-over-a-prompt")
+
+        // Answered, the turn runs on, and Stop ends it.
+        approval.tap()
+        XCTAssertTrue(stop.waitForExistence(timeout: 10), "Stop is back while the reply streams")
+        stop.tap()
+        XCTAssertTrue(stop.waitForNonExistence(timeout: 15), "and the turn is over")
+        attach(name: "98-stop-ended-the-turn")
+    }
+
     private func openSharedSession() {
         let row = app.buttons["session.demo-session-shared"]
         XCTAssertTrue(row.waitForExistence(timeout: 20), "the attached demo session is listed")

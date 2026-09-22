@@ -181,7 +181,8 @@ func run() async -> (passed: Int, failures: [String]) {
         expect(!chat.isReadOnly, "an attached session types like a remote one")
         expect(chat.isAttached, "and knows a terminal owns it")
         expect(!chat.canTakeover, "takeover is never offered on an attached session")
-        expect(!chat.canStop, "and a Claude channel cannot interrupt the turn")
+        expect(chat.agent?.sharedInterrupt == true && chat.agent?.supports(.interrupt) == true,
+               "and since A42 the pseudo-terminal's Escape can stop a running turn")
         expect(!chat.allowsAttachments, "attachments cannot reach a live CLI")
         // Amendment A40: the shim runs that CLI inside a pseudo-terminal the
         // device owns, so the model and the effort are typed in from here and

@@ -97,8 +97,12 @@ struct SharedControlTests {
     @Test("Stop needs the interrupt capability and an attachment that can interrupt")
     @MainActor
     func attachedStopNeedsSharedInterrupt() {
-        // Claude lists `interrupt` but its channel cannot interrupt a turn.
-        #expect(!store(state: .running, control: .shared).canStop)
+        // Claude lists `interrupt`, and since A42 the shim's pseudo-terminal can
+        // type Escape; without the shim the channel alone cannot.
+        #expect(store(state: .running, control: .shared).canStop)
+        let unshimmed = AgentInfo(agent: "claude", available: true, capabilities: [.interrupt],
+                                  attach: .channel, attachReady: false, sharedInterrupt: false)
+        #expect(!store(state: .running, control: .shared, agent: unshimmed).canStop)
 
         let codex = AgentInfo(agent: "codex", available: true, capabilities: [.interrupt],
                               attach: .daemon, attachReady: true, sharedInterrupt: true)

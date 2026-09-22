@@ -90,7 +90,7 @@ enum TimelineChecks {
 
         let attachedRunning = store(state: .running, control: .shared)
         checks.expect(attachedRunning.isRunning, "an attached turn runs like any other")
-        checks.expect(!attachedRunning.canStop, "a channel cannot interrupt the turn it rides on")
+        checks.expect(attachedRunning.canStop, "the pseudo-terminal's Escape stops the turn it rides on (A42)")
         checks.equal(attachedRunning.statusLine, "Working · your message will be queued",
                      "and the status says only what becomes of a message typed into it")
 
