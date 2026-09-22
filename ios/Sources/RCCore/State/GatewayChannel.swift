@@ -31,7 +31,8 @@ public protocol GatewayAPI: Sendable {
     /// Amendment A35: the account's preferences, read and written through the
     /// gateway so the phone, the browser and every device agree.
     func preferences() async throws -> PreferencesResponse
-    func patchPreferences(resumeAfterLimit: Bool?) async throws -> PreferencesResponse
+    /// Amendment A41: the fields the write names, and no others.
+    func patchPreferences(_ changes: PreferencePatch) async throws -> PreferencesResponse
     /// Amendment A29: dictation polish, which the app offers only where the
     /// gateway reports `polish.enabled`.
     func polishModels() async throws -> PolishModelsResponse

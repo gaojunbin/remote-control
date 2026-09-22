@@ -150,7 +150,7 @@ private actor ScopedGateway: GatewayAPI {
     // Nothing below is reached by these tests; a call is a bug in one of them.
     func polishModels() async throws -> PolishModelsResponse { throw TransportError.notConnected }
     func preferences() async throws -> PreferencesResponse { throw TransportError.notConnected }
-    func patchPreferences(resumeAfterLimit: Bool?) async throws -> PreferencesResponse {
+    func patchPreferences(_ changes: PreferencePatch) async throws -> PreferencesResponse {
         throw TransportError.notConnected
     }
     func polish(_ request: PolishRequest) async throws -> PolishResponse { throw TransportError.notConnected }

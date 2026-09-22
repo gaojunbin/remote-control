@@ -27,6 +27,13 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// limits. A real one is a network call per account away, so the demo keeps
     /// the moment the page spends saying "Checking…".
     private let agentsDelay: Duration
+    /// Amendment A41: whether the account's other device changes a preference
+    /// a few seconds after Settings opens. That is the amendment made visible,
+    /// so the demo does it; a UI test that is reading the Voice group for
+    /// something else asks for nothing to move under it.
+    private let changesPreferencesElsewhere: Bool
+    /// How long it waits first.
+    private let elsewhereDelay: Duration
     private var devices = DemoFixtures.devices
     private var sessionList = DemoFixtures.sessions
     /// Amendment A37: the directories this demo browses, which a folder made
@@ -40,6 +47,8 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     private var registrationOpen: Bool
     /// Amendment A35: the account's preferences, which this gateway keeps the
     /// way a real one does — one value for every app and device of the account.
+    /// It starts with the resume switch alone, so the demo is also the day A41
+    /// arrives: the Settings fields are absent, and the app offers its own.
     private var preferences = Preferences(resumeAfterLimit: true)
     private var transcripts: [String: [SessionEvent]] = [:]
     private var cursors: [String: Int] = [:]
@@ -76,6 +85,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// The first prompt of each shell, sent once the `open` reply has landed so
     /// the screen has a terminal id to match it against.
     private var greeting: Task<Void, Never>?
+    /// Amendment A41: the moment the account's other device changes one of the
+    /// Settings preferences, scheduled when Settings opens and run once.
+    private var elsewhere: Task<Void, Never>?
 
     /// The default is what a quick local device feels like. A UI test asks for
     /// a longer one so the state a real send passes through can be looked at
@@ -105,19 +117,29 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// fresh windows. Long enough to see the meters arrive, short enough that
     /// opening a device is not a wait.
     public static let defaultAgentsDelay = Duration.milliseconds(700)
+    /// Amendment A41: how long after Settings opens the account's other device
+    /// changes a preference. Long enough to have read the row first, short
+    /// enough to be watched rather than waited for. A UI test asks for longer:
+    /// the row it is about is below the fold, and a switch that has already
+    /// moved by the time the list has been scrolled to it proves nothing.
+    public static let defaultElsewhereDelay = Duration.seconds(3)
 
     public init(echoDelay: Duration = DemoGateway.defaultEchoDelay,
                 resumeDelay: Duration? = DemoGateway.defaultResumeDelay,
                 registrationOpen: Bool = false,
                 minimumAppVersion: String = AppBuild.version,
                 polishDelay: Duration = DemoGateway.defaultPolishDelay,
-                agentsDelay: Duration = DemoGateway.defaultAgentsDelay) {
+                agentsDelay: Duration = DemoGateway.defaultAgentsDelay,
+                changesPreferencesElsewhere: Bool = true,
+                elsewhereDelay: Duration = DemoGateway.defaultElsewhereDelay) {
         self.echoDelay = echoDelay
         self.resumeDelay = resumeDelay
         self.registrationOpen = registrationOpen
         self.minimumAppVersion = minimumAppVersion
         self.polishDelay = polishDelay
         self.agentsDelay = agentsDelay
+        self.changesPreferencesElsewhere = changesPreferencesElsewhere
+        self.elsewhereDelay = elsewhereDelay
         endpoint = (try? GatewayEndpoint("https://demo.remote-control.invalid"))
             ?? GatewayEndpoint.placeholder
         let stream = AsyncStream<GatewayEvent>.makeStream(bufferingPolicy: .bufferingOldest(512))
@@ -159,6 +181,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         updating?.cancel(); updating = nil
         commanding?.cancel(); commanding = nil
         greeting?.cancel(); greeting = nil
+        elsewhere?.cancel(); elsewhere = nil
         continuation.yield(.state(.disconnected))
     }
 
@@ -293,10 +316,10 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         PreferencesResponse(preferences: preferences)
     }
 
-    public func patchPreferences(resumeAfterLimit: Bool?) async throws -> PreferencesResponse {
-        if let resumeAfterLimit {
-            preferences = Preferences(resumeAfterLimit: resumeAfterLimit)
-        }
+    /// Amendment A41: the fields the write names are set and the rest are left,
+    /// exactly as a real gateway does it, and the whole object goes out at once.
+    public func patchPreferences(_ changes: PreferencePatch) async throws -> PreferencesResponse {
+        preferences = preferences.applying(changes)
         continuation.yield(.frame(.preferencesUpdated(preferences)))
         // Turning it off cancels every pending resume, on every device.
         if preferences.resumeAfterLimit == false { cancelEveryResume() }
@@ -305,7 +328,33 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
 
     /// Amendment A29: two models, and a stand-in that cleans the words rather
     /// than reaching a provider. The delay is what makes "Polishing…" visible.
-    public func polishModels() async throws -> PolishModelsResponse { DemoFixtures.polishModels }
+    ///
+    /// Amendment A41: this is also the one thing the demo can read as "Settings
+    /// is on screen" — the Voice group asks for the models the moment it
+    /// appears — so it is where the account's other device is scheduled to
+    /// change a preference under the reader's eyes.
+    public func polishModels() async throws -> PolishModelsResponse {
+        scheduleChangeFromAnotherDevice()
+        return DemoFixtures.polishModels
+    }
+
+    /// Amendment A41: the preferences are the account's, so a change made
+    /// somewhere else arrives here as a frame and moves the control in place.
+    /// A few seconds after Settings opens, the account's other device turns
+    /// dictation polish on; nothing on this screen was touched.
+    private func scheduleChangeFromAnotherDevice() {
+        guard changesPreferencesElsewhere, elsewhere == nil else { return }
+        elsewhere = Task { [weak self, elsewhereDelay] in
+            try? await Task.sleep(for: elsewhereDelay)
+            guard !Task.isCancelled else { return }
+            await self?.turnPolishOnFromAnotherDevice()
+        }
+    }
+
+    private func turnPolishOnFromAnotherDevice() {
+        preferences = preferences.applying(PreferencePatch(polishEnabled: true))
+        continuation.yield(.frame(.preferencesUpdated(preferences)))
+    }
 
     public func polish(_ request: PolishRequest) async throws -> PolishResponse {
         try? await Task.sleep(for: polishDelay)

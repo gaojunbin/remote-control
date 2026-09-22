@@ -135,12 +135,11 @@ public actor GatewayHTTPClient {
         try await send(.get, "/api/preferences").decode(PreferencesResponse.self)
     }
 
-    /// Amendment A35: set the fields that are present and leave the rest. The
-    /// change goes out to the account's other apps and to its devices.
-    public func patchPreferences(resumeAfterLimit: Bool? = nil) async throws -> PreferencesResponse {
-        var body: [String: JSONValue] = [:]
-        if let resumeAfterLimit { body["resume_after_limit"] = .bool(resumeAfterLimit) }
-        return try await send(.patch, "/api/preferences", body: .object(body))
+    /// Amendments A35 and A41: set the fields that are present and leave the
+    /// rest. The change goes out to the account's other apps and to its
+    /// devices, and the answer is the whole object.
+    public func patchPreferences(_ changes: PreferencePatch) async throws -> PreferencesResponse {
+        try await send(.patch, "/api/preferences", body: try .encode(changes))
             .decode(PreferencesResponse.self)
     }
 

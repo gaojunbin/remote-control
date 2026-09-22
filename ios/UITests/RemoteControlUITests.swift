@@ -2747,6 +2747,40 @@ final class RemoteControlUITests: XCTestCase {
         turnOn(toggle)
     }
 
+    // MARK: - A41, the Settings preferences are the account's
+
+    /// `docs/DESIGN.md` § "Settings are the account's, not the device's": a
+    /// preference turned on somewhere else is on here, within the round trip,
+    /// and the control moves in place while the screen is open. Nothing on the
+    /// screen says "syncing" — there is nothing to say.
+    ///
+    /// The demo's other device turns dictation polish on a few seconds after
+    /// Settings opens, and nothing here is touched but the scroll.
+    func testAPreferenceChangedElsewhereMovesTheSwitchInPlace() {
+        // Only this test asks the demo's other device to change anything: a
+        // row appearing under a test that is reading the same screen for
+        // something else is a race, not a feature.
+        app.launchArguments += ["--demo-preference-change"]
+        app.launch()
+        openSettingsTab()
+
+        let toggle = app.switches["settings.polish"]
+        XCTAssertTrue(scrollDown(to: toggle), "the Voice group holds the polish switch")
+        XCTAssertEqual(toggle.value as? String, "0", "which this account has off to start with")
+        XCTAssertFalse(app.descendants(matching: .any)["settings.polishStrength"].exists,
+                       "so the rows under it are not there either")
+
+        // The account's other device turns it on. No tap, no reload.
+        XCTAssertTrue(waitFor(timeout: 30) { (toggle.value as? String) == "1" },
+                      "the switch follows the account without being touched")
+        XCTAssertTrue(app.descendants(matching: .any)["settings.polishModel"]
+                        .waitForExistence(timeout: 10),
+                      "and the rows the switch reveals arrive with it")
+        XCTAssertTrue(app.descendants(matching: .any)["settings.polishStrength"].exists,
+                      "both of them")
+        attach(name: "ios-round49-settings-sync")
+    }
+
     /// A session the five-hour window stopped: the notice above the transcript
     /// names the time it comes back, Change opens a picker with the bounds, and
     /// Cancel takes the resume away at once.

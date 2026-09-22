@@ -15,6 +15,10 @@ public final class AppModel {
     /// Amendment A35: the account's preferences, which live on the gateway and
     /// not on this phone. Seeded from `hello` and kept in step by the socket.
     public let preferences = PreferencesStore()
+    /// Amendment A41: the Settings screen's own preferences are the account's
+    /// too. Screens still read `settings`; this keeps it equal to what the
+    /// gateway holds, in both directions.
+    public let preferenceSync: PreferenceSync
 
     public var tab: Tab = .sessions
     /// Session keys, not sessions. A `Session` changes on every status, meta
@@ -49,6 +53,10 @@ public final class AppModel {
 
     @ObservationIgnored private let drafts: DraftStore
     @ObservationIgnored private let isUITesting: Bool
+    /// Amendment A41: whether the demo's other device changes a preference
+    /// while Settings is open. Every run but a UI test's, and the one UI test
+    /// that is about it.
+    @ObservationIgnored private let showsPreferenceChange: Bool
     /// Amendment A31: the oldest app build the demo gateway claims to work
     /// with. This build, so the demo runs — unless `--demo-update-required`
     /// asked for a higher one, which is how the blocking screen is driven.
@@ -77,9 +85,11 @@ public final class AppModel {
             ? ConnectionStore.offlineDemo(registrationOpen: arguments.contains("--registration-open"))
             : ConnectionStore())
         self.settings = settings
+        preferenceSync = PreferenceSync(settings: settings)
         self.push = push ?? PushController(platform: SystemNotifications.shared)
         self.turns = turns ?? TurnNotifier()
         isUITesting = arguments.contains("--ui-testing")
+        showsPreferenceChange = !isUITesting || arguments.contains("--demo-preference-change")
         demoMinimumAppVersion = arguments.contains("--demo-update-required")
             ? DemoFixtures.laterAppVersion : AppBuild.version
         if arguments.contains("--reset-state") {
@@ -136,7 +146,18 @@ public final class AppModel {
                                   // Amendment A33: and so is "Checking…" on a
                                   // device's page.
                                   agentsDelay: isUITesting ? .seconds(3)
-                                                           : DemoGateway.defaultAgentsDelay)
+                                                           : DemoGateway.defaultAgentsDelay,
+                                  // Amendment A41: the account's other device
+                                  // moves a preference while Settings is open.
+                                  // The demo shows it; a UI test reading that
+                                  // screen for something else must not have a
+                                  // row appear under it, so only the test
+                                  // about it asks for the change — and it is
+                                  // given time to reach the row before the
+                                  // switch moves, or it would prove nothing.
+                                  changesPreferencesElsewhere: showsPreferenceChange,
+                                  elsewhereDelay: isUITesting
+                                      ? .seconds(10) : DemoGateway.defaultElsewhereDelay)
         await connection.enterDemo(api: gateway, channel: gateway)
         attachPush()
     }
@@ -162,6 +183,7 @@ public final class AppModel {
     /// events a banner is raised for.
     private func receive(_ frame: AppFrame) {
         preferences.receive(frame)
+        preferenceSync.receive(frame)
         guard case .sessionEvent(let sessionID, let deviceID, let event) = frame,
               let payload = event.resume else { return }
         announceResume(payload, event: event, sessionID: sessionID, deviceID: deviceID)
@@ -169,6 +191,7 @@ public final class AppModel {
 
     public func attachPush() {
         preferences.attach(api: connection.api)
+        preferenceSync.attach(api: connection.api)
         push.attach(api: connection.isDemo ? nil : connection.api,
                     enabled: settings.notificationsEnabled) { [weak self] route in
             self?.handle(SessionLink(deviceID: route.deviceID, sessionID: route.sessionID))
@@ -199,6 +222,7 @@ public final class AppModel {
     public func signOut() async {
         push.detach()
         preferences.attach(api: nil)
+        preferenceSync.attach(api: nil)
         await closeChat()
         path.removeAll()
         hasChosenLandingTab = false
