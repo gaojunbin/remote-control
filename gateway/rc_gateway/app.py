@@ -43,6 +43,7 @@ from .routes import (
 from .session_registry import SessionRegistry
 from .state import VERSION, GatewayState
 from .stt import MimoTranscriber, OpenAiTranscriber, Transcriber
+from .stt_realtime import RealtimeTranscriber
 from .uploads import BoundedUploads
 from .users import UserStore
 from .ws import app_ws, device_ws, stt_ws
@@ -232,6 +233,8 @@ def _build_transcriber(config: Config) -> Transcriber | None:
         return None
     if config.stt.provider == "mimo":
         return MimoTranscriber(config.stt)
+    if config.stt.provider == "realtime":
+        return RealtimeTranscriber(config.stt)
     return OpenAiTranscriber(config.stt)
 
 

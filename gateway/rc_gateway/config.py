@@ -25,8 +25,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SESSION_TTL_SECONDS = 30 * 24 * 3600
 PAIRING_TTL_SECONDS = 600
 DEFAULT_STT_LANGUAGES = ("auto", "zh", "en")
-#: The speech backends the gateway has a client for; ``none`` disables voice input.
-STT_BACKENDS = ("openai", "mimo")
+#: The speech backends the gateway has a client for; ``none`` disables voice input. ``realtime``
+#: is a live session over the OpenAI Realtime transcription protocol (Alibaba Model Studio's
+#: ``qwen3-asr-flash-realtime`` speaks it), the only one that streams words as they are said.
+STT_BACKENDS = ("openai", "mimo", "realtime")
 STT_PROVIDERS = ("none", *STT_BACKENDS)
 DEFAULT_TRUSTED_PROXIES = ("127.0.0.0/8", "::1/128")
 DEFAULT_POLISH_TIMEOUT_SECONDS = 20.0
@@ -43,6 +45,9 @@ class SttConfig:
     api_key: str
     model: str
     languages: tuple[str, ...]
+    #: The ``wss://`` endpoint of the ``realtime`` provider, with the model in its query when the
+    #: vendor wants it there (``?model=qwen3-asr-flash-realtime``). Empty for every other provider.
+    realtime_url: str = ""
 
     @property
     def enabled(self) -> bool:
@@ -175,13 +180,34 @@ def _stt_config() -> SttConfig:
             f"STT_PROVIDER is not a supported provider: {provider!r} "
             f"(expected one of {', '.join(STT_PROVIDERS)})"
         )
+    model = _env("STT_MODEL", "whisper-1")
+    realtime_url = _realtime_url(provider, _env("STT_REALTIME_URL"), model)
     return SttConfig(
         provider=provider,
         base_url=_env("STT_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
         api_key=_env("STT_API_KEY"),
-        model=_env("STT_MODEL", "whisper-1"),
+        model=model,
         languages=_split_languages(_env("STT_LANGUAGES", ",".join(DEFAULT_STT_LANGUAGES))),
+        realtime_url=realtime_url,
     )
+
+
+def _realtime_url(provider: str, raw: str, model: str) -> str:
+    """The live session's endpoint: required for ``realtime``, carrying the model in its query.
+
+    Alibaba names the model in the URL (``?model=qwen3-asr-flash-realtime``); an operator who sets
+    ``STT_MODEL`` and a bare URL gets the two joined, and one who wrote the model into the URL is
+    left alone.
+    """
+    if provider != "realtime":
+        return ""
+    if not raw.startswith(("ws://", "wss://")):
+        raise ConfigError(
+            "STT_REALTIME_URL must be a ws:// or wss:// URL when STT_PROVIDER is realtime"
+        )
+    if "model=" in raw or not model:
+        return raw
+    return f"{raw}{'&' if '?' in raw else '?'}model={model}"
 
 
 def _split_models(raw: str) -> tuple[str, ...]:

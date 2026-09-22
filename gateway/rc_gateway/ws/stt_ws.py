@@ -1,9 +1,11 @@
 """``WS /ws/stt`` — live transcription of PCM16 audio.
 
-Binary frames carry raw little-endian 16-bit PCM at 16 kHz mono. The gateway wraps the accumulated
-buffer as WAV and asks the backend for a transcript roughly every two seconds while audio keeps
-arriving, skipping a partial whenever a request is still in flight, and produces the final
-transcript on ``stt.stop``. Audio is never written to disk.
+Binary frames carry raw little-endian 16-bit PCM at 16 kHz mono. With a request/response backend
+the gateway wraps the accumulated buffer as WAV and asks for a transcript roughly every two seconds
+while audio keeps arriving, skipping a partial whenever a request is still in flight, and produces
+the final transcript on ``stt.stop``. With the ``realtime`` backend (``stt_realtime.py``) each frame
+is forwarded the moment it arrives and every incremental word the vendor sends comes back as
+``stt.partial``; ``stt.stop`` asks for the last sentence. Audio is never written to disk.
 
 Every transcription spends the operator's speech credit, so the socket is bounded the way nothing
 else on this path was: the address is rate limited at the upgrade, an account may hold only a few
@@ -33,6 +35,7 @@ from ..security import (
 )
 from ..state import GatewayState
 from ..stt import PARTIAL_INTERVAL_SECONDS, SttError, Transcriber, Utterance
+from ..stt_realtime import LiveTranscription, RealtimeTranscriber
 
 log = logger("rc_gateway.ws.stt")
 router = APIRouter()
@@ -107,6 +110,9 @@ class _Stream:
         self.transcriber = transcriber
         self.language = language
         self.utterance = Utterance()
+        # The realtime backend streams; the others answer whole utterances (see the module doc).
+        self.realtime = transcriber if isinstance(transcriber, RealtimeTranscriber) else None
+        self.live: LiveTranscription | None = None
         self._partial: asyncio.Task[None] | None = None
         # The first partial is due one interval in, not on the first 100 ms chunk: transcribing
         # a fifth of a second costs a backend round trip and tells the user nothing.
@@ -129,7 +135,11 @@ class _Stream:
             if (payload := message.get("bytes")) is not None:
                 if not await self._append(payload):
                     return
-                await self._maybe_partial()
+                if self.realtime is not None:
+                    if not await self._live_append(payload):
+                        return
+                else:
+                    await self._maybe_partial()
                 continue
             text = message.get("text")
             if text is None:
@@ -147,6 +157,7 @@ class _Stream:
             return
         self._closed = True
         await self._cancel_partial()
+        await self._close_live()
         await _fail(self.ws, message, code)
 
     async def _append(self, payload: bytes) -> bool:
@@ -156,6 +167,57 @@ class _Stream:
             await _fail(self.ws, str(exc), exc.code)
             return False
         return True
+
+    async def _live_append(self, payload: bytes) -> bool:
+        """Forward one frame to the live session, opening it on the first."""
+        assert self.realtime is not None
+        try:
+            if self.live is None:
+                self.live = self.realtime.live(self.language, self._live_partial, self._live_error)
+                await self.live.open()
+            await self.live.append(payload)
+        except SttError as exc:
+            await _fail(self.ws, str(exc), exc.code)
+            return False
+        return True
+
+    async def _live_partial(self, text: str) -> None:
+        if not self._closed and text:
+            await _send(self.ws, {"type": "stt.partial", "text": text})
+
+    async def _live_error(self, error: SttError) -> None:
+        """The vendor refused or dropped the stream: tell the app now, not on its next frame."""
+        if self._closed:
+            return
+        self._closed = True
+        await _fail(self.ws, str(error), error.code)
+
+    async def _live_finalize(self) -> None:
+        live = self.live
+        if live is None:
+            await _send(
+                self.ws,
+                {"type": "stt.final", "text": "", "language": self.language or "auto"},
+            )
+            await _close(self.ws)
+            return
+        try:
+            text = await live.finish()
+        except SttError as exc:
+            await _fail(self.ws, str(exc), exc.code)
+            return
+        finally:
+            await self._close_live()
+        await _send(
+            self.ws,
+            {"type": "stt.final", "text": text, "language": self.language or "auto"},
+        )
+        await _close(self.ws)
+
+    async def _close_live(self) -> None:
+        live, self.live = self.live, None
+        if live is not None:
+            await live.close()
 
     async def _maybe_partial(self) -> None:
         busy = self._partial is not None and not self._partial.done()
@@ -175,6 +237,9 @@ class _Stream:
             await _send(self.ws, {"type": "stt.partial", "text": transcript.text})
 
     async def _finalize(self) -> None:
+        if self.realtime is not None:
+            await self._live_finalize()
+            return
         await self._cancel_partial()
         if self.utterance.size == 0:
             await _send(
@@ -209,6 +274,7 @@ class _Stream:
     async def close(self) -> None:
         self._closed = True
         await self._cancel_partial()
+        await self._close_live()
 
 
 def _command(text: str) -> str:
