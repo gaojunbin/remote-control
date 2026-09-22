@@ -2608,7 +2608,9 @@ the utterance — the words heard so far are the result. The fake vendor now com
 its own after a pause and refuses a commit on an empty buffer, as Alibaba does. Gateway tests
 473 → 475. **Verified against Alibaba only through the owner's report of the error text**; the fix
 reproduces that behaviour in the fake and the owner's next Done is the check. All four components
-1.8.1 (a fix release), iOS build 25, tag v1.8.1. GitHub "iOS checks": CI_RESULT_51.
+1.8.1 (a fix release), iOS build 25, tag v1.8.1. GitHub "iOS checks" on 62aff0e (run 35759900085) passed in 6 min 5 s. The web
+suite's two timing tests hit their 5 s limit under the parallel toolchains and passed alone, as in
+every round since 45.
 
 ## Smoke procedure
 
