@@ -680,9 +680,37 @@ lifecycle has its own frames, and nothing that only makes sense in a terminal is
 
 **Interrupt & send** is always a separate, explicit action, never the default. **Stop** is separate
 from Send and lives in the header, so no one stops a turn while reaching for the send button.
-Queued messages are listed and can be removed one at a time. A send whose outcome is unknown shows
-"Delivery unconfirmed" with a Retry that reuses the original request id, because a silent automatic
-resend is how an agent gets told twice.
+A send whose outcome is unknown shows "Delivery unconfirmed" with a Retry that reuses the original
+request id, because a silent automatic resend is how an agent gets told twice.
+
+**Up next: the queue is one control, and a queued message can be taken back (A43).** Messages
+waiting behind a turn are shown as a count, never as a stack: one chip, "Up next · N", at the end
+of the composer's control row, on the web exactly as on the phone, and only while N is at least
+one. Three queued lines stacked over the field pushed the conversation up by a row each and said
+nothing the count does not. Tapping the chip opens the list — a popover above the chip on the web,
+a sheet on the phone — in the order the messages will go, each one line of its text (two on the
+phone) and, for a message carrying files, a paperclip and their number. Each row does two things:
+
+- **Remove** takes the message out of the line for good: an × at the row's end on the web; a swipe,
+  or Remove in the row's context menu, on the phone. There is no confirmation; the words are the
+  person's own and were seconds old.
+- **Tapping the message edits it.** It leaves the line at once — the device cannot deliver words
+  that are still changing — and its text comes into the composer's field with the caret at the end;
+  the list closes. A strip over the field reads "Editing a queued message" with Cancel. Send puts
+  the edited words back into the line where they were, even behind a steering agent, whose Send
+  would otherwise steer; the button reads Queue while a turn runs and Send when it does not, and a
+  message whose turn ended meanwhile is simply sent. Cancel puts the original words back the same
+  way. If the device took the message before the tap arrived, nothing opens and one line says it
+  was already sent.
+
+Whatever the field held when the tap came — words, files, or both — is set aside, not overwritten,
+and comes back into the field the moment the edited message is back in the line; a refused send
+leaves the edited words in the field, still editing, and keeps the other draft aside. While the
+field is editing, it is a message and nothing else: the `/` panel does not open, and a pending
+question waits for the field rather than taking it. A message that carries files is removed, not
+edited — its files are on the device, and nothing can bring them back into the field — so its row
+has the paperclip and Remove, and tapping it does nothing. On a composer that is disabled (the
+terminal holds the session, the device is offline) the list still opens, and offers Remove only.
 
 **Voice** dictates into the composer's own field rather than into a separate panel. Tapping the
 mic starts listening on the web as on the phone — there is no hold-to-talk chord to learn: a waveform and an
