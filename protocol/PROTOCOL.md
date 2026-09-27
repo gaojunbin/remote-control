@@ -1854,9 +1854,13 @@ A partial update of `Session` fields: `title`, `model`, `permission_mode`, `effo
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `pending` | `{id, text, ts}[]` | yes | `id` is the id of the original `session.send` request |
+| `pending` | `{id, text, ts, attachments?}[]` | yes | `id` is the id of the original `session.send` request. `attachments` is how many files the held message carries, absent when it carries none (A43) |
 
-A snapshot of queued remote messages. Remove one with `session.queue_remove`.
+A snapshot of queued remote messages, in the order they will be delivered. Remove one with
+`session.queue_remove`. An app edits one by taking it out with `session.queue_remove` and sending
+the edited words back with `mode: "queue"` and that entry's `ts` as `queue_ts` (6.3): the device
+holds them in the place the entry left (A43). The files of a held message stay on the device and
+no snapshot carries them, so an entry with `attachments` can be removed but not edited.
 
 `fixtures/events/queue.json`
 
@@ -1870,6 +1874,30 @@ A snapshot of queued remote messages. Remove one with `session.queue_remove`.
       "id": "573d2674-debc-4db0-973c-16e8a7c2e9b1",
       "text": "Then run the full test suite.",
       "ts": 1788945028800
+    }
+  ]
+}
+```
+
+A queue holding two messages, the second with two files, which can be removed but not edited:
+`fixtures/events/queue.attachments.json`
+
+```json
+{
+  "seq": 24,
+  "ts": 1788945031200,
+  "kind": "queue",
+  "pending": [
+    {
+      "id": "573d2674-debc-4db0-973c-16e8a7c2e9b1",
+      "text": "Then run the full test suite.",
+      "ts": 1788945028800
+    },
+    {
+      "id": "807da3ea-84ba-4e5d-b26d-77a153262986",
+      "text": "These two screenshots show the drawer before and after.",
+      "ts": 1788945031200,
+      "attachments": 2
     }
   ]
 }
@@ -2459,7 +2487,7 @@ The gateway forwards these to the owning device and returns the device's reply.
 | Type | Fields | Result |
 | --- | --- | --- |
 | `session.create` | `device_id`, `agent`, `cwd`, `model?`, `permission_mode?`, `effort?`, `speed?`, `worktree?`, `first_message?`, `title?` | `{session}` |
-| `session.send` | `session_id`, `text`, `attachments?`, `mode` | `{accepted, queued_id?}` |
+| `session.send` | `session_id`, `text`, `attachments?`, `mode`, `queue_ts?` | `{accepted, queued_id?}` |
 | `session.stop` | `session_id` | `{}` |
 | `session.approve` | `session_id`, `request_id`, `option_id`, `message?` | `{}` |
 | `session.answer` | `session_id`, `request_id`, `answers` | `{}` |
@@ -2507,6 +2535,26 @@ sessions; on a `shared` session it fails with `conflict`.
 
 The result's `accepted` field reports what actually happened: `sent`, `queued` or `steered`.
 `queued_id` is present when the message was queued and is the handle for `session.queue_remove`.
+
+#### Editing a queued message (A43)
+
+A queued message is edited by taking it out and putting it back. The app removes the entry with
+`session.queue_remove` — so the device cannot deliver words that are still being changed — and
+edits its text in the composer; a `not_found` reply means the device took the message first, and
+there is nothing left to edit. The edited words go back as an ordinary `session.send` with
+`mode: "queue"` and `queue_ts`, the `ts` the entry had in the snapshot:
+
+- When the message is queued, the device holds it under that `ts`, in front of every entry with a
+  later one, so it waits in the place it left however the queue moved meanwhile. Without
+  `queue_ts` a queued message joins the end with the current time. The queue is therefore always
+  in `ts` order, which is the order it is delivered in.
+- `queue_ts` never decides whether a message queues; `mode` does, as above. An idle session
+  delivers a `mode: "queue"` message at once, which is right for an edit that outlived the turn
+  it was waiting for.
+- A `queue_ts` that is not a non-negative integer is `bad_request`.
+
+An entry whose snapshot carries `attachments` is not edited: its files are on the device, and no
+frame brings them back to an app. Apps offer Remove for it and nothing else.
 
 #### Rules the device enforces
 
@@ -2687,6 +2735,20 @@ Normative for the device and invisible to apps.
     }
   ],
   "mode": "auto"
+}
+```
+
+The first queued message of `fixtures/events/queue.json`, edited and sent back to its place (A43):
+`fixtures/app/session.send.requeue.json`
+
+```json
+{
+  "type": "session.send",
+  "id": "094980b3-a803-4e2b-b6cf-b97e665d8b27",
+  "session_id": "ad2c9abb-4a1e-470a-835c-228778fc17f0",
+  "text": "Then run the full test suite, and the linters after it.",
+  "mode": "queue",
+  "queue_ts": 1788945028800
 }
 ```
 
@@ -3614,6 +3676,10 @@ one app connection that asked. The gateway relays bytes and never reads them.
 - [ ] On a `shared` session injects only while the transcript is idle, holds everything else as a
       `queue` entry with no `user_message`, and emits the block with `delivery: "delivered"` only
       once it is injected (A19).
+- [ ] Keeps every queue in `ts` order: holds a queued message that carries `queue_ts` under that
+      `ts`, in front of every entry with a later one, and any other at the end; refuses a
+      `queue_ts` that is not a non-negative integer with `bad_request`; reports `attachments` on
+      an entry that holds files (A43).
 - [ ] Reports `terminal` in `hello`; runs the login shell in a pseudo-terminal per `terminal.open`
       (at most four), coalesces output into `terminal.output` frames of at most 16 KiB with a rising
       `seq`, keeps 64 KiB of scrollback, writes `terminal.input` and applies `terminal.resize`,
@@ -3760,6 +3826,10 @@ one app connection that asked. The gateway relays bytes and never reads them.
       reconnects with backoff on any code other than 4401 and 4403.
 - [ ] Never auto-resends a `session.send`; retries reuse the original `id`.
 - [ ] Shows the queued or steered outcome from `accepted` rather than guessing.
+- [ ] Shows the queue as one "Up next · N" control that opens the list of queued messages; every
+      entry can be removed, and one without `attachments` can be edited — taken out with
+      `session.queue_remove`, edited in the composer, and sent back with `mode: "queue"` and its
+      `queue_ts` (A43).
 - [ ] Opens the command list when `/` is typed into an empty composer on a session whose agent
       has capability `commands`, filters it by name as the user types, shows each command's
       description and argument hint, sends a matched first word as `session.command` and
@@ -3806,7 +3876,7 @@ one app connection that asked. The gateway relays bytes and never reads them.
 | --- | --- |
 | `fixtures/app/` | One frame per app-socket type, in both directions, plus typed replies |
 | `fixtures/device/` | One frame per device-socket type |
-| `fixtures/device/forwarded/` | All seventeen forwarded requests as the device receives them, plus the A9 backfill variant |
+| `fixtures/device/forwarded/` | All seventeen forwarded requests as the device receives them, plus the A9 backfill and A43 re-queue variants |
 | `fixtures/events/` | One event per kind, and one `tool_call` per `tool_kind` |
 | `fixtures/objects/` | Bare `Session` and `AgentInfo` objects that no frame fixture carries, including the two attachable agents and the shared sessions |
 | `fixtures/http/` | One body per HTTP request and response |
@@ -4260,3 +4330,15 @@ would: `session.stop` on such a session presses it only while a turn is running 
 question is on screen (those are answered, not escaped; the request answers `conflict` until they
 are), and does nothing when no turn runs. Claude reports `shared_interrupt: true` whenever it
 reports `shared_settings`. Nothing new on the wire. See 4.4, 6.3 and 9.2.
+
+**2026-09-28 A43 — editing a queued message.** A queued message could be removed but not changed,
+and the web app drew every one of them above its composer. An app now takes an entry out with
+`session.queue_remove`, so the device cannot deliver words that are still being changed, edits its
+text in the composer, and sends it back with `mode: "queue"` and the new optional
+`session.send.queue_ts` — the `ts` the entry had. The device holds such a message under that `ts`,
+in front of every entry queued later, so the edit keeps its place however the queue moved
+meanwhile, and a queue is always in `ts` order; a message without `queue_ts` joins the end as
+before. `queue.pending[]` gains `attachments`, the number of files a held message carries: the files
+stay on the device and no frame brings them back, so apps offer Remove for such an entry and not
+Edit. Both fields are optional; a device without them queues an edited message at the end. See
+5.12, 6.3 and 9.

@@ -661,6 +661,10 @@
             "queue",
             "interrupt"
           ]
+        },
+        "queue_ts": {
+          "description": "A43: for a message taken out of the queue to be edited, the ts that queue entry had. When the message is queued the device holds it under that ts, in front of every entry with a later one.",
+          "$ref": "objects.json#/$defs/Timestamp"
         }
       },
       "required": [

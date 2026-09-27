@@ -331,6 +331,12 @@
         },
         "ts": {
           "$ref": "objects.json#/$defs/Timestamp"
+        },
+        "attachments": {
+          "description": "A43: how many files the held message carries; absent when it carries none. Such an entry can be removed but not edited.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
         }
       },
       "required": [
@@ -895,7 +901,7 @@
       ]
     },
     "Queue": {
-      "description": "Snapshot of queued remote messages.",
+      "description": "Snapshot of queued remote messages, in the order they will be delivered (ts order, A43).",
       "allOf": [
         {
           "$ref": "#/$defs/EventBase"
