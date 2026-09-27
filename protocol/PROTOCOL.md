@@ -2546,7 +2546,10 @@ there is nothing left to edit. The edited words go back as an ordinary `session.
 
 - When the message is queued, the device holds it under that `ts`, in front of every entry with a
   later one, so it waits in the place it left however the queue moved meanwhile. Without
-  `queue_ts` a queued message joins the end with the current time. The queue is therefore always
+  `queue_ts` a queued message joins the end under the current time, or one millisecond past the
+  last entry's `ts` when that is later, so no two entries share a `ts` and an edit has exactly one
+  place to go back to. A message the device puts back itself — an injection the CLI absorbed, one
+  it could not inject — goes back under its own `ts` the same way. The queue is therefore always
   in `ts` order, which is the order it is delivered in.
 - `queue_ts` never decides whether a message queues; `mode` does, as above. An idle session
   delivers a `mode: "queue"` message at once, which is right for an edit that outlived the turn
@@ -3676,10 +3679,11 @@ one app connection that asked. The gateway relays bytes and never reads them.
 - [ ] On a `shared` session injects only while the transcript is idle, holds everything else as a
       `queue` entry with no `user_message`, and emits the block with `delivery: "delivered"` only
       once it is injected (A19).
-- [ ] Keeps every queue in `ts` order: holds a queued message that carries `queue_ts` under that
-      `ts`, in front of every entry with a later one, and any other at the end; refuses a
-      `queue_ts` that is not a non-negative integer with `bad_request`; reports `attachments` on
-      an entry that holds files (A43).
+- [ ] Keeps every queue in `ts` order with no two entries sharing a `ts`: holds a queued message
+      that carries `queue_ts` under that `ts`, in front of every entry with a later one, any other
+      at the end under a `ts` later than the last entry's, and a message it puts back itself under
+      its own `ts`; refuses a `queue_ts` that is not a non-negative integer with `bad_request`;
+      reports `attachments` on an entry that holds files (A43).
 - [ ] Reports `terminal` in `hello`; runs the login shell in a pseudo-terminal per `terminal.open`
       (at most four), coalesces output into `terminal.output` frames of at most 16 KiB with a rising
       `seq`, keeps 64 KiB of scrollback, writes `terminal.input` and applies `terminal.resize`,
