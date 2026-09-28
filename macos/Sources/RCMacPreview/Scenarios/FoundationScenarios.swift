@@ -11,15 +11,15 @@ enum FoundationScenarios {
             PreviewScenario(name: "landing", route: .landing),
             PreviewScenario(name: "update-required", account: .updateRequired),
             PreviewScenario(name: "update-required-zh", account: .updateRequired, language: .zhHans),
-            PreviewScenario(name: "gallery", height: 1720, content: { AnyView(Gallery()) }),
-            PreviewScenario(name: "gallery-tokens", height: 1500, content: { AnyView(TokenGallery()) }),
-            PreviewScenario(name: "gallery-popover", content: { AnyView(OverlayGallery(kind: .popover)) }),
-            PreviewScenario(name: "gallery-menu", content: { AnyView(MenuGallery()) }),
-            PreviewScenario(name: "gallery-modal", content: { AnyView(OverlayGallery(kind: .modal)) }),
+            PreviewScenario(name: "gallery", height: 1720, content: { _ in AnyView(Gallery()) }),
+            PreviewScenario(name: "gallery-tokens", height: 1500, content: { _ in AnyView(TokenGallery()) }),
+            PreviewScenario(name: "gallery-popover", content: { _ in AnyView(OverlayGallery(kind: .popover)) }),
+            PreviewScenario(name: "gallery-menu", content: { _ in AnyView(MenuGallery()) }),
+            PreviewScenario(name: "gallery-modal", content: { _ in AnyView(OverlayGallery(kind: .modal)) }),
             PreviewScenario(name: "gallery-modal-sheet", width: 600, height: 760,
-                            content: { AnyView(OverlayGallery(kind: .modal)) }),
-            PreviewScenario(name: "gallery-drawer", content: { AnyView(OverlayGallery(kind: .drawer)) }),
-            PreviewScenario(name: "gallery-confirm", content: { AnyView(OverlayGallery(kind: .confirm)) })
+                            content: { _ in AnyView(OverlayGallery(kind: .modal)) }),
+            PreviewScenario(name: "gallery-drawer", content: { _ in AnyView(OverlayGallery(kind: .drawer)) }),
+            PreviewScenario(name: "gallery-confirm", content: { _ in AnyView(OverlayGallery(kind: .confirm)) })
         ]
     }
 

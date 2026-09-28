@@ -14,21 +14,23 @@ struct PreviewRenderer {
         defer { model.discardEphemeralState() }
         try await reach(scenario, model: model)
         model.router.replace(scenario.route)
-        await scenario.setup(PreviewContext(model: model, gateway: arguments.gatewayURL))
+        let context = PreviewContext(model: model, gateway: arguments.gatewayURL, opened: PreviewOpened())
+        await scenario.setup(context)
 
         let width = scenario.width ?? arguments.width
         let height = scenario.height ?? arguments.height
-        let root = PreviewRoot(model: model, stage: scenario.stage, content: scenario.content)
+        let root = PreviewRoot(model: model, stage: scenario.stage, context: context, content: scenario.content)
         let window = PreviewWindow.make(width: width, height: height, content: root)
         defer { window.orderOut(nil); window.close() }
 
-        await scenario.prepare(PreviewContext(model: model, gateway: arguments.gatewayURL))
+        await scenario.prepare(context)
         try await Task.sleep(for: scenario.settle)
         window.displayIfNeeded()
         guard let view = PreviewWindow.frameView(of: window) else { throw LayerCapture.Failure.noLayer }
         let png = try LayerCapture.png(of: view, scale: arguments.scale)
         let file = directory.appending(path: "\(scenario.name).png")
         try png.write(to: file, options: .atomic)
+        await context.opened.close(on: model.connection)
         if model.isSignedIn, !model.isDemo { await model.signOut() }
         return file
     }
@@ -49,7 +51,7 @@ struct PreviewRenderer {
 
     /// Sign in, or stay at the form, as the scenario asks.
     private func reach(_ scenario: PreviewScenario, model: MacAppModel) async throws {
-        let context = PreviewContext(model: model, gateway: arguments.gatewayURL)
+        let context = PreviewContext(model: model, gateway: arguments.gatewayURL, opened: PreviewOpened())
         switch scenario.account {
         case .signedIn:
             if case .gateway(let url, let username, let password) = arguments.source {
@@ -78,11 +80,12 @@ struct PreviewRenderer {
 private struct PreviewRoot: View {
     let model: MacAppModel
     let stage: String?
-    let content: (@MainActor @Sendable () -> AnyView)?
+    let context: PreviewContext
+    let content: (@MainActor @Sendable (PreviewContext) -> AnyView)?
 
     var body: some View {
         Group {
-            if let content { RootView(showing: content()) } else { RootView() }
+            if let content { RootView(showing: content(context)) } else { RootView() }
         }
         .environment(model)
         .environment(\.previewStage, stage)
