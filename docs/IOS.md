@@ -116,6 +116,10 @@ is proved against; anything else is the short sentence. `--field-scroll-probe` p
 field's scroll position beside it as `composer.prompt.scroll`, for the same test. Both are read only
 where the scripted platform is, so a release build honours neither.
 
+`--demo-queue` opens the live session with three messages held behind a turn that runs on, the last
+of them carrying two files, so the Up next list can be edited and emptied without racing the turn
+that would deliver it (A43, "Up next" below).
+
 `--demo-account` puts the same in-memory gateway *behind* the sign-in form instead of around it:
 `ConnectionStore.offlineDemo(registrationOpen:)` builds the store with the demo as both its HTTP
 client and its socket, so the form signs in for real against it. That is how every answer the form
@@ -959,7 +963,7 @@ them — it stays in the navigation bar, so no one ends a turn while reaching fo
 | Model card | `ChatStore.allowsSettingsChanges` | `composer.modelCard` |
 | Permission mode | the same, and `AgentInfo.permissionModes` is non-empty (A25) | `composer.permissions` |
 | Dictation language | always; it belongs to the microphone beside it | `composer.language` |
-| Up next · N | `session.queued > 0` | `composer.queue` |
+| Up next · N | `session.queued > 0`; opens the list of queued messages (A43, "Up next" below) | `composer.queue` |
 
 While dictation runs the level meter, the elapsed time and Done replace that whole row.
 
@@ -1255,7 +1259,7 @@ and a turning wheel would claim the app was busy when it is not.
 | The device's `user_message` arrives under the same `block_id` | Replaced in place by the ordinary replacement rule |
 | An older device sends its own id, `source: "remote"`, identical text | Reconciled by text, one row per event |
 | The reply is `sent` or `steered` | Nothing; the row waits for the event |
-| The reply is `queued` | The row goes, and the queue row above the composer stands for the message until the device dequeues it and emits the `user_message` under the same id |
+| The reply is `queued` | The row goes, and the message is one of the "Up next · N" count until the device dequeues it and emits the `user_message` under the same id |
 | The reply is an error the gateway actually sent | The row goes, the message is shown in the composer, and the text returns to the draft if the user has not started another one — and the composer puts its attachment pills back beside them |
 | The socket dropped, or the request timed out | The row stays, "Delivery unconfirmed" and Retry appear, and the retry reuses the id rather than sending a second copy. Retry is disabled while it is out (`OneAtATime`, `Sources/RCUI/Design/OneAtATime.swift`): the id is reused, so two overlapping retries would be two requests under one id |
 | Nothing at all for 60 s | The row says "Delivery unconfirmed" itself, through `OptimisticMessage.isUnconfirmed(at:)` |
@@ -1277,6 +1281,58 @@ The demo device holds its echo back by `DemoGateway.defaultEchoDelay`, 400 ms, a
 message before it reports what the agent said about it, which is the order a real device uses. Under
 `--ui-testing` the delay is three seconds, so a test can look at the state between the tap and the
 echo rather than race it.
+
+## Up next
+
+What waits behind a turn is one chip, "Up next · N", and never a stack of messages over the field
+(`docs/DESIGN.md` § "The composer" → **Up next**, A43). It opens `QueueSheet`
+(`Sources/RCUI/Screens/QueueSheet.swift`): the snapshot in delivery order, each row two lines of the
+message at most, how long it has waited, and a paperclip with the count for an entry whose
+`attachments` says it holds files. A swipe, or Remove in the row's context menu, sends
+`session.queue_remove` and asks nothing first. `ChatStore.removeQueued(_:)` takes the row out of the
+list before the reply: a destructive swipe has already animated it away, and a list that still
+counted it when the snapshot arrived stopped the app with UIKit's "invalid number of items" assertion
+(found by the UI test this round). A Remove that gets `not_found` says "That message has already been
+sent.", as an edit does, never the device's own words. Any other refusal means the device still holds
+the message, so the row goes back where it stood (`Timeline.restoreQueued`) unless a queue snapshot
+arrived while the request was out, which then stands. A tap, or Edit in the same menu, edits the
+message.
+
+**An edit takes the message out and puts it back.** `ChatStore.beginEdit(_:)` sends
+`session.queue_remove` first, so the device cannot deliver words that are still changing, and only
+once it is answered keeps a `QueuedEdit` (the entry's `ts`, its words, the draft it replaced) and puts
+the entry's text in the field. The sheet closes on the tap, and the composer takes the keyboard with
+the caret after the last word. `not_found` means the device took the message first: nothing opens,
+and the banner says "That message has already been sent." While the edit is open, "Editing a queued
+message" and Cancel stand over the field, the primary is named Queue while a turn runs, a steering
+agent's included, and Send when none does, and the status line agrees with it: `steersRunningTurn`
+is false, so it reads "· your message will be queued" (or how many are queued) and never that the
+message will steer. The `/` panel stays shut, and a pending question waits for the field instead of
+taking it (`pendingQuestion` is nil until the edit ends; the card stays live). Send is
+`session.send {mode: "queue", queue_ts}` under the entry's `ts`, Cancel sends the original words the
+same way, and Interrupt & send, still in the button's menu, sends `mode: "interrupt"` with no
+`queue_ts`. While any of them is out, `ChatStore.isReturningEdit` holds: the field keeps its words
+and takes no keys, the `+` and the microphone wait, Cancel is disabled, and the button's place holds
+the spinner (`ComposerPrimarySlot` treats it as it treats a polish still out), so nothing is sent
+twice. Accepted or unconfirmed, the edit ends and the draft set aside comes back; refused, the edited
+words stay in the field and the edit stays open. `PendingSend.queueTs` keeps the place for Retry.
+
+The composer's files are the view's state, so `Composer` sets them aside itself, following
+`chat.queuedEdit`, and a file attached while editing goes with the edited message. An entry that
+holds files is Remove only, because its files are on the device and no frame brings them back; so is
+every row while the composer cannot send, and every other row while one message is being edited: one
+is edited at a time. Leaving the conversation keeps the
+edit: `AppModel` holds it by session key and hands it back when the conversation opens again, in
+memory for the life of the app as the web app keeps its drafts, and the words being edited are the
+saved draft. An app the system ends in the middle of an edit keeps those words as the draft and
+loses the edit, and the draft set aside with it.
+
+The demo device keeps every queue in `ts` order: an entry without `queue_ts` joins the end under the
+current time or one past the last entry's `ts`, one sent back with it goes in front of the first
+entry with a greater `ts`. It answers `queue_remove` with `not_found` for an id it no longer holds,
+counts files in the snapshot, and delivers the next held message when a turn ends. `--demo-queue`
+is what `testQueuedMessagesCanBeEditedAndRemoved` runs against; `QueuedEditTests` and
+`DemoQueueTests` cover the store and the demo device.
 
 ## Voice
 

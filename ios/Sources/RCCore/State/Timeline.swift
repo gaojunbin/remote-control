@@ -262,6 +262,10 @@ public struct Timeline: Sendable, Equatable {
     /// is older than the live one and must not overwrite it (amendment A6).
     private var todosSeq = 0
     private var queueSeq = 0
+    /// Bumped by every queue snapshot applied and by a reset, so a removal the
+    /// device refused can tell whether the device has spoken about the queue
+    /// since the row was taken off the screen.
+    private var queueGeneration = 0
 
     public init() {}
 
@@ -386,6 +390,7 @@ public struct Timeline: Sendable, Equatable {
         lastSeq = 0
         todosSeq = 0
         queueSeq = 0
+        queueGeneration += 1
         hasMoreHistory = true
         historyLoaded = false
         touch()
@@ -397,7 +402,39 @@ public struct Timeline: Sendable, Equatable {
         guard lastSeq >= queueSeq else { return }
         queue = pending
         queueSeq = lastSeq
+        queueGeneration += 1
         dropQueuedOptimistic()
+        touch()
+    }
+
+    /// A queued message taken off the screen before the device has let go of
+    /// it: what it was, where it stood, and which snapshot it was taken from.
+    public struct QueueRemoval: Sendable, Equatable {
+        public let message: QueuedMessage
+        let position: Int
+        let generation: Int
+    }
+
+    /// A queued message the person removed. The device's next snapshot says
+    /// the same thing and replaces this one as any snapshot does; the list is
+    /// not made to wait for it, because a swipe has already taken the row off
+    /// the screen. Nil when the list does not hold it.
+    @discardableResult
+    public mutating func dropQueued(_ id: String) -> QueueRemoval? {
+        guard let position = queue.firstIndex(where: { $0.id == id }) else { return nil }
+        let removal = QueueRemoval(message: queue.remove(at: position), position: position,
+                                   generation: queueGeneration)
+        touch()
+        return removal
+    }
+
+    /// The device refused a removal, so it still holds the message, and the
+    /// row goes back where it stood — unless a snapshot arrived meanwhile, which
+    /// says better than this where everything is.
+    public mutating func restoreQueued(_ removal: QueueRemoval) {
+        guard removal.generation == queueGeneration,
+              !queue.contains(where: { $0.id == removal.message.id }) else { return }
+        queue.insert(removal.message, at: min(removal.position, queue.count))
         touch()
     }
 
@@ -554,6 +591,7 @@ public struct Timeline: Sendable, Equatable {
             guard event.seq >= queueSeq else { return }
             queue = payload.pending
             queueSeq = event.seq
+            queueGeneration += 1
             dropQueuedOptimistic()
         default:
             break

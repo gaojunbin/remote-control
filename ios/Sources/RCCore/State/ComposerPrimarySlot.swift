@@ -20,7 +20,11 @@ public enum ComposerPrimarySlot: String, Sendable, Equatable, CaseIterable {
     /// The field holds what will be sent.
     case send
 
-    public static func of(voice: VoiceInputPhase, polish: PolishPhase) -> ComposerPrimarySlot {
+    /// Amendment A43: `returning` is an edited queued message on its way back
+    /// into the line. Like a polish still out, it is the app's move, and Send
+    /// is not offered again until the device has answered.
+    public static func of(voice: VoiceInputPhase, polish: PolishPhase,
+                          returning: Bool = false) -> ComposerPrimarySlot {
         switch voice {
         // A live dictation owns the row whatever else is out. It cannot in
         // fact be polishing — starting a dictation drops the last answer — but
@@ -34,7 +38,7 @@ public enum ComposerPrimarySlot: String, Sendable, Equatable, CaseIterable {
         // Dictation is over: the field holds the dictated words already, and
         // only a polish still out stands between them and Send.
         case .idle, .review, .failed:
-            return polish == .polishing ? .working : .send
+            return polish == .polishing || returning ? .working : .send
         }
     }
 }

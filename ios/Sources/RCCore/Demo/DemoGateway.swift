@@ -34,6 +34,10 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     private let changesPreferencesElsewhere: Bool
     /// How long it waits first.
     private let elsewhereDelay: Duration
+    /// Amendment A43: whether the live session opens with messages waiting
+    /// behind a turn that runs on, so the queue can be edited and emptied at
+    /// leisure rather than draining the moment its turn ends (`--demo-queue`).
+    private let holdsQueue: Bool
     private var devices = DemoFixtures.devices
     private var sessionList = DemoFixtures.sessions
     /// Amendment A37: the directories this demo browses, which a folder made
@@ -52,6 +56,9 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     private var preferences = Preferences(resumeAfterLimit: true)
     private var transcripts: [String: [SessionEvent]] = [:]
     private var cursors: [String: Int] = [:]
+    /// What each session's device is holding behind its turn, in the order it
+    /// will be delivered (A43).
+    private var queues: [String: DemoQueue] = [:]
     private var scripted: Task<Void, Never>?
     private var pairing: Task<Void, Never>?
     /// The injection script for the attached session runs on its own task, so
@@ -131,7 +138,8 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
                 polishDelay: Duration = DemoGateway.defaultPolishDelay,
                 agentsDelay: Duration = DemoGateway.defaultAgentsDelay,
                 changesPreferencesElsewhere: Bool = true,
-                elsewhereDelay: Duration = DemoGateway.defaultElsewhereDelay) {
+                elsewhereDelay: Duration = DemoGateway.defaultElsewhereDelay,
+                holdsQueue: Bool = false) {
         self.echoDelay = echoDelay
         self.resumeDelay = resumeDelay
         self.registrationOpen = registrationOpen
@@ -140,6 +148,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         self.agentsDelay = agentsDelay
         self.changesPreferencesElsewhere = changesPreferencesElsewhere
         self.elsewhereDelay = elsewhereDelay
+        self.holdsQueue = holdsQueue
         endpoint = (try? GatewayEndpoint("https://demo.remote-control.invalid"))
             ?? GatewayEndpoint.placeholder
         let stream = AsyncStream<GatewayEvent>.makeStream(bufferingPolicy: .bufferingOldest(512))
@@ -149,6 +158,13 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             let history = DemoFixtures.history(for: session.sessionID)
             transcripts[session.sessionID] = history
             cursors[session.sessionID] = history.last?.seq ?? 0
+        }
+        if holdsQueue, let live = sessionList.firstIndex(where: {
+            $0.sessionID == DemoFixtures.liveSessionID
+        }) {
+            let queue = DemoQueue(DemoFixtures.heldMessages())
+            queues[DemoFixtures.liveSessionID] = queue
+            sessionList[live].queued = queue.pending.count
         }
     }
 
@@ -214,6 +230,8 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             return try listCommands(request)
         case "session.command":
             return try runCommand(request)
+        case "session.queue_remove":
+            return try removeQueued(request)
         case "session.resume_set":
             return try setResume(request)
         case "session.resume_cancel":
@@ -569,7 +587,11 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             startRetuneScript(sessionID: id)
             startQuestionScript(sessionID: id)
         }
-        return try JSONValue.encode(SubscribeResult(session: session, events: events, resync: false))
+        // Amendment A6: what the device is holding comes with the reply, so a
+        // conversation opens with its queue rather than a snapshot later.
+        let held = queues[id].flatMap { $0.isEmpty ? nil : QueuePayload(pending: $0.pending) }
+        return try JSONValue.encode(SubscribeResult(session: session, events: events, resync: false,
+                                                    queue: held))
     }
 
     private func history(_ request: GatewayRequest) throws -> JSONValue {
@@ -789,18 +811,19 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         }
         let text = request.body["text"]?.stringValue ?? ""
         let mode = SendMode(rawValue: request.body["mode"]?.stringValue ?? SendMode.auto.rawValue)
+        let held = try Self.held(request, text: text)
         if session.isAttached {
-            return try sendShared(session: session, requestID: request.id, text: text, mode: mode)
+            return try sendShared(session: session, request: held, mode: mode)
         }
         let running = session.state.isWorking
-        // Amendment A12: the device echoes the request id as the block id, so
-        // the app's own copy is replaced in place rather than duplicated.
-        if running {
-            emit(sessionID: id, blockID: request.id,
-                 body: .userMessage(UserMessagePayload(text: text, source: .queue)))
-            emit(sessionID: id, body: .queue(QueuePayload(pending: [
-                QueuedMessage(id: request.id, text: text, ts: DemoFixtures.now)
-            ])))
+        if running, mode == .interrupt {
+            interruptTurn(sessionID: id)
+        } else if running || mode == .queue {
+            // Held until the turn ends, as a real device holds it. An explicit
+            // `queue` on an idle session is taken at once, which is what an
+            // edit that outlived the turn it was waiting for needs (A43).
+            hold(held, sessionID: id)
+            if !running { deliverNext(sessionID: id) }
             return try JSONValue.encode(SendResult(accepted: .queued, queuedID: request.id))
         }
         update(sessionID: id) { $0.state = .running; $0.turn = TurnMarker(turnID: UUID().uuidString,
@@ -823,6 +846,101 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         startReplyScript(sessionID: sessionID)
     }
 
+    /// Section 5's `interrupt` on a session the device drives: the running turn
+    /// ends where it is, and the message starts the next one.
+    private func interruptTurn(sessionID: String) {
+        scripted?.cancel(); scripted = nil
+        let turnID = (try? session(sessionID))?.turn?.turnID ?? "demo-turn"
+        emit(sessionID: sessionID, body: .turnCompleted(TurnCompletedPayload(
+            turnID: turnID, stopReason: .interrupted, durationMS: 4_000)))
+    }
+
+    // MARK: - The queue (A43)
+
+    /// A message as the device holds it until it is delivered.
+    private struct HeldMessage {
+        let item: DemoQueue.Item
+        /// Sent back with `queue_ts`, so it goes back into its place.
+        let returnsToPlace: Bool
+    }
+
+    /// Reads a `session.send` the way the device does, and refuses a
+    /// `queue_ts` that is not a non-negative integer, as it does.
+    private static func held(_ request: GatewayRequest, text: String) throws -> HeldMessage {
+        let queueTs: Int64?
+        switch request.body["queue_ts"] {
+        case .none, .null?:
+            queueTs = nil
+        case .integer(let ts)? where ts >= 0:
+            queueTs = ts
+        default:
+            throw GatewayErrorBody(code: .badRequest, message: "queue_ts must be a non-negative integer")
+        }
+        let files = (request.body["attachments"]?.arrayValue ?? []).map(attachmentInfo)
+        return HeldMessage(item: DemoQueue.Item(id: request.id, text: text,
+                                                ts: queueTs ?? DemoFixtures.now, files: files),
+                           returnsToPlace: queueTs != nil)
+    }
+
+    private static func attachmentInfo(_ attachment: JSONValue) -> AttachmentInfo {
+        let bytes = attachment["data_base64"]?.stringValue.flatMap { Data(base64Encoded: $0) }
+        return AttachmentInfo(name: attachment["name"]?.stringValue ?? "",
+                              mime: attachment["mime"]?.stringValue ?? "application/octet-stream",
+                              size: bytes?.count ?? 0)
+    }
+
+    /// Hold a message behind the turn: back in its place when it was sent
+    /// back to one, at the end of the line otherwise.
+    private func hold(_ message: HeldMessage, sessionID: String) {
+        var queue = queues[sessionID] ?? DemoQueue()
+        if message.returnsToPlace { queue.insert(message.item) } else { queue.append(message.item) }
+        queues[sessionID] = queue
+        publishQueue(sessionID: sessionID)
+    }
+
+    /// The snapshot always names the whole line, and the session row counts it.
+    private func publishQueue(sessionID: String) {
+        let pending = queues[sessionID]?.pending ?? []
+        emit(sessionID: sessionID, body: .queue(QueuePayload(pending: pending)))
+        update(sessionID: sessionID) { $0.queued = pending.count }
+    }
+
+    /// A turn ended, so the device delivers the next message it holds, as a
+    /// real one does: the block arrives under the id the app sent it with, with
+    /// `source: "queue"`, and a turn starts for it. A terminal the device is
+    /// attached to takes it the way it takes any held message, by injection.
+    private func deliverNext(sessionID: String) {
+        guard queues[sessionID]?.isEmpty == false, let session = try? session(sessionID) else { return }
+        guard !session.isAttached else {
+            scheduleInjection(sessionID: sessionID, asksForApproval: false)
+            return
+        }
+        guard let item = queues[sessionID]?.next() else { return }
+        publishQueue(sessionID: sessionID)
+        emit(sessionID: sessionID, blockID: item.message.id,
+             body: .userMessage(UserMessagePayload(text: item.message.text, attachments: item.files,
+                                                   source: .queue)))
+        update(sessionID: sessionID) { session in
+            session.state = .running
+            session.turn = TurnMarker(turnID: UUID().uuidString, startedAt: DemoFixtures.now)
+        }
+        startReplyScript(sessionID: sessionID)
+    }
+
+    /// `session.queue_remove`, answered as the device answers it: the message
+    /// leaves the line and the snapshot says so, or `not_found` when the device
+    /// holds nothing by that id — it was delivered already.
+    private func removeQueued(_ request: GatewayRequest) throws -> JSONValue {
+        let id = try requireSessionID(request)
+        _ = try session(id)
+        let queuedID = request.body["queued_id"]?.stringValue ?? ""
+        guard queues[id]?.remove(id: queuedID) != nil else {
+            throw GatewayErrorBody(code: .notFound, message: "that message is not queued")
+        }
+        publishQueue(sessionID: id)
+        return .object([:])
+    }
+
     /// A message for an attached session takes the route the attachment
     /// supports. A channel can only hand keystrokes to a CLI, so it holds the
     /// message and injects it (amendment A10). A daemon is a real client of the
@@ -831,13 +949,15 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// too: the prompt runs in the conversation the TUI is in (amendment A28).
     /// Only the device branches on this; the apps read the acceptance and the
     /// agent's capabilities.
-    private func sendShared(session: Session, requestID: String, text: String,
+    private func sendShared(session: Session, request message: HeldMessage,
                             mode: SendMode) throws -> JSONValue {
         let agent = agent(for: session)
         guard agent?.attach == .daemon || agent?.attach == .leader else {
-            return try inject(sessionID: session.sessionID, requestID: requestID, text: text)
+            return try inject(message, sessionID: session.sessionID)
         }
         let id = session.sessionID
+        let requestID = message.item.message.id
+        let text = message.item.message.text
         guard session.state.isWorking else {
             emit(sessionID: id, body: .userMessage(UserMessagePayload(text: text, source: .remote)))
             update(sessionID: id) { session in
@@ -871,7 +991,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             }
             return try JSONValue.encode(SendResult(accepted: .steered))
         default:
-            return try inject(sessionID: id, requestID: requestID, text: text)
+            return try inject(message, sessionID: id)
         }
     }
 
@@ -893,35 +1013,36 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
     /// device and injected when the terminal is next idle. Amendment A19: while
     /// it waits it is a queue entry and nothing else — the block appears only
     /// when the CLI takes it, after the output of the turn it waited for.
-    private func inject(sessionID: String, requestID: String, text: String) throws -> JSONValue {
-        let blockID = requestID
-        emit(sessionID: sessionID, body: .queue(QueuePayload(pending: [
-            QueuedMessage(id: requestID, text: text, ts: DemoFixtures.now)
-        ])))
-        update(sessionID: sessionID) { $0.queued = 1 }
-        injecting?.cancel()
+    private func inject(_ message: HeldMessage, sessionID: String) throws -> JSONValue {
+        hold(message, sessionID: sessionID)
         // A turn that is already running asks for its own permission; only an
         // idle thread reaches the request this script plays.
-        let asksForApproval = try !session(sessionID).state.isWorking
-        injecting = Task { [weak self] in
-            await self?.playInjection(sessionID: sessionID, blockID: blockID, text: text,
-                                      asksForApproval: asksForApproval)
-        }
-        return try JSONValue.encode(SendResult(accepted: .queued, queuedID: requestID))
+        scheduleInjection(sessionID: sessionID, asksForApproval: try !session(sessionID).state.isWorking)
+        return try JSONValue.encode(SendResult(accepted: .queued, queuedID: message.item.message.id))
     }
 
-    private func playInjection(sessionID: String, blockID: String, text: String,
-                               asksForApproval: Bool) async {
+    private func scheduleInjection(sessionID: String, asksForApproval: Bool) {
+        injecting?.cancel()
+        injecting = Task { [weak self] in
+            await self?.playInjection(sessionID: sessionID, asksForApproval: asksForApproval)
+        }
+    }
+
+    /// The CLI takes the first message in the line, whichever it is by now: one
+    /// taken out to be edited is no longer there to take (A43). The line is
+    /// published before the block, as the device publishes it, so nothing that
+    /// has seen the block can still see the message waiting.
+    private func playInjection(sessionID: String, asksForApproval: Bool) async {
         try? await Task.sleep(for: .milliseconds(2_400))
-        guard !Task.isCancelled else { return }
-        emit(sessionID: sessionID, blockID: blockID,
-             body: .userMessage(UserMessagePayload(text: text, source: .remote, delivery: .delivered)))
-        emit(sessionID: sessionID, body: .queue(QueuePayload(pending: [])))
+        guard !Task.isCancelled, let item = queues[sessionID]?.next() else { return }
+        publishQueue(sessionID: sessionID)
+        emit(sessionID: sessionID, blockID: item.message.id,
+             body: .userMessage(UserMessagePayload(text: item.message.text, attachments: item.files,
+                                                   source: .remote, delivery: .delivered)))
         emit(sessionID: sessionID, body: .status(StatusPayload(state: .running)))
         update(sessionID: sessionID) { session in
             session.state = .running
             session.turn = TurnMarker(turnID: "demo-turn-shared", startedAt: DemoFixtures.now)
-            session.queued = 0
         }
         try? await Task.sleep(for: .milliseconds(900))
         guard !Task.isCancelled, asksForApproval else { return }
@@ -960,6 +1081,8 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
                                                                       stopReason: .interrupted, durationMS: 4_000)))
         emit(sessionID: id, body: .status(StatusPayload(state: .idle)))
         update(sessionID: id) { $0.state = .idle; $0.turn = nil }
+        // A stopped turn is an ended one: what waited behind it goes next.
+        deliverNext(sessionID: id)
         return .object([:])
     }
 
@@ -1232,11 +1355,15 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
             TodoItem(id: "3", text: "Guard refresh with the session lock", status: .completed),
             TodoItem(id: "4", text: "Re-run the suite 100 times", status: .completed)
         ])))
+        // Amendment A43: under `--demo-queue` the turn runs on, so what waits
+        // behind it stays in the line for as long as it is being edited.
+        guard !holdsQueue else { return }
         emit(sessionID: sessionID,
              body: .turnCompleted(TurnCompletedPayload(turnID: "demo-turn-1", stopReason: .completed,
                                                        durationMS: 252_000)))
         emit(sessionID: sessionID, body: .status(StatusPayload(state: .idle)))
         update(sessionID: sessionID) { $0.state = .idle; $0.turn = nil; $0.todos = TodoCounts(total: 4, done: 4) }
+        deliverNext(sessionID: sessionID)
     }
 
     private func startReplyScript(sessionID: String) {
@@ -1266,6 +1393,7 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
 
     private func finishTurn(sessionID: String) {
         update(sessionID: sessionID) { $0.state = .idle; $0.turn = nil }
+        deliverNext(sessionID: sessionID)
     }
 
     private func runPairingScript(code: String) async {

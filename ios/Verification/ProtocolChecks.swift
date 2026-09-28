@@ -579,6 +579,24 @@ enum ProtocolChecks {
             checks.expect(false, "events/user_message.json decodes as a user message")
         }
 
+        // Amendment A43: a held message says how many files it carries, and
+        // one that carries none says nothing at all.
+        func pending(_ file: String) -> [QueuedMessage]? {
+            guard let event = try? FixtureSource.json(file)?.decode(SessionEvent.self),
+                  case .queue(let payload) = event.body else { return nil }
+            return payload.pending
+        }
+        if let held = pending("events/queue.attachments.json") {
+            checks.equal(held.map(\.attachments), [nil, 2], "a queue entry counts its files")
+            checks.equal(held.map(\.carriesFiles), [false, true],
+                         "so the one with files is removed and never edited")
+            checks.equal(held.map(\.ts), held.map(\.ts).sorted(), "and the queue is in ts order")
+        } else {
+            checks.expect(false, "events/queue.attachments.json decodes as a queue")
+        }
+        checks.expect(pending("events/queue.json")?.allSatisfy { $0.attachments == nil } == true,
+                      "an entry without files carries no attachments field")
+
         // Amendment A1: the tool category rides in `tool_kind`.
         for (file, kind) in [("events/tool_call.shell.json", ToolKind.shell),
                              ("events/tool_call.read.json", .read),
@@ -1294,6 +1312,23 @@ enum ProtocolChecks {
             compare(GatewayRequest.queueRemove(sessionID: remove.string("session_id") ?? "",
                                                queuedID: remove.string("queued_id") ?? ""),
                     with: "app/session.queue_remove.json")
+        }
+        // Amendment A43: an edited queued message goes back under the `ts` its
+        // entry had, and no other message carries one.
+        if let requeue = FixtureSource.json("app/session.send.requeue.json")?.objectValue {
+            checks.noThrow("session.send matches the re-queue fixture") {
+                compare(try GatewayRequest.send(
+                    sessionID: requeue.string("session_id") ?? "", text: requeue.string("text") ?? "",
+                    mode: SendMode(rawValue: requeue.string("mode") ?? "auto"),
+                    queueTs: requeue.int("queue_ts").map(Int64.init)),
+                        with: "app/session.send.requeue.json")
+            }
+        } else {
+            checks.expect(false, "app/session.send.requeue.json exists")
+        }
+        checks.noThrow("session.send names no queue_ts unless it is given one") {
+            guard try GatewayRequest.send(sessionID: "s", text: "t", mode: .queue).json["queue_ts"] == nil
+            else { throw ProtocolFailure.malformed("queue_ts on an ordinary send") }
         }
         if let archive = FixtureSource.json("app/session.archive.json")?.objectValue {
             compare(GatewayRequest.archive(sessionID: archive.string("session_id") ?? "",

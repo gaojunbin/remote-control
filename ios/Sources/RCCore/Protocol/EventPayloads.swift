@@ -530,12 +530,21 @@ public struct QueuedMessage: Codable, Sendable, Hashable, Identifiable {
     public let id: String
     public let text: String
     public let ts: Int64
+    /// Amendment A43: how many files the held message carries, absent when it
+    /// carries none. The files stay on the device and no frame brings them
+    /// back, so such an entry can be removed but not edited.
+    public let attachments: Int?
 
-    public init(id: String, text: String, ts: Int64) {
+    public init(id: String, text: String, ts: Int64, attachments: Int? = nil) {
         self.id = id
         self.text = text
         self.ts = ts
+        self.attachments = attachments
     }
+
+    /// Whether the held message carries files. A count of zero is read as
+    /// none, which is what the field's absence means.
+    public var carriesFiles: Bool { (attachments ?? 0) > 0 }
 }
 
 public struct QueuePayload: Codable, Sendable, Hashable {
