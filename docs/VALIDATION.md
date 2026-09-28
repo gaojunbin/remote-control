@@ -2612,6 +2612,71 @@ reproduces that behaviour in the fake and the owner's next Done is the check. Al
 suite's two timing tests hit their 5 s limit under the parallel toolchains and passed alone, as in
 every round since 45.
 
+## 52. Up next is one control, and a queued message can be edited (A43) (2026-09-28, 1.9.0)
+
+Two asks from the owner. The web app drew every queued message as its own line stacked over the
+composer, removable but not editable; it should show how many are waiting, as the phone does. And on
+both apps the queue should open into a list where each message can be removed, or tapped to go back
+into the field, be edited, and join the queue again when sent.
+
+**Contract (A43).** Editing is take-out-and-put-back, so the device can never deliver words that
+are still being changed: `session.queue_remove` first (a `not_found` means the device already took
+it), then the edited words go back as `session.send {mode: "queue", queue_ts}`, the `ts` the entry
+had. The device keeps every queue in `ts` order and holds such a message in front of every entry
+with a later `ts`, so the edit keeps its place however the queue moved meanwhile. The client's
+implementation added one rule to the contract (the same day, 993254d): an entry without `queue_ts`
+gets one millisecond past the last entry's `ts` when the clock has not moved on, so no two entries
+share a `ts` and an edit has exactly one place to go back to; and the device's own re-holds — an
+injection the CLI absorbed, one the bridge refused — go back under their own `ts` instead of to the
+head. `queue.pending[]` carries `attachments` (how many files a held message has); the files stay on
+the device and no frame brings them back, so the owner agreed such an entry is Remove-only. The
+DESIGN ruling: one "Up next · N" chip at the end of the control row on both apps; the list in
+delivery order; Remove without confirmation; tap to edit, with the field's own draft set aside and
+restored; one edit at a time; Queue on the button and "will be queued" on the status line while
+editing, even for a steering agent; a spinner and a still field while the words go back; "That
+message has already been sent." for a `not_found`, from an edit or a Remove.
+
+**Device.** `rc_client/sessions/queue.py` is now the only way into a queue — the hub's (every
+agent's remote sessions), an attached Claude session's, and the device's re-holds — with
+`queue_ts` validated (`bad_request` for a negative, string, float or boolean value) before the
+session lock. Tests cover the ordered insert (empty, front, middle, end, equal `ts`), both paths,
+an idle session delivering a `mode: "queue"` message at once, the snapshot's `attachments`, the
+round trip (A, B, C → remove B → B' with B's `ts` → A, B', C, in delivery order too) and the two
+re-hold orders on a shared session; three deliberate mutations were each caught.
+
+**Web.** The stacked rows are gone; `UpNext.tsx` draws the chip and its popover, `useQueuedEdit.ts`
+runs the two round trips, and the edit lives in the session's draft (`drafts.ts` `editing`), so it
+survives a switch to another conversation. `queue_ts` rides on the outbox entry, so Retry keeps the
+place. The mock gateway follows the device's rule and seeds `ses-vite` with three queued messages,
+the middle one with two files. The orchestrator drove it in headless Chrome at 1280 and 400 px:
+"Up next · 3", the three rows in order with the paperclip on the second, a draft typed first set
+aside when the first row was tapped, the strip "Editing a queued message · Cancel" and a Queue
+button, Enter putting the edited words back in first place, and the typed draft back in the field.
+
+**iOS.** `QueueSheet.swift` rows are tap-to-edit with swipe and context-menu Remove, a paperclip
+count and Remove-only rows where the ruling says; `QueuedEdit` and `ChatStore` hold the edit (words
+aside in the store, the composer's files aside in the view); `--demo-queue` opens a running session
+with three queued messages. Two defects surfaced on the way and are fixed: the old sheet's swipe
+Remove took the row away only when the reply came, and UIKit stopped the app with "invalid number
+of items" — the row now leaves the list at once and comes back if the request fails for any reason
+but `not_found`, unless a newer snapshot arrived; and, found in review, Cancel stayed live while an
+edited message was on its way back, so both versions could be queued — the field now holds still
+with a spinner in the send slot until the device answers. An edit and the draft set aside for it
+live in memory, so an app the system ends mid-edit keeps the edited words as its draft and loses
+the rest (docs/IOS.md). `testQueuedMessagesCanBeEditedAndRemoved` drives the sheet, an edit
+back to its place and a removal; the whole `RemoteControlUITests` target then ran on the
+orchestrator's simulator (iPhone 17, English) at the merged tree: 77 tests, 4 skipped, 0
+failures, in 32 min 33 s.
+
+**Counts.** Client 1210 → 1234 (+3 skipped), web 784 → 822, gateway 475 → 477 (the two new
+fixtures, replayed), RCVerify 1487 → 1519, RCUIVerify 605 → 614, unit tests 419 → 451, UI 77 (4
+skipped), protocol 200 fixtures / 37 negative cases → 203 / 39. The web suite's timing tests (the
+timeline row cap, a voice-composer caret, once the pairing page) hit their 5 s limit under the load
+of the parallel toolchains and passed alone (111/111 for the files concerned). **Not verified:** a
+real device and a real agent end to end — the device change is agent-independent, every agent
+queueing through `queue.py`, and it is covered by unit tests; the owner's browser and phone. All
+four components 1.9.0 (a feature release), iOS build 26, tag v1.9.0. CI_RESULT_52
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

@@ -115,7 +115,10 @@ An app reconnecting renders its cached list, receives `hello`, then subscribes w
 it applied. If the buffer still covers that cursor it gets the missing events in the reply. If it
 does not, the reply carries `resync: true` and the app pages history from the device with
 `session.history`. The subscribe reply also carries the latest `queue` snapshot (amendment A6),
-because a queue is current state rather than a timeline row.
+because a queue is current state rather than a timeline row. The device keeps every queue in `ts`
+order, and an app edits an entry by taking it out with `session.queue_remove` and sending the new
+words back with that `ts` as `queue_ts`, so the edit waits where the original did and cannot be
+delivered while it is still being changed (A43).
 
 When a **device** reconnects after an outage, the gateway compares each session's `last_seq` from
 the device `hello` with the tail of its own buffer. Where the device is ahead, it asks the device
@@ -701,7 +704,8 @@ deliberately absent: a device is one person's machine.
 
 ## The contract
 
-`protocol/PROTOCOL.md` is normative. It carries eleven amendments, all part of the frozen contract:
+`protocol/PROTOCOL.md` is normative. Its amendments (A1…A43, dated at the end of it) are all part
+of the frozen contract; the first eleven, which shaped the architecture above, are:
 
 | Amendment | Ruling |
 | --- | --- |
