@@ -5,7 +5,7 @@ to leave the desk. The design target is an instant-messaging app, not a terminal
 should be able to keep a session moving from a phone on a train, one thumb, no zooming.
 
 Three prototype screens in `web-moke/` fixed the visual language before any code was written. The
-web and iOS apps implement the same three, with the same vocabulary and the same rules.
+web, iOS and Mac apps implement the same three, with the same vocabulary and the same rules.
 
 ## The three screens
 
@@ -1110,9 +1110,61 @@ ring when it is not.
 
 Colour is never the only signal: the dot always sits next to the word.
 
+## The Mac app
+
+**It is the web app, drawn natively.** `macos/` draws the web app's screens in SwiftUI on top of the
+iPhone app's protocol and state layer (`ios/Sources/RCCore`): the same routes, the same words in
+both languages, the same tokens, rows, controls, popovers and breakpoints, and the same behaviour,
+down to what Enter does with an unfinished composition. The web app is the reference. Where the two
+differ, the Mac app is wrong unless this section says otherwise; nothing is designed for the Mac
+first, and the iPhone app's layout is not a reference — only its state code is shared.
+
+**The window is the page.** One main window without a title bar: the web app's topbar is the
+window's top strip, with the traffic lights set into its leading edge and the strip dragging the
+window, and the chat page's own header does the same. The layout follows the web's breakpoints on
+the window's width — the chat is two panes with the session sidebar at 1024 pt and wider, and one
+pane with a back button below — and the window narrows to 480 pt. The appearance is always light.
+Closing the window leaves the app running and connected, as a chat app on the Mac does, so
+notifications keep arriving; the Dock icon opens it again and Quit ends it.
+
+**Navigation is the web's history.** Every web route is a place in the app — Devices, a device's
+page, its terminal, Sessions, a conversation, Settings, Users — reached the way the web reaches it,
+and ⌘[ and ⌘] walk back and forward as a browser does. The Mac adds keyboard shortcuts to places the
+web already has and nothing else: ⌘1, ⌘2 and ⌘3 for the three tabs, ⌘, for Settings and ⌘N for New
+session. There is no pairing-link screen: a host's QR code encodes a URL, which opens in the phone
+app or a browser, and the Add device modal says so.
+
+**Sign-in names the gateway.** The web app is served by its gateway and never asks for an address.
+The Mac's login page is the web's with one field above the username, the gateway's address,
+remembered for the next launch as the iPhone app remembers it. The token is kept in the Keychain.
+
+**Overlays are the web's.** Popovers, menus, modals and the New session drawer are drawn inside the
+window with the web's surfaces, shadows and placement rules — not as system popovers, sheets or
+menus — and close as the web's do: Escape, a click outside, or the control that opened them.
+
+**Dictation is the web's.** The gateway transcribes and detects the language (A44), so there is no
+language to choose, and polish works as on the web. The system asks for the microphone the first
+time dictation starts. The phone's on-device recogniser is not offered, because the web has none.
+
+**Notify me posts from the app.** On the web the switch subscribes the browser to the gateway's
+push. The Mac has no push channel of its own — the gateway's APNs topic is the iPhone app's — so
+there the switch lets the running app post a system notification at the moments the gateway pushes
+for: a session that needs you, a turn that ends, a usage-limit resume. The words are the push's, a
+notification is skipped while that conversation is open in the frontmost window, and clicking one
+opens the conversation. Nothing new on the wire.
+
+**Update required (A45).** Below `apps.macos.minimum_version` the app shows the blocking screen of
+PROTOCOL 8.16 in the web's visual language — its own version, the gateway's minimum, a button to
+`update_url` when there is one, and Sign out — and nothing else.
+
+**The Mac's own words.** Where the web names the browser, the Mac names the Mac ("Blocked in System
+Settings."). The Settings caption starts with the app's own version, as the iPhone app's does,
+because the Mac app is installed apart from the gateway that serves the web.
+
 ## Palette and type
 
-Light theme only in v1. iOS defines dark values so the app stays legible when the system is dark,
+Light theme only in v1, and the Mac app is always light. iOS defines dark values so the app stays
+legible when the system is dark,
 but the design was not reviewed in dark mode.
 
 | Token | Value | Used for |
@@ -1137,8 +1189,9 @@ rgba(24,24,22,.06)` lifts a grouped surface off the canvas in place of a border,
 rgba(0,0,0,.12)` carries a modal. Motion is 120–200 ms on a single easing curve, and disabled entirely
 under `prefers-reduced-motion`.
 
-Every user-visible string lives in one catalog per app — `web/src/strings.ts` and
-`ios/App/Localizable.xcstrings` — so a second language never means touching a component.
+Every user-visible string lives in one catalog per app — `web/src/strings.ts`,
+`ios/App/Localizable.xcstrings` and `macos/Sources/RCMac/Strings/` (the web's tables, one file per
+group, both languages side by side) — so a second language never means touching a component.
 
 ## Deliberately not in v1
 
