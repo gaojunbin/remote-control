@@ -28,8 +28,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.junbingao.remotecontrol.mac
         CODE_SIGN_ENTITLEMENTS: App/RemoteControl.entitlements
         ENABLE_HARDENED_RUNTIME: YES
-        MARKETING_VERSION: '1.10.0'
-        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: '1.11.0'
+        CURRENT_PROJECT_VERSION: 2
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: App/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: Remote Control
