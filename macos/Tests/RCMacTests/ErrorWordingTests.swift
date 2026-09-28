@@ -22,9 +22,38 @@ extension LanguageSensitive {
             #expect(ErrorText.text(typing) == S.errors.conflictTerminal)
         }
 
+        /// `web/tests/shared-control.test.tsx`, A40: a busy terminal in the
+        /// device's own words, every other code in the app's.
+        @Test func aBusyTerminalIsShownInTheDevicesOwnWords() {
+            let busy = "the terminal is busy; try again in a moment"
+            #expect(ErrorText.refusal(GatewayErrorBody(code: .conflict, message: busy), fallback: S.errors.setFailed)
+                    == busy)
+            #expect(ErrorText.refusal(GatewayErrorBody(code: .timeout, message: "gone"), fallback: "fallback")
+                    == S.errors.timeout)
+            // A conflict with nothing to say still gets one.
+            #expect(ErrorText.refusal(GatewayErrorBody(code: .conflict, message: ""), fallback: "fallback")
+                    == S.errors.conflictTerminal)
+        }
+
+        /// `web/tests/shared-control.test.tsx`, A42: Stop refused over an open prompt.
+        @Test func anOpenPromptKeepsTheDevicesWordsRatherThanTheCannedOnes() {
+            let refused = GatewayErrorBody(code: .conflict, message: "answer the prompt first")
+            #expect(ErrorText.refusal(refused, fallback: S.errors.stopFailed) == "answer the prompt first")
+            #expect(ErrorText.refusal(refused, fallback: S.errors.stopFailed) != S.errors.conflictTerminal)
+        }
+
         @Test func aQueuedMessageAlreadyGoneSaysSo() {
             #expect(ErrorText.queueRemove(GatewayErrorBody(code: .notFound, message: "")) == S.composer.alreadySent)
+            #expect(ErrorText.queueRemove(GatewayErrorBody(code: .notFound, message: "")) != S.errors.notFound)
             #expect(ErrorText.queueRemove(TransportError.deliveryUncertain) == S.errors.queueRemoveFailed)
+        }
+
+        /// `web/tests/queued-edit.test.tsx`: every other refusal keeps its own words.
+        @Test func everyOtherQueueRefusalKeepsItsOwnWords() {
+            #expect(ErrorText.queueRemove(GatewayErrorBody(code: .deviceOffline, message: ""))
+                    == S.errors.deviceOffline)
+            #expect(ErrorText.queueRemove(GatewayErrorBody(code: .internalError, message: ""))
+                    == S.errors.queueRemoveFailed)
         }
 
         @Test func accountRoutesAreWordedFromTheirCode() {

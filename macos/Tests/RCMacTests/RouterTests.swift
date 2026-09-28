@@ -52,11 +52,11 @@ struct RouterTests {
 
     @Test func aMemberWhoAsksForUsersIsSentToSessions() {
         let router = Router()
-        var admin = false
-        router.canSeeUsers = { admin }
+        let account = SignedInAccount()
+        router.canSeeUsers = { account.isAdmin }
         router.go(.users)
         #expect(router.route == .sessions)
-        admin = true
+        account.isAdmin = true
         router.go(.users)
         #expect(router.route == .users)
     }
@@ -90,4 +90,10 @@ struct RouterTests {
         #expect(Landing.destination(hasDevices: true) == .sessions)
         #expect(Landing.destination(hasDevices: false) == .devices)
     }
+}
+
+/// Whether the signed-in account is the admin, which a test changes halfway.
+@MainActor
+private final class SignedInAccount {
+    var isAdmin = false
 }
