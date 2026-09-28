@@ -155,25 +155,35 @@ def test_hello_ack_and_app_hello_match_the_schema(client: TestClient, auth: dict
     check(hello, "app_frames.json", "Hello")
 
 
-def test_apps_minimum_matches_the_schema_in_all_three_bodies(tmp_path: Path) -> None:
-    """A31: `apps` with the optional `update_url`, in health, config and `hello`."""
+def test_apps_minimums_match_the_schema_in_all_three_bodies(tmp_path: Path) -> None:
+    """A31, A45: both entries of `apps`, each with its `update_url`, in health, config and `hello`.
+
+    The schema requires only `ios`, so each body is also checked for the Mac app's entry.
+    """
     config = make_config(
         tmp_path,
         ios_minimum_version="2.3.4",
         ios_update_url="https://testflight.apple.com/join/EXAMPLE",
+        macos_minimum_version="1.12.0",
+        macos_update_url="https://example.com/remote-control-mac",
     )
     write_wheel(tmp_path)
     with TestClient(create_app(build_state(config))) as configured:
-        check(configured.get("/api/health").json(), "http.json", "HealthResponse")
+        health = configured.get("/api/health").json()
+        check(health, "http.json", "HealthResponse")
         token = configured.post(
             "/api/login",
             json={"username": "admin", "password": config.password},
             headers={"Origin": config.public_origin},
         ).json()["token"]
         auth = {"Authorization": f"Bearer {token}"}
-        check(configured.get("/api/config", headers=auth).json(), "http.json", "ConfigResponse")
+        served = configured.get("/api/config", headers=auth).json()
+        check(served, "http.json", "ConfigResponse")
         with configured.websocket_connect("/ws/app", headers=auth) as app:
-            check(drain_until(app, "hello"), "app_frames.json", "Hello")
+            hello = drain_until(app, "hello")
+        check(hello, "app_frames.json", "Hello")
+    for body in (health, served, hello):
+        assert set(body["apps"]) == {"ios", "macos"}
 
 
 def test_pushed_app_frames_match_the_schema(client: TestClient, auth: dict[str, str]) -> None:

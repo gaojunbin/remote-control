@@ -73,7 +73,7 @@ class GatewayState:
         return {"enabled": self.config.polish.enabled}
 
     def apps_view(self) -> dict[str, Any]:
-        """A31: the oldest separately installed app this gateway works with."""
+        """A31, A45: the oldest build of each separately installed app this gateway works with."""
         return apps_view(self.config)
 
     async def preferences_view(self, username: str) -> dict[str, Any]:
