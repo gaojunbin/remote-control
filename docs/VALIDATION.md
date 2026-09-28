@@ -2743,6 +2743,64 @@ All four components 1.10.0 (a feature release), iOS build 27, tag v1.10.0. After
 suite passed 826/826 in one run; GitHub "iOS checks" on 4b1b13b (run 36402598347) passed in 6 min
 12 s.
 
+## 54. The Mac app (A45) (2026-09-29, 1.11.0)
+
+The owner's ask: a `macos/` folder with a macOS client that is a perfect replica of the web app,
+built by agents in parallel. `docs/DESIGN.md` § "The Mac app" rules it (bcdfed3): the web app,
+drawn natively, is the reference for every route, word, token and behaviour; the window is the
+page, overlays are drawn in it, dictation is the gateway's, Notify me posts local notifications,
+and there is no pairing-link screen. `docs/MACOS.md` is the long form.
+
+**Contract (A45, 246c1b0).** `apps.macos` beside `apps.ios`, the same shape; each app reads its own
+entry, and the two minimums move separately. RCCore (a31dcc6) gained `InstalledApp`,
+`AppsInfo.macos` and `support(for:)`, `AppUpdateRequirement.of(_:app:current:)` and
+`ConnectionStore(installedApp:)`; the demo gateway serves both entries, and the iPhone app passes
+nothing and reads `ios` as before. The gateway (ab47b0c) reports both, with
+`MACOS_MINIMUM_APP_VERSION` 1.11.0, `MACOS_MIN_APP_VERSION` and `MACOS_UPDATE_URL`.
+
+**How it was built.** A foundation agent first — the package on `../ios`'s RCCore and SwiftTerm, the
+sandboxed app, the model and router, `tokens.css` and the web's primitives, every lucide icon from
+lucide's own node data, every string of both tables, the web helpers two features share, the
+topbar, sign-in with the gateway's address, Update required, the offscreen renderer and CI — then
+four feature agents at once, one directory each: the conversation page, the composer and dictation,
+the device and session lists, and Settings, Users, the terminal and Notify me. Each compared every
+screen and state it built with the web's, side by side: the web and its mock gateway on ports of its
+own, a playwright-core screenshot at 2×, and `RCMacPreview --gateway` rendering the same screen
+from the same mock, at 1280 and below each breakpoint, in English and Chinese. The orchestrator
+repeated it for the login page, Sessions, Devices, Settings and a conversation, in both languages.
+The Markdown in the timeline is the web's own pipeline, react-markdown with remark-gfm and
+rehype-highlight bundled for JavaScriptCore, so a message is parsed and highlighted by the same
+code.
+
+**Found on the way, and fixed.** A Chinese-first Mac's system font left the middle dot of every meta
+line to the CJK symbols font, 2.4 pt wider than Chrome's; `SystemFace` uses the system UI font made
+for English (df0ba88). Chinese text ran narrower than Chrome's — PingFang's UI cut and CoreText's
+Chinese punctuation rules — and now falls back to PingFang SC at optical size 0, typeset without
+those rules, matching Chrome's widths and line breaks. The web's `scroll-thin` is not a 10 px bar:
+its `scrollbar-width: thin` wins in Chrome and Safari alike, so it is the system's overlay bar, and
+the Mac's reserved a legacy 15 pt while drawing 10 (content 285 or 300 wide by timing); it is the
+overlay bar now, and the small legacy scroller in an exact gutter when the system always shows
+scroll bars. A dialog focuses what the web's does (the first focusable element), a modal blurs the
+drawer under it, `Segmented` keeps Chrome's 6 px padding-inline, a disabled switch is not dimmed,
+an explicit sign-out lands the next sign-in by the landing rule, and the Mac never writes
+`stt_language`. An overlay's content read through a Binding inside its closure is drawn stale — the
+rule (build it from values the presenter's body reads) is in `macos/README.md`.
+
+**Counts.** Mac: swift test 424 in 64 suites, 201 preview scenarios on the demo, the Debug and
+Release app builds, and the Release build (ad-hoc, hardened runtime, sandboxed) launched with
+`--demo --ephemeral` and alive after 8 s. iOS, whose RCCore changed: RCVerify 1549 → 1554,
+RCUIVerify 627, unit tests 459 → 461, and the whole `RemoteControlUITests` target 78 tests, 4
+skipped, 0 failures (1825 s). Gateway 479 → 483. Client 1234 (+3 skipped), web 826/826 and
+protocol 203 fixtures / 39 negative cases, unchanged but for the version.
+
+**Not verified.** A real gateway with a real device and real agents in the Mac app (only the web's
+mock and RCCore's demo); the microphone, system notifications and real Pinyin typing, whose system
+prompts no automated run may raise; the Keychain (every run was `--ephemeral`); VoiceOver; a Mac
+whose scroll bars always show; notarization and any distribution channel. The differences that
+remain on purpose or for now are listed in `docs/MACOS.md` § "Differences from the web that
+remain". All five components 1.11.0 (a feature release), iOS build 28, Mac build 2, tag v1.11.0.
+CI_RESULT_54
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

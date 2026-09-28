@@ -1,8 +1,8 @@
 # remote-control — working notes for future development
 
-Remote control of terminal coding agents (Claude Code, Codex, Grok Build, pi) from a phone or a
-browser, through a gateway you host. Apps never talk to devices; the gateway routes everything.
-Four components, one frozen wire protocol. This file is the short list of what matters when you
+Remote control of terminal coding agents (Claude Code, Codex, Grok Build, pi) from a phone, a
+browser or a Mac, through a gateway you host. Apps never talk to devices; the gateway routes
+everything. Five components, one frozen wire protocol. This file is the short list of what matters when you
 change any of it; the long form is under `docs/`.
 
 ## Layout
@@ -14,11 +14,12 @@ change any of it; the long form is under `docs/`.
 | `client/` | `rc-client`, the device daemon on every developer machine (`rc_client`), plus `install.sh` | `cd client && uv run ruff check . && uv run ruff format --check . && uv run mypy rc_client tests && uv run pytest -q` |
 | `web/` | React + TypeScript app the gateway serves, with a mock gateway for development | `cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build` |
 | `ios/` | SwiftUI app: `Sources/RCCore` (protocol, state), `Sources/RCUI` (screens), `App/`, `Verification*` | `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer swift run RCVerify && swift run RCUIVerify && swift test`, then `xcodegen generate`, the simulator build and the whole `RemoteControlUITests` target on a booted simulator (`docs/IOS.md`); CI runs everything but the UI tests |
-| `docs/` | `ARCHITECTURE`, `DESIGN` (UX rulings), `CLIENT`, `WEB`, `IOS`, `DEPLOY`, `VALIDATION`, `VALIDATION-APPS` | Keep them true; every round ends with a docs commit |
+| `macos/` | SwiftUI Mac app, the web app drawn natively on `ios/Sources/RCCore`: `Sources/RCMac` (model, design, strings, screens), `Sources/RCMacPreview` (the offscreen renderer), `App/` | `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer swift build && swift test && swift run RCMacPreview --demo --all --out <dir>`, then `xcodegen generate` and the app build (`docs/MACOS.md`); CI runs the same |
+| `docs/` | `ARCHITECTURE`, `DESIGN` (UX rulings), `CLIENT`, `WEB`, `IOS`, `MACOS`, `DEPLOY`, `VALIDATION`, `VALIDATION-APPS` | Keep them true; every round ends with a docs commit |
 
 ## The protocol is frozen; change it by amendment
 
-`protocol/PROTOCOL.md` is v1 plus numbered amendments (A1…A43 so far, dated entries at the end). A
+`protocol/PROTOCOL.md` is v1 plus numbered amendments (A1…A45 so far, dated entries at the end). A
 change to the wire is an amendment: edit the section, the schema, the fixtures and the checklist,
 append the entry, run the validator, commit `protocol/` first, and only then let anyone implement
 it. Components consume the contract; nobody edits it mid-implementation. Apps stay agent-agnostic —
@@ -28,17 +29,19 @@ they read `AgentInfo` capabilities and the five attachment fields, never the age
 
 - The gateway serves the web app, so web and gateway always match. The device client is updated
   from the apps (`device.update`, the wheel the gateway serves, A22) or by re-running `install.sh`.
-- **The iOS app is installed separately, so the gateway states the oldest iOS app it still
-  supports** (`GET /api/config` and `hello` carry `apps.ios.minimum_version`, A31; the constant
-  `IOS_MINIMUM_APP_VERSION` in `gateway/rc_gateway/compat.py`, overridable with `IOS_MIN_APP_VERSION`).
-  An app below it shows a blocking "Update required" screen and does nothing else. **Rule for every
-  release: if the gateway and the iOS app change together and the new gateway no longer works with
-  an older iOS app, raise that constant in the same change**, and set `IOS_UPDATE_URL` on the
-  gateway to where the new build is (TestFlight or the App Store). Raise it only when compatibility
-  is really broken; an app one amendment behind must keep working when the amendment is additive.
-- **One version per release, on all four components, every round.** The owner's standing rule
-  (2026-09-16): whenever a round of changes is closed, the gateway, the web app, the device client
-  and the iOS app all move to the same new version number — whether or not each of them changed —
+- **The iOS and Mac apps are installed separately, so the gateway states the oldest build of each
+  it still supports** (`GET /api/config` and `hello` carry `apps.ios.minimum_version`, A31, and
+  `apps.macos.minimum_version`, A45; the constants `IOS_MINIMUM_APP_VERSION` and
+  `MACOS_MINIMUM_APP_VERSION` in `gateway/rc_gateway/compat.py`, overridable with
+  `IOS_MIN_APP_VERSION` and `MACOS_MIN_APP_VERSION`). Each app reads its own entry only; one below
+  it shows a blocking "Update required" screen and does nothing else. **Rule for every release: if
+  the gateway and an app change together and the new gateway no longer works with that app's older
+  builds, raise that app's constant in the same change**, and set `IOS_UPDATE_URL` or
+  `MACOS_UPDATE_URL` on the gateway to where the new build is. Raise it only when compatibility is
+  really broken; an app one amendment behind must keep working when the amendment is additive.
+- **One version per release, on all five components, every round.** The owner's standing rule
+  (2026-09-16): whenever a round of changes is closed, the gateway, the web app, the device client,
+  the iOS app and the Mac app all move to the same new version number — whether or not each of them changed —
   and the repository is tagged with it. A device's Update action (A22) and the Settings screens
   then read one number per release, and a build can be told from the last one. A component left at
   an old number while the repo is tagged ahead of it is a defect (round 29 found all four at 0.1.0
@@ -55,7 +58,7 @@ round 46), so the local run is the only one, and a stale test found there is fix
 
 1. **Docs commit.** `docs/` tells the truth about what changed (`VALIDATION.md` gets a dated section
    on what was and was not verified), then commit it.
-2. **Bump all four components to the round's version** (patch for fixes, minor for features), in
+2. **Bump all five components to the round's version** (patch for fixes, minor for features), in
    one commit per component or one commit for the bumps alone:
    - gateway: `gateway/pyproject.toml` `version`, `gateway/rc_gateway/__init__.py` `__version__`
      (what `hello` and `GET /api/config` report), and the `rc-gateway` entry in `gateway/uv.lock`;
@@ -66,10 +69,12 @@ round 46), so the local run is the only one, and a stale test found there is fix
      the gateway's minimum, A31) and `CURRENT_PROJECT_VERSION` (+1), plus the three places that
      assert it — the fallback in `ios/Sources/RCCore/State/AppVersion.swift`, the two checks in
      `ios/VerificationUI/main.swift` that read `project.yml`, and the UI test that reads the Settings
-     version row — then `xcodegen generate` so `ios/RemoteControl.xcodeproj` follows.
+     version row — then `xcodegen generate` so `ios/RemoteControl.xcodeproj` follows;
+   - Mac: `macos/project.yml` `MARKETING_VERSION` (the app compares it with `apps.macos.minimum_version`,
+     A45) and `CURRENT_PROJECT_VERSION` (+1), then `xcodegen generate` in `macos/`.
 3. **Tag and push.** `git tag -a vX.Y.Z -m "<one line on what the release is>"`, then push `master`
-   and the tag. Raise `IOS_MINIMUM_APP_VERSION` in the same round only if an older iOS app really
-   stopped working (see above).
+   and the tag. Raise an app's minimum (`IOS_MINIMUM_APP_VERSION`, `MACOS_MINIMUM_APP_VERSION`) in the
+   same round only if an older build of that app really stopped working (see above).
 
 ## How agents are attached (why terminal sessions can be driven from a phone)
 
@@ -112,4 +117,5 @@ recorded per round in `docs/VALIDATION.md` (device and gateway) and `docs/VALIDA
 
 VPS: `git pull && docker compose build && docker compose up -d` (`docs/DEPLOY.md`; `.env` reference
 there — STT, POLISH, APNS, VAPID). Devices: the app's Update action or `install.sh`. iOS: TestFlight
-from `ios/` (`docs/IOS.md`).
+from `ios/` (`docs/IOS.md`). Mac: build it from `macos/` and open it (`docs/MACOS.md`); it has no
+distribution channel yet.

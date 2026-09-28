@@ -1730,12 +1730,14 @@ banner's text and the actions keep `notice.action` and `notice.secondaryAction`.
 
 `AppsInfo` is decoded from `GET /api/health`, `GET /api/config` and `hello` alike — the health call
 answers before sign-in, so a too-old app is stopped at the login screen — and `AppVersion` compares
-`CFBundleShortVersionString` (`AppBuild.version`, falling back to "1.4.0" without a bundle, which
-must match `MARKETING_VERSION` in `project.yml`) with `apps.ios.minimum_version` as
+`CFBundleShortVersionString` (`AppBuild.version`, falling back to `AppBuild.shipped` without a
+bundle, which must match `MARKETING_VERSION` in `project.yml`) with `apps.ios.minimum_version` as
 `major.minor.patch`. The first source to say "below" sets `ConnectionStore.updateRequired`, and
 `UpdateRequiredView` then covers everything: "Update required", the app's version and the gateway's
 minimum, "Open TestFlight" / "Open the App Store" when `update_url` is present, and Sign out, which
-clears it. Equal, newer, or a gateway without `apps` changes nothing. `--demo-update-required`
+clears it. Equal, newer, or a gateway without `apps` changes nothing. The Mac app has its own entry,
+`apps.macos` (A45): `AppUpdateRequirement.of` and `ConnectionStore` take the `InstalledApp` a build is,
+`.ios` unless told otherwise, and the iPhone app never reads the Mac's entry. `--demo-update-required`
 starts the demo with a minimum above the app's version so the screen can be seen and is what the UI
 test drives.
 

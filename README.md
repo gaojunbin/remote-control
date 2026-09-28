@@ -2,7 +2,7 @@
 
 Remote control for the coding agents you already run. `remote-control` is a self-hosted control
 plane: a **gateway** on your own VPS sits between the **developer machines** where Claude Code and
-Codex are installed and the **apps** you carry — a web UI and a native iOS client. Add a machine
+Codex are installed and the **apps** you carry — a web UI and native iPhone and Mac clients. Add a machine
 with one pairing command, see every session on it, and drive a session the way you drive a chat:
 send text or dictate it, watch answers, thinking, tool calls and diffs stream in, approve or deny a
 tool, answer a question, stop a turn, queue the next one. A `claude` or a bare `codex` you started
@@ -17,12 +17,12 @@ gateway routes and indexes but never runs an agent.
  ┌───────────┐             ┌───────────────────────────┐         ┌─────────────────────┐
  │  web app  │──┐          │  your reverse proxy  :443 │      ┌──│ rc-client daemon    │
  └───────────┘  │          ├───────────────────────────┤      │  │   claude  (SDK)     │
-                │          │  rc_gateway         :8787 │      │  │   codex   (JSON-RPC)│
-                ├─────────►│  auth · devices · index   │◄─────┤  └─────────────────────┘
- ┌───────────┐  │          │  replay buffer · STT      │      │
- │  iOS app  │──┘          │  push · web · install.sh  │      │  ┌─────────────────────┐
- └───────────┘             └───────────────────────────┘      └──│ rc-client daemon    │
-                                                                 │  (another machine)  │
+ ┌───────────┐  │          │  rc_gateway         :8787 │      │  │   codex   (JSON-RPC)│
+ │  iOS app  │──┼─────────►│  auth · devices · index   │◄─────┤  └─────────────────────┘
+ └───────────┘  │          │  replay buffer · STT      │      │
+ ┌───────────┐  │          │  push · web · install.sh  │      │  ┌─────────────────────┐
+ │  Mac app  │──┘          └───────────────────────────┘      └──│ rc-client daemon    │
+ └───────────┘                                                   │  (another machine)  │
                                                                  └─────────────────────┘
 
    https /api · wss /ws/app      SQLite in DATA_DIR                wss /ws/device
@@ -30,7 +30,7 @@ gateway routes and indexes but never runs an agent.
 
 Devices dial out only — nothing listens on them. Apps never reach a device directly. The gateway
 reads only the envelope fields it needs to route a frame and forwards the rest opaquely. The wire
-contract is `protocol/PROTOCOL.md`, and it is normative for all four components.
+contract is `protocol/PROTOCOL.md`, and it is normative for all five components.
 
 ## Repository layout
 
@@ -40,7 +40,8 @@ contract is `protocol/PROTOCOL.md`, and it is normative for all four components.
 | `gateway/` | `rc_gateway`, the VPS service. Python 3.12, FastAPI, SQLite, WebSockets |
 | `client/` | `rc-client`, the device daemon and its installer. Python 3.12, `claude-agent-sdk`, Codex app-server |
 | `web/` | The browser app. React 19, Vite, TypeScript, hand-written CSS |
-| `ios/` | The iPhone app. SwiftUI, iOS 17+, xcodegen, no third-party dependencies |
+| `ios/` | The iPhone app. SwiftUI, iOS 18+, xcodegen, SwiftTerm for the terminal |
+| `macos/` | The Mac app: the web app drawn natively. SwiftUI, macOS 15+, xcodegen, on the iPhone app's protocol and state layer |
 | `docs/` | The documentation you are reading |
 | `web-moke/` | The three prototype screenshots the UI was built against |
 | `docker-compose.yml`, `.env.example` | The one-command stack and every setting it takes |
@@ -191,6 +192,18 @@ xcodebuild -project RemoteControl.xcodeproj -scheme RemoteControl \
 The simulator shares the Mac's network, so it signs in against `http://127.0.0.1:8787`. `swift run
 RCVerify` checks the protocol fixtures with plain Command Line Tools and needs no simulator.
 
+The Mac app, signed to run locally, against that gateway or the web's mock:
+
+```sh
+cd macos && xcodegen generate
+export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+xcodebuild -project RemoteControl.xcodeproj -scheme RemoteControl -configuration Release \
+  -derivedDataPath build/DerivedData build
+open "build/DerivedData/Build/Products/Release/Remote Control.app"
+```
+
+Its login page asks for the gateway's address first (`http://127.0.0.1:8787`), then the account.
+
 ## What works
 
 - **Devices** — one-line install for macOS and Linux, single-use pairing codes, live enrollment
@@ -204,7 +217,7 @@ RCVerify` checks the protocol fixtures with plain Command Line Tools and needs n
   app-server daemon, Grok Build over its ACP JSON-RPC, and pi over its RPC mode with an extension of
   the device's own loaded into every pi process. Every agent is normalised to one block timeline,
   so the UI has no agent-specific code paths, and each one is shown by its logo.
-- **Slash commands** — typing `/` in the web or iOS composer lists what the session's agent offers,
+- **Slash commands** — typing `/` in any app's composer lists what the session's agent offers,
   the way its terminal does: Codex's `/compact`, `/review`, `/init` and its status commands, pi's
   prompt templates, skills and extension commands, Grok Build's shell-side commands and skills.
   Claude Code has no command surface a channel can reach, so its sessions show no menu.
@@ -344,7 +357,8 @@ not apply to them; project and local settings do. Change it with `[claude] setti
 | [`docs/CLIENT.md`](docs/CLIENT.md) | The device daemon: installer, commands, services, mirroring, configuration |
 | [`docs/WEB.md`](docs/WEB.md) | The browser app |
 | [`docs/IOS.md`](docs/IOS.md) | The iPhone app |
-| [`docs/DESIGN.md`](docs/DESIGN.md) | The interaction design behind both apps |
+| [`docs/MACOS.md`](docs/MACOS.md) | The Mac app |
+| [`docs/DESIGN.md`](docs/DESIGN.md) | The interaction design behind the apps |
 | [`docs/VALIDATION.md`](docs/VALIDATION.md) | Backend validation: what was tested end to end, what failed and was fixed, what was not |
 | [`docs/VALIDATION-APPS.md`](docs/VALIDATION-APPS.md) | App validation: web and iOS driven against a real gateway, device and CLIs |
 | [`protocol/PROTOCOL.md`](protocol/PROTOCOL.md) | The normative wire contract |

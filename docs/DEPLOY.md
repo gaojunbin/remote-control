@@ -392,7 +392,7 @@ provider that is down or slow answers the app with `502`, and the dictation stay
 more than thirty polish requests a minute from one address answer `429`.
 Only the polish feature uses this key: the gateway still runs no agent and holds no agent credential.
 
-## iOS app compatibility
+## App compatibility
 
 The web app is served by the gateway, so it can never be older than the gateway. The iOS app is
 installed on the phone, so the gateway says which is the oldest iOS build it still works with

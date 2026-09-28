@@ -1121,7 +1121,9 @@ first, and the iPhone app's layout is not a reference — only its state code is
 
 **The window is the page.** One main window without a title bar: the web app's topbar is the
 window's top strip, with the traffic lights set into its leading edge and the strip dragging the
-window, and the chat page's own header does the same. The layout follows the web's breakpoints on
+window. The chat page has no topbar: at 1024 pt and wider the session sidebar's head carries the
+traffic lights, with the brand after them and the mark alone where the wordmark has no room, and
+below that the chat header does; both drag the window. The layout follows the web's breakpoints on
 the window's width — the chat is two panes with the session sidebar at 1024 pt and wider, and one
 pane with a back button below — and the window narrows to 480 pt. The appearance is always light.
 Closing the window leaves the app running and connected, as a chat app on the Mac does, so

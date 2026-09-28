@@ -10,6 +10,7 @@ These documents go deeper.
 | [CLIENT.md](CLIENT.md) | Install, run or debug the device daemon: the installer, `rc-client` commands, services, agent discovery, terminal mirroring, the `claude` shim, the shared Codex daemon and attached sessions |
 | [WEB.md](WEB.md) | Build, run or change the browser app, including its mock gateway |
 | [IOS.md](IOS.md) | Build, run or ship the iPhone app, including the TestFlight prerequisites |
+| [MACOS.md](MACOS.md) | Build, run or change the Mac app, including the renderer it is compared with the web through |
 | [DESIGN.md](DESIGN.md) | Change the interface: the prototype screens, composer semantics, approval rules, status vocabulary, design tokens |
 | [VALIDATION.md](VALIDATION.md) | Know what was tested end to end on the gateway and the device daemon, what broke and was fixed, and what was never verified |
 | [VALIDATION-APPS.md](VALIDATION-APPS.md) | The same for the web and iOS apps, driven against a real gateway, a real device and the real CLIs |
@@ -17,4 +18,5 @@ These documents go deeper.
 The normative wire contract lives outside `docs/`, next to its schema and fixtures:
 [`protocol/PROTOCOL.md`](../protocol/PROTOCOL.md). Each component also carries a README with its own
 layout and commands: [`gateway/`](../gateway/README.md), [`client/`](../client/README.md),
-[`web/`](../web/README.md), [`ios/`](../ios/README.md), [`protocol/`](../protocol/README.md).
+[`web/`](../web/README.md), [`ios/`](../ios/README.md), [`macos/`](../macos/README.md),
+[`protocol/`](../protocol/README.md).
