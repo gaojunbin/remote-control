@@ -2799,7 +2799,12 @@ prompts no automated run may raise; the Keychain (every run was `--ephemeral`); 
 whose scroll bars always show; notarization and any distribution channel. The differences that
 remain on purpose or for now are listed in `docs/MACOS.md` § "Differences from the web that
 remain". All five components 1.11.0 (a feature release), iOS build 28, Mac build 2, tag v1.11.0.
-CI_RESULT_54
+GitHub "iOS checks" on 856a868 (run 36473601184) passed in 4 min. The first "macOS checks" run
+(36473601283, macOS 26.6.2, Xcode 26.6) built everything and failed two design tests — Chinese
+sets 2 % wider on macOS 26, whose PingFang SC keeps its size-specific tracking — so the exact
+Chinese widths now run on macOS 27, where they were measured (2b6df89); the second run
+(36474232231) passed in 14 min 15 s: 424 tests, 201 scenarios, the unsigned app build. Tag
+v1.11.0 is on 2b6df89.
 
 ## Smoke procedure
 
