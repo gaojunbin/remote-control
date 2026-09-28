@@ -38,8 +38,9 @@ the first device group.
 
 **Chat.** A sidebar of sessions grouped by device, each device's Archive collapsed under it, a header
 with the title, `device:path · branch`, a Todos chip, usage and elapsed time, and a Stop button. The timeline runs down the middle on the
-page's own canvas. The composer sits at the bottom with the model card (model, effort and speed in
-one control), the permission-mode picker and the voice language picker on a row beneath it.
+page's own canvas. The composer sits at the bottom with a row of controls beneath it: Up next
+while something is queued (A43), the dictation language where the phone recognises speech itself
+(A44), the model card (model, effort and speed in one control), then the permission-mode picker.
 
 **Settings** holds the account, notifications, voice, the timeline detail, the app lock, and the
 interface language, in the shape § "The Settings screen" gives it. **Language** offers English and 中文 and defaults to English whatever the
@@ -222,7 +223,7 @@ printed. The header replaces the rows Gateway, Signed in as, Connection and Gate
 | --- | --- |
 | **Account** | **Users** (admin role) — "Accounts on this gateway, and whether anyone can create one." · **Change password** (every account but the built-in `admin`) — "The current password and the new one." · **Sign out** — "Cached sessions and drafts leave this device. Nothing changes on your machines." |
 | **While you're away** | **Notify me** — "Which device and session needs you, and nothing else." · **Resume after the limit resets** (A35) — "When Claude Code or Codex stops at a usage limit, the device continues the session a minute after the limit resets." |
-| **Voice** | **Transcribe** (iOS) — the chosen backend's own sentence · **Dictation language** — "The language you dictate in; Automatic lets the recogniser decide." · **Polish dictation with AI** — "Sends what you dictated and the last few messages to this gateway's model. Nothing is sent while it is off." · while it is on, **Model** — "From the list this gateway serves." and **Strength** — "Moderate cleans up. Strong also restructures and resolves references." |
+| **Voice** | **Transcribe** — on the phone a menu, On this iPhone or Gateway, with the chosen backend's own sentence ("Audio is streamed to your gateway, which recognises the language itself." for Gateway); on the web, which only transcribes on the gateway, the word Gateway and "Your gateway transcribes and recognises the language itself.", or "This gateway has no transcription service configured." · **Dictation language** (the phone, only while it recognises speech itself, A44) — "The language you speak. The recogniser on this iPhone listens for one at a time." · **Polish dictation with AI** — "Sends what you dictated and the last few messages to this gateway's model. Nothing is sent while it is off." · while it is on, **Model** — "From the list this gateway serves." and **Strength** — "Moderate cleans up. Strong also restructures and resolves references." |
 | **Reading** | **Language** — "The app's own words only; what the agent wrote stays as written." · **Detail** — "Simple shows only what is written to you. Detailed adds thinking, tool calls and the task list." |
 | **Security** (iOS) | **Require Face ID** — "Unlock with Face ID, Touch ID or your passcode when the app returns from the background." |
 
@@ -592,6 +593,34 @@ as a read-only value (A17), and the tier with it (A21); the card does not open t
 list pickers — the new-session sheet lists Model, Effort, Permissions in that order, with the
 speed switch after the three when the agent offers one.
 
+**The control row: what waits, how you speak, what runs, what it may do (A43, A44).** From the
+leading edge: Up next, only while something is queued; the dictation language; the model card;
+the permission-mode picker. The dictation language is offered only where the phone recognises
+speech itself — Transcribe set to On this iPhone, or Gateway on a gateway with no transcription
+service, which falls back to the phone. There the list is the recogniser's languages with no
+Automatic, because the phone's recogniser cannot detect a language and listens for the one it is
+given; Chinese until the person picks another. The gateway's providers detect the language
+themselves, so gateway dictation — the web always, the phone set to Gateway — has nothing to
+choose and draws no language control, in the composer or in Settings.
+
+On the phone the row is icons, because four words do not fit beside Send on a phone's width:
+
+- Up next is a notepad with the count in a small dark badge at its top-right corner.
+- The dictation language is the language glyph, a speech bubble with A and 文.
+- The model card is a gauge, after ChatGPT's effort icon: an open arc from lower left over the top
+  to lower right, on a track in the line colour, filled in green up to a needle whose position is
+  the session's effort — the agent's lowest level at the left end, its highest at the right, the
+  others evenly between. An agent with no effort levels, or a value it does not list, stands the
+  needle upright with nothing filled. A faster tier adds a small bolt at the gauge's corner.
+- The permission mode is a shield with a prompt, `>_`, inside it.
+
+Each is a 44-point target that opens exactly what its words opened, and each accessible name
+carries the value: "Up next, 3 messages", "Dictation language, Chinese", "Model, Opus 4.6, effort
+High", "Permissions, Auto-accept edits". On a session the terminal holds the icons stay, and a tap
+shows the value the terminal set in a menu with nothing to choose, so the reader still learns
+what the terminal chose (A17). The web keeps the words — a desktop row has the room — and loses
+only the dictation language.
+
 The composer never guesses. It always sends `mode: "auto"` and lets the device decide what that
 means, then labels the button with the decision:
 
@@ -684,8 +713,8 @@ A send whose outcome is unknown shows "Delivery unconfirmed" with a Retry that r
 request id, because a silent automatic resend is how an agent gets told twice.
 
 **Up next: the queue is one control, and a queued message can be taken back (A43).** Messages
-waiting behind a turn are shown as a count, never as a stack: one chip, "Up next · N", at the end
-of the composer's control row, on the web exactly as on the phone, and only while N is at least
+waiting behind a turn are shown as a count, never as a stack: one chip, "Up next · N", first in
+the composer's control row, on the web exactly as on the phone, and only while N is at least
 one. Three queued lines stacked over the field pushed the conversation up by a row each and said
 nothing the count does not. Tapping the chip opens the list — a popover above the chip on the web,
 a sheet on the phone — in the order the messages will go, each one line of its text (two on the
