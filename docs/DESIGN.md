@@ -701,7 +701,13 @@ phone) and, for a message carrying files, a paperclip and their number. Each row
   would otherwise steer; the button reads Queue while a turn runs and Send when it does not, and a
   message whose turn ended meanwhile is simply sent. Cancel puts the original words back the same
   way. If the device took the message before the tap arrived, nothing opens and one line says it
-  was already sent.
+  was already sent. One message is edited at a time: while one is in the field, the other rows
+  offer Remove only. The status line agrees with the button — "· your message will be queued"
+  even on an agent that steers — and while the words are on their way back into the line the
+  button's place holds a spinner and the field does not take keys, so nothing is sent twice.
+
+A Remove that finds the message already gone says the same as an edit would, "That message has
+already been sent.", never the device's bare `not_found`.
 
 Whatever the field held when the tap came — words, files, or both — is set aside, not overwritten,
 and comes back into the field the moment the edited message is back in the line; a refused send
