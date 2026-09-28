@@ -1,0 +1,60 @@
+name: macOS checks
+
+on:
+  push:
+    # Branches only: a tag push ignores `paths` and would run the same commit twice.
+    branches:
+      - master
+    paths:
+      - 'macos/**'
+      - 'ios/Sources/RCCore/**'
+      - 'protocol/**'
+      - '.github/workflows/macos-check.yml'
+  pull_request:
+    paths:
+      - 'macos/**'
+      - 'ios/Sources/RCCore/**'
+      - 'protocol/**'
+      - '.github/workflows/macos-check.yml'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A prefix distinct from callers, so a reusable call cannot cancel its caller.
+  group: macos-check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-check:
+    name: Mac app build, Swift tests and every preview
+    runs-on: macos-26
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: macos
+    env:
+      # The SDK the release builds with. The app targets macOS 15 and uses
+      # nothing newer than this SDK has.
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      RC_XCODE_VERSION: '26.6'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build, test, render every scenario and build the app
+        run: bash scripts/ci-check-macos.sh
+
+      - name: Upload build, test and preview evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-check-${{ github.run_id }}-${{ github.run_attempt }}
+          path: macos/build/CI/
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6

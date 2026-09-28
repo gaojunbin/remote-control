@@ -24,6 +24,12 @@ ios/DerivedData/
 ios/*.xcodeproj/xcuserdata/
 ios/*.xcodeproj/project.xcworkspace/xcuserdata/
 ios/build/
+macos/.build/
+macos/.swiftpm/
+macos/DerivedData/
+macos/*.xcodeproj/xcuserdata/
+macos/*.xcodeproj/project.xcworkspace/xcuserdata/
+macos/build/
 *.xcuserstate
 
 # Runtime & secrets
@@ -37,3 +43,4 @@ data/
 
 # Personal signing settings (see ios/Signing.xcconfig)
 ios/Signing.local.xcconfig
+macos/Signing.local.xcconfig
