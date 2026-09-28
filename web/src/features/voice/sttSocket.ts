@@ -41,7 +41,6 @@ const CONNECT_TIMEOUT_MS = 5_000;
 const OPEN = 1;
 
 interface Options {
-  language: string;
   onEvent: (event: SttEvent) => void;
   factory?: SttSocketFactory;
 }
@@ -60,8 +59,8 @@ export class SttSocket {
   /** Connect, and resolve once the gateway is ready for audio. */
   start(): Promise<void> {
     const factory = this.options.factory ?? ((url: string) => new WebSocket(url) as SttSocketLike);
-    const url = `${socketUrl('/ws/stt')}?language=${encodeURIComponent(this.options.language)}`;
-    const socket = factory(url);
+    // A44: no language is asked for. The gateway's provider detects it.
+    const socket = factory(socketUrl('/ws/stt'));
     socket.binaryType = 'arraybuffer';
     this.socket = socket;
     socket.onmessage = (event) => this.receive(event.data);

@@ -684,7 +684,8 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
   if (path === '/api/config') {
     json(res, 200, {
       public_origin: `http://127.0.0.1:5173`,
-      stt: { enabled: true, languages: ['auto', 'zh', 'en'] },
+      // A44: the provider detects the language, so there is nothing to list.
+      stt: { enabled: true, languages: ['auto'] },
       polish: { enabled: true },
       push: { web_enabled: true, apns_enabled: false },
       version: GATEWAY_VERSION,
@@ -981,7 +982,7 @@ function onAppSocket(socket: WebSocket, account: Account): void {
     user: userView(account),
     devices: devicesOf(account.username),
     sessions: sessionsOf(account.username),
-    stt: { enabled: true, languages: ['auto', 'zh', 'en'] },
+    stt: { enabled: true, languages: ['auto'] },
     polish: { enabled: true },
     // A35: absent here would be a gateway too old for the switch, which is what
     // the app draws disabled; this one holds them.
@@ -1905,6 +1906,10 @@ const PARTIALS = [
   'also add a retry to the token refresh path and re-run the suite',
 ];
 
+/**
+ * A44: the provider detects the language, so the socket reads no query at all;
+ * a `language` an older app still sends is ignored, as the gateway ignores it.
+ */
 function onSttSocket(socket: WebSocket): void {
   let index = 0;
   let receivedAudio = false;

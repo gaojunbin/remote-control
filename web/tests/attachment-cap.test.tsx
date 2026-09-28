@@ -10,7 +10,6 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Composer } from '../src/features/chat/Composer';
 import { MAX_ATTACHMENTS } from '../src/features/chat/attachments';
 import { useDrafts } from '../src/stores/drafts';
-import { useSettings } from '../src/stores/settings';
 import { strings } from '../src/strings';
 import { claudeAgent } from '../mock/fixtures';
 import type { Session } from '../src/protocol/types';
@@ -50,7 +49,6 @@ function setup() {
       queue={[]}
       question={null}
       sttEnabled={false}
-      sttLanguages={['auto']}
       onSend={vi.fn().mockResolvedValue(undefined)}
       onAnswer={vi.fn().mockResolvedValue(undefined)}
       onSetOption={vi.fn()}
@@ -66,7 +64,6 @@ const batch = (prefix: string): File[] =>
 const attached = (): number => useDrafts.getState().drafts[KEY]?.attachments.length ?? 0;
 
 beforeEach(() => {
-  useSettings.setState({ sttLanguage: 'auto' });
   useDrafts.getState().reset();
 });
 

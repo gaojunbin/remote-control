@@ -25,7 +25,11 @@ interface ConnectionState {
   gatewayVersion: string | null;
   protocol: number | null;
   username: string | null;
-  stt: { enabled: boolean; languages: string[] };
+  /**
+   * Whether this gateway transcribes. Its language list is nothing to choose
+   * from since A44 — the provider detects the language — so it is not kept.
+   */
+  stt: { enabled: boolean };
   /** A29: whether this gateway can polish a dictation. Off until `hello` says so. */
   polish: PolishInfo;
   /** server_time minus the local clock at the last hello, in milliseconds. */
@@ -54,7 +58,7 @@ function disconnected(): Disconnected {
     gatewayVersion: null,
     protocol: null,
     username: null,
-    stt: { enabled: false, languages: ['auto'] },
+    stt: { enabled: false },
     polish: { enabled: false },
     clockSkewMs: 0,
     pairing: null,
@@ -102,7 +106,7 @@ function handleFrame(frame: PushFrame, set: Setter): void {
         gatewayVersion: frame.gateway_version,
         protocol: frame.protocol,
         username: frame.user.username,
-        stt: frame.stt,
+        stt: { enabled: frame.stt.enabled },
         polish: frame.polish ?? { enabled: false },
         clockSkewMs:
           typeof frame.server_time === 'number' ? frame.server_time - Date.now() : 0,

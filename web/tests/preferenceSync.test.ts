@@ -1,9 +1,10 @@
 /**
- * A41 — the six Settings values are the account's. `hello` and every
- * `preferences.updated` frame are the truth, a change made here goes up with
- * `PATCH /api/preferences`, and a field the account has not set is written up
- * once from this browser's value. `docs/DESIGN.md` § "Paused by the usage
- * limit" → "Settings are the account's, not the device's".
+ * A41 — the five Settings values this app keeps are the account's. `hello` and
+ * every `preferences.updated` frame are the truth, a change made here goes up
+ * with `PATCH /api/preferences`, and a field the account has not set is written
+ * up once from this browser's value. The dictation language is the iPhone's
+ * since A44, and nothing here reads or writes it. `docs/DESIGN.md` § "Paused by
+ * the usage limit" → "Settings are the account's, not the device's".
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../src/lib/api';
@@ -47,7 +48,7 @@ const hello = (preferences?: Preferences): HelloFrame =>
     user: { username: 'admin', role: 'admin' },
     devices: [],
     sessions: [],
-    stt: { enabled: true, languages: ['auto', 'zh', 'en'] },
+    stt: { enabled: true, languages: ['auto'] },
     server_time: Date.now(),
     ...(preferences ? { preferences } : {}),
   }) as HelloFrame;
@@ -63,11 +64,10 @@ const all: Preferences = {
   timeline_detail: 'detailed',
 };
 
-const six = () => {
+const synced = () => {
   const s = useSettings.getState();
   return {
     language: s.language,
-    sttLanguage: s.sttLanguage,
     polishEnabled: s.polishEnabled,
     polishModel: s.polishModel,
     polishStrength: s.polishStrength,
@@ -77,7 +77,6 @@ const six = () => {
 
 const defaults: SyncedSettings = {
   language: 'en',
-  sttLanguage: 'auto',
   polishEnabled: false,
   polishModel: '',
   polishStrength: 'moderate',
@@ -103,9 +102,8 @@ describe('the account settings on hello', () => {
   it('reads what the account holds, over whatever this browser had', async () => {
     handleFrame(hello(all));
 
-    expect(six()).toEqual({
+    expect(synced()).toEqual({
       language: 'zh-Hans',
-      sttLanguage: 'zh',
       polishEnabled: true,
       polishModel: 'gpt-5.4-mini',
       polishStrength: 'strong',
@@ -123,7 +121,7 @@ describe('the account settings on hello', () => {
   it("writes this browser's values up once for the fields nobody has set", async () => {
     useSettings.setState({ language: 'zh-Hans', polishEnabled: true, polishModel: 'gpt-4.1' });
 
-    handleFrame(hello({ resume_after_limit: false, stt_language: 'en' }));
+    handleFrame(hello({ resume_after_limit: false, timeline_detail: 'detailed' }));
 
     await vi.waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
     // The one field the account already had is not written back.
@@ -132,9 +130,8 @@ describe('the account settings on hello', () => {
       polish_enabled: true,
       polish_model: 'gpt-4.1',
       polish_strength: 'moderate',
-      timeline_detail: 'simple',
     });
-    expect(useSettings.getState().sttLanguage).toBe('en');
+    expect(useSettings.getState().timelineDetail).toBe('detailed');
 
     // Once: what the gateway then publishes is read, not written back.
     handleFrame({ type: 'preferences.updated', preferences: all } as PushFrame);
@@ -147,6 +144,18 @@ describe('the account settings on hello', () => {
 
     await Promise.resolve();
     expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('leaves the dictation language to the iPhone, set or not (A44)', async () => {
+    handleFrame(hello({ resume_after_limit: false }));
+
+    // Nobody has set it, and it is still not this app's to write up.
+    await vi.waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(patch.mock.calls[0]?.[0]).not.toHaveProperty('stt_language');
+
+    // A phone's choice arrives and is nothing this app holds.
+    handleFrame({ type: 'preferences.updated', preferences: all } as PushFrame);
+    expect(useSettings.getState()).not.toHaveProperty('sttLanguage');
   });
 
   it('writes nothing to a gateway that holds no preferences at all', async () => {
@@ -166,7 +175,7 @@ describe('the account settings on hello', () => {
     handleFrame(hello({ resume_after_limit: false }));
 
     await vi.waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
-    expect(six()).toEqual({ ...defaults, language: 'zh-Hans', timelineDetail: 'detailed' });
+    expect(synced()).toEqual({ ...defaults, language: 'zh-Hans', timelineDetail: 'detailed' });
   });
 });
 
@@ -191,7 +200,7 @@ describe('the account settings while the app is open', () => {
 
     await Promise.resolve();
     expect(patch).not.toHaveBeenCalled();
-    expect(six().polishStrength).toBe('strong');
+    expect(synced().polishStrength).toBe('strong');
   });
 });
 
@@ -241,7 +250,7 @@ describe('a change made on this screen', () => {
   });
 });
 
-/** The six of an object, without the switch that was there before them. */
+/** The Settings fields of an object, without the switch that was there before them. */
 function withoutResume(preferences: Preferences): Partial<Preferences> {
   const { resume_after_limit: _resume, ...rest } = preferences;
   return rest;

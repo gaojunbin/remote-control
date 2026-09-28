@@ -96,7 +96,6 @@ beforeEach(() => {
     polishEnabled: true,
     polishModel: 'gpt-4.1-mini',
     polishStrength: 'strong',
-    sttLanguage: 'en',
   });
   vi.stubGlobal(
     'fetch',
@@ -129,7 +128,6 @@ function setup(polishEnabled = true, state: Session['state'] = 'idle') {
       deviceOnline
       queue={[]}
       sttEnabled
-      sttLanguages={['auto', 'en']}
       polishEnabled={polishEnabled}
       polishContext={() => context}
       question={null}
@@ -185,7 +183,8 @@ describe('polishing a dictation', () => {
       text: 'um run the the auth suite',
       model: 'gpt-4.1-mini',
       strength: 'strong',
-      language: 'en',
+      // A44: the gateway transcribed the words and detected their language.
+      language: 'auto',
       context,
     });
 

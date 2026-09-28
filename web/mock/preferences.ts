@@ -30,6 +30,8 @@ const isText =
 const FIELDS: Record<string, Check> = {
   resume_after_limit: isBoolean,
   language: isWord('en', 'zh-Hans'),
+  // A44: an iPhone's own recogniser language. The web never writes it, but the
+  // gateway keeps what a phone of the same account does.
   stt_language: isText(32, false),
   polish_enabled: isBoolean,
   polish_model: isText(128, true),

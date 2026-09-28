@@ -62,17 +62,21 @@ export function polishContext(timeline: TimelineState): PolishContextItem[] {
     .slice(-CONTEXT_LIMIT);
 }
 
-/** The body of `POST /api/polish` for one dictation. */
+/**
+ * The body of `POST /api/polish` for one dictation. A44: the web's words were
+ * always transcribed by the gateway, whose provider detected their language,
+ * so the model's hint is `auto`.
+ */
 export function polishRequest(
   span: PolishSpan,
-  options: { model: string; strength: PolishRequest['strength']; language: string },
+  options: { model: string; strength: PolishRequest['strength'] },
   context: PolishContextItem[],
 ): PolishRequest {
   return {
     text: span.dictated,
     model: options.model,
     strength: options.strength,
-    language: options.language,
+    language: 'auto',
     context,
   };
 }

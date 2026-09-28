@@ -1,10 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Composer } from '../src/features/chat/Composer';
 import { SEND_DELAY_MS } from '../src/features/chat/useImeGuard';
 import { foldSession } from '../src/stores/chat';
-import { useSettings } from '../src/stores/settings';
 import { strings } from '../src/strings';
 import { claudeAgent, codexAgent } from '../mock/fixtures';
 import type { AgentInfo, Session, SessionEvent, SessionState } from '../src/protocol/types';
@@ -53,7 +52,6 @@ function setup(
     deviceOnline: overrides.deviceOnline ?? true,
     queue: [],
     sttEnabled: false,
-    sttLanguages: ['auto'],
     question: null,
     onSend,
     onAnswer: vi.fn().mockResolvedValue(undefined),
@@ -71,10 +69,6 @@ const typeAndSend = async (text: string, buttonName: RegExp | string) => {
   await user.keyboard(text);
   await user.click(screen.getByRole('button', { name: buttonName }));
 };
-
-beforeEach(() => {
-  useSettings.setState({ sttLanguage: 'auto' });
-});
 
 describe('Composer send mode', () => {
   it('sends mode "auto" when the session is idle', async () => {
@@ -189,7 +183,6 @@ describe('Composer send mode', () => {
         deviceOnline
         queue={[]}
         sttEnabled={false}
-        sttLanguages={['auto']}
         question={null}
         onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={onSend}
@@ -222,7 +215,6 @@ describe('Composer send mode', () => {
         deviceOnline
         queue={[]}
         sttEnabled={false}
-        sttLanguages={['auto']}
         question={null}
         onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={onSend}
@@ -250,7 +242,6 @@ describe('Composer send mode', () => {
         deviceOnline
         queue={[]}
         sttEnabled={false}
-        sttLanguages={['auto']}
         question={null}
         onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={onSend}
@@ -283,7 +274,6 @@ describe('Composer disabled states', () => {
         deviceOnline
         queue={[]}
         sttEnabled={false}
-        sttLanguages={['auto']}
         question={null}
         onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={vi.fn()}
@@ -306,7 +296,6 @@ describe('Composer disabled states', () => {
         deviceOnline
         queue={[]}
         sttEnabled={false}
-        sttLanguages={['auto']}
         question={null}
         onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={vi.fn()}
@@ -339,7 +328,6 @@ describe('Composer disabled states', () => {
         deviceOnline
         queue={[{ id: 'q1', text: 'also update the changelog', ts: 1 }]}
         sttEnabled={false}
-        sttLanguages={['auto']}
         question={null}
         onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={vi.fn()}
@@ -363,6 +351,57 @@ describe('Composer disabled states', () => {
 });
 
 /**
+ * `docs/DESIGN.md` § "The control row" (A43, A44): from the leading edge, Up
+ * next, the model card, the permission mode. The web dictates only through the
+ * gateway, which detects the language, so the row offers no language even
+ * while the microphone is there.
+ */
+describe('Composer control row', () => {
+  const renderRow = (control: Session['control']) =>
+    render(
+      <Composer
+        session={{ ...baseSession, control, state: 'running', queued: 1 }}
+        agent={claudeAgent}
+        deviceOnline
+        queue={[{ id: 'q1', text: 'also update the changelog', ts: 1 }]}
+        sttEnabled
+        question={null}
+        onAnswer={vi.fn().mockResolvedValue(undefined)}
+        onSend={vi.fn().mockResolvedValue(undefined)}
+        onSetOption={vi.fn()}
+        onRemoveQueued={vi.fn()}
+        onTakeover={vi.fn()}
+      />,
+    );
+
+  const row = () => document.querySelector('.composer-bottom') as HTMLElement;
+
+  it('reads Up next, the model card, then the permission mode, and nothing else', () => {
+    renderRow('remote');
+
+    expect(screen.getByRole('button', { name: strings.composer.micStart })).toBeInTheDocument();
+    const names = within(row())
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label') ?? button.textContent);
+    expect(names).toEqual([
+      strings.composer.upNextCount(1),
+      strings.composer.modelCard,
+      strings.composer.permissionMode,
+    ]);
+  });
+
+  it('keeps Up next first on a session the terminal holds', () => {
+    renderRow('terminal');
+
+    expect(row().children).toHaveLength(3);
+    expect(row().firstElementChild).toContainElement(
+      screen.getByRole('button', { name: strings.composer.upNextCount(1) }),
+    );
+    expect(row().querySelectorAll('.composer-chip.readonly')).toHaveLength(2);
+  });
+});
+
+/**
  * A17 — what the terminal chose is shown, not offered. `docs/DESIGN.md`
  * § "The composer": a session a terminal holds draws the model card and the
  * permission mode as chips that open nothing, and A21 puts the tier on the
@@ -377,7 +416,6 @@ describe('Composer settings a terminal holds', () => {
         deviceOnline
         queue={[]}
         sttEnabled={false}
-        sttLanguages={['auto']}
         question={null}
         onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={vi.fn().mockResolvedValue(undefined)}
@@ -485,7 +523,6 @@ describe('Composer settings a terminal holds', () => {
         deviceOnline
         queue={[]}
         sttEnabled={false}
-        sttLanguages={['auto']}
         question={null}
         onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={vi.fn().mockResolvedValue(undefined)}
@@ -515,7 +552,6 @@ describe('Composer model card', () => {
         deviceOnline
         queue={[]}
         sttEnabled={false}
-        sttLanguages={['auto']}
         question={null}
         onAnswer={vi.fn().mockResolvedValue(undefined)}
         onSend={vi.fn().mockResolvedValue(undefined)}

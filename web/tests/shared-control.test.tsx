@@ -28,7 +28,6 @@ import { emptyDraft, useAnswers } from '../src/stores/answers';
 import { refusalText } from '../src/lib/errors';
 import { RequestError } from '../src/lib/ws';
 import { sessionOriginLabel, strings } from '../src/strings';
-import { useSettings } from '../src/stores/settings';
 import {
   claudeAgent,
   claudeNoShim,
@@ -80,7 +79,6 @@ const composerProps = (session: Session, agent: AgentInfo | null) => ({
   queue: [],
   question: null,
   sttEnabled: false,
-  sttLanguages: ['auto'],
   onSend: vi.fn().mockResolvedValue(undefined),
   onAnswer: vi.fn().mockResolvedValue(undefined),
   onSetOption: vi.fn(),
@@ -93,10 +91,6 @@ const terminalSession = (overrides: Partial<Session> = {}): Session => ({
   control: 'terminal',
   state: 'readonly',
   ...overrides,
-});
-
-beforeEach(() => {
-  useSettings.setState({ sttLanguage: 'auto' });
 });
 
 describe.runIf(fixturesAvailable())('A10 fixtures', () => {

@@ -1,6 +1,9 @@
 /**
- * A41 — the six Settings values that belong to the account, in the two
+ * A41 — the five Settings values the web keeps on the account, in the two
  * spellings they live under: the settings store's own names and the wire's.
+ * `stt_language` is not one of them: since A44 it is the language an iPhone's
+ * own recogniser listens for, and the web, which only transcribes on the
+ * gateway, neither reads it nor writes it.
  *
  * Reading one off the wire checks it. The gateway is free to carry a word this
  * build has never heard of — a newer app of the same account may have written
@@ -14,7 +17,7 @@ import type {
   TimelineDetail,
 } from '../protocol/types';
 
-/** The settings store's names for the six, and what each may hold. */
+/** The settings store's names for the five, and what each may hold. */
 export interface SyncedSettings {
   /**
    * The app's own words, never applied to anything a device reported. English
@@ -24,8 +27,6 @@ export interface SyncedSettings {
    * reads as a different product.
    */
   language: InterfaceLanguage;
-  /** The dictation language: `auto`, or a code the gateway's STT offers. */
-  sttLanguage: string;
   /**
    * A29: whether a finished dictation is passed through the gateway's polish
    * model. Off until the reader turns it on, and useless without a model.
@@ -47,7 +48,6 @@ export const TIMELINE_DETAILS: TimelineDetail[] = ['simple', 'detailed'];
 /** What each is called on the wire (3.2). */
 const WIRE: { [K in SyncedKey]: keyof Preferences } = {
   language: 'language',
-  sttLanguage: 'stt_language',
   polishEnabled: 'polish_enabled',
   polishModel: 'polish_model',
   polishStrength: 'polish_strength',
@@ -70,7 +70,6 @@ const flag = (value: unknown): boolean | undefined =>
 /** The lengths and the words of `objects.json#/$defs/Preferences`. */
 const readers: { [K in SyncedKey]: (value: unknown) => SyncedSettings[K] | undefined } = {
   language: (value) => word(value, INTERFACE_LANGUAGES),
-  sttLanguage: (value) => text(value, 32, false),
   polishEnabled: flag,
   polishModel: (value) => text(value, 128, true),
   polishStrength: (value) => word(value, POLISH_STRENGTHS),

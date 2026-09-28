@@ -1,5 +1,5 @@
 /**
- * A41 — the gateway half of the six Settings values: what changed goes up with
+ * A41 — the gateway half of the five Settings values: what changed goes up with
  * `PATCH /api/preferences`, and the object that comes back is what the account
  * holds.
  *

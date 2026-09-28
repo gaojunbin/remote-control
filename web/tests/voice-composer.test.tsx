@@ -76,7 +76,6 @@ function setup() {
       deviceOnline
       queue={[]}
       sttEnabled
-      sttLanguages={['auto']}
       question={null}
       onSend={onSend}
       onAnswer={vi.fn().mockResolvedValue(undefined)}
@@ -298,7 +297,6 @@ describe('dictation in the composer', () => {
         deviceOnline
         queue={[]}
         sttEnabled={false}
-        sttLanguages={['auto']}
         question={null}
         onSend={vi.fn()}
         onAnswer={vi.fn().mockResolvedValue(undefined)}

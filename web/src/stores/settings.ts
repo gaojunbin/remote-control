@@ -1,10 +1,12 @@
 /**
- * What Settings holds. Six of the values are the account's since A41 — the
- * interface language, the dictation language, polish with its model and its
- * strength, and the timeline detail — and for those this store is the cache of
- * what the gateway holds: `hello` and every `preferences.updated` frame land
- * here, and a change made here goes up at once. The rest is this browser's
- * alone: which device groups a list has folded, and which Archives are open.
+ * What Settings holds. Five of the values are the account's since A41 — the
+ * interface language, polish with its model and its strength, and the
+ * timeline detail — and for those this store is the cache of what the gateway
+ * holds: `hello` and every `preferences.updated` frame land here, and a change
+ * made here goes up at once. The rest is this browser's alone: which device
+ * groups a list has folded, and which Archives are open. The account's
+ * dictation language is not here at all: since A44 it is what an iPhone's own
+ * recogniser listens for, and the web only ever transcribes on the gateway.
  *
  * Persisted in localStorage when available, under the signed-in account's key,
  * so the moments before `hello` read what this browser last saw rather than
@@ -33,7 +35,6 @@ interface SettingsState extends SyncedSettings {
   /** Devices whose Archive sub-group is open. Collapsed by default. */
   archiveExpanded: string[];
   setLanguage: (language: InterfaceLanguage) => void;
-  setSttLanguage: (language: string) => void;
   setPolishEnabled: (enabled: boolean) => void;
   setPolishModel: (model: string) => void;
   setPolishStrength: (strength: PolishStrength) => void;
@@ -86,8 +87,8 @@ const storage = browserStorage() ?? memoryStorage();
  * A24: what this app remembers belongs to the person signed in, not to the
  * browser. `localStorage` is already scoped to the gateway's origin, so the
  * username is all the key still needs; two people on one browser find their own
- * language, dictation language and notification choices. Nobody is signed in on
- * the login screen, which is why the signed-out key exists at all.
+ * language, polish choices and timeline detail. Nobody is signed in on the
+ * login screen, which is why the signed-out key exists at all.
  */
 const SIGNED_OUT_KEY = 'rc.settings';
 
@@ -98,7 +99,6 @@ const keyFor = (username: string | null): string =>
 const defaults = (): Pick<
   SettingsState,
   | 'language'
-  | 'sttLanguage'
   | 'polishEnabled'
   | 'polishModel'
   | 'polishStrength'
@@ -107,7 +107,6 @@ const defaults = (): Pick<
   | 'archiveExpanded'
 > => ({
   language: 'en',
-  sttLanguage: 'auto',
   polishEnabled: false,
   polishModel: '',
   polishStrength: 'moderate',
@@ -126,10 +125,6 @@ export const useSettings = create<SettingsState>()(
       setLanguage: (language) => {
         set({ language });
         writeUp(['language']);
-      },
-      setSttLanguage: (sttLanguage) => {
-        set({ sttLanguage });
-        writeUp(['sttLanguage']);
       },
       setPolishEnabled: (polishEnabled) => {
         set({ polishEnabled });

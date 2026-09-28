@@ -11,7 +11,6 @@ import userEvent from '@testing-library/user-event';
 import { Composer } from '../src/features/chat/Composer';
 import { AppSocket, RequestError, type SocketLike } from '../src/lib/ws';
 import { useDrafts } from '../src/stores/drafts';
-import { useSettings } from '../src/stores/settings';
 import { strings } from '../src/strings';
 import { claudeAgent } from '../mock/fixtures';
 import type { Session } from '../src/protocol/types';
@@ -50,7 +49,6 @@ function setup(error: unknown) {
       queue={[]}
       question={null}
       sttEnabled={false}
-      sttLanguages={['auto']}
       onSend={onSend}
       onAnswer={vi.fn().mockResolvedValue(undefined)}
       onSetOption={vi.fn()}
@@ -69,7 +67,6 @@ const send = async (text: string): Promise<void> => {
 };
 
 beforeEach(() => {
-  useSettings.setState({ sttLanguage: 'auto' });
   useDrafts.getState().reset();
 });
 
