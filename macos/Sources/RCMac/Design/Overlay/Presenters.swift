@@ -35,7 +35,7 @@ extension View {
         isPresented: Binding<Bool>, title: String? = nil, width: CGFloat = 580, showClose: Bool = false,
         @ViewBuilder content: @escaping () -> Content, @ViewBuilder footer: @escaping () -> Footer
     ) -> some View {
-        modifier(OverlayPresenter(isPresented: isPresented, kind: .modal(width: width), blocking: true) {
+        modifier(OverlayPresenter(isPresented: isPresented, kind: .modal(width: width, closeButton: showClose), blocking: true) {
             ModalPanel(title: title, showClose: showClose, close: { isPresented.wrappedValue = false },
                        content: content(), footer: footer())
         })
@@ -46,7 +46,7 @@ extension View {
         isPresented: Binding<Bool>, title: String? = nil, width: CGFloat = 580, showClose: Bool = false,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
-        modifier(OverlayPresenter(isPresented: isPresented, kind: .modal(width: width), blocking: true) {
+        modifier(OverlayPresenter(isPresented: isPresented, kind: .modal(width: width, closeButton: showClose), blocking: true) {
             ModalPanel<Content, EmptyView>(title: title, showClose: showClose,
                                            close: { isPresented.wrappedValue = false },
                                            content: content(), footer: nil)

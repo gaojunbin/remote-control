@@ -27,7 +27,8 @@ public struct SegmentOption<Value: Hashable>: Identifiable {
 }
 
 /// `web/src/components/Segmented.tsx` / `.segmented`: a muted pill holding
-/// equal segments, 3 points apart and inset; the chosen one is a white pill
+/// segments 3 points apart and inset — sharing a width it is given equally,
+/// each its label's width when it takes its own; the chosen one is a white pill
 /// with `--shadow-1` and ink text, the others the secondary ink.
 public struct Segmented<Value: Hashable>: View {
     let value: Value
@@ -78,6 +79,10 @@ private struct SegmentBody: View {
         HStack(spacing: Space.sp2) { configuration.label }
             .font(.web(size: FontSize.fs14))
             .lineLimit(1)
+            // Nothing sets the segment's padding, so it is Chrome's for a
+            // button: 6 px on either side, which a segment sized by its label
+            // keeps (Settings' rows).
+            .padding(.horizontal, 6)
             .frame(maxWidth: .infinity)
             .frame(height: 32)
             .foregroundStyle(pressed ? Palette.ink : Palette.inkSecondary)

@@ -16,6 +16,14 @@ import SwiftUI
 /// environment: pass anything a feature keeps in its own environment in
 /// explicitly. And a list whose rows open overlays is a `ScrollView`, never a
 /// `List`, whose rows AppKit hosts apart and whose preferences never arrive.
+///
+/// The content is built from the closures the asking view's body last handed
+/// over, so build it from values that body reads — the form a dialog edits,
+/// not a binding to it. A `Binding` read inside the closure gives the value it
+/// held when that body last ran: a modal opened by setting an optional the
+/// body never reads opens with nothing in it, whatever order the view chains
+/// its overlays in. A binding handed on to a child view's `@Binding` stays
+/// current. `OverlayOrderGallery` in the renderer is the check.
 struct OverlayHostModifier: ViewModifier {
     @State private var registry = OverlayRegistry()
     @State private var events = OverlayEvents()
@@ -53,10 +61,11 @@ struct OverlayLayer: View {
     let entries: [OverlayEntry]
 
     var body: some View {
+        let ordered = ordered
         GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
-                ForEach(ordered) { entry in
-                    OverlayItem(entry: entry, proxy: proxy)
+                ForEach(Array(ordered.enumerated()), id: \.element.id) { index, entry in
+                    OverlayItem(entry: entry, proxy: proxy, covered: Self.isCovered(index, in: ordered))
                         .overlayPreferenceValue(OverlayEntriesKey.self) { nested in
                             OverlayLayer(entries: nested)
                         }
@@ -74,6 +83,12 @@ struct OverlayLayer: View {
             return lhs.openedAt < rhs.openedAt
         }
     }
+
+    /// A modal or the drawer opened later at this level lies over this one, and
+    /// its backdrop blurs what it covers.
+    private static func isCovered(_ index: Int, in ordered: [OverlayEntry]) -> Bool {
+        ordered[(index + 1)...].contains { !$0.kind.isPopover }
+    }
 }
 
 /// One overlay, the size of the window: its backdrop, if it has one, and its
@@ -81,13 +96,20 @@ struct OverlayLayer: View {
 private struct OverlayItem: View {
     let entry: OverlayEntry
     let proxy: GeometryProxy
+    /// A modal or the drawer lies over this one at its own level.
+    let covered: Bool
+    /// How many modals and drawers are open inside this one, whose own layer
+    /// is drawn over it.
+    @State private var within = 0
     @Environment(\.overlayRegistry) private var registry
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
             switch entry.kind {
-            case .modal(let width):
-                ModalFrame(width: width, viewport: proxy.size, dismiss: entry.dismiss) { entry.content }
+            case .modal(let width, let closeButton):
+                ModalFrame(width: width, startsInField: !closeButton, viewport: proxy.size,
+                           dismiss: entry.dismiss) { entry.content }
             case .drawer:
                 DrawerFrame(viewport: proxy.size, dismiss: entry.dismiss) { entry.content }
             case .popover(let anchor, let align, let side):
@@ -98,6 +120,10 @@ private struct OverlayItem: View {
             }
         }
         .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+        // The web's `.overlay` blurs everything under it, a drawer or a modal
+        // included, as it blurs the page (`OverlayHostModifier`).
+        .onPreferenceChange(BlockingOverlayKey.self) { within = $0 }
+        .blur(radius: (covered || within > 0) && !reduceMotion ? 1 : 0)
         .onAppear {
             registry?.register(entry.id, openedAt: entry.openedAt, isPopover: entry.kind.isPopover,
                                dismiss: entry.dismiss)

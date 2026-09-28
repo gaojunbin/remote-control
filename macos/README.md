@@ -137,11 +137,25 @@ menus. `.modal(isPresented:title:width:showClose:content:footer:)`,
 `.anchoredPanel(isPresented:align:side:content:)` for a panel something other
 than a click opens. They close on Escape (the newest first), a press outside —
 the backdrop for a modal or the drawer, anywhere but the panel and its trigger
-for a popover — or their own control; a dialog focuses its first field as it
-opens; popovers are placed by `PopoverPlacement`, the web's rule. An overlay's
-content is drawn at the root and reads the root's environment, so pass in what a
-feature keeps in its own; and a list whose rows open overlays is a `ScrollView`,
-never a `List`, whose rows AppKit hosts apart.
+for a popover — or their own control. A dialog moves focus as the web's does, to
+the first focusable thing it holds: its first field, or no field when a close
+button or a button comes first (the drawer, a modal with a close button, a
+confirmation). A modal blurs everything under it, the drawer included; popovers
+are placed by `PopoverPlacement`, the web's rule. An overlay's content is drawn
+at the root and reads the root's environment, so pass in what a feature keeps in
+its own; and a list whose rows open overlays is a `ScrollView`, never a `List`,
+whose rows AppKit hosts apart.
+
+**Build an overlay's content from what the asking view's body reads.** The content
+comes from the closures that body last handed over, and a `Binding` read inside
+them gives the value it held when the body last ran — SwiftUI refreshes a binding
+only where it is a view's `@Binding`. So pass the form a dialog edits as a value
+the body reads (`changePasswordModal(changingPassword, isPresented: …)`), or hand
+the binding on to a child view that declares it `@Binding`; never unwrap
+`form.wrappedValue` in the closure, or a modal opened by setting an optional the
+body never reads opens empty. The order overlays are chained in changes nothing.
+`swift run RCMacPreview --demo --scenario gallery-order-modal,gallery-order-modal-binding`
+draws both ways.
 
 **Words.** `S.<group>.<key>` in the current interface language, observed, so a
 change redraws every open screen; nothing may read a string at static-init time.

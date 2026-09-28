@@ -141,11 +141,18 @@ extension View {
     /// Type as a CSS rule sets it — `font-size`, `font-weight`, `line-height`,
     /// `letter-spacing`, the monospaced face for `.mono` — on the browser's
     /// baselines. Put it on text; a view with no text has no baseline to place.
+    ///
+    /// It is typeset as English whatever the words are. Chrome sets Chinese by
+    /// CSS's rules alone, and CoreText's own for Chinese differ: 6 points more
+    /// between wrapped lines at 13 points, a full stop that ends a line squeezed
+    /// to half its width, and space after a closing quote. The face still
+    /// follows the interface language (`SystemFace`).
     public func textStyle(_ style: TextStyle) -> some View {
         CSSLineBox(lineBox: style.lineBox, baseline: style.baseline) {
             font(style.font)
                 .tracking(style.tracking * style.size)
                 .lineSpacing(style.lineSpacing)
+                .typesettingLanguage(Locale.Language(identifier: "en"))
         }
     }
 

@@ -20,7 +20,28 @@ enum FoundationScenarios {
                             content: { _ in AnyView(OverlayGallery(kind: .modal)) }),
             PreviewScenario(name: "gallery-drawer", content: { _ in AnyView(OverlayGallery(kind: .drawer)) }),
             PreviewScenario(name: "gallery-confirm", content: { _ in AnyView(OverlayGallery(kind: .confirm)) })
-        ]
+        ] + overlayOrder
+    }
+
+    /// The overlay layer's regression check: every kind opened from a control
+    /// that chains them all, the modal in each of the three orders and with its
+    /// form bound to the views that draw it, and a modal over the drawer.
+    private static var overlayOrder: [PreviewScenario] {
+        [
+            ("gallery-order-modal", OverlayOrderGallery.Order.confirmFirst, OverlayOrderGallery.Overlay.modal),
+            ("gallery-order-modal-panel-first", .panelFirst, .modal),
+            ("gallery-order-modal-first", .modalFirst, .modal),
+            ("gallery-order-modal-binding", .formBoundToChildren, .modal),
+            ("gallery-order-drawer", .panelFirst, .drawer),
+            ("gallery-order-confirm", .modalFirst, .confirm),
+            ("gallery-order-panel", .confirmFirst, .panel),
+            ("gallery-order-closable-modal", .modalFirst, .closableModal),
+            ("gallery-order-modal-over-drawer", .panelFirst, .modalOverDrawer),
+            ("gallery-order-modal-in-drawer", .confirmFirst, .modalInDrawer)
+        ].map { name, order, open in
+            PreviewScenario(name: name, settle: .milliseconds(1400),
+                            content: { _ in AnyView(OverlayOrderGallery(order: order, open: open)) })
+        }
     }
 
     private static var login: [PreviewScenario] {

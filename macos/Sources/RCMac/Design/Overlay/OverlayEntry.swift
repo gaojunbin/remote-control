@@ -3,8 +3,9 @@ import SwiftUI
 /// What kind of overlay an entry is, which decides its backdrop, where its
 /// panel goes and how it closes.
 enum OverlayKind {
-    /// `.overlay` + `.modal`: centred, `width` at most.
-    case modal(width: CGFloat)
+    /// `.overlay` + `.modal`: centred, `width` at most, with a close button in
+    /// its head or not.
+    case modal(width: CGFloat, closeButton: Bool)
     /// `.drawer-overlay` + `.drawer`: the right-hand drawer.
     case drawer
     /// `.popover-panel`, anchored to its trigger.

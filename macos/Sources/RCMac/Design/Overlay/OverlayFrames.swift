@@ -24,6 +24,9 @@ struct Backdrop: View {
 /// than it asked for — with its lower corners square.
 struct ModalFrame<Content: View>: View {
     let width: CGFloat
+    /// False when a close button heads the modal, which is then what focus
+    /// moves to rather than its first field (`DialogFocus`).
+    let startsInField: Bool
     let viewport: CGSize
     let dismiss: @MainActor () -> Void
     @ViewBuilder let content: () -> Content
@@ -41,7 +44,7 @@ struct ModalFrame<Content: View>: View {
                     content().frame(maxWidth: width)
                 }
                 .background(ModalShape(sheet: sheet).fill(Palette.surface))
-                .background(FirstFieldFocus())
+                .background(DialogFocus(startsInField: startsInField))
                 .clipShape(ModalShape(sheet: sheet))
                 .boxShadow(Shadow.modal, in: ModalShape(sheet: sheet))
                 // `rc-rise`: up 8 points and from 99 % over `--dur`.
@@ -85,7 +88,8 @@ struct DrawerFrame<Content: View>: View {
             content()
                 .frame(width: width, height: viewport.height)
                 .background(Palette.surface)
-                .background(FirstFieldFocus())
+                // Its head holds the close button, which is where focus goes.
+                .background(DialogFocus(startsInField: false))
                 .boxShadow(Shadow.modal, in: Rectangle())
                 .opacity(slid ? 1 : 0)
                 .offset(x: slid ? 0 : 24)
