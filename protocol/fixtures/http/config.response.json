@@ -13,6 +13,9 @@
     "ios": {
       "minimum_version": "0.1.0",
       "update_url": "https://testflight.apple.com/join/EXAMPLE"
+    },
+    "macos": {
+      "minimum_version": "1.11.0"
     }
   },
   "push": {

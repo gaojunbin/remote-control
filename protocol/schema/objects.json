@@ -818,10 +818,26 @@
       ]
     },
     "AppsInfo": {
-      "description": "The oldest build of each separately installed app this gateway still works with (A31). Absent means no requirement.",
+      "description": "The oldest build of each separately installed app this gateway still works with (A31): `ios` for the iPhone app, `macos` for the Mac app (A45). An app reads its own entry; an absent entry, or an absent object, means no requirement.",
       "type": "object",
       "properties": {
         "ios": {
+          "type": "object",
+          "properties": {
+            "minimum_version": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+            },
+            "update_url": {
+              "type": "string",
+              "pattern": "^https://"
+            }
+          },
+          "required": [
+            "minimum_version"
+          ]
+        },
+        "macos": {
           "type": "object",
           "properties": {
             "minimum_version": {
