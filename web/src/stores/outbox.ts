@@ -13,6 +13,8 @@ export interface PendingSend {
   text: string;
   attachments: OutgoingAttachment[];
   mode: SendMode;
+  /** A43: where an edited queued message goes back into the line; a Retry keeps it. */
+  queueTs?: number;
   at: number;
   error: string | null;
 }

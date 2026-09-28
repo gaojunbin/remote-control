@@ -70,6 +70,19 @@ describe('StatusLine', () => {
     expect(screen.getByText('Codex is working · your message will steer the turn')).toBeInTheDocument();
   });
 
+  it('says queued, as the button does, while the composer edits a queued message (A43)', () => {
+    render(
+      <StatusLine
+        session={{ ...base, state: 'running', agent: 'codex' }}
+        agent={codexAgent}
+        deviceOnline
+        editingQueued
+        onTakeover={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Codex is working · your message will be queued')).toBeInTheDocument();
+  });
+
   it('reports approvals, questions and errors', () => {
     const { unmount } = show({ state: 'needs_approval' });
     expect(screen.getByText('Needs your approval')).toBeInTheDocument();

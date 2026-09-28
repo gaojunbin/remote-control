@@ -25,6 +25,7 @@ import {
   deviceAgents,
   devices,
   historyFor,
+  queueFor,
   recentDirs,
   sessions,
 } from './fixtures';
@@ -69,6 +70,7 @@ import {
   typedSession,
 } from './typing';
 import { ServedSends, needsResync, replayFor } from './replay';
+import { filesField, heldTs, hold, readQueueTs } from './queue';
 import { dirEntries, makeDir } from './dirs';
 import { emptyPreferences, patchPreferences } from './preferences';
 import { FakeShell } from './shell';
@@ -97,8 +99,11 @@ const state = {
   pairingOwner: new Map<string, string>(),
   /** A35: one row of preferences per account; an absent row is the defaults. */
   preferences: new Map<string, Preferences>(),
-  /** A10: messages the device accepted but could not inject yet, per session. */
-  held: new Map<string, { block_id: string; text: string; queued_id: string }[]>(),
+  /**
+   * A10: messages the device accepted but could not inject yet, per session,
+   * in the `ts` order of the queue entries that stand for them (A43).
+   */
+  held: new Map<string, { block_id: string; text: string; queued_id: string; ts: number }[]>(),
   /** A12: what each `session.send` request id was already answered with. */
   served: new ServedSends(),
   /** A38: the shells this mock is running, by terminal id. */
@@ -116,6 +121,15 @@ for (const session of state.sessions) {
   const history = historyFor(session.session_id);
   state.events.set(session.session_id, history);
   session.last_seq = history.at(-1)?.seq ?? 0;
+}
+
+// A43: what a session holds behind its turn when the mock starts, so the Up
+// next chip, its list and an edit can be seen without queueing anything first.
+for (const session of state.sessions) {
+  const queue = queueFor(session.session_id);
+  if (queue.length === 0) continue;
+  state.queues.set(session.session_id, queue);
+  session.queued = queue.length;
 }
 
 const findSession = (id: string): Session | undefined =>
@@ -1194,11 +1208,17 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       // twice. This is the whole reason a Retry is safe.
       const already = state.served.answerFor(sessionId, id);
       if (already !== undefined) return reply(conn, id, already);
+      // A43: `queue_ts` puts an edited message back in the place it left, and
+      // anything but a non-negative integer is refused before anything happens.
+      const queueTs = readQueueTs(frame.queue_ts);
+      if (queueTs === null) {
+        return replyError(conn, id, 'bad_request', 'queue_ts must be a non-negative integer');
+      }
       cancelResumeOnSend(sessionId);
       reviveSession(session);
       // A10 §6.3: a shared session accepts every send; the device decides
       // between injecting now and holding until the terminal turn ends.
-      if (session.control === 'shared') return sharedSend(conn, id, session, frame);
+      if (session.control === 'shared') return sharedSend(conn, id, session, frame, queueTs);
       if (session.control === 'terminal') {
         return replyError(conn, id, 'conflict', 'controlled by terminal; take over first');
       }
@@ -1208,8 +1228,16 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       if (running && mode !== 'interrupt') {
         // A12: the queue entry keeps the request id all the way to its
         // `user_message`, so the app can correlate the row it already shows.
+        // A43: it is held in `ts` order, with the number of its files.
         const queuedId = String(id);
-        const pending = [...(state.queues.get(sessionId) ?? []), { id: queuedId, text, ts: Date.now() }];
+        const queue = state.queues.get(sessionId) ?? [];
+        const entry = {
+          id: queuedId,
+          text,
+          ts: heldTs(queue, queueTs, Date.now()),
+          ...filesField(frame.attachments),
+        };
+        const pending = hold(queue, entry);
         emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending });
         replySend(conn, id, sessionId, { accepted: 'queued', queued_id: queuedId });
         return;
@@ -1381,11 +1409,15 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
 
     case 'session.queue_remove': {
       const queuedId = String(frame.queued_id ?? '');
-      state.held.set(
-        sessionId,
-        (state.held.get(sessionId) ?? []).filter((h) => h.queued_id !== queuedId),
-      );
-      const pending = (state.queues.get(sessionId) ?? []).filter((q) => q.id !== queuedId);
+      const held = state.held.get(sessionId) ?? [];
+      const queue = state.queues.get(sessionId) ?? [];
+      // A43: what the device answers for a message it no longer holds — it
+      // took it first — and why an edit then opens nothing.
+      if (!held.some((h) => h.queued_id === queuedId) && !queue.some((q) => q.id === queuedId)) {
+        return replyError(conn, id, 'not_found', 'that message is not queued');
+      }
+      state.held.set(sessionId, held.filter((h) => h.queued_id !== queuedId));
+      const pending = queue.filter((q) => q.id !== queuedId);
       emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending });
       reply(conn, id, {});
       return;
@@ -1741,6 +1773,7 @@ function sharedSend(
   id: unknown,
   session: Session,
   frame: Record<string, unknown>,
+  queueTs: number | undefined,
 ): void {
   const sessionId = session.session_id;
   const agent = agentFor(session);
@@ -1792,15 +1825,16 @@ function sharedSend(
   }
 
   const queuedId = String(id);
-  state.held.set(sessionId, [
-    ...(state.held.get(sessionId) ?? []),
-    { block_id: blockId, text, queued_id: queuedId },
-  ]);
+  // A43: held in `ts` order, the order the CLI will be given them in.
+  const held = state.held.get(sessionId) ?? [];
+  const ts = heldTs(held, queueTs, Date.now());
+  state.held.set(sessionId, hold(held, { block_id: blockId, text, queued_id: queuedId, ts }));
   replySend(conn, id, sessionId, { accepted: 'queued', queued_id: queuedId });
   // A19: a held message is a queue entry and nothing else. Its block appears
   // when the CLI takes it, after the output of the turn it waited for.
   afterEcho(() => {
-    const pending = [...(state.queues.get(sessionId) ?? []), { id: queuedId, text, ts: Date.now() }];
+    const entry = { id: queuedId, text, ts, ...filesField(frame.attachments) };
+    const pending = hold(state.queues.get(sessionId) ?? [], entry);
     emit(sessionId, { seq: nextSeq(sessionId), ts: Date.now(), kind: 'queue', pending });
   });
 }

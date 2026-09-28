@@ -458,7 +458,7 @@ describe('optimistic sends (A12)', () => {
     state = addOptimistic(state, pending('req-2', 'second'));
     state = dropQueued(state, ['req-2']);
 
-    // The queue row above the composer stands for it until the device sends it.
+    // The composer's Up next list stands for it until the device sends it.
     expect(state.optimistic.map((b) => b.id)).toEqual(['req-1']);
     // Nothing to change means the same object, so no needless re-render.
     expect(dropQueued(state, ['req-2'])).toBe(state);

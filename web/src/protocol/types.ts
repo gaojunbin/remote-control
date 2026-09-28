@@ -572,6 +572,12 @@ export interface QueuedMessage {
   id: string;
   text: string;
   ts: number;
+  /**
+   * A43: how many files the held message carries, absent when it carries none.
+   * The files stay on the device and no frame brings them back, so such an
+   * entry can be removed but not edited.
+   */
+  attachments?: number;
 }
 
 export interface QueueEvent extends EventBase {

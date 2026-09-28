@@ -407,8 +407,41 @@ describe('sending', () => {
     rpc.mockResolvedValueOnce({ accepted: 'queued', queued_id: 'q-1' });
 
     await useChat.getState().send(KEY, { text: 'and then lint', mode: 'auto' });
-    // The queue row above the composer stands for it from here on.
+    // The composer's Up next list stands for it from here on.
     expect(chat()?.timeline.optimistic).toEqual([]);
+  });
+
+  it('puts an edited message back under its queue_ts, and sends none otherwise (A43)', async () => {
+    const handlers = openSession();
+    handlers.onResult({ session, resync: false, events: [] });
+    rpc.mockResolvedValue({ accepted: 'queued', queued_id: 'q-2' });
+
+    await useChat.getState().send(KEY, { text: 'edited', mode: 'queue', queueTs: 1_000 });
+    expect(rpc.mock.calls.at(-1)?.[1]).toEqual({
+      session_id: SESSION,
+      text: 'edited',
+      mode: 'queue',
+      queue_ts: 1_000,
+    });
+
+    await useChat.getState().send(KEY, { text: 'plain', mode: 'auto' });
+    expect(rpc.mock.calls.at(-1)?.[1]).not.toHaveProperty('queue_ts');
+  });
+
+  it('keeps the queue_ts for a Retry of an uncertain put-back (A43)', async () => {
+    const handlers = openSession();
+    handlers.onResult({ session, resync: false, events: [] });
+    rpc.mockRejectedValueOnce(new RequestError({ code: 'timeout', message: 'no reply' }));
+
+    await useChat.getState().send(KEY, { text: 'edited', mode: 'queue', queueTs: 1_000 });
+    const entry = Object.values(useOutbox.getState().pending)[0];
+    expect(entry?.queueTs).toBe(1_000);
+
+    rpc.mockResolvedValueOnce({ accepted: 'queued', queued_id: entry?.id });
+    await useChat.getState().retrySend(entry?.id as string);
+    const retried = rpc.mock.calls.filter((c) => c[0] === 'session.send').at(-1);
+    expect(retried?.[1]).toMatchObject({ mode: 'queue', queue_ts: 1_000 });
+    expect((retried?.[2] as { id: string }).id).toBe(entry?.id);
   });
 
   /**

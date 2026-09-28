@@ -15,13 +15,33 @@
 import { create } from 'zustand';
 import { MAX_ATTACHMENTS, type AttachmentDraft } from '../features/chat/attachments';
 
+/**
+ * A43 — a queued message taken out of the line to be edited (`docs/DESIGN.md`
+ * § "Up next"). The field holds its words; what the field held when the tap
+ * came waits aside, and comes back the moment the edited words are back in the
+ * line. It is part of the draft, so it survives a switch to another
+ * conversation the way the words do.
+ */
+export interface QueuedEdit {
+  /** The entry's `ts`, sent back as `queue_ts` so the words keep their place. */
+  ts: number;
+  /** The words as they were queued, which Cancel puts back. */
+  original: string;
+  /** What the field held when the edit began. */
+  aside: { text: string; attachments: AttachmentDraft[] };
+  /** The words are on their way back, so nothing is sent a second time meanwhile. */
+  sending: boolean;
+}
+
 export interface Draft {
   text: string;
   attachments: AttachmentDraft[];
+  /** A43: the queued message the field is editing, when it is editing one. */
+  editing: QueuedEdit | null;
 }
 
 /** Stable identity, so a session nobody has typed into does not redraw. */
-export const EMPTY_DRAFT: Draft = { text: '', attachments: [] };
+export const EMPTY_DRAFT: Draft = { text: '', attachments: [], editing: null };
 
 interface DraftsState {
   drafts: Record<string, Draft>;
@@ -36,6 +56,16 @@ interface DraftsState {
   removeAttachment: (key: string, index: number) => void;
   /** Hand back the files a refused send took, unless newer ones are there. */
   restoreAttachments: (key: string, files: readonly AttachmentDraft[]) => void;
+  /**
+   * A43: the device has let go of a queued message, so the field takes its
+   * words and sets aside what it held. One edit at a time: the list offers no
+   * second one while a message is being edited.
+   */
+  beginEdit: (key: string, entry: { ts: number; text: string }) => void;
+  /** A43: the edited words left for the device, or came back refused. */
+  setEditSending: (key: string, sending: boolean) => void;
+  /** A43: the words are back in the line, so the field takes back what it held. */
+  endEdit: (key: string) => void;
   clear: (key: string) => void;
   reset: () => void;
 }
@@ -48,7 +78,7 @@ function write(
   const previous = state.drafts[key] ?? EMPTY_DRAFT;
   const next = update(previous);
   if (next === previous) return {};
-  if (next.text.length === 0 && next.attachments.length === 0) {
+  if (next.text.length === 0 && next.attachments.length === 0 && next.editing === null) {
     if (!state.drafts[key]) return {};
     const drafts = { ...state.drafts };
     delete drafts[key];
@@ -88,6 +118,42 @@ export const useDrafts = create<DraftsState>((set, get) => ({
     set((state) =>
       write(state, key, (draft) =>
         draft.attachments.length === 0 ? { ...draft, attachments: [...files] } : draft,
+      ),
+    ),
+
+  beginEdit: (key, entry) =>
+    set((state) =>
+      write(state, key, (draft) => ({
+        text: entry.text,
+        attachments: [],
+        editing: {
+          ts: entry.ts,
+          original: entry.text,
+          aside: { text: draft.text, attachments: draft.attachments },
+          sending: false,
+        },
+      })),
+    ),
+
+  setEditSending: (key, sending) =>
+    set((state) =>
+      write(state, key, (draft) =>
+        draft.editing && draft.editing.sending !== sending
+          ? { ...draft, editing: { ...draft.editing, sending } }
+          : draft,
+      ),
+    ),
+
+  endEdit: (key) =>
+    set((state) =>
+      write(state, key, (draft) =>
+        draft.editing
+          ? {
+              text: draft.editing.aside.text,
+              attachments: draft.editing.aside.attachments,
+              editing: null,
+            }
+          : draft,
       ),
     ),
 

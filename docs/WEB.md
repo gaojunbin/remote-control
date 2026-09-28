@@ -77,6 +77,12 @@ four daemon decisions. Its history carries a request the TUI answered first, so 
 request id, the way a device behaves (A12), so the pending bubble is visible in development; a
 message queued during a turn is dequeued when that turn ends and keeps its id, while a turn the mock
 starts itself, such as a `first_message`, mints its own block id and exercises the app's fallback.
+Queues follow the device's A43 rule (`mock/queue.ts`): `ts` order with no two entries alike, a send
+carrying `queue_ts` held under it, anything else at the end, an `attachments` count on an entry
+sent with files, `bad_request` for a malformed `queue_ts`, and `not_found` from
+`session.queue_remove` for an id the mock no longer holds. `ses-vite`, which waits on an approval
+and so queues every send, starts with three queued messages, the middle one with two files, so the
+Up next chip, its list and an edit can be tried at once.
 It knows two accounts (A24), `admin` / `dev` and the member `alice` / `devdevdev`, with the
 registration switch closed and the account routes of 3.9 behind the admin's role, so the sign-in
 form, registration, the Users screen and a member's Settings can all be driven with no gateway. The
@@ -594,16 +600,17 @@ Nothing of this reaches the gateway.
   half-open socket. Subscriptions are re-issued with the latest `since_seq`.
 - **Close codes** 4401 and 4403 end the session and return to login; every other code reconnects.
 - **Sending** is always `mode: "auto"`; the device decides between send, steer and queue, and the
-  button label follows that decision. "Interrupt & send" is a separate, explicit action.
+  button label follows that decision. "Interrupt & send" is a separate, explicit action. The one
+  exception is an edited queued message, which goes back with `mode: "queue"` (A43, below).
 - **A send shows up immediately** (amendment A12). The app mints the `session.send` request id, and
   the device echoes it as the `user_message` block id, so the composer clears and the bubble is in
   the timeline in the same tick as the click — no waiting for the round trip. It renders dimmed with
   a quiet "Sending…" chip until the device's event replaces it under the ordinary replacement rule,
   so nothing moves and nothing is duplicated. The pending rows live in `timeline.optimistic`, apart
   from the device's blocks: they carry no `seq`, never move the replay cursor, always sort last, and
-  survive a resync. `accepted: "queued"` takes the row away again, because the queue row above the
-  composer stands for the message until the device dequeues it under that id and it lands as an
-  ordinary block; a refusal the gateway is certain about also takes the row away, and hands the
+  survive a resync. `accepted: "queued"` takes the row away again, because the Up next list stands
+  for the message until the device dequeues it under that id and it lands as an ordinary block; a
+  refusal the gateway is certain about also takes the row away, and hands the
   draft back if nothing was typed since; a minute with no device event turns the chip into
   "Delivery unconfirmed". A device that still mints its own block id is reconciled by `text` and
   `source: "remote"` instead, one row per event.
@@ -765,6 +772,35 @@ Stop — "answer the prompt first" while an approval or a question is on screen 
 device's words through `refusalText`, because the canned sentence about taking the session over
 names an action a shared session does not offer. The mock ends the scripted turn as `interrupted`,
 refuses while its prompt is up and returns `{}` when idle (`mock/typing.ts` `promptOnScreen`).
+
+## Up next and editing a queued message (A43)
+
+The ruling is `docs/DESIGN.md` § "Up next"; this is where it lives. The composer draws no queue rows.
+`src/features/chat/UpNext.tsx` puts one chip, "Up next · N", at the end of the control row while the
+device's `queue` snapshot holds anything, and its popover lists the entries in snapshot order: one
+line each with the full text in the tooltip, a paperclip and the count for an entry with
+`attachments`, and an × that sends `session.queue_remove`. A `not_found` there puts "That message
+has already been sent." in the banner above the composer — the sentence an edit shows under the
+field, both from `queueRemoveText` in `src/lib/errors.ts` — never "Not found.". Tapping a row edits
+it; an entry with files, a composer that cannot send (terminal-controlled, device offline) and a
+field that is already editing one — one edit at a time — draw the row as plain text, so only the ×
+acts.
+
+The edit is part of the session's draft (`src/stores/drafts.ts` `editing`: the entry's `ts`, its
+original words, the draft set aside, and whether the words are on their way back), so it survives a
+switch to another conversation like the words do. `src/features/chat/useQueuedEdit.ts` runs the two
+round trips. It sends `session.queue_remove` first and begins the edit only when that succeeds: the
+field's words and files go aside, the entry's words come in with the caret after them, and a
+`not_found` answer instead puts "That message has already been sent." on the composer's error line.
+While editing, a strip over the field reads "Editing a queued message" with Cancel; the `/` panel
+does not open and a pending question waits rather than taking the field. Send — Queue while a turn
+runs, even for a steering agent, and the status line says queued to match — and Cancel, with the
+original words, are `session.send {mode: "queue", queue_ts}` through `useChat.send`; the ⋯ menu's
+Interrupt & send goes without `queue_ts`. The field keeps the words until the gateway answers, with
+the slot's spinner and a read-only field meanwhile, so nothing goes twice: accepted or uncertain, the
+edit ends and the aside comes back; refused, the words stay, the edit goes on, and the error shows
+as for any send. `queue_ts` is kept on the outbox entry, so a Retry of an uncertain put-back sends it
+again.
 
 ## Slash commands (A27)
 
@@ -1055,6 +1091,15 @@ The usage-limit pause of A35 was driven the same way, at 1280 px and 400 px: the
 Settings with its switch and its sentence, and the notice above the transcript of the mock's paused
 session with the turn's `limit` end and the device's `resume` row under it. Screenshots are not
 checked into the repository.
+
+Up next and the edit of A43 were driven in headless Chrome against the mock gateway, at 1280 px and
+400 px, on `ses-vite`: "Up next · 3" last in the control row and no queue rows over the field, the
+list in order with the two-file message as plain text, a tap taking the first message into the field
+with the caret after it and the count dropping to 2, the strip with Cancel and a Queue button, and
+the edited words back in first place after Queue with the count at 3 again. The mock's queue rule —
+`ts` order, `queue_ts` placement, distinct `ts` for a burst, `bad_request` for a malformed
+`queue_ts`, `not_found` for an id it no longer holds, a held message on a running shared Codex
+session — was checked over its socket. Screenshots are not checked into the repository.
 
 ## Not verified
 

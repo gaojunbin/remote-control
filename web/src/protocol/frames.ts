@@ -101,6 +101,12 @@ export interface SendParams {
   text: string;
   attachments?: OutgoingAttachment[];
   mode: SendMode;
+  /**
+   * A43: the `ts` a queued message had before it was taken out to be edited.
+   * When the message queues, the device holds it under that `ts`, back in the
+   * place it left.
+   */
+  queue_ts?: number;
 }
 
 export interface SendResult {

@@ -38,7 +38,7 @@ import {
 } from './timeline';
 import { useCommands } from './commands';
 import { useSessions, sessionKey } from './sessions';
-import { useOutbox } from './outbox';
+import { useOutbox, type PendingSend } from './outbox';
 
 const HISTORY_PAGE = 200;
 
@@ -118,7 +118,13 @@ interface ChatState {
   expandBlock: (key: string, blockId: string) => Promise<void>;
   send: (
     key: string,
-    input: { text: string; attachments?: OutgoingAttachment[]; mode: SendMode },
+    input: {
+      text: string;
+      attachments?: OutgoingAttachment[];
+      mode: SendMode;
+      /** A43: the `ts` of the queue entry an edited message goes back in place of. */
+      queueTs?: number;
+    },
   ) => Promise<void>;
   retrySend: (id: string) => Promise<void>;
   /** A27: run one slash command; the row appears under the request's own id. */
@@ -365,17 +371,19 @@ export const useChat = create<ChatState>((set, get) => ({
     const attachments = input.attachments ?? [];
     const at = Date.now();
     showPending(set, key, { id, text: input.text, attachments, at });
-    useOutbox.getState().add({
+    const pending: PendingSend = {
       id,
       sessionKey: key,
       sessionId: chat.sessionId,
       text: input.text,
       attachments,
       mode: input.mode,
+      ...(input.queueTs === undefined ? {} : { queueTs: input.queueTs }),
       at,
       error: null,
-    });
-    await settle(set, key, id, deliver(id, chat.sessionId, input.text, attachments, input.mode));
+    };
+    useOutbox.getState().add(pending);
+    await settle(set, key, id, deliver(pending));
   },
 
   retrySend: async (id) => {
@@ -389,12 +397,7 @@ export const useChat = create<ChatState>((set, get) => ({
       attachments: entry.attachments,
       at: entry.at,
     });
-    await settle(
-      set,
-      entry.sessionKey,
-      id,
-      deliver(id, entry.sessionId, entry.text, entry.attachments, entry.mode),
-    );
+    await settle(set, entry.sessionKey, id, deliver(entry));
   },
 
   /**
@@ -484,9 +487,9 @@ function metadataOf(attachment: OutgoingAttachment): Attachment {
 
 /**
  * Apply the outcome of a `session.send` to its pending row. A definite refusal
- * takes the row away, and so does `queued`: the queue row above the composer
- * stands for the message until the device dequeues it and emits the
- * `user_message` under the same id.
+ * takes the row away, and so does `queued`: the composer's Up next list stands
+ * for the message until the device dequeues it and emits the `user_message`
+ * under the same id (A43).
  *
  * `sent` and `steered` leave the row where it is and only note the answer. A
  * steered message reaches the agent at its next step, so the device emits its
@@ -527,36 +530,37 @@ const DEFINITE_FAILURES = new Set([
   'device_offline',
 ]);
 
-async function deliver(
-  id: string,
-  sessionId: string,
-  text: string,
-  attachments: OutgoingAttachment[],
-  mode: SendMode,
-): Promise<SendResult | null> {
+/**
+ * Send what the outbox holds under its own request id. A Retry sends the same
+ * entry again, so everything the first attempt carried — the files, the mode,
+ * and the A43 `queue_ts` that puts an edited message back in its place — goes
+ * with it.
+ */
+async function deliver(send: PendingSend): Promise<SendResult | null> {
   const outbox = useOutbox.getState();
   try {
     const result = await rpc(
       'session.send',
       {
-        session_id: sessionId,
-        text,
-        mode,
-        ...(attachments.length > 0 ? { attachments } : {}),
+        session_id: send.sessionId,
+        text: send.text,
+        mode: send.mode,
+        ...(send.attachments.length > 0 ? { attachments: send.attachments } : {}),
+        ...(send.queueTs === undefined ? {} : { queue_ts: send.queueTs }),
       },
-      { id },
+      { id: send.id },
     );
-    outbox.clear(id);
+    outbox.clear(send.id);
     return result;
   } catch (err) {
     const code = err instanceof RequestError ? err.code : 'internal';
     const message = err instanceof Error ? err.message : 'send failed';
     if (DEFINITE_FAILURES.has(code)) {
-      outbox.clear(id);
+      outbox.clear(send.id);
       throw err;
     }
     // Uncertain delivery: never auto-resend, let the user retry with the same id.
-    outbox.fail(id, message);
+    outbox.fail(send.id, message);
     return null;
   }
 }

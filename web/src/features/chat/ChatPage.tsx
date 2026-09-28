@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { errorText, refusalText } from '../../lib/errors';
+import { errorText, queueRemoveText, refusalText } from '../../lib/errors';
 import { rpc } from '../../lib/gateway';
 import { strings } from '../../strings';
 import { useChat } from '../../stores/chat';
 import { commandsOf, useCommands } from '../../stores/commands';
 import { useConnection } from '../../stores/connection';
 import { useDevices } from '../../stores/devices';
+import { useDrafts } from '../../stores/drafts';
 import { useOutbox } from '../../stores/outbox';
 import { sessionKey, useSessions } from '../../stores/sessions';
 import { emptyTimeline, selectPendingQuestion } from '../../stores/timeline';
@@ -55,6 +56,8 @@ export function ChatPage() {
   const stt = useConnection((s) => s.stt);
   const polish = useConnection((s) => s.polish);
   const pending = useOutbox((s) => s.pending);
+  // A43: the composer holds a queued message, which goes back into the line.
+  const editingQueued = useDrafts((s) => (s.drafts[key]?.editing ?? null) !== null);
 
   const [stopping, setStopping] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -118,7 +121,7 @@ export function ChatPage() {
   const buildPolishContext = useCallback(() => polishContext(timeline), [timeline]);
 
   const onSend = useCallback(
-    async (text: string, attachments: AttachmentDraft[], mode: SendMode) => {
+    async (text: string, attachments: AttachmentDraft[], mode: SendMode, queueTs?: number) => {
       await sendMessage(key, {
         text,
         mode,
@@ -127,6 +130,7 @@ export function ChatPage() {
           mime,
           data_base64,
         })),
+        ...(queueTs === undefined ? {} : { queueTs }),
       });
     },
     [sendMessage, key],
@@ -227,11 +231,26 @@ export function ChatPage() {
     [expandBlock, key],
   );
 
+  // A43: a message the device sent before the Remove reached it is not an
+  // error of ours, and the banner says what happened to it.
   const onRemoveQueued = useCallback(
     (queuedId: string) => {
       void removeQueued(key, queuedId).catch((err: unknown) =>
-        setActionError(errorText(err, strings.errors.queueRemoveFailed)),
+        setActionError(queueRemoveText(err)),
       );
+    },
+    [removeQueued, key],
+  );
+
+  /**
+   * A43: an edit takes the message out of the line before the field takes it.
+   * The refusal travels on to the composer, which says under the field why
+   * nothing opened — most often that the device had already sent it.
+   */
+  const onTakeQueued = useCallback(
+    async (queuedId: string) => {
+      setActionError(null);
+      await removeQueued(key, queuedId);
     },
     [removeQueued, key],
   );
@@ -315,6 +334,7 @@ export function ChatPage() {
               session={session}
               agent={agent}
               deviceOnline={device?.online ?? false}
+              editingQueued={editingQueued}
               onTakeover={onTakeover}
             />
           }
@@ -385,6 +405,7 @@ export function ChatPage() {
           onAnswer={onAnswer}
           onSetOption={onSetOption}
           onRemoveQueued={onRemoveQueued}
+          onTakeQueued={onTakeQueued}
           onTakeover={onTakeover}
         />
       </div>
