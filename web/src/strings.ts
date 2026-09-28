@@ -327,7 +327,6 @@ export const en = {
     running: 'running',
     failed: 'failed',
     cancelled: 'cancelled',
-    queuedLabel: 'Queued',
     /** The caption above a message nobody here sent: typed at the keyboard, or
      * put into the conversation by another agent (A30). */
     fromTerminal: 'terminal',
@@ -444,6 +443,13 @@ export const en = {
     setInTerminal: (name: string, value: string) => `${name} · ${value} · set in the terminal`,
     language: 'Voice language',
     sendFailed: 'Could not send the message.',
+    /** A43: the chip at the end of the control row, and the list it opens. */
+    upNext: 'Up next',
+    upNextCount: (n: number) => `Up next · ${n}`,
+    /** A43: the strip over the field while it holds a queued message. */
+    editingQueued: 'Editing a queued message',
+    /** A43: the device delivered the message before the tap reached it. */
+    alreadySent: 'That message has already been sent.',
   },
 
   /** A27: the terminal's `/` menu, above the composer. */

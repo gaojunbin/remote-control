@@ -5,13 +5,25 @@ interface Props {
   session: Session;
   agent: AgentInfo | null;
   deviceOnline: boolean;
+  /**
+   * A43: the composer holds a queued message being edited, which goes back
+   * into the line even behind a steering agent — so the line says queued, as
+   * the button beside the field does.
+   */
+  editingQueued?: boolean;
   onTakeover: () => void;
 }
 
 /** The single line under the timeline that explains what happens next. */
-export function StatusLine({ session, agent, deviceOnline, onTakeover }: Props) {
+export function StatusLine({
+  session,
+  agent,
+  deviceOnline,
+  editingQueued = false,
+  onTakeover,
+}: Props) {
   const name = agentLabel(session.agent);
-  const canSteer = agent?.capabilities.includes('steer') ?? false;
+  const steers = (agent?.capabilities.includes('steer') ?? false) && !editingQueued;
   const canTakeover = agent?.capabilities.includes('takeover') ?? false;
 
   if (!deviceOnline) return <Line tone="muted" text={strings.status.offline} />;
@@ -42,7 +54,7 @@ export function StatusLine({ session, agent, deviceOnline, onTakeover }: Props) 
       return (
         <Line
           tone="running"
-          text={canSteer ? strings.status.workingSteer(name) : strings.status.workingQueued(name)}
+          text={steers ? strings.status.workingSteer(name) : strings.status.workingQueued(name)}
         />
       );
     case 'starting':

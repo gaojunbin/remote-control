@@ -329,7 +329,7 @@ describe('Composer disabled states', () => {
     expect(input).toHaveAttribute('placeholder', 'Device is offline');
   });
 
-  it('lists queued messages with a remove control', async () => {
+  it('shows queued messages as one Up next chip whose list removes them', async () => {
     const user = userEvent.setup();
     const onRemoveQueued = vi.fn();
     render(
@@ -348,6 +348,9 @@ describe('Composer disabled states', () => {
         onTakeover={vi.fn()}
       />,
     );
+    // A43: a count, never a stack of lines over the field.
+    expect(screen.queryByText('also update the changelog')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Up next · 1' }));
     expect(screen.getByText('also update the changelog')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Remove from queue' }));
     expect(onRemoveQueued).toHaveBeenCalledWith('q1');

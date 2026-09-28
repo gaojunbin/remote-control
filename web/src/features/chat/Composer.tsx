@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from 'react';
 import { ArrowUp, ChevronRight, Mic, Paperclip, X, Zap } from 'lucide-react';
 import { Menu, Popover } from '../../components/Popover';
@@ -45,12 +46,14 @@ import {
 import { useVoice } from '../voice/useVoice';
 import { composeAnswer } from './answering';
 import { attachHint, canAttachShared, canInterruptShared, canSetShared } from './attach';
-import { MAX_ATTACHMENTS, readAttachments, textTooLong, type AttachmentDraft } from './attachments';
+import { MAX_ATTACHMENTS, readAttachments, textTooLong } from './attachments';
 import { CommandHint, CommandMenu } from './CommandMenu';
 import { commandQuery, completionFor, filterCommands, matchCommand } from './commands';
 import { SizedBox } from './SizedBox';
 import { labelPairs, type LabelPair } from './modelLabels';
 import type { SessionOptions } from './sessionOptions';
+import { EditingStrip, UpNext } from './UpNext';
+import { useQueuedEdit, type Send } from './useQueuedEdit';
 
 interface Props {
   session: Session;
@@ -74,10 +77,16 @@ interface Props {
    * an ordinary character there.
    */
   commands?: Command[];
-  onSend: (text: string, attachments: AttachmentDraft[], mode: SendMode) => Promise<void>;
+  /** `queueTs` only for an edited queued message going back into the line (A43). */
+  onSend: Send;
   onAnswer: (requestId: string, answers: QuestionAnswers) => Promise<void>;
   onSetOption: (patch: SessionOptions) => void;
   onRemoveQueued: (queuedId: string) => void;
+  /**
+   * A43: take a queued message out of the line so the field can edit it;
+   * rejects with the device's refusal. Without it the list offers Remove alone.
+   */
+  onTakeQueued?: (queuedId: string) => Promise<void>;
   onTakeover: () => void;
   /** A27: `/` was typed, so the list is asked for again if it is stale. */
   onCommandsNeeded?: () => void;
@@ -118,6 +127,7 @@ export function Composer({
   onAnswer,
   onSetOption,
   onRemoveQueued,
+  onTakeQueued,
   onTakeover,
   onCommandsNeeded,
   onRunCommand,
@@ -131,6 +141,11 @@ export function Composer({
   const draft = useDrafts(draftOf(key));
   const text = draft.text;
   const attachments = draft.attachments;
+  /**
+   * A43: the queued message the field holds, when it holds one. While it does
+   * the field is that message and nothing else: no command, no answer.
+   */
+  const editing = draft.editing;
   const [errors, setErrors] = useState<string[]>([]);
   // A27: the row the keyboard is on, and whether Esc has put the panel away
   // until the draft changes again.
@@ -231,21 +246,42 @@ export function Composer({
   const showAttach = !shared || canAttachShared(agent);
 
   // A20: while a question is pending the field is that question's free-text
-  // answer, so nothing is sent and nothing is queued behind it.
-  const answering = question !== null && !disabled;
+  // answer, so nothing is sent and nothing is queued behind it. A43: a queued
+  // message being edited keeps the field, and the question waits for it.
+  const answering = question !== null && !disabled && editing === null;
   const answer = answering ? composeAnswer(question, answerDraft, text) : null;
 
   // A27 — the terminal's `/` menu. The field is a command's while it is a
   // slash and a partial name; a complete first word the session offers is what
   // Send runs, and anything else is text, the way a terminal treats an unknown
-  // slash. Neither happens while a question is waiting for this field.
-  const commandable = !answering && !disabled;
+  // slash. Neither happens while a question is waiting for this field, nor
+  // while the field holds a queued message (A43).
+  const commandable = !answering && !disabled && editing === null;
   const query = commandable ? commandQuery(text) : null;
   const rows = query === null ? NO_COMMANDS : filterCommands(commands, query);
   const menuOpen = rows.length > 0 && !menuClosed;
   const highlighted = rows[Math.min(highlight, rows.length - 1)] ?? null;
   const commandMatch = commandable ? matchCommand(commands, text) : null;
   const optionId = useCallback((index: number) => `${menuId}-command-${index}`, [menuId]);
+
+  // A43: a queued message taken back into the field, and put back again. The
+  // field lets go of a dictation and of a polish note when it takes one.
+  const {
+    begin: editQueued,
+    putBack,
+    cancel: cancelEdit,
+  } = useQueuedEdit({
+    draftKey: key,
+    editing,
+    field: textarea,
+    onTake: onTakeQueued,
+    onSend,
+    onErrors: setErrors,
+    onBegin: () => {
+      takeFieldBack();
+      dropPolish();
+    },
+  });
 
   /** Take a row: `/name ` when it takes an argument, `/name` when it does not. */
   const takeCommand = useCallback(
@@ -296,6 +332,12 @@ export function Composer({
         setErrors([strings.composer.textTooLong]);
         return;
       }
+      // A43: a queued message being edited goes back into the line, even
+      // behind a steering agent, unless the ⋯ menu interrupts with it.
+      if (editing) {
+        putBack(value, attachments, mode === 'interrupt' ? 'interrupt' : 'queue');
+        return;
+      }
       // A27: a first word the session offers is a command, not a message. The
       // device refuses one mid-turn with `conflict`, so the composer says so
       // itself rather than spending a round trip on a refusal it can predict.
@@ -338,6 +380,8 @@ export function Composer({
       onRunCommand,
       running,
       dropPolish,
+      editing,
+      putBack,
     ],
   );
 
@@ -420,12 +464,17 @@ export function Composer({
 
   const voiceBusy =
     voice.state === 'starting' || voice.state === 'listening' || voice.state === 'finishing';
+  // A43: an edited message on its way back into the line. The field keeps its
+  // words until the gateway answers, and holds still while it does.
+  const returning = editing?.sending === true;
   /**
    * What the one primary slot of the control row holds. Everything that draws
    * or gates that slot — the row itself, the Enter key, the menu beside Send —
-   * reads this and nothing else.
+   * reads this and nothing else. A put-back still out is the app's move, like
+   * a polish still out (A43).
    */
-  const slot = primarySlot(voice.state, polish.phase);
+  const voiceSlot = primarySlot(voice.state, polish.phase);
+  const slot = returning && voiceSlot === 'send' ? 'working' : voiceSlot;
 
   const startVoice = () => {
     dropPolish();
@@ -447,6 +496,13 @@ export function Composer({
     voice.cancel();
   };
 
+  /** A43: Cancel ends what the field was doing with the edit, then puts it back. */
+  const cancelQueuedEdit = () => {
+    takeFieldBack();
+    dropPolish();
+    cancelEdit();
+  };
+
   /**
    * The field grows with its content up to eight lines and scrolls inside
    * after that. A write that asked to follow its tail is then shown from its
@@ -463,12 +519,15 @@ export function Composer({
   }, [text]);
 
   // PROTOCOL-FROZEN §5: `auto` is "send now if idle; if running, steer or queue".
-  // Forcing `queue` here would make the `steer` capability unreachable.
+  // Forcing `queue` here would make the `steer` capability unreachable. A43: a
+  // queued message being edited is the exception — it goes back into the line,
+  // so it steers nothing and the button says Queue while a turn runs.
   const primaryMode: SendMode = 'auto';
+  const steers = canSteer && editing === null;
   const primaryLabel = answering
     ? strings.composer.answer
     : running
-      ? canSteer
+      ? steers
         ? strings.composer.send
         : strings.composer.queue
       : strings.composer.send;
@@ -536,32 +595,13 @@ export function Composer({
       : answering
         ? strings.composer.placeholderAnswer
         : running
-          ? canSteer
+          ? steers
             ? strings.composer.placeholderSteer
             : strings.composer.placeholderQueued
           : strings.composer.placeholder;
 
   return (
     <div className="composer-wrap">
-      {queue.length > 0 ? (
-        <ul className="queue-list">
-          {queue.map((item) => (
-            <li key={item.id}>
-              <span className="badge">{strings.chat.queuedLabel}</span>
-              <span className="queue-text">{item.text}</span>
-              <button
-                type="button"
-                className="icon-btn"
-                aria-label={strings.chat.queuedRemove}
-                onClick={() => onRemoveQueued(item.id)}
-              >
-                <X size={14} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
       {attachments.length > 0 ? (
         <ul className="attachment-list">
           {attachments.map((file, index) => (
@@ -625,6 +665,8 @@ export function Composer({
         </p>
       ) : null}
 
+      {editing ? <EditingStrip sending={returning} onCancel={cancelQueuedEdit} /> : null}
+
       <div className="composer-field">
         {menuOpen ? (
           <CommandMenu
@@ -648,6 +690,7 @@ export function Composer({
             value={text}
             placeholder={placeholder}
             disabled={disabled}
+            readOnly={returning}
             aria-label={strings.composer.placeholder}
             aria-expanded={menuOpen}
             aria-controls={menuOpen ? menuId : undefined}
@@ -665,13 +708,17 @@ export function Composer({
               const next = e.target.value;
               // A27: the list is asked for again on the keystroke that opens the
               // panel, so it is current the moment it is on screen.
-              if (commandQuery(next) !== null && commandQuery(textRef.current) === null) {
+              if (
+                commandable &&
+                commandQuery(next) !== null &&
+                commandQuery(textRef.current) === null
+              ) {
                 onCommandsNeeded?.();
               }
               setDraft(next);
             }}
             onPaste={(e) => {
-              const files = showAttach ? [...e.clipboardData.files] : [];
+              const files = showAttach && !returning ? [...e.clipboardData.files] : [];
               if (files.length > 0) {
                 e.preventDefault();
                 void attach(files);
@@ -762,9 +809,10 @@ export function Composer({
                 {running ? null : <span className="sr-only">{strings.composer.send}</span>}
               </button>
             ) : (
-              // Dictation is over and the model has the words: the slot waits
+              // Dictation is over and the model has the words, or an edited
+              // message is on its way back into the line (A43): the slot waits
               // where Send was, and takes no click while it does.
-              <WorkingPill label={strings.voice.polishing} />
+              <WorkingPill label={returning ? strings.chat.sending : strings.voice.polishing} />
             )}
             </div>
           )}
@@ -794,7 +842,18 @@ export function Composer({
         sttLanguages={sttLanguages}
         onSetOption={onSetOption}
         onSetLanguage={setLanguage}
-      />
+      >
+        {/*
+          A43: the queue is one chip at the end of the row. A message can be
+          taken back into a field that can send and holds no other one.
+        */}
+        <UpNext
+          queue={queue}
+          canEdit={onTakeQueued !== undefined && !disabled && editing === null}
+          onRemove={onRemoveQueued}
+          onEdit={(item) => void editQueued(item)}
+        />
+      </ComposerBottomRow>
     </div>
   );
 
@@ -837,6 +896,7 @@ function ComposerBottomRow({
   sttLanguages,
   onSetOption,
   onSetLanguage,
+  children,
 }: {
   agent: AgentInfo | null;
   session: Session;
@@ -853,6 +913,8 @@ function ComposerBottomRow({
   sttLanguages: string[];
   onSetOption: (patch: SessionOptions) => void;
   onSetLanguage: (code: string) => void;
+  /** A43: what closes the row — the Up next chip. */
+  children?: ReactNode;
 }) {
   const models = agent?.models ?? [];
   const modes = agent?.permission_modes ?? [];
@@ -942,6 +1004,7 @@ function ComposerBottomRow({
           label={languageLabel(language)}
         />
       ) : null}
+      {children}
     </div>
   );
 }

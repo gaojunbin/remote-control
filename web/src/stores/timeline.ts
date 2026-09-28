@@ -211,7 +211,7 @@ export function removeOptimistic(state: TimelineState, id: string): TimelineStat
 
 /**
  * Retire the pending rows a `queue` snapshot has taken over. A queued message
- * is represented by the row above the composer until the device dequeues it and
+ * is represented by the composer's Up next list until the device dequeues it and
  * emits the `user_message` under the same id (A12), so showing both would show
  * it twice.
  */

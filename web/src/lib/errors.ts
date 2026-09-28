@@ -44,3 +44,15 @@ export function refusalText(error: unknown, fallback: string): string {
   }
   return errorText(error, fallback);
 }
+
+/**
+ * A43: what a refused `session.queue_remove` says. `not_found` means the device
+ * delivered the message before the request reached it, for a Remove as for an
+ * edit, so the sentence says that and never the bare code.
+ */
+export function queueRemoveText(error: unknown): string {
+  if (error instanceof RequestError && error.code === 'not_found') {
+    return strings.composer.alreadySent;
+  }
+  return errorText(error, strings.errors.queueRemoveFailed);
+}

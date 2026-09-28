@@ -8,6 +8,7 @@ import type {
   AgentInfo,
   Command,
   Device,
+  QueuedMessage,
   Session,
   SessionEvent,
 } from '../src/protocol/types';
@@ -853,6 +854,34 @@ export const sessions: Session[] = [
     updated_at: minutes(60 * 40),
   }),
 ];
+
+/**
+ * A43: what a session holds behind its turn when the mock starts. The session
+ * waiting on an approval keeps three messages, the middle one with two files —
+ * which can be removed but not edited — so the Up next chip, its list and an
+ * edit going back to its place can all be seen at once.
+ */
+export function queueFor(sessionId: string): QueuedMessage[] {
+  if (sessionId !== 'ses-vite') return [];
+  return [
+    {
+      id: '3f6c2a91-7d4e-4b1a-9c55-0e8b7d2f41a6',
+      text: 'Then run the full test suite.',
+      ts: minutes(9),
+    },
+    {
+      id: '8b1d4e70-2c9a-4f63-a1e8-5d7c3b9f0a24',
+      text: 'These two screenshots show the drawer before and after.',
+      ts: minutes(8),
+      attachments: 2,
+    },
+    {
+      id: 'c52e9b18-6a3f-4d07-8e4c-1b9a7f3d6e85',
+      text: 'After that, bump Vite in the lockfile and rebuild.',
+      ts: minutes(7),
+    },
+  ];
+}
 
 /** Final-form history events (what `session.history` must return). */
 export function historyFor(sessionId: string): SessionEvent[] {

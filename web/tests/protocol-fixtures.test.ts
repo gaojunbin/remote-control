@@ -293,6 +293,18 @@ function assertEvent(event: SessionEvent): void {
         expect(['pending', 'in_progress', 'completed']).toContain(todo.status);
       }
       break;
+    case 'queue':
+      // A43: in delivery order, which is `ts` order with no two alike, and a
+      // count of files only on an entry that holds some.
+      event.pending.forEach((entry, index) => {
+        expect(typeof entry.text).toBe('string');
+        if (index > 0) expect(entry.ts).toBeGreaterThan(event.pending[index - 1]!.ts);
+        if (entry.attachments !== undefined) {
+          expect(Number.isInteger(entry.attachments)).toBe(true);
+          expect(entry.attachments).toBeGreaterThanOrEqual(1);
+        }
+      });
+      break;
     default:
       break;
   }
@@ -371,6 +383,23 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
       expect(typeof attachment.data_base64).toBe('string');
       expect(attachment).not.toHaveProperty('size');
     }
+  });
+
+  it('decodes an edited queued message going back to its place (A43)', () => {
+    const queue = readFixture<SessionEvent>('events/queue.json');
+    const withFiles = readFixture<SessionEvent>('events/queue.attachments.json');
+    if (queue.kind !== 'queue' || withFiles.kind !== 'queue') throw new Error('not a queue');
+    // The count rides on the entry that holds files, and on no other.
+    expect(withFiles.pending.map((entry) => entry.attachments)).toEqual([undefined, 2]);
+
+    const requeue = readFixture<RequestParams<'session.send'> & { type: string; id: string }>(
+      'app/session.send.requeue.json',
+    );
+    expect(requeue.type).toBe('session.send');
+    expect(requeue.mode).toBe('queue');
+    // The first entry of the snapshot, sent back under its own ts.
+    expect(requeue.queue_ts).toBe(queue.pending[0]?.ts);
+    expect(requeue).not.toHaveProperty('attachments');
   });
 
   it('decodes the agent list and the speed tier it advertises (A21)', () => {

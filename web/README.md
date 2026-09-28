@@ -81,7 +81,9 @@ Every user-visible string lives in `src/strings.ts` so the app can be localised 
   history page (amendment A6 also carries a `queue` snapshot on the subscribe reply).
 - **Sending** — the composer always sends `mode:"auto"` and lets the device decide: send now
   when idle, steer when the agent advertises `steer`, queue otherwise. The button label follows
-  that decision. "Interrupt & send" is a separate, explicit action.
+  that decision. "Interrupt & send" is a separate, explicit action. The one exception is a queued
+  message taken back from the Up next list to be edited, which goes back with `mode:"queue"` and
+  its `queue_ts` (amendment A43).
 - **Uncertain delivery** — a `session.send` whose outcome is unknown is never resent
   automatically. The composer shows "Delivery unconfirmed" with a Retry that reuses the same
   request id.

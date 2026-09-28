@@ -292,7 +292,6 @@ export const zhHans: StringTable = {
     running: '运行中',
     failed: '失败',
     cancelled: '已取消',
-    queuedLabel: '已排队',
     fromTerminal: '终端',
     fromAgent: '来自其他代理',
     fromResume: '限额恢复后代你发送',
@@ -388,6 +387,10 @@ export const zhHans: StringTable = {
     setInTerminal: (name: string, value: string) => `${name} · ${value} · 在终端设置`,
     language: '语音语言',
     sendFailed: '无法发送消息。',
+    upNext: '待发送',
+    upNextCount: (n: number) => `待发送 · ${n}`,
+    editingQueued: '正在编辑排队的消息',
+    alreadySent: '这条消息已经发出。',
   },
 
   commands: {
