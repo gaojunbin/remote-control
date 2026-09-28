@@ -28,7 +28,6 @@ from ..models import (
     Choice,
     Session,
     SpeedSetting,
-    now_ms,
     title_from_message,
     title_from_text,
 )
@@ -38,6 +37,7 @@ from .attach import Attachment, HookQuestion, SessionStart
 from .channel import SessionChannel
 from .limits import LimitStop
 from .ptys import PtyLinks
+from .queue import hold, queue_ts_from, snapshot_entry
 from .resume import ResumeScheduler
 from .shared import EXIT_SETTLE, SharedControl, SharedState
 
@@ -368,10 +368,15 @@ class SessionHub:
         if len(attachments) > MAX_ATTACHMENTS:
             raise RcError("too_large", "at most 8 attachments per message")
         mode = str(params.get("mode") or "auto")
+        # A43: an edited message comes back under the `ts` its queue entry had.
+        # It never decides whether the message queues; `mode` does.
+        queue_ts = queue_ts_from(params)
 
         async with entry.lock:
             if entry.shared is not None:
-                result = await self.shared.send(entry, request_id, text, attachments, source)
+                result = await self.shared.send(
+                    entry, request_id, text, attachments, source, queue_ts
+                )
                 if request_id:
                     self.registry.remember_request(session_id, request_id, result)
                 return result
@@ -388,7 +393,7 @@ class SessionHub:
             if mode == "queue":
                 # An explicit queue request always queues, even when idle: the
                 # app told the user their message would wait its turn.
-                result = await self._enqueue(entry, request_id, text, attachments, source)
+                result = await self._enqueue(entry, request_id, text, attachments, source, queue_ts)
             elif not runner.busy:
                 await self._start_turn(entry, text, attachments, request_id, source)
                 result = {"accepted": "sent"}
@@ -403,7 +408,7 @@ class SessionHub:
             ):
                 result = {"accepted": "steered"}
             else:
-                result = await self._enqueue(entry, request_id, text, attachments, source)
+                result = await self._enqueue(entry, request_id, text, attachments, source, queue_ts)
             if mode == "queue" and not runner.busy:
                 await self._drain_queue_locked(entry)
 
@@ -451,29 +456,29 @@ class SessionHub:
         text: str,
         attachments: list[dict[str, Any]],
         source: str = "remote",
+        queue_ts: int | None = None,
     ) -> dict[str, Any]:
         """Hold a message until the turn boundary, keeping its attachments.
 
         The item's id is the app's request id where there is one, and it is
         also the id its `user_message` carries when the queue drains, so the
-        bubble the app drew on sending is the one that is filled in later.
+        bubble the app drew on sending is the one that is filled in later. An
+        edited message is held where it was taken out from (A43).
         """
         queued_id = request_id or str(uuid.uuid4())
-        entry.queue.append(
-            {
-                "id": queued_id,
-                "text": text,
-                "ts": now_ms(),
-                "attachments": attachments,
-                "source": source,
-            }
-        )
+        item: dict[str, Any] = {
+            "id": queued_id,
+            "text": text,
+            "attachments": attachments,
+            "source": source,
+        }
+        hold(entry.queue, item, queue_ts)
         await entry.channel.publish_queue(self.queue_snapshot(entry))
         return {"accepted": "queued", "queued_id": queued_id}
 
     def queue_snapshot(self, entry: SessionEntry) -> list[dict[str, Any]]:
-        """The wire form of the queue: attachments stay on the device."""
-        return [{"id": item["id"], "text": item["text"], "ts": item["ts"]} for item in entry.queue]
+        """The wire form of the queue: files stay on the device, only their count goes (A43)."""
+        return [snapshot_entry(item) for item in entry.queue]
 
     async def drain_queue(self, entry: SessionEntry) -> None:
         """Launch the oldest queued message once the agent goes idle."""

@@ -44,6 +44,7 @@ from . import titles
 from .attach import Attachment, HookQuestion
 from .limits import TurnEnd
 from .ptys import PtyLink
+from .queue import hold
 from .typist import COMPACT_COMMAND, TypedCommand, Typist
 
 if TYPE_CHECKING:  # pragma: no cover - imported for types only
@@ -342,7 +343,9 @@ class SharedControl:
             await self._emit_message(entry, item, "delivered")
             return
         item["retried"] = True
-        entry.queue.insert(0, item)
+        # A43: back under its own `ts`, like every message the device puts
+        # back, so an older one sent back meanwhile stays in front of it.
+        hold(entry.queue, item, int(item["ts"]))
         await entry.channel.publish_queue(self.hub.queue_snapshot(entry))
 
     async def tool_finished(self, entry: SessionEntry, tool: str, failed: bool) -> None:
@@ -366,6 +369,7 @@ class SharedControl:
         text: str,
         attachments: list[dict[str, Any]],
         source: str = "remote",
+        queue_ts: int | None = None,
     ) -> dict[str, Any]:
         state = entry.shared
         if state is None:
@@ -382,8 +386,8 @@ class SharedControl:
             return {"accepted": "sent"}
         # Amendment A19: held is not delivered, and not a block either. The
         # bubble is drawn when the CLI takes the message, which is where the
-        # terminal shows it too.
-        entry.queue.append(item)
+        # terminal shows it too. An edited message is held where it was (A43).
+        hold(entry.queue, item, queue_ts)
         await entry.channel.publish_queue(self.hub.queue_snapshot(entry))
         return {"accepted": "queued", "queued_id": str(item["id"])}
 
@@ -393,9 +397,15 @@ class SharedControl:
         if state is None or not state.injectable or not entry.queue:
             return
         state.inflight = None
+        before = list(entry.queue)
         item = entry.queue.pop(0)
         if not await self._inject(entry, item):
-            entry.queue.insert(0, item)
+            # The bridge refused it, so it goes back under its own `ts` (A43).
+            # A message queued or removed while the bridge was being asked went
+            # out in a snapshot without this one, which has to be put right.
+            hold(entry.queue, item, int(item["ts"]))
+            if entry.queue != before:
+                await entry.channel.publish_queue(self.hub.queue_snapshot(entry))
             return
         await entry.channel.publish_queue(self.hub.queue_snapshot(entry))
 

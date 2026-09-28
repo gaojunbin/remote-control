@@ -392,6 +392,21 @@ boundary, with `trigger: "queue"` so the UI can tell a queued turn from a typed 
 advertise `steer`, so an app can redirect a turn in flight instead of queueing. A repeated
 `session.send` with the same request id is recognised as a duplicate and never delivered twice.
 
+The queue is kept in `ts` order, which is the order it drains in (amendment A43). An app edits a
+queued message by taking it out with `session.queue_remove` and sending the new words back with
+`mode: "queue"` and `queue_ts`, the `ts` the entry had; the device holds that message in front of
+every entry with a later `ts` and behind any with the same, so it waits where it was however the
+queue moved meanwhile. A message without `queue_ts` joins the end, stamped with the current time or
+one millisecond past the last entry's `ts`, whichever is later, so no two entries share a `ts` and
+an edit has exactly one place to go back to. A message the device puts back itself — an injection
+the CLI absorbed, one the bridge refused — goes back under its own `ts` the same way, so an older
+message sent back meanwhile stays in front of it. `queue_ts` never decides whether a message queues
+— an idle session, and an attached terminal that can take the message, deliver it at once — and a
+value that is not a non-negative integer is `bad_request`. The files of a held message stay on the
+device; its `queue` entry says how many there are as `attachments`, only when there are any, and
+apps offer such an entry Remove and not Edit. Every way into a queue — the hub's, an attached Claude
+session's, and the device's own re-holds — goes through `rc_client/sessions/queue.py`.
+
 The `user_message` the daemon publishes for a `session.send` carries **that request's id as its
 `block_id`** (amendment A12), on all four paths: Claude through the SDK, Claude through a channel,
 Codex through the shared daemon and Codex through its own app-server. The app has already drawn the
