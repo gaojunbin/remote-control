@@ -10,14 +10,28 @@ import Foundation
 /// than the amendment does.
 public struct AppsInfo: Codable, Sendable, Hashable {
     public let ios: AppSupport?
+    /// Amendment A45: the Mac app's own entry. Only the Mac app reads it, and
+    /// the Mac app reads nothing else.
+    public let macos: AppSupport?
 
-    public init(ios: AppSupport?) {
+    public init(ios: AppSupport?, macos: AppSupport? = nil) {
         self.ios = ios
+        self.macos = macos
     }
 
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         ios = try values.decodeIfPresent(AppSupport.self, forKey: .ios)
+        macos = try values.decodeIfPresent(AppSupport.self, forKey: .macos)
+    }
+
+    /// The entry the running app measures itself against. Absent means the
+    /// gateway asks nothing of that app.
+    public func support(for app: InstalledApp) -> AppSupport? {
+        switch app {
+        case .ios: ios
+        case .macos: macos
+        }
     }
 }
 

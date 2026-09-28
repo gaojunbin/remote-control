@@ -211,6 +211,27 @@ struct AppVersionTests {
         #expect(AppUpdateRequirement.of(none, current: "1.0.0")?.updateURL == nil)
     }
 
+    @Test("Each app is held to its own entry (A45)")
+    func ownEntry() {
+        let both = AppsInfo(ios: AppSupport(minimumVersion: "1.0.0"),
+                            macos: AppSupport(minimumVersion: "2.0.0"))
+        #expect(AppUpdateRequirement.of(both, app: .macos, current: "1.5.0") != nil)
+        #expect(AppUpdateRequirement.of(both, app: .ios, current: "1.5.0") == nil)
+        let iosOnly = AppsInfo(ios: AppSupport(minimumVersion: "9.0.0"))
+        #expect(AppUpdateRequirement.of(iosOnly, app: .macos, current: "1.0.0") == nil)
+    }
+
+    @Test("The Mac app's entry decodes beside the iPhone app's (A45)")
+    func decodesMacEntry() throws {
+        let apps = try JSONValue.object([
+            "ios": .object(["minimum_version": .string("0.1.0")]),
+            "macos": .object(["minimum_version": .string("1.11.0")])
+        ]).decode(AppsInfo.self)
+        #expect(apps.ios?.minimumVersion == "0.1.0")
+        #expect(apps.macos?.minimumVersion == "1.11.0")
+        #expect(apps.support(for: .macos)?.minimumVersion == "1.11.0")
+    }
+
     @MainActor
     @Test("The first source to say the build is too old wins, and signing out clears it")
     func connectionRule() async {

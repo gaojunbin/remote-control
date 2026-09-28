@@ -48,6 +48,14 @@ public enum AppBuild {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? shipped
 }
 
+/// Amendment A45: which separately installed app this build is. Each one reads
+/// its own entry of `apps` and never another's, so the two minimums can move
+/// apart.
+public enum InstalledApp: String, Sendable, Hashable {
+    case ios
+    case macos
+}
+
 /// Amendment A31: this build is older than the gateway will talk to.
 ///
 /// Nothing else in the app is reachable while one of these is set, so the rule
@@ -68,13 +76,14 @@ public struct AppUpdateRequirement: Sendable, Hashable {
 
     /// The rule: nil when the gateway states no minimum, when this build meets
     /// it, and when this build is newer. Only "below" produces a requirement.
-    public static func of(_ apps: AppsInfo?, current: String = AppBuild.version) -> AppUpdateRequirement? {
-        guard let ios = apps?.ios else { return nil }
-        let minimum = AppVersion(ios.minimumVersion)
+    public static func of(_ apps: AppsInfo?, app: InstalledApp = .ios,
+                          current: String = AppBuild.version) -> AppUpdateRequirement? {
+        guard let support = apps?.support(for: app) else { return nil }
+        let minimum = AppVersion(support.minimumVersion)
         let version = AppVersion(current)
         guard version < minimum else { return nil }
         return AppUpdateRequirement(current: version, minimum: minimum,
-                                    updateURL: updateLink(ios.updateURL))
+                                    updateURL: updateLink(support.updateURL))
     }
 
     /// A link the app will open, or nothing. The schema says https and the app

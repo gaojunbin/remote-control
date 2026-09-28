@@ -960,10 +960,13 @@ public enum DemoFixtures {
 
     /// Amendment A31: what the demo gateway says the oldest app it works with
     /// is. It is this build by default, so the demo is never blocked; a demo
-    /// asked for a higher one is how the blocking screen is driven.
+    /// asked for a higher one is how the blocking screen is driven. The Mac
+    /// app's entry (A45) moves with the iPhone app's, since one source tree
+    /// ships both.
     public static func apps(minimumAppVersion: String = AppBuild.version) -> AppsInfo {
-        AppsInfo(ios: AppSupport(minimumVersion: minimumAppVersion,
-                                 updateURL: "https://testflight.apple.com/join/EXAMPLE"))
+        let support = AppSupport(minimumVersion: minimumAppVersion,
+                                 updateURL: "https://testflight.apple.com/join/EXAMPLE")
+        return AppsInfo(ios: support, macos: support)
     }
 
     /// One major version above this build, which is a minimum no installed app

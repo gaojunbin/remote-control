@@ -67,6 +67,8 @@ public final class ConnectionStore {
     @ObservationIgnored public private(set) var api: (any GatewayAPI)?
     @ObservationIgnored public private(set) var channel: (any GatewayChannel)?
     @ObservationIgnored private let cache: LocalCache
+    /// Amendment A45: whose entry of `apps` this build is measured against.
+    @ObservationIgnored private let installedApp: InstalledApp
     @ObservationIgnored private let makeAPI: @Sendable (GatewayEndpoint) -> any GatewayAPI
     @ObservationIgnored private let makeChannel: @Sendable (any GatewayAPI) -> any GatewayChannel
     @ObservationIgnored private var pump: Task<Void, Never>?
@@ -88,11 +90,13 @@ public final class ConnectionStore {
     /// finished turns from it (`docs/DESIGN.md` § "Being told when a turn ends").
     @ObservationIgnored public var onSessionTransition: (@MainActor (Session, Session) -> Void)?
 
-    public init(cache: LocalCache = LocalCache(),
+    public init(installedApp: InstalledApp = .ios,
+                cache: LocalCache = LocalCache(),
                 makeAPI: @escaping @Sendable (GatewayEndpoint) -> any GatewayAPI = { GatewayHTTPClient(endpoint: $0) },
                 makeChannel: @escaping @Sendable (any GatewayAPI) -> any GatewayChannel = { api in
                     GatewaySocket(client: api as? GatewayHTTPClient ?? GatewayHTTPClient(endpoint: api.endpoint))
                 }) {
+        self.installedApp = installedApp
         self.cache = cache
         self.makeAPI = makeAPI
         self.makeChannel = makeChannel
@@ -102,9 +106,10 @@ public final class ConnectionStore {
     /// form rather than around it. It is how the account screens — signing in
     /// with a username, registering, the admin's Users screen — are driven
     /// without a gateway to reach.
-    public static func offlineDemo(registrationOpen: Bool = false) -> ConnectionStore {
+    public static func offlineDemo(installedApp: InstalledApp = .ios,
+                                   registrationOpen: Bool = false) -> ConnectionStore {
         let gateway = DemoGateway(registrationOpen: registrationOpen)
-        return ConnectionStore(makeAPI: { _ in gateway }, makeChannel: { _ in gateway })
+        return ConnectionStore(installedApp: installedApp, makeAPI: { _ in gateway }, makeChannel: { _ in gateway })
     }
 
     // MARK: - Connection scope
@@ -175,7 +180,8 @@ public final class ConnectionStore {
     /// arrive in no fixed order; nothing after the first refusal can lower the
     /// bar, and only signing out clears it.
     private func note(apps: AppsInfo?) {
-        guard updateRequired == nil, let requirement = AppUpdateRequirement.of(apps) else { return }
+        guard updateRequired == nil,
+              let requirement = AppUpdateRequirement.of(apps, app: installedApp) else { return }
         updateRequired = requirement
     }
 

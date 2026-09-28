@@ -360,12 +360,29 @@ enum PolishChecks {
         checks.equal(AppUpdateRequirement.of(insecure, current: "0.9.0")?.updateURL, nil,
                      "a link that is not https is not followed")
 
+        // Amendment A45: each app reads its own entry and never the other's.
+        let both = AppsInfo(ios: AppSupport(minimumVersion: "1.0.0"),
+                            macos: AppSupport(minimumVersion: "2.0.0"))
+        checks.expect(AppUpdateRequirement.of(both, app: .macos, current: "1.5.0") != nil,
+                      "the Mac app is held to the Mac app's entry")
+        checks.equal(AppUpdateRequirement.of(both, app: .ios, current: "1.5.0"), nil,
+                     "and the iPhone app is not")
+        checks.equal(AppUpdateRequirement.of(AppsInfo(ios: AppSupport(minimumVersion: "9.0.0")),
+                                             app: .macos, current: "1.0.0"), nil,
+                     "a gateway that names only the iPhone app asks nothing of the Mac app")
+
         checks.noThrow("http/health.response.json carries the minimum app build") {
             guard let json = FixtureSource.json("http/health.response.json") else {
                 throw ProtocolFailure.malformed("http/health.response.json")
             }
             guard try json.decode(HealthResponse.self).apps?.ios?.minimumVersion == "0.1.0" else {
                 throw ProtocolFailure.malformed("health apps")
+            }
+        }
+        checks.noThrow("and the Mac app's entry beside it (A45)") {
+            guard let json = FixtureSource.json("http/health.response.json"),
+                  try json.decode(HealthResponse.self).apps?.macos?.minimumVersion == "1.11.0" else {
+                throw ProtocolFailure.malformed("health apps.macos")
             }
         }
         checks.noThrow("and so do the config response and the hello") {
@@ -406,6 +423,12 @@ enum PolishChecks {
         _ = await unsigned.registrationOpen(origin: "https://rc.example.com")
         checks.expect(unsigned.updateRequired != nil,
                       "the public health route blocks the app before it has a credential")
+
+        // Amendment A45: a Mac app's store reads the Mac app's entry.
+        let mac = ConnectionStore(installedApp: .macos, makeAPI: { _ in demanding },
+                                  makeChannel: { _ in demanding })
+        _ = await mac.registrationOpen(origin: "https://rc.example.com")
+        checks.expect(mac.updateRequired != nil, "the Mac app is stopped by its own minimum")
 
         await blocked.signOut()
         checks.equal(blocked.updateRequired, nil,
