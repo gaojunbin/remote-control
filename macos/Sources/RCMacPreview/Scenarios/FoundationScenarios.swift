@@ -1,0 +1,59 @@
+import RCCore
+import RCMac
+import SwiftUI
+
+/// The foundation's scenarios: the sign-in form in its states, the landing
+/// rule, the topbar on each tab and at each of its breakpoints, Update
+/// required, and the gallery of every primitive and icon.
+enum FoundationScenarios {
+    static var all: [PreviewScenario] {
+        login + topbar + [
+            PreviewScenario(name: "landing", route: .landing),
+            PreviewScenario(name: "update-required", account: .updateRequired),
+            PreviewScenario(name: "update-required-zh", account: .updateRequired, language: .zhHans),
+            PreviewScenario(name: "gallery", height: 1720, content: { AnyView(Gallery()) }),
+            PreviewScenario(name: "gallery-tokens", height: 1500, content: { AnyView(TokenGallery()) }),
+            PreviewScenario(name: "gallery-popover", content: { AnyView(OverlayGallery(kind: .popover)) }),
+            PreviewScenario(name: "gallery-menu", content: { AnyView(MenuGallery()) }),
+            PreviewScenario(name: "gallery-modal", content: { AnyView(OverlayGallery(kind: .modal)) }),
+            PreviewScenario(name: "gallery-modal-sheet", width: 600, height: 760,
+                            content: { AnyView(OverlayGallery(kind: .modal)) }),
+            PreviewScenario(name: "gallery-drawer", content: { AnyView(OverlayGallery(kind: .drawer)) }),
+            PreviewScenario(name: "gallery-confirm", content: { AnyView(OverlayGallery(kind: .confirm)) })
+        ]
+    }
+
+    private static var login: [PreviewScenario] {
+        [
+            PreviewScenario(name: "login", account: .signedOut),
+            PreviewScenario(name: "login-remembered", account: .signedOut, setup: { context in
+                context.model.settings.remember(origin: context.gateway?.absoluteString ?? "https://rc.example.com",
+                                                username: "admin")
+            }),
+            PreviewScenario(name: "login-error", stage: "login.error", account: .signedOut, settle: .seconds(2),
+                            setup: { context in
+                // The demo takes any password for an account it has, so the
+                // refusal there is an account it does not.
+                context.model.settings.remember(origin: context.gateway?.absoluteString
+                                                    ?? "https://demo.remote-control.invalid",
+                                                username: context.gateway == nil ? "nobody" : "admin")
+            }),
+            PreviewScenario(name: "login-register", stage: "login.register", account: .signedOut),
+            PreviewScenario(name: "login-zh", account: .signedOut, language: .zhHans),
+            PreviewScenario(name: "login-narrow", width: 480, height: 760, account: .signedOut)
+        ]
+    }
+
+    /// The topbar on each tab, at 1280 and below each of its breakpoints.
+    private static var topbar: [PreviewScenario] {
+        var scenarios: [PreviewScenario] = []
+        for (route, name) in [(Route.devices, "devices"), (.sessions, "sessions"), (.settings, "settings")] {
+            scenarios.append(PreviewScenario(name: "topbar-\(name)", route: route))
+        }
+        scenarios.append(PreviewScenario(name: "topbar-760", route: .sessions, width: 760))
+        scenarios.append(PreviewScenario(name: "topbar-480", route: .sessions, width: 480, height: 760))
+        scenarios.append(PreviewScenario(name: "topbar-420", route: .settings, width: 420, height: 760))
+        scenarios.append(PreviewScenario(name: "topbar-zh", route: .devices, language: .zhHans))
+        return scenarios
+    }
+}

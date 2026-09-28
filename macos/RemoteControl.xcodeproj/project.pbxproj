@@ -1,0 +1,377 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0280314155E43380A6EFB2E2 /* RemoteControlApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 319681D64976BEDFD1E4A8F1 /* RemoteControlApp.swift */; };
+		70025633001208385BD564AB /* RCMac in Frameworks */ = {isa = PBXBuildFile; productRef = 453AE74631EAD46DACFD48FF /* RCMac */; };
+		DFB71A5E1EDE66CB13918CBE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7B12959012019876EF2DF4C8 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		319681D64976BEDFD1E4A8F1 /* RemoteControlApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlApp.swift; sourceTree = "<group>"; };
+		68EC9A276C6ED4C2951CDA0D /* macos */ = {isa = PBXFileReference; lastKnownFileType = folder; name = macos; path = .; sourceTree = SOURCE_ROOT; };
+		7B12959012019876EF2DF4C8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A48707FBEF09A8A388898B30 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		C1444D854EA83C84AA0D5CE5 /* RemoteControl.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RemoteControl.entitlements; sourceTree = "<group>"; };
+		DF6F831755BBDAA7D4A65987 /* RemoteControl.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RemoteControl.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		EC30630437AF61F94C6734ED /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		B7467508BDD427B7F84E65A1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				70025633001208385BD564AB /* RCMac in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		6462E45C6AF84C9B7BBE5A98 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				7B12959012019876EF2DF4C8 /* Assets.xcassets */,
+				EC30630437AF61F94C6734ED /* Info.plist */,
+				C1444D854EA83C84AA0D5CE5 /* RemoteControl.entitlements */,
+				319681D64976BEDFD1E4A8F1 /* RemoteControlApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A64BFC3C82E5BB8CD00CFE2E = {
+			isa = PBXGroup;
+			children = (
+				6462E45C6AF84C9B7BBE5A98 /* App */,
+				CE14FEBCD86F0500B9A6D958 /* macos */,
+				CC22BFE7034407B86215B0C7 /* Packages */,
+				F4F7FBC04EB099C94898CD26 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		CC22BFE7034407B86215B0C7 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				68EC9A276C6ED4C2951CDA0D /* macos */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		CE14FEBCD86F0500B9A6D958 /* macos */ = {
+			isa = PBXGroup;
+			children = (
+				A48707FBEF09A8A388898B30 /* Signing.xcconfig */,
+			);
+			name = macos;
+			path = .;
+			sourceTree = "<group>";
+		};
+		F4F7FBC04EB099C94898CD26 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				DF6F831755BBDAA7D4A65987 /* RemoteControl.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1D783117E46740BCF2804575 /* RemoteControl */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4B3E363FA3B81F22FC883715 /* Build configuration list for PBXNativeTarget "RemoteControl" */;
+			buildPhases = (
+				BD7806BC9FC6AB3302463CE1 /* Sources */,
+				AC6738817951C7489A46D5F3 /* Resources */,
+				B7467508BDD427B7F84E65A1 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RemoteControl;
+			packageProductDependencies = (
+				453AE74631EAD46DACFD48FF /* RCMac */,
+			);
+			productName = RemoteControl;
+			productReference = DF6F831755BBDAA7D4A65987 /* RemoteControl.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DA46BBD7B42CF7179B228601 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					1D783117E46740BCF2804575 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = 128F739B2A54B947AC0F1CD8 /* Build configuration list for PBXProject "RemoteControl" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = A64BFC3C82E5BB8CD00CFE2E;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				9E9D0796C01B5B0403C21B8E /* XCLocalSwiftPackageReference "." */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = F4F7FBC04EB099C94898CD26 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1D783117E46740BCF2804575 /* RemoteControl */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AC6738817951C7489A46D5F3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DFB71A5E1EDE66CB13918CBE /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BD7806BC9FC6AB3302463CE1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0280314155E43380A6EFB2E2 /* RemoteControlApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		2B241A338129E36CC96ED536 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A48707FBEF09A8A388898B30 /* Signing.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		73ED38D7EF9BCAD92B479947 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = App/RemoteControl.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = App/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Remote Control";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dictate a message. Your gateway transcribes it into an editable draft; nothing is sent automatically.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.10.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.junbingao.remotecontrol.mac;
+				PRODUCT_NAME = "Remote Control";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		A8C38F66A8FFCE13CC2A0DE8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = App/RemoteControl.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = App/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Remote Control";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dictate a message. Your gateway transcribes it into an editable draft; nothing is sent automatically.";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.10.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.junbingao.remotecontrol.mac;
+				PRODUCT_NAME = "Remote Control";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		FBE3294DFCCEEFC4713F27AD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A48707FBEF09A8A388898B30 /* Signing.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		128F739B2A54B947AC0F1CD8 /* Build configuration list for PBXProject "RemoteControl" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FBE3294DFCCEEFC4713F27AD /* Debug */,
+				2B241A338129E36CC96ED536 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		4B3E363FA3B81F22FC883715 /* Build configuration list for PBXNativeTarget "RemoteControl" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A8C38F66A8FFCE13CC2A0DE8 /* Debug */,
+				73ED38D7EF9BCAD92B479947 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		9E9D0796C01B5B0403C21B8E /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		453AE74631EAD46DACFD48FF /* RCMac */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = RCMac;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = DA46BBD7B42CF7179B228601 /* Project object */;
+}

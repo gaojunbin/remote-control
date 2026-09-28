@@ -1,0 +1,13 @@
+// Signing settings that belong to the person building, not to the repository.
+//
+// Without a team the app is signed to run locally (`CODE_SIGN_IDENTITY = -`),
+// so it builds and runs on any Mac and every automated check can build it.
+// Distributing a build needs a development team: put
+// `DEVELOPMENT_TEAM = <your 10-character Team ID>` (and the identity it signs
+// with) in Signing.local.xcconfig beside this file. That file is ignored by git
+// and survives `xcodegen generate`, which regenerates the project from
+// project.yml and would drop a team id typed into the project itself.
+CODE_SIGN_IDENTITY = -
+CODE_SIGN_STYLE = Manual
+DEVELOPMENT_TEAM =
+#include? "Signing.local.xcconfig"
