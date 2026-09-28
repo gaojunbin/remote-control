@@ -2228,7 +2228,7 @@ func run() async -> (passed: Int, failures: [String]) {
         }
         expect(project.contains("MARKETING_VERSION: '\(AppBuild.shipped)'"),
                "the project ships the version this source tree carries")
-        expect(project.contains("CURRENT_PROJECT_VERSION: 26"),
+        expect(project.contains("CURRENT_PROJECT_VERSION: 27"),
                "and a build number TestFlight can tell apart")
     } else {
         expect(false, "the check can read project.yml")
