@@ -293,7 +293,7 @@
     },
 
     "SttTranscribeResponse": {
-      "description": "200 from POST /api/stt/transcribe (multipart: audio as wav|webm|m4a|mp3, optional language). 503 with error code \"unsupported\" when STT is not configured.",
+      "description": "200 from POST /api/stt/transcribe (multipart: audio as wav|webm|m4a|mp3). The provider detects the language (A44): language is what it reported, or auto. 503 with error code \"unsupported\" when STT is not configured.",
       "type": "object",
       "properties": {
         "text": { "type": "string" },
