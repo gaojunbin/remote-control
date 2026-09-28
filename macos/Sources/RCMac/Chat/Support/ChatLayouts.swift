@@ -71,12 +71,11 @@ struct ChatBoundedScroll<Content: View>: View {
         self.content = content()
     }
 
-    /// The thin scroll bar's gutter (`.scroll-thin`).
-    static var scrollbar: CGFloat { 10 }
-
     var body: some View {
         let wide = contentSize.width > viewport + 0.5
-        let height = contentSize.height + (wide ? Self.scrollbar : 0)
+        // A horizontal bar takes room only where the system keeps scroll bars
+        // showing, as the browser's thin bar does (`ScrollThin.gutter`).
+        let height = contentSize.height + (wide ? ScrollThin.gutter : 0)
         let tall = height > maxHeight
         ScrollView(axes(wide: wide, tall: tall)) {
             content
