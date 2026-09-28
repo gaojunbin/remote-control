@@ -469,12 +469,15 @@ Three things are never commands: settings (`/model`, `/permissions`, `/fast`, `/
 
 ## Speech to text
 
-Voice is a stream, not an upload. The app opens `WS /ws/stt?language=…`, captures the microphone,
+Voice is a stream, not an upload. The app opens `WS /ws/stt`, captures the microphone,
 downsamples to 16 kHz mono PCM16LE, and sends roughly 100–200 ms binary frames. The gateway buffers
 them, wraps the audio as WAV, and asks the configured backend for a partial transcript about every
 two seconds, sending back `stt.partial`. On `stt.stop` it transcribes everything and returns
 `stt.final` with the detected language, then closes the socket. Limits are 120 s and 4 MiB per
-utterance.
+utterance. Nobody chooses the language (A44): every provider is asked to detect it, a `language`
+an older app sends is ignored, and `stt.languages` is always `["auto"]`. The one recogniser that
+must be told a language is a phone's own, so `stt_language` is that phone's setting, Chinese
+until the person picks another.
 
 The backend is anything that implements `POST {STT_BASE_URL}/audio/transcriptions`: OpenAI itself,
 or a local Whisper server on the compose network so audio never leaves the VPS; Xiaomi MiMo is

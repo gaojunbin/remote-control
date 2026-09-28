@@ -2679,6 +2679,68 @@ four components 1.9.0 (a feature release), iOS build 26, tag v1.9.0. After the b
 passed 822/822 in one run on master, the UI run being over; GitHub "iOS checks" on 69270d7 (run
 36370198408) passed in 7 min 3 s.
 
+## 53. The dictation language follows the recogniser; the phone's control row is icons (A44) (2026-09-28, 1.10.0)
+
+Three asks from the owner. With the phone transcribing on the device, the dictation language
+loses Automatic (the phone's recogniser must be told a language) and defaults to Chinese; with the
+gateway transcribing, the language is automatic and there is nothing to choose, so the selector
+goes. The control row under the field reads, on both apps, Up next (when anything is queued), the
+dictation language, the model and effort, the permission mode. And on the phone those are icons:
+a notepad with a count badge, a language glyph, a gauge after ChatGPT's effort icon whose needle
+is the level, and a shield with `>_` — the owner's two reference images.
+
+**Contract (A44).** The gateway's providers detect the language, so the gateway now has them do
+it for every transcription: `STT_LANGUAGES`, the list, its defaults and the refusal of an unlisted
+language are gone; a `language` an older app sends on `/ws/stt` or to `POST /api/stt/transcribe`
+is ignored; `stt.final.language` is what the provider reported, else `auto`; `stt.languages` is
+always `["auto"]`, kept for the apps that read it. `stt_language` is the language a phone that
+recognises speech itself listens for — Chinese when unset, and an `auto` written earlier reads as
+unset. No wire shape changed. Found in review and fixed the same day: the transcribe response's
+schema description still said "optional language" (d216a84).
+
+**Gateway.** No request to OpenAI, MiMo or the realtime provider carries a language any more
+(OpenAI no `language`, MiMo no `asr_options`, the realtime `session.update` no
+`input_audio_transcription`). The language reported back is the provider's own: OpenAI's default
+JSON has none (`auto`; a compatible server's is taken), MiMo's has none, and Alibaba's realtime
+events carry one per sentence, the last one winning. Tests 477 → 479, with the provider fakes no
+longer able to receive a language and an end-to-end check that the OpenAI request has none.
+`docs/DEPLOY.md` and `.env.example` lose `STT_LANGUAGES`.
+
+**Web.** The web only transcribes on the gateway, so it lost the dictation language entirely: the
+composer's menu, the Settings row, and its copy of `stt_language` (it never reads or writes it
+now; the iPhone owns it). `/ws/stt` opens with no query, polish sends `auto`, the control row is
+Up next, the model card, the permission mode, and Settings > Voice opens with a read-only
+Transcribe row, Gateway, "Your gateway transcribes and recognises the language itself." Driven in
+headless Chrome against the mock at 1280 and 400 px, in English and Chinese.
+
+**iOS.** One computed answer says which recogniser is in effect (`VoiceBackend.inEffect`: the
+phone's when Transcribe is On this iPhone, or Gateway on a gateway with no service); the composer,
+Settings and the speech backend all read it. The phone's list is Chinese, English, Japanese,
+German, French, Spanish, mapped to `zh-CN`, `en-US`, `ja-JP`, `de-DE`, `fr-FR`, `es-ES` — all six
+are in `SFSpeechRecognizer.supportedLocales()` and initialise on the simulator, which has
+on-device models for `zh-CN` and `en-US` only. The row's icons are `ComposerControls.swift`, with
+two drawn glyphs, `EffortGauge` (open arc, green up to the needle, a filled hub rather than the
+reference's ring, which read as a magnifying glass at 21 pt; upright and empty for an unknown
+effort; a bolt at the corner for a faster tier) and `PromptShield`; each keeps its accessibility
+identifier and speaks label and value. A terminal-held setting opens a menu that shows the value
+under "Set in the terminal". The agent looked at screenshots of every state (queue badge, fast
+tier, gateway, the language menu, a terminal-held value); so did the orchestrator. The new
+`testTranscribeDecidesWhetherALanguageIsOffered` flips Transcribe both ways and watches the
+language control go and come back. The whole `RemoteControlUITests` target then ran on the
+orchestrator's simulator at the merged tree: 70 passed and 4 were skipped, while three failed on
+waits and one was cut short by a runner restart — all four during a load spike (load average
+289, from work outside this round: a simulator's poster extension at 138 % CPU, browsers).
+Re-run alone at load 30 the four passed (33–38 s each against 28–82 s when they failed), so the
+target stands at 78 tests, 4 skipped, 0 failures.
+
+**Counts.** Gateway 477 → 479, client 1234 (+3 skipped), web 822 → 826, RCVerify 1519 → 1549,
+RCUIVerify 614 → 627, unit tests 451 → 459, UI 78 (4 skipped), protocol 203 fixtures / 39
+negative cases. The web's two timing tests (the timeline row cap, a voice-composer caret) hit
+their 5 s limit under the parallel toolchains and passed alone (69/69). **Not verified:** real
+dictation in Japanese, German, French or Spanish; the three real providers with no language (no
+keys here — the owner's next dictation through Alibaba is the check); VoiceOver by ear; dark mode.
+All four components 1.10.0 (a feature release), iOS build 27, tag v1.10.0. CI_RESULT_53
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
