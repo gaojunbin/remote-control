@@ -324,9 +324,10 @@ describe("settings: while you're away", () => {
 });
 
 /**
- * A29 — the Voice group: the language dictation is spoken in, and whether a
- * model tidies it up. A gateway with neither keeps both rows and says so in
- * them.
+ * A29 — the Voice group: who transcribes dictation, and whether a model tidies
+ * it up. A gateway with neither keeps both rows and says so in them. A44: the
+ * web only transcribes on the gateway, which detects the language, so there is
+ * no language to choose.
  */
 describe('settings: voice', () => {
   const models = [
@@ -336,9 +337,20 @@ describe('settings: voice', () => {
 
   const gateway = (polishEnabled: boolean) =>
     useConnection.setState({
-      stt: { enabled: true, languages: ['auto', 'en'] },
+      stt: { enabled: true },
       polish: { enabled: polishEnabled },
     });
+
+  /** The group's rows by their titles, in the order they are drawn. */
+  const voiceRows = () => {
+    const group = [...document.querySelectorAll('.settings-section')].find(
+      (section) => section.querySelector('.group-title')?.textContent === strings.settings.voice,
+    );
+    return [...(group?.querySelectorAll('.settings-row-title') ?? [])].map((el) => el.textContent);
+  };
+
+  const transcribeRow = () =>
+    screen.getByText(strings.settings.transcribe).closest('.settings-row') as HTMLElement;
 
   const answerModels = (status = 200) =>
     vi.stubGlobal(
@@ -362,29 +374,33 @@ describe('settings: voice', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     useConnection.setState({
-      stt: { enabled: false, languages: ['auto'] },
+      stt: { enabled: false },
       polish: { enabled: false },
     });
   });
 
-  it('keeps the group on a gateway with no speech-to-text, and says so in the row', () => {
-    renderPage();
-
-    expect(captions()).toContain(strings.settings.voice);
-    expect(screen.getByRole('button', { name: strings.settings.voiceLanguage })).toBeDisabled();
-    expect(screen.getByText(strings.settings.voiceServerDisabled)).toBeInTheDocument();
-  });
-
-  it('opens the dictation menu from a click anywhere on the row', async () => {
-    const user = userEvent.setup();
+  it('opens on Transcribe, which names the gateway and offers nothing to choose', () => {
     gateway(false);
     renderPage();
 
-    await user.click(screen.getByText(strings.settings.voiceLanguage));
+    expect(voiceRows()).toEqual([strings.settings.transcribe, strings.settings.polish]);
+    const row = transcribeRow();
+    expect(within(row).getByText(strings.settings.transcribeGateway)).toBeInTheDocument();
+    expect(within(row).getByText(strings.settings.transcribeNote)).toBeInTheDocument();
+    // No menu, no switch, and the row is not a target: there is no choice.
+    expect(within(row).queryByRole('button')).toBeNull();
+    expect(row).not.toHaveClass('target');
+  });
 
-    expect(
-      screen.getByRole('listbox', { name: strings.settings.voiceLanguage }),
-    ).toBeInTheDocument();
+  it('keeps the Transcribe row on a gateway with no speech-to-text, and says so in it', () => {
+    renderPage();
+
+    expect(captions()).toContain(strings.settings.voice);
+    expect(voiceRows()).toEqual([strings.settings.transcribe, strings.settings.polish]);
+    const row = transcribeRow();
+    expect(within(row).getByText(strings.settings.voiceServerDisabled)).toBeInTheDocument();
+    expect(within(row).queryByText(strings.settings.transcribeNote)).toBeNull();
+    expect(within(row).getByText(strings.settings.transcribeGateway)).toBeInTheDocument();
   });
 
   it('offers the switch and, once it is on, the model and the strength', async () => {

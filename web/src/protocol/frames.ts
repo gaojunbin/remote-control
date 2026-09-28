@@ -37,6 +37,7 @@ export interface HelloFrame {
   user: User;
   devices: Device[];
   sessions: Session[];
+  /** A44: `languages` is always `["auto"]`; the gateway's provider detects the language. */
   stt: { enabled: boolean; languages: string[] };
   /** A29: absent from a gateway too old to polish dictation, which is "off". */
   polish?: PolishInfo;

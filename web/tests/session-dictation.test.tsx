@@ -121,7 +121,7 @@ beforeEach(() => {
   useChat.setState({ sessions: {} });
   useOutbox.setState({ pending: {} });
   useDrafts.getState().reset();
-  useConnection.setState({ status: 'closed', stt: { enabled: true, languages: ['auto'] } });
+  useConnection.setState({ status: 'closed', stt: { enabled: true } });
 });
 
 describe('a dictation running at the switch', () => {

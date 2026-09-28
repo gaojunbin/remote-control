@@ -112,10 +112,10 @@ describe('the conversation a polish request carries', () => {
     ]);
   });
 
-  it('builds the body of POST /api/polish', () => {
+  it('builds the body of POST /api/polish, with the language the gateway detected (A44)', () => {
     const body = polishRequest(
       { base: 'note: ', dictated: 'um the green blinking thing' },
-      { model: 'gpt-4.1-mini', strength: 'strong', language: 'en' },
+      { model: 'gpt-4.1-mini', strength: 'strong' },
       [{ role: 'user', text: 'Make the dot pulse.' }],
     );
 
@@ -123,7 +123,7 @@ describe('the conversation a polish request carries', () => {
       text: 'um the green blinking thing',
       model: 'gpt-4.1-mini',
       strength: 'strong',
-      language: 'en',
+      language: 'auto',
       context: [{ role: 'user', text: 'Make the dot pulse.' }],
     });
   });

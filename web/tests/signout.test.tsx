@@ -80,7 +80,7 @@ function fillStores(): void {
     username: 'alice',
     gatewayVersion: '1.3.0',
     protocol: 1,
-    stt: { enabled: true, languages: ['en'] },
+    stt: { enabled: true },
     polish: { enabled: true },
   });
   useSessions.setState({ sessions: {}, loaded: true, agentFilter: 'codex' });
@@ -117,7 +117,7 @@ describe('signing out', () => {
     expect(connection.username).toBeNull();
     expect(connection.gatewayVersion).toBeNull();
     expect(connection.protocol).toBeNull();
-    expect(connection.stt).toEqual({ enabled: false, languages: ['auto'] });
+    expect(connection.stt).toEqual({ enabled: false });
     expect(connection.polish).toEqual({ enabled: false });
   });
 });

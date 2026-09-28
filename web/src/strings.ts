@@ -441,9 +441,8 @@ export const en = {
     option: (name: string, value: string) => `${name}, ${value}`,
     /** A17: what a terminal chose, shown where its picker would be. */
     setInTerminal: (name: string, value: string) => `${name} · ${value} · set in the terminal`,
-    language: 'Voice language',
     sendFailed: 'Could not send the message.',
-    /** A43: the chip at the end of the control row, and the list it opens. */
+    /** A43: the first chip of the control row (A44), and the list it opens. */
     upNext: 'Up next',
     upNextCount: (n: number) => `Up next · ${n}`,
     /** A43: the strip over the field while it holds a queued message. */
@@ -510,9 +509,11 @@ export const en = {
       'When Claude Code or Codex stops at a usage limit, the device continues the session a minute after the limit resets.',
     resumeUnavailable: 'Your gateway does not offer this yet.',
 
-    voiceLanguage: 'Dictation language',
-    voiceLanguageNote: 'The language you dictate in; Automatic lets the recogniser decide.',
-    voiceServerDisabled: 'Speech-to-text is not configured on this gateway.',
+    /** A44: the web transcribes only on the gateway, so this row names it and offers nothing. */
+    transcribe: 'Transcribe',
+    transcribeGateway: 'Gateway',
+    transcribeNote: 'Your gateway transcribes and recognises the language itself.',
+    voiceServerDisabled: 'This gateway has no transcription service configured.',
     polish: 'Polish dictation with AI',
     polishNote:
       "Sends what you dictated and the last few messages to this gateway's model. Nothing is sent while it is off.",
@@ -601,17 +602,6 @@ export const en = {
       live: 'Done',
       off: 'Not running',
       failed: 'Error',
-    } as Record<string, string>,
-    /** Speech-to-text languages. Every name but "Auto" is its own endonym. */
-    voiceLanguage: {
-      auto: 'Auto',
-      zh: '中文',
-      en: 'English',
-      ja: '日本語',
-      ko: '한국어',
-      de: 'Deutsch',
-      fr: 'Français',
-      es: 'Español',
     } as Record<string, string>,
     /** The two timeline detail levels, in the order Settings offers them. */
     timelineDetail: { simple: 'Simple', detailed: 'Detailed' } as Record<TimelineDetail, string>,
@@ -717,10 +707,6 @@ export function stateLabel(state: string): string {
 
 export function dotToneLabel(tone: string): string {
   return strings.labels.dotTone[tone] ?? tone;
-}
-
-export function languageLabel(code: string): string {
-  return strings.labels.voiceLanguage[code] ?? code.toUpperCase();
 }
 
 export function timelineDetailLabel(detail: TimelineDetail): string {

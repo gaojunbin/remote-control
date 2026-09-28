@@ -15,7 +15,7 @@ hand-written CSS with no framework. It talks only to the gateway and follows
 | `/pair` | Claims the token a host printed as a QR code and shows the same handshake (A23) |
 | `/sessions` | Every session across every device: one collapsible group per device, its active rows and then its own collapsed **Archive**, a search, an agent filter and a device filter, and **New session** in a right-hand drawer |
 | `/sessions/:deviceId/:sessionId` | The chat: sidebar, timeline, composer, status line |
-| `/settings` | The Settings screen (`docs/DESIGN.md` § "The Settings screen"): an identity header — initials, username, `role · connection dot · host` — then four groups of two-line rows, **Account** (Users for the admin role, Change password for every account but `admin`, Sign out, which asks first), **While you're away** (Notify me, "Resume after the limit resets", A35), **Voice** (dictation language, polish and its model and strength) and **Reading** (language, timeline detail), and one caption line with the gateway and protocol versions |
+| `/settings` | The Settings screen (`docs/DESIGN.md` § "The Settings screen"): an identity header — initials, username, `role · connection dot · host` — then four groups of two-line rows, **Account** (Users for the admin role, Change password for every account but `admin`, Sign out, which asks first), **While you're away** (Notify me, "Resume after the limit resets", A35), **Voice** (Transcribe, which names the gateway and offers nothing to choose, A44; polish and its model and strength) and **Reading** (language, timeline detail), and one caption line with the gateway and protocol versions |
 | `/users` | The admin's accounts screen: the registration switch, one row per account, Reset password / Disable / Delete, and **Add user** (A24). A member who types it lands on Sessions |
 
 ## Commands
@@ -177,23 +177,23 @@ SVG and re-render all three together.
 
 ## Voice
 
-Tapping the mic opens `WS /ws/stt`, captures the microphone through an AudioWorklet with a
-ScriptProcessor fallback, downsamples to 16 kHz mono PCM16LE, and sends roughly 120 ms binary
-frames. Partial transcripts stream into the composer's own field. The control row then holds a
-waveform, an elapsed timer and exactly one thing in Send's slot, at Send's size: the button
-**Done**, disabled until the socket is listening. Done sends `stt.stop` and leaves the transcript
-in the field — nothing is ever sent by the act of stopping the recording — and the click is
-answered in that same slot at once. The capsule gives way to Send's pill holding a spinner
-(`WorkingPill`, the class `.working-pill`), which is not a button and not a disabled one either, so
-nothing in the row takes a click while `stt.final` is on its way; the status line reads "Finishing
-the transcript" until it lands, and the elapsed clock stops at the click, its interval running only
-while the state is `listening`. There is no Cancel — a dictation you do not want is Done and then
-edited or cleared like any draft — and no time limit; a long dictation is cut into segments whose
-transcripts are joined in order. Reaching for the field takes it back and stops listening, keeping
-the words recognised so far: a keystroke does it, and so does a pointer down on the field itself,
-which is how a person stops the dictation to read what was said. The field's own programmatic
-focus — taking a command row, say — is not a pointer and ends nothing. The mic is hidden entirely
-when the gateway reports `stt.enabled: false`.
+Tapping the mic opens `WS /ws/stt` with no query — the gateway's provider detects the language (A44,
+below) — captures the microphone through an AudioWorklet with a ScriptProcessor fallback,
+downsamples to 16 kHz mono PCM16LE, and sends roughly 120 ms binary frames. Partial transcripts
+stream into the composer's own field. The control row then holds a waveform, an elapsed timer and
+exactly one thing in Send's slot, at Send's size: the button **Done**, disabled until the socket is
+listening. Done sends `stt.stop` and leaves the transcript in the field — nothing is ever sent by
+the act of stopping the recording — and the click is answered in that same slot at once. The capsule
+gives way to Send's pill holding a spinner (`WorkingPill`, the class `.working-pill`), which is not
+a button and not a disabled one either, so nothing in the row takes a click while `stt.final` is on
+its way; the status line reads "Finishing the transcript" until it lands, and the elapsed clock
+stops at the click, its interval running only while the state is `listening`. There is no Cancel — a
+dictation you do not want is Done and then edited or cleared like any draft — and no time limit; a
+long dictation is cut into segments whose transcripts are joined in order. Reaching for the field
+takes it back and stops listening, keeping the words recognised so far: a keystroke does it, and so
+does a pointer down on the field itself, which is how a person stops the dictation to read what was
+said. The field's own programmatic focus — taking a command row, say — is not a pointer and ends
+nothing. The mic is hidden entirely when the gateway reports `stt.enabled: false`.
 
 **While dictation runs, the field follows the words** (`docs/DESIGN.md` § "The composer"). The
 field grows with its content to 220 px and scrolls inside after that, and a dictated write brings
@@ -221,19 +221,19 @@ values live in the settings store per account
 In the composer the words the recogniser produced land the instant dictation ends, exactly as
 before; the status line then reads "Polishing…" while `POST /api/polish` is out with the dictated
 span alone — the `dictation` bookkeeping already knows where it starts — the model, the strength,
-the dictation language and the open session's last twenty `user_message` / `assistant_text` blocks,
-oldest first, each trimmed to 4000 characters (`src/features/voice/polish.ts`, pure). The answer
-replaces only that span, never a character the person typed, and "Polished · Undo" sits under the
-field until the next edit or send; Undo puts the dictated words back. A failure leaves the words
-and shows "Polishing failed, your words are unchanged" for a few seconds. While the request is out
-the spinner Done became stays in Send's slot: Send is not drawn, Enter does nothing — it is Send,
-so it waits with it — and the `⋯` menu beside Send, whose only item is a send, is not drawn either.
-The slot becomes Send the moment the field holds what will be sent: the polished words when the
-answer lands, the dictated ones when the request fails, and the person's own the instant they type
-over the wait, which drops the request. Which of the three the slot holds is one pure function of
-the dictation state and the polish phase (`src/features/voice/primarySlot.ts`), read by the
-listening row and the ordinary row alike. Nothing is ever sent by itself: polished text is a draft
-like any other.
+`language: "auto"` (the gateway transcribed the words and detected their language, A44) and the open
+session's last twenty `user_message` / `assistant_text` blocks, oldest first, each trimmed to 4000
+characters (`src/features/voice/polish.ts`, pure). The answer replaces only that span, never a
+character the person typed, and "Polished · Undo" sits under the field until the next edit or send;
+Undo puts the dictated words back. A failure leaves the words and shows "Polishing failed, your
+words are unchanged" for a few seconds. While the request is out the spinner Done became stays in
+Send's slot: Send is not drawn, Enter does nothing — it is Send, so it waits with it — and the `⋯`
+menu beside Send, whose only item is a send, is not drawn either. The slot becomes Send the moment
+the field holds what will be sent: the polished words when the answer lands, the dictated ones when
+the request fails, and the person's own the instant they type over the wait, which drops the
+request. Which of the three the slot holds is one pure function of the dictation state and the
+polish phase (`src/features/voice/primarySlot.ts`), read by the listening row and the ordinary row
+alike. Nothing is ever sent by itself: polished text is a draft like any other.
 
 **The mock** reports `polish.enabled: true`, serves two models, and polishes with a 600 ms delay by
 dropping "um"/"uh", merging doubled words, capitalising and closing the sentence, so the whole flow
@@ -244,6 +244,37 @@ settings group in both gateway states, the per-account keys and the three protoc
 flow was driven in Chrome against the mock at 1280 px and 400 px: the Voice group with the three
 controls, the spinner in Send's slot with "Polishing…" in the status line, and "Polished · Undo"
 under the field once Send is back.
+
+## No dictation language on the web (A44)
+
+The ruling is `docs/DESIGN.md` § "The control row" and the Voice row of § "The Settings screen";
+this is what it changed here. The web only ever transcribes on the gateway, and the gateway's
+provider detects the language of every transcription, so there is nothing to choose:
+
+- The composer's control row is, from the leading edge, the Up next chip (only while something is
+  queued), the model card and the permission-mode picker (`ComposerBottomRow` in
+  `src/features/chat/Composer.tsx`). The language menu that followed the permission mode is gone,
+  with the `sttLanguages` prop chain from `ChatPage` down to it. The web keeps the words; the phone
+  draws the same row as icons.
+- `SttSocket` opens `WS /ws/stt` with no query at all, and `useVoice` takes no language. The polish
+  request always says `language: "auto"`.
+- Settings → Voice starts with **Transcribe**: the word "Gateway" at the trailing edge, drawn as
+  state (`pill quiet`) rather than as a control, over the sentence "Your gateway transcribes and
+  recognises the language itself.", or "This gateway has no transcription service configured."
+  while `stt.enabled` is false. The row is not a target; there is nothing to open.
+- The settings store has no dictation language: `sttLanguage`, `setSttLanguage` and the
+  `stt_language` entry of the synced keys (`src/stores/preferenceFields.ts`) are gone, so the web
+  never reads `stt_language` from `hello` or `preferences.updated` and never writes it up, not even
+  once for an account that has not set it. It is the language an iPhone's own recogniser listens
+  for, and the iPhone owns it; `Preferences.stt_language` stays in the wire types. The connection
+  store keeps `stt.enabled` alone, since `stt.languages` is always `["auto"]`.
+- The mock reports `stt.languages: ["auto"]` in `/api/config` and `hello`, and its `/ws/stt` reads
+  no query, so a `language` an older app sends is ignored as the gateway ignores it. It still keeps
+  an `stt_language` a `PATCH` carries, as the gateway does.
+
+A browser that stored a dictation language before A44 keeps the old key in its settings entry in
+`localStorage`; nothing reads it.
+
 ## Messages from other agents (A30, A34)
 
 A `user_message` whose `source` is `agent` — a teammate's report or a task notification the Claude
@@ -385,7 +416,7 @@ the socket, so it is whatever the last `GET /api/users` said, and every write re
 persists under `rc.settings.<username>`, and `readSettingsFor` in `src/stores/settings.ts` points
 it at the signed-in account whenever that changes — `App` calls it from the auth store's username.
 The persist `merge` lays the defaults under whatever was stored, so an account that has chosen
-nothing reads the defaults rather than inheriting the last person's language, dictation language or
+nothing reads the defaults rather than inheriting the last person's language, polish choices or
 timeline detail. The login screen, where nobody is signed in, keeps its own key, `rc.settings`.
 Nothing of this reaches the gateway.
 
@@ -418,18 +449,19 @@ Nothing of this reaches the gateway.
   command menu's Enter takes the same path, so a command runs a moment after the keystroke; the
   tests wait for it. `keyCode === 229` joins the checks for good measure.
 - **Settings are the account's (A41).** `src/stores/settings.ts` keeps its shape, because the
-  rest of the app reads it, but for the six preferences of A41 — interface language, dictation
-  language, polish on/off, model and strength, timeline detail — it is the cache of the account's
-  value, not the source. `src/stores/preferences.ts` hands `hello.preferences` and every
+  rest of the app reads it, but for five of the six preferences of A41 — interface language,
+  polish on/off, model and strength, timeline detail — it is the cache of the account's value, not
+  the source; the sixth, `stt_language`, is the iPhone's since A44 and the web neither holds nor
+  writes it. `src/stores/preferences.ts` hands `hello.preferences` and every
   `preferences.updated` to the settings store (`fromHello`, `fromAccount`), which applies a field
   only when it differs, so a frame that echoes the store's own write changes nothing and writes
-  nothing back; the six setters write locally and then `PATCH` that one field through
+  nothing back; the five setters write locally and then `PATCH` that one field through
   `src/stores/preferenceWrite.ts`, the one place that talks to `/api/preferences`; right after
   `hello`, a field the account has not set is written up once from the local value, so an account
   upgraded to A41 keeps what its first tab had. `src/stores/preferenceFields.ts` maps the wire
   names to the store's and validates against the schema's word lists, dropping anything unknown.
   `collapsedDevices` and `archiveExpanded` stay local. A gateway without `preferences`, or without
-  the six fields, leaves the store as it was. `InterfaceLanguage` and `TimelineDetail` live in
+  the five fields, leaves the store as it was. `InterfaceLanguage` and `TimelineDetail` live in
   `src/protocol/types.ts` now, being wire values. The mock stores preferences per account and
   broadcasts to every socket of it (`mock/preferences.ts`), which is what the round-49 screenshot
   of two tabs shows.
@@ -775,10 +807,10 @@ refuses while its prompt is up and returns `{}` when idle (`mock/typing.ts` `pro
 
 ## Up next and editing a queued message (A43)
 
-The ruling is `docs/DESIGN.md` § "Up next"; this is where it lives. The composer draws no queue rows.
-`src/features/chat/UpNext.tsx` puts one chip, "Up next · N", at the end of the control row while the
-device's `queue` snapshot holds anything, and its popover lists the entries in snapshot order: one
-line each with the full text in the tooltip, a paperclip and the count for an entry with
+The ruling is `docs/DESIGN.md` § "Up next"; this is where it lives. The composer draws no queue
+rows. `src/features/chat/UpNext.tsx` puts one chip, "Up next · N", first in the control row (A44)
+while the device's `queue` snapshot holds anything, and its popover lists the entries in snapshot
+order: one line each with the full text in the tooltip, a paperclip and the count for an entry with
 `attachments`, and an × that sends `session.queue_remove`. A `not_found` there puts "That message
 has already been sent." in the banner above the composer — the sentence an edit shows under the
 field, both from `queueRemoveText` in `src/lib/errors.ts` — never "Not found.". Tapping a row edits
@@ -1093,13 +1125,20 @@ session with the turn's `limit` end and the device's `resume` row under it. Scre
 checked into the repository.
 
 Up next and the edit of A43 were driven in headless Chrome against the mock gateway, at 1280 px and
-400 px, on `ses-vite`: "Up next · 3" last in the control row and no queue rows over the field, the
-list in order with the two-file message as plain text, a tap taking the first message into the field
-with the caret after it and the count dropping to 2, the strip with Cancel and a Queue button, and
-the edited words back in first place after Queue with the count at 3 again. The mock's queue rule —
-`ts` order, `queue_ts` placement, distinct `ts` for a burst, `bad_request` for a malformed
-`queue_ts`, `not_found` for an id it no longer holds, a held message on a running shared Codex
-session — was checked over its socket. Screenshots are not checked into the repository.
+400 px, on `ses-vite`: "Up next · 3" last in the control row (first since A44) and no queue rows
+over the field, the list in order with the two-file message as plain text, a tap taking the first
+message into the field with the caret after it and the count dropping to 2, the strip with Cancel
+and a Queue button, and the edited words back in first place after Queue with the count at 3 again.
+The mock's queue rule — `ts` order, `queue_ts` placement, distinct `ts` for a burst, `bad_request`
+for a malformed `queue_ts`, `not_found` for an id it no longer holds, a held message on a running
+shared Codex session — was checked over its socket. Screenshots are not checked into the repository.
+
+The A44 web changes were driven in headless Chrome against the mock gateway, at 1280 px and 400 px:
+on `ses-vite` the control row reads "Up next · 3", the model card and the permission mode and
+nothing else, with the mic in the field; Settings → Voice opens on Transcribe with "Gateway" at the
+trailing edge and its sentence, in English and in 中文, and the page does not scroll sideways at
+400 px. The mock always transcribes, so the no-service sentence is covered by the vitest suite
+only. Screenshots are not checked into the repository.
 
 ## Not verified
 

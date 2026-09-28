@@ -326,6 +326,7 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
     expect(typeof hello.gateway_version).toBe('string');
     expect(typeof hello.user.username).toBe('string');
     expect(typeof hello.stt.enabled).toBe('boolean');
+    expect(hello.stt.languages).toEqual(['auto']);
     hello.devices.forEach(assertDevice);
     hello.sessions.forEach(assertSession);
   });
@@ -481,7 +482,8 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
       client?: { version: string; build: string; url: string };
     }>('http/config.response.json');
     expect(typeof config.public_origin).toBe('string');
-    expect(Array.isArray(config.stt.languages)).toBe(true);
+    // A44: the gateway's provider detects the language, so there is no list.
+    expect(config.stt.languages).toEqual(['auto']);
     expect(typeof config.push.web_enabled).toBe('boolean');
     // A22: the wheel this gateway serves, which every device row is read against.
     expect(config.client?.build).toMatch(/^[0-9a-f]{64}$/);
@@ -631,13 +633,14 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
   /**
    * A41 — the Settings screen's own values in that same object, every one of
    * them optional: what the fixtures carry is what the settings store reads,
-   * and what they leave out is what this app writes up once.
+   * and what they leave out is what this app writes up once. A44 left
+   * `stt_language` to the iPhone, so it is neither read nor written up here.
    */
-  it('reads the six Settings preferences of A41 off the account', () => {
+  it('reads the A41 Settings preferences off the account, except the dictation language', () => {
     const response = readFixture<PreferencesResponse>('http/preferences.response.json');
+    expect(response.preferences.stt_language).toBe('zh');
     expect(readPreferences(response.preferences)).toEqual({
       language: 'zh-Hans',
-      sttLanguage: 'auto',
       polishEnabled: true,
       polishModel: 'gpt-5.4-mini',
       polishStrength: 'moderate',
@@ -647,15 +650,17 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
     const updated = readFixture<{ preferences: Preferences }>('app/preferences.updated.json');
     expect(readPreferences(updated.preferences).polishStrength).toBe('moderate');
 
-    // `hello`'s object is a partial one: three fields nobody has set yet.
+    // `hello`'s object is a partial one: three fields nobody has set yet, two
+    // of them this app's to write up.
     const hello = readFixture<HelloFrame>('app/hello.json');
     const preferences = hello.preferences as Preferences;
+    expect(preferences.stt_language).toBeUndefined();
     expect(readPreferences(preferences)).toEqual({
       language: 'en',
       polishEnabled: false,
       timelineDetail: 'simple',
     });
-    expect(unsetKeys(preferences)).toEqual(['sttLanguage', 'polishModel', 'polishStrength']);
+    expect(unsetKeys(preferences)).toEqual(['polishModel', 'polishStrength']);
   });
 
   it('decodes the resume requests, the session they answer with, and its rows', () => {

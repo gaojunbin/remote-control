@@ -40,7 +40,6 @@ const POLL_MS = 200;
 
 interface Options {
   enabled: boolean;
-  language: string;
   /**
    * The transcript so far. `isFinal` marks the last call of a dictation, after
    * which the text belongs to the field and this controller is idle again.
@@ -69,7 +68,6 @@ const sleep = (ms: number): Promise<void> =>
 
 export function useVoice({
   enabled,
-  language,
   onTranscript,
   factory,
   recorderFactory,
@@ -197,7 +195,6 @@ export function useVoice({
     async (run: number): Promise<boolean> => {
       const index = segments.current.begin();
       const socket = new SttSocket({
-        language,
         ...(factory ? { factory } : {}),
         onEvent: (event) => receive(event, index, run),
       });
@@ -224,7 +221,7 @@ export function useVoice({
       previous?.stop();
       return true;
     },
-    [language, factory, receive, fail],
+    [factory, receive, fail],
   );
 
   /** Hold a cut until the speaker pauses, and take it anyway if they do not. */

@@ -1,8 +1,8 @@
 /**
- * A29 — dictation: the language it is spoken in, and whether a model tidies it
- * up before it is sent. A gateway that offers no transcription and a gateway
- * with no polish model each say so in the row whose control they disable; the
- * group itself never collapses to a note.
+ * A29 — dictation: who transcribes it, and whether a model tidies it up before
+ * it is sent. A gateway that offers no transcription and a gateway with no
+ * polish model each say so in their own row; the group itself never collapses
+ * to a note.
  */
 import { useEffect, useState } from 'react';
 import { Menu } from '../../components/Popover';
@@ -10,7 +10,7 @@ import { Segmented } from '../../components/Segmented';
 import { Switch } from '../../components/Switch';
 import { api } from '../../lib/api';
 import type { PolishModel, PolishStrength } from '../../protocol/types';
-import { languageLabel, strings } from '../../strings';
+import { strings } from '../../strings';
 import { useConnection } from '../../stores/connection';
 import { useSettings } from '../../stores/settings';
 import { SettingsGroup } from './SettingsGroup';
@@ -19,30 +19,20 @@ import { SettingsRow } from './SettingsRow';
 export function VoiceGroup() {
   const stt = useConnection((s) => s.stt);
   const polish = useConnection((s) => s.polish);
-  const sttLanguage = useSettings((s) => s.sttLanguage);
-  const setSttLanguage = useSettings((s) => s.setSttLanguage);
   const polishEnabled = useSettings((s) => s.polishEnabled);
   const setPolishEnabled = useSettings((s) => s.setPolishEnabled);
 
   return (
     <SettingsGroup title={strings.settings.voice}>
+      {/* A44: the web only transcribes on the gateway, whose provider detects
+          the language, so the row names the gateway and has nothing to choose:
+          no menu here, and no language anywhere. */}
       <SettingsRow
-        title={strings.settings.voiceLanguage}
+        title={strings.settings.transcribe}
         sentence={
-          stt.enabled ? strings.settings.voiceLanguageNote : strings.settings.voiceServerDisabled
+          stt.enabled ? strings.settings.transcribeNote : strings.settings.voiceServerDisabled
         }
-        target={stt.enabled}
-        control={
-          <Menu
-            align="end"
-            ariaLabel={strings.settings.voiceLanguage}
-            disabled={!stt.enabled}
-            value={sttLanguage}
-            onSelect={setSttLanguage}
-            options={stt.languages.map((code) => ({ id: code, label: languageLabel(code) }))}
-            label={languageLabel(sttLanguage)}
-          />
-        }
+        control={<span className="pill quiet">{strings.settings.transcribeGateway}</span>}
       />
 
       {/* The switch is always drawn, so the feature exists even where this

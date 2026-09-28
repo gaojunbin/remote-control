@@ -20,8 +20,8 @@ interface Props {
 const filesOf = (item: QueuedMessage): number => item.attachments ?? 0;
 
 /**
- * A43 — the queue as one control (`docs/DESIGN.md` § "Up next"). The chip at
- * the end of the control row says how many messages wait behind the turn, and
+ * A43 — the queue as one control (`docs/DESIGN.md` § "Up next"). The chip that
+ * leads the control row (A44) says how many messages wait behind the turn, and
  * only while one does; the list it opens has them in the order they will go,
  * one line each. × takes a message out of the line for good, and tapping one
  * edits it. A message that carries files has only the ×: its files are on the

@@ -308,7 +308,10 @@ export type TimelineDetail = 'simple' | 'detailed';
 export interface Preferences {
   resume_after_limit: boolean;
   language?: InterfaceLanguage;
-  /** The dictation language: `auto`, or a code from `stt.languages`. */
+  /**
+   * A44: the language a phone that recognises speech itself listens for,
+   * Chinese when unset. The iPhone owns it; the web never reads or writes it.
+   */
   stt_language?: string;
   polish_enabled?: boolean;
   /** Chosen from `GET /api/polish/models`; empty when none. */
@@ -651,7 +654,10 @@ export interface PolishRequest {
   text: string;
   model: string;
   strength: PolishStrength;
-  /** The dictation language the user chose, or `auto`. A hint, not a rule. */
+  /**
+   * A hint, not a rule (A44): `auto` for words the gateway transcribed, the
+   * language a phone's own recogniser listened for otherwise.
+   */
   language?: string;
   context: PolishContextItem[];
 }

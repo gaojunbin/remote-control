@@ -71,7 +71,6 @@ function harness() {
     ({ enabled }: { enabled: boolean }) =>
       useVoice({
         enabled,
-        language: 'auto',
         onTranscript: (text, isFinal) => transcripts.push({ text, isFinal }),
         factory,
         recorderFactory,
@@ -266,7 +265,7 @@ describe('SttSocket connect', () => {
 
   it('gives up on a gateway that never accepts the socket', async () => {
     const { socket } = silent();
-    const stt = new SttSocket({ language: 'auto', onEvent: () => undefined, factory: () => socket });
+    const stt = new SttSocket({ onEvent: () => undefined, factory: () => socket });
 
     const connect = stt.start();
     const settled = vi.fn();
@@ -280,11 +279,35 @@ describe('SttSocket connect', () => {
 
   it('rejects a connect the dictation cancelled under it', async () => {
     const { socket } = silent();
-    const stt = new SttSocket({ language: 'auto', onEvent: () => undefined, factory: () => socket });
+    const stt = new SttSocket({ onEvent: () => undefined, factory: () => socket });
 
     const connect = stt.start();
     stt.cancel();
 
     await expect(connect).rejects.toThrow(/cancelled/);
+  });
+});
+
+/** A44: the gateway's provider detects the language, so the socket names none. */
+describe('SttSocket address', () => {
+  it('opens /ws/stt with no language', async () => {
+    const socket = new FakeSocket();
+    const urls: string[] = [];
+    const stt = new SttSocket({
+      onEvent: () => undefined,
+      factory: (url) => {
+        urls.push(url);
+        return socket;
+      },
+    });
+
+    const connect = stt.start();
+    socket.onopen?.({});
+    await connect;
+
+    expect(urls).toHaveLength(1);
+    const url = new URL(urls[0] ?? '');
+    expect(url.pathname).toBe('/ws/stt');
+    expect(url.search).toBe('');
   });
 });

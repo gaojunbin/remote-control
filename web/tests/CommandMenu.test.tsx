@@ -3,11 +3,10 @@
  * what the keyboard does with it, and which of Send's two destinations a draft
  * reaches.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Composer } from '../src/features/chat/Composer';
-import { useSettings } from '../src/stores/settings';
 import { strings } from '../src/strings';
 import { claudeNoShim, codexAgent, commandsFor, piAgent } from '../mock/fixtures';
 import type { AgentInfo, Command, Session, SessionState } from '../src/protocol/types';
@@ -61,7 +60,6 @@ function setup(
       queue={[]}
       question={null}
       sttEnabled={false}
-      sttLanguages={['auto']}
       commands={overrides.commands ?? commandsFor(agent.agent)}
       onSend={onSend}
       onAnswer={vi.fn().mockResolvedValue(undefined)}
@@ -79,10 +77,6 @@ const field = () => screen.getByLabelText(strings.composer.placeholder);
 const panel = () => screen.queryByRole('listbox', { name: strings.commands.menu });
 const rowNames = () =>
   screen.getAllByRole('option').map((row) => row.querySelector('.command-name')?.textContent);
-
-beforeEach(() => {
-  useSettings.setState({ sttLanguage: 'auto' });
-});
 
 describe('opening the panel', () => {
   it('draws the whole list when `/` is typed, and asks the device again', async () => {

@@ -1,7 +1,7 @@
 /**
  * A24: what this app remembers belongs to the person signed in, not to the
- * browser. Two people who share one browser keep their own language, dictation
- * language and timeline detail. `docs/DESIGN.md` § "Accounts".
+ * browser. Two people who share one browser keep their own language, polish
+ * choices and timeline detail. `docs/DESIGN.md` § "Accounts".
  *
  * The store keeps one preference store for the whole module, so each test uses
  * account names of its own rather than clearing something it does not own.
@@ -11,7 +11,6 @@ import { readSettingsFor, useSettings } from '../src/stores/settings';
 
 const defaults = {
   language: 'en',
-  sttLanguage: 'auto',
   timelineDetail: 'simple',
   // A29: dictation polish is off, with no model and the gentler strength.
   polishEnabled: false,
@@ -21,7 +20,6 @@ const defaults = {
 
 const current = () => ({
   language: useSettings.getState().language,
-  sttLanguage: useSettings.getState().sttLanguage,
   timelineDetail: useSettings.getState().timelineDetail,
   polishEnabled: useSettings.getState().polishEnabled,
   polishModel: useSettings.getState().polishModel,
@@ -36,7 +34,6 @@ describe('per-account settings', () => {
   it("gives a new account the defaults, not the last person's choices", () => {
     readSettingsFor('one.a');
     useSettings.getState().setLanguage('zh-Hans');
-    useSettings.getState().setSttLanguage('zh');
     useSettings.getState().setPolishEnabled(true);
     useSettings.getState().setPolishModel('gpt-4.1-mini');
     useSettings.getState().setPolishStrength('strong');

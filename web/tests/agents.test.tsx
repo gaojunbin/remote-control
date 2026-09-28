@@ -209,7 +209,6 @@ const renderComposer = (session: Session, agent: AgentInfo) =>
       deviceOnline
       queue={[]}
       sttEnabled={false}
-      sttLanguages={['auto']}
       question={null}
       onAnswer={vi.fn().mockResolvedValue(undefined)}
       onSend={vi.fn().mockResolvedValue(undefined)}

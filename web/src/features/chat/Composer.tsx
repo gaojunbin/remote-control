@@ -14,7 +14,7 @@ import { api } from '../../lib/api';
 import { errorText, refusalText } from '../../lib/errors';
 import { bytes } from '../../lib/format';
 import { cx } from '../../lib/cx';
-import { agentLabel, languageLabel, strings } from '../../strings';
+import { agentLabel, strings } from '../../strings';
 import { useSettings } from '../../stores/settings';
 import type { SendMode } from '../../protocol/frames';
 import type {
@@ -63,7 +63,6 @@ interface Props {
   /** A20: the question the session is waiting on, when there is one. */
   question: QuestionEvent | null;
   sttEnabled: boolean;
-  sttLanguages: string[];
   /** A29: this gateway has a polish model, so the setting can take effect. */
   polishEnabled?: boolean;
   /**
@@ -119,7 +118,6 @@ export function Composer({
   queue,
   question,
   sttEnabled,
-  sttLanguages,
   polishEnabled = false,
   polishContext,
   commands = NO_COMMANDS,
@@ -189,8 +187,6 @@ export function Composer({
     textRef.current = text;
   }, [text]);
 
-  const language = useSettings((s) => s.sttLanguage);
-  const setLanguage = useSettings((s) => s.setSttLanguage);
   // A29: the reader's own choices. The gateway only says whether it can polish.
   const polishChosen = useSettings((s) => s.polishEnabled);
   const polishModel = useSettings((s) => s.polishModel);
@@ -398,7 +394,7 @@ export function Composer({
       setPolish({ phase: 'polishing' });
       const body = polishRequest(
         span,
-        { model: polishModel, strength: polishStrength, language },
+        { model: polishModel, strength: polishStrength },
         polishContext?.() ?? [],
       );
       api
@@ -418,7 +414,7 @@ export function Composer({
           setPolish({ phase: 'failed' });
         });
     },
-    [polishReady, polishModel, polishStrength, language, polishContext, setDraft],
+    [polishReady, polishModel, polishStrength, polishContext, setDraft],
   );
 
   /** Put the dictated words back, and take the note away with them. */
@@ -444,7 +440,6 @@ export function Composer({
    */
   const voice = useVoice({
     enabled: sttEnabled && !disabled,
-    language,
     onTranscript: (transcript, isFinal) => {
       const run = dictation.current;
       if (!run || textRef.current !== run.applied) return;
@@ -833,19 +828,10 @@ export function Composer({
         </p>
       ) : null}
 
-      <ComposerBottomRow
-        agent={agent}
-        session={session}
-        canSet={canSet}
-        language={language}
-        sttEnabled={sttEnabled}
-        sttLanguages={sttLanguages}
-        onSetOption={onSetOption}
-        onSetLanguage={setLanguage}
-      >
+      <ComposerBottomRow agent={agent} session={session} canSet={canSet} onSetOption={onSetOption}>
         {/*
-          A43: the queue is one chip at the end of the row. A message can be
-          taken back into a field that can send and holds no other one.
+          A43: the queue is one chip, the first of the row (A44). A message can
+          be taken back into a field that can send and holds no other one.
         */}
         <UpNext
           queue={queue}
@@ -887,15 +873,17 @@ function labelOf(options: Choice[], value: string | null | undefined): string | 
   return options.find((option) => option.id === value)?.label ?? value;
 }
 
+/**
+ * `docs/DESIGN.md` § "The control row" (A43, A44): from the leading edge, Up
+ * next, the model card, the permission mode. The web transcribes only on the
+ * gateway, whose provider detects the language, so the row has no dictation
+ * language to offer.
+ */
 function ComposerBottomRow({
   agent,
   session,
   canSet,
-  language,
-  sttEnabled,
-  sttLanguages,
   onSetOption,
-  onSetLanguage,
   children,
 }: {
   agent: AgentInfo | null;
@@ -908,12 +896,8 @@ function ComposerBottomRow({
    * as chips that open nothing.
    */
   canSet: (key: SharedSettingKey) => boolean;
-  language: string;
-  sttEnabled: boolean;
-  sttLanguages: string[];
   onSetOption: (patch: SessionOptions) => void;
-  onSetLanguage: (code: string) => void;
-  /** A43: what closes the row — the Up next chip. */
+  /** A43: what leads the row — the Up next chip. */
   children?: ReactNode;
 }) {
   const models = agent?.models ?? [];
@@ -933,6 +917,7 @@ function ComposerBottomRow({
 
   return (
     <div className="composer-bottom">
+      {children}
       {cardLive ? (
         hasCard ? (
           <Popover
@@ -994,17 +979,6 @@ function ComposerBottomRow({
           glyph={false}
         />
       )}
-      {sttEnabled ? (
-        <Menu
-          side="top"
-          ariaLabel={strings.composer.language}
-          value={language}
-          options={sttLanguages.map((code) => ({ id: code, label: languageLabel(code) }))}
-          onSelect={onSetLanguage}
-          label={languageLabel(language)}
-        />
-      ) : null}
-      {children}
     </div>
   );
 }

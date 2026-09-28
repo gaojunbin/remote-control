@@ -4,7 +4,7 @@
  * opens removes or edits them, and an edit takes the message out of the line
  * before the field takes its words, then puts them back in the place they left.
  */
-import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Composer } from '../src/features/chat/Composer';
@@ -14,7 +14,6 @@ import type { AttachmentDraft } from '../src/features/chat/attachments';
 import { RequestError } from '../src/lib/ws';
 import { useDrafts } from '../src/stores/drafts';
 import { sessionKey } from '../src/stores/sessions';
-import { useSettings } from '../src/stores/settings';
 import { strings } from '../src/strings';
 import { claudeAgent, codexAgent, commandsFor } from '../mock/fixtures';
 import type {
@@ -99,7 +98,6 @@ function setup(overrides: Setup = {}) {
     queue,
     question: overrides.question ?? null,
     sttEnabled: false,
-    sttLanguages: ['auto'],
     commands: overrides.commands ?? [],
     onSend,
     onAnswer: vi.fn().mockResolvedValue(undefined),
@@ -145,16 +143,13 @@ async function editFirst(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => expect(field()).toHaveValue(QUEUE[0]!.text));
 }
 
-beforeEach(() => {
-  useSettings.setState({ sttLanguage: 'auto' });
-});
-
 describe('the Up next chip', () => {
-  it('is one chip at the end of the control row, and only while something waits', () => {
+  it('is one chip, the first of the control row, and only while something waits', () => {
     const { rerender } = setup();
 
+    // A44: first from the leading edge, before the model card.
     const row = document.querySelector('.composer-bottom');
-    expect(row?.lastElementChild).toContainElement(chip());
+    expect(row?.firstElementChild).toContainElement(chip());
     // A count, never the messages themselves stacked over the field.
     expect(screen.queryByText(QUEUE[0]!.text)).not.toBeInTheDocument();
     expect(document.querySelector('.queue-list')).toBeNull();
