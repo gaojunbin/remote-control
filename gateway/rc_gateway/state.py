@@ -65,10 +65,9 @@ class GatewayState:
     stt_sockets: Counter[str] = field(default_factory=Counter)
 
     def stt_view(self) -> dict[str, Any]:
-        return {
-            "enabled": self.config.stt.enabled,
-            "languages": list(self.config.stt.languages),
-        }
+        # A44: the provider detects the language of every transcription, so there is nothing to
+        # offer; the list stays on the wire, always `auto`, for the apps that read it.
+        return {"enabled": self.config.stt.enabled, "languages": ["auto"]}
 
     def polish_view(self) -> dict[str, Any]:
         return {"enabled": self.config.polish.enabled}

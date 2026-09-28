@@ -39,7 +39,10 @@ FIXTURE_DIR = Path(__file__).resolve().parents[2] / "protocol" / "fixtures"
 
 
 class FakeTranscriber:
-    """Returns a canned transcript and records what it was asked to transcribe."""
+    """Returns a canned transcript and records what it was asked to transcribe.
+
+    ``language`` is what the provider reports having detected; nothing tells it one (A44).
+    """
 
     def __init__(self, text: str = "hello world", language: str = "en") -> None:
         self.text = text
@@ -47,17 +50,8 @@ class FakeTranscriber:
         self.calls: list[dict[str, Any]] = []
         self.fail: str | None = None
 
-    async def transcribe(
-        self, audio: bytes, *, filename: str, content_type: str, language: str | None
-    ) -> Transcript:
-        self.calls.append(
-            {
-                "bytes": len(audio),
-                "filename": filename,
-                "content_type": content_type,
-                "language": language,
-            }
-        )
+    async def transcribe(self, audio: bytes, *, filename: str, content_type: str) -> Transcript:
+        self.calls.append({"bytes": len(audio), "filename": filename, "content_type": content_type})
         if self.fail is not None:
             raise SttError(self.fail)
         return Transcript(text=self.text, language=self.language)
@@ -129,7 +123,6 @@ def make_config(tmp_path: Path, **overrides: Any) -> Config:
             base_url="http://stt.invalid/v1",
             api_key="k",
             model="whisper-1",
-            languages=("auto", "zh", "en"),
         ),
         "polish": PolishConfig(
             base_url="http://polish.invalid/v1",

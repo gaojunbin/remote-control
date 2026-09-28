@@ -65,7 +65,8 @@ def test_health_and_config_match_the_fixture_shape(
     write_wheel(tmp_path)
     config = client.get("/api/config", headers=auth).json()
     assert set(config) == set(expected_config)
-    assert set(config["stt"]) == set(expected_config["stt"])
+    # A44: value for value, since the language list is now a constant of the protocol.
+    assert config["stt"] == expected_config["stt"]
     assert set(config["push"]) == set(expected_config["push"])
     assert set(config["client"]) == set(expected_config["client"])
 
@@ -191,6 +192,7 @@ def test_app_hello_matches_the_fixture_shape(client: TestClient, auth: dict[str,
     with client.websocket_connect("/ws/app", headers=auth) as app:
         hello = drain_until(app, "hello")
     assert set(hello) == set(expected)
+    assert hello["stt"] == expected["stt"]
 
 
 def test_enroll_request_fixture_is_accepted(

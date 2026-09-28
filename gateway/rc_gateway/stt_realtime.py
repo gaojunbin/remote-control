@@ -10,6 +10,10 @@ Model Studio documents for ``qwen3-asr-flash-realtime`` — ``session.update`` w
 as ``….completed`` (``transcript``), and ``session.finish``/``session.finished`` to end — with
 OpenAI's own ``….delta`` accepted as well, since the event names are shared.
 
+The session names no language: the vendor detects it (A44). Alibaba says which one it heard on
+every ``….text`` and ``….completed`` event, and the last one it named is the utterance's; OpenAI's
+events name none, which reads as ``auto``.
+
 Audio is never written to disk here either; it is base64 in flight and nothing more.
 """
 
@@ -47,6 +51,8 @@ FILE_CHUNK_BYTES = 3200
 PARTIAL_EVENT = "conversation.item.input_audio_transcription.text"
 DELTA_EVENT = "conversation.item.input_audio_transcription.delta"
 COMPLETED_EVENT = "conversation.item.input_audio_transcription.completed"
+#: The events on which Alibaba names the language it heard.
+LANGUAGE_EVENTS = (PARTIAL_EVENT, COMPLETED_EVENT)
 
 OnPartial = Callable[[str], Awaitable[None]]
 OnError = Callable[[SttError], Awaitable[None]]
@@ -87,13 +93,11 @@ class LiveTranscription:
         self,
         url: str,
         api_key: str,
-        language: str | None,
         on_partial: OnPartial,
         on_error: OnError | None = None,
     ) -> None:
         self.url = url
         self.api_key = api_key
-        self.language = language
         self.on_partial = on_partial
         # Told the moment the vendor refuses or drops the stream, so the person is not left
         # dictating into a socket that will only fail on their next frame.
@@ -102,6 +106,7 @@ class LiveTranscription:
         self._reader: asyncio.Task[None] | None = None
         self._segments: list[str] = []
         self._pending = ""
+        self._language: str | None = None
         self._finished = asyncio.Event()
         self._finishing = False
         # Audio sent since the vendor last closed a sentence: what a commit on Done is for.
@@ -129,8 +134,6 @@ class LiveTranscription:
             "sample_rate": SAMPLE_RATE,
             "turn_detection": {"type": "server_vad", "silence_duration_ms": SILENCE_DURATION_MS},
         }
-        if self.language and self.language != "auto":
-            session["input_audio_transcription"] = {"language": self.language}
         return {"event_id": _event_id(), "type": "session.update", "session": session}
 
     async def append(self, pcm: bytes) -> None:
@@ -167,6 +170,11 @@ class LiveTranscription:
     def text(self) -> str:
         """What has been heard so far: the finished sentences, then the one in progress."""
         return join_segments([*self._segments, self._pending])
+
+    @property
+    def language(self) -> str:
+        """The language the vendor last said it heard, or ``auto`` while it has named none."""
+        return self._language or "auto"
 
     async def close(self) -> None:
         reader, self._reader = self._reader, None
@@ -208,6 +216,8 @@ class LiveTranscription:
 
     async def _handle(self, event: dict[str, Any]) -> None:
         kind = event.get("type")
+        if kind in LANGUAGE_EVENTS:
+            self._note_language(event.get("language"))
         if kind == PARTIAL_EVENT:
             # `stash` is the tail the vendor may still revise; it reads better than nothing.
             self._pending = f"{event.get('text') or ''}{event.get('stash') or ''}"
@@ -238,6 +248,10 @@ class LiveTranscription:
                 return
             await self._fail(SttError(f"speech-to-text backend refused: {message}"[:200]), None)
 
+    def _note_language(self, value: Any) -> None:
+        if isinstance(value, str) and value:
+            self._language = value
+
     async def _fail(self, error: SttError, cause: BaseException | None) -> None:
         log.warning(
             "realtime stt failed", error=str(error), cause=type(cause).__name__ if cause else ""
@@ -260,23 +274,19 @@ class RealtimeTranscriber:
     def __init__(self, config: SttConfig) -> None:
         self.config = config
 
-    def live(
-        self, language: str | None, on_partial: OnPartial, on_error: OnError | None = None
-    ) -> LiveTranscription:
+    def live(self, on_partial: OnPartial, on_error: OnError | None = None) -> LiveTranscription:
         return LiveTranscription(
-            self.config.realtime_url, self.config.api_key, language, on_partial, on_error
+            self.config.realtime_url, self.config.api_key, on_partial, on_error
         )
 
-    async def transcribe(
-        self, audio: bytes, *, filename: str, content_type: str, language: str | None
-    ) -> Transcript:
+    async def transcribe(self, audio: bytes, *, filename: str, content_type: str) -> Transcript:
         """A recorded file, played into a live session frame by frame."""
         pcm = pcm_from_upload(audio, content_type)
 
         async def ignore(_: str) -> None:
             return None
 
-        session = self.live(language, ignore)
+        session = self.live(ignore)
         await session.open()
         try:
             for start in range(0, len(pcm), FILE_CHUNK_BYTES):
@@ -284,7 +294,7 @@ class RealtimeTranscriber:
             text = await session.finish()
         finally:
             await session.close()
-        return Transcript(text=text, language=language or "auto")
+        return Transcript(text=text, language=session.language)
 
 
 def pcm_from_upload(audio: bytes, content_type: str) -> bytes:

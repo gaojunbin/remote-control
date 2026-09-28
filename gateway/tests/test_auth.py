@@ -139,7 +139,8 @@ def test_a_login_reports_the_account_it_signed_in_as(client: TestClient) -> None
 def test_config_reports_capabilities(client: TestClient, auth: dict[str, str]) -> None:
     body = client.get("/api/config", headers=auth).json()
     assert body["public_origin"] == ORIGIN
-    assert body["stt"] == {"enabled": True, "languages": ["auto", "zh", "en"]}
+    # A44: the provider detects the language, so there is only ever `auto` to report.
+    assert body["stt"] == {"enabled": True, "languages": ["auto"]}
     assert body["push"]["web_enabled"] is True
     assert body["push"]["apns_enabled"] is False
 

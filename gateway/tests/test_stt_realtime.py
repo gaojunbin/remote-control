@@ -19,10 +19,10 @@ from websockets.asyncio.server import ServerConnection, serve
 from rc_gateway import stt_realtime
 from rc_gateway.app import build_state, create_app
 from rc_gateway.config import ConfigError, SttConfig, load_config
-from rc_gateway.stt import SttError
+from rc_gateway.stt import SttError, wav_from_pcm16
 from rc_gateway.stt_realtime import LiveTranscription, RealtimeTranscriber, join_segments
 
-from .conftest import FakePolisher, FakeWebPushSender, make_config
+from .conftest import FakePolisher, FakeWebPushSender, drain_until, make_config
 
 SILENCE = b"\x00\x00" * 1600  # 100 ms of 16 kHz mono PCM16
 
@@ -35,15 +35,23 @@ class FakeRealtimeServer:
     Alibaba does, answers an ``error`` when nothing is; ``session.finish`` finishes the session.
     With ``vad_after`` the server completes the sentence itself after that many frames, the way
     server VAD does at a pause. With ``fail`` it answers the first frame with an ``error`` instead.
+    With ``language`` it names that language on every partial and completion, as Alibaba does;
+    without, it names none, as OpenAI's events do.
     """
 
     def __init__(
-        self, *, fail: bool = False, vad_after: int = 0, commit_errors: bool = False
+        self,
+        *,
+        fail: bool = False,
+        vad_after: int = 0,
+        commit_errors: bool = False,
+        language: str | None = None,
     ) -> None:
         self.fail = fail
         self.vad_after = vad_after
         # A vendor that refuses every commit, whatever the buffer holds.
         self.commit_errors = commit_errors
+        self.language = language
         self.requests: list[dict[str, Any]] = []
         self.headers: dict[str, str] = {}
         self.path = ""
@@ -103,7 +111,7 @@ class FakeRealtimeServer:
                 pending += size
                 frames += 1
                 await connection.send(
-                    json.dumps(
+                    self._named(
                         {
                             "type": "conversation.item.input_audio_transcription.text",
                             "text": f"heard {heard}",
@@ -113,7 +121,7 @@ class FakeRealtimeServer:
                 )
                 if self.vad_after and frames % self.vad_after == 0:
                     await connection.send(json.dumps({"type": "input_audio_buffer.speech_stopped"}))
-                    await connection.send(json.dumps(_completed(heard)))
+                    await connection.send(self._named(_completed(heard)))
                     pending = 0
             elif kind == "input_audio_buffer.commit":
                 if pending == 0 or self.commit_errors:
@@ -130,9 +138,15 @@ class FakeRealtimeServer:
                     )
                     continue
                 pending = 0
-                await connection.send(json.dumps(_completed(heard)))
+                await connection.send(self._named(_completed(heard)))
             elif kind == "session.finish":
                 await connection.send(json.dumps({"type": "session.finished"}))
+
+    def _named(self, event: dict[str, Any]) -> str:
+        """A transcription event; one naming a language carries an emotion too, as Alibaba's do."""
+        if self.language is not None:
+            event = {**event, "language": self.language, "emotion": "neutral"}
+        return json.dumps(event)
 
 
 def _completed(heard: int) -> dict[str, Any]:
@@ -166,27 +180,39 @@ def failing_vendor() -> Iterator[FakeRealtimeServer]:
     server.stop()
 
 
+@pytest.fixture
+def naming_vendor() -> Iterator[FakeRealtimeServer]:
+    server = FakeRealtimeServer(language="en")
+    server.start()
+    yield server
+    server.stop()
+
+
 def realtime_config(url: str) -> SttConfig:
     return SttConfig(
         provider="realtime",
         base_url="",
         api_key="sk-live",
         model="qwen3-asr-flash-realtime",
-        languages=("auto", "zh", "en"),
         realtime_url=url,
     )
 
 
-@pytest.fixture
-def realtime_client(tmp_path: Path, vendor: FakeRealtimeServer) -> Iterator[TestClient]:
-    config = make_config(tmp_path, stt=realtime_config(vendor.url))
+def realtime_app(tmp_path: Path, url: str) -> TestClient:
+    """A gateway whose speech provider is the vendor at ``url``."""
+    config = make_config(tmp_path, stt=realtime_config(url))
     state = build_state(
         config,
         transcriber=RealtimeTranscriber(config.stt),
         polisher=FakePolisher(),
         web_sender=FakeWebPushSender(),
     )
-    with TestClient(create_app(state)) as client:
+    return TestClient(create_app(state))
+
+
+@pytest.fixture
+def realtime_client(tmp_path: Path, vendor: FakeRealtimeServer) -> Iterator[TestClient]:
+    with realtime_app(tmp_path, vendor.url) as client:
         yield client
 
 
@@ -201,7 +227,7 @@ async def test_a_live_session_streams_partials_and_returns_the_final(
     async def on_partial(text: str) -> None:
         partials.append(text)
 
-    session = LiveTranscription(vendor.url, "sk-live", "zh", on_partial)
+    session = LiveTranscription(vendor.url, "sk-live", on_partial)
     await session.open()
     try:
         await session.append(SILENCE)
@@ -214,6 +240,8 @@ async def test_a_live_session_streams_partials_and_returns_the_final(
     # Partials carry the tentative tail too, and the final replaces them.
     assert partials[0] == f"heard {len(SILENCE)} bytes"
     assert partials[-1] == text
+    # This vendor names no language, as OpenAI's events do.
+    assert session.language == "auto"
     assert vendor.headers["authorization"] == "Bearer sk-live"
     assert vendor.headers["openai-beta"] == "realtime=v1"
     assert vendor.path.endswith("?model=qwen3-asr-flash-realtime")
@@ -222,7 +250,8 @@ async def test_a_live_session_streams_partials_and_returns_the_final(
     assert update["session"]["input_audio_format"] == "pcm"
     assert update["session"]["sample_rate"] == 16000
     assert update["session"]["turn_detection"]["type"] == "server_vad"
-    assert update["session"]["input_audio_transcription"] == {"language": "zh"}
+    # A44: the vendor detects the language, so the session asks for none.
+    assert "input_audio_transcription" not in update["session"]
     assert [event["type"] for event in vendor.requests[-2:]] == [
         "input_audio_buffer.commit",
         "session.finish",
@@ -238,7 +267,7 @@ async def test_a_sentence_the_vendor_already_completed_is_not_committed_again(
     async def ignore(_: str) -> None:
         return None
 
-    session = LiveTranscription(vad_vendor.url, "sk", "zh", ignore)
+    session = LiveTranscription(vad_vendor.url, "sk", ignore)
     await session.open()
     try:
         await session.append(SILENCE)
@@ -268,7 +297,7 @@ async def test_a_complaint_while_finishing_does_not_lose_the_words() -> None:
     async def on_error(error: SttError) -> None:
         errors.append(str(error))
 
-    session = LiveTranscription(server.url, "sk", "zh", ignore, on_error)
+    session = LiveTranscription(server.url, "sk", ignore, on_error)
     try:
         await session.open()
         await session.append(SILENCE)
@@ -288,26 +317,47 @@ async def test_a_complaint_while_finishing_does_not_lose_the_words() -> None:
     ]
 
 
-async def test_auto_leaves_the_language_to_the_vendor(vendor: FakeRealtimeServer) -> None:
+async def test_the_language_the_vendor_names_is_the_utterances(
+    naming_vendor: FakeRealtimeServer,
+) -> None:
+    """A44: nobody tells the vendor a language; the one Alibaba says it heard is reported."""
+
     async def ignore(_: str) -> None:
         return None
 
-    session = LiveTranscription(vendor.url, "", "auto", ignore)
+    session = LiveTranscription(naming_vendor.url, "", ignore)
+    assert session.language == "auto"
     await session.open()
     try:
         await session.append(SILENCE)
         await session.finish()
     finally:
         await session.close()
-    assert "input_audio_transcription" not in vendor.requests[0]["session"]
-    assert "authorization" not in vendor.headers
+    assert session.language == "en"
+    assert "input_audio_transcription" not in naming_vendor.requests[0]["session"]
+    assert "authorization" not in naming_vendor.headers
+
+
+async def test_the_last_language_the_vendor_named_wins() -> None:
+    """Alibaba names one per sentence; an event that names none, or nothing usable, keeps it."""
+
+    async def ignore(_: str) -> None:
+        return None
+
+    session = LiveTranscription("ws://127.0.0.1:9/realtime", "", ignore)
+    completed = stt_realtime.COMPLETED_EVENT
+    await session._handle({"type": completed, "transcript": "先跑测试。", "language": "zh"})
+    await session._handle({"type": completed, "transcript": "Then ship it.", "language": "en"})
+    await session._handle({"type": stt_realtime.DELTA_EVENT, "delta": "and"})
+    await session._handle({"type": stt_realtime.PARTIAL_EVENT, "text": "then", "language": ""})
+    assert session.language == "en"
 
 
 async def test_a_vendor_error_surfaces_as_an_stt_error(failing_vendor: FakeRealtimeServer) -> None:
     async def ignore(_: str) -> None:
         return None
 
-    session = LiveTranscription(failing_vendor.url, "sk", None, ignore)
+    session = LiveTranscription(failing_vendor.url, "sk", ignore)
     await session.open()
     try:
         await session.append(SILENCE)
@@ -323,7 +373,7 @@ async def test_an_unreachable_vendor_is_an_stt_error() -> None:
     async def ignore(_: str) -> None:
         return None
 
-    session = LiveTranscription("ws://127.0.0.1:9/realtime", "sk", None, ignore)
+    session = LiveTranscription("ws://127.0.0.1:9/realtime", "sk", ignore)
     with pytest.raises(SttError, match="unreachable"):
         await session.open()
 
@@ -341,6 +391,7 @@ def test_segments_join_without_spaces_between_chinese_and_with_them_between_engl
 def test_the_live_socket_streams_words_and_ends_on_stop(
     realtime_client: TestClient, auth: dict[str, str], vendor: FakeRealtimeServer
 ) -> None:
+    # An older app still names a language (A44): ignored, and a vendor that names none is `auto`.
     with realtime_client.websocket_connect("/ws/stt?language=zh", headers=auth) as socket:
         socket.send_bytes(SILENCE)
         first = socket.receive_json()
@@ -355,8 +406,32 @@ def test_the_live_socket_streams_words_and_ends_on_stop(
     assert frames[-1] == {
         "type": "stt.final",
         "text": f"final {2 * len(SILENCE)} bytes.",
-        "language": "zh",
+        "language": "auto",
     }
+    assert "input_audio_transcription" not in vendor.requests[0]["session"]
+
+
+def test_the_language_the_vendor_heard_reaches_the_app(
+    tmp_path: Path, naming_vendor: FakeRealtimeServer, auth: dict[str, str]
+) -> None:
+    """A44: whatever an older app asks for, the answer names the language the vendor heard."""
+    with realtime_app(tmp_path, naming_vendor.url) as client:
+        with client.websocket_connect("/ws/stt?language=zh", headers=auth) as socket:
+            socket.send_bytes(SILENCE)
+            socket.send_json({"type": "stt.stop"})
+            final = drain_until(socket, "stt.final")
+        uploaded = client.post(
+            "/api/stt/transcribe",
+            files={"audio": ("clip.wav", wav_from_pcm16(SILENCE), "audio/wav")},
+            data={"language": "zh"},
+            headers=auth,
+        )
+    assert final["language"] == "en"
+    assert uploaded.status_code == 200, uploaded.text
+    assert uploaded.json()["language"] == "en"
+    updates = [event for event in naming_vendor.requests if event["type"] == "session.update"]
+    assert len(updates) == 2
+    assert all("input_audio_transcription" not in event["session"] for event in updates)
 
 
 def test_a_stop_before_any_audio_is_an_empty_final(
@@ -371,15 +446,8 @@ def test_a_stop_before_any_audio_is_an_empty_final(
 def test_the_live_socket_reports_the_vendor_refusing(
     tmp_path: Path, failing_vendor: FakeRealtimeServer, auth: dict[str, str]
 ) -> None:
-    config = make_config(tmp_path, stt=realtime_config(failing_vendor.url))
-    state = build_state(
-        config,
-        transcriber=RealtimeTranscriber(config.stt),
-        polisher=FakePolisher(),
-        web_sender=FakeWebPushSender(),
-    )
     with (
-        TestClient(create_app(state)) as client,
+        realtime_app(tmp_path, failing_vendor.url) as client,
         client.websocket_connect("/ws/stt", headers=auth) as socket,
     ):
         frame: dict[str, Any] = {}
@@ -407,11 +475,10 @@ def test_a_recorded_wav_is_played_into_a_live_session(
     response = realtime_client.post(
         "/api/stt/transcribe",
         files={"audio": ("clip.wav", buffer.getvalue(), "audio/wav")},
-        data={"language": "en"},
         headers=auth,
     )
     assert response.status_code == 200, response.text
-    assert response.json() == {"text": f"final {3 * len(SILENCE)} bytes.", "language": "en"}
+    assert response.json() == {"text": f"final {3 * len(SILENCE)} bytes.", "language": "auto"}
 
 
 def test_a_compressed_upload_is_refused_by_the_live_backend(
