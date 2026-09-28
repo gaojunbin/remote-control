@@ -8,6 +8,9 @@ import RCCore
 /// so a shipping build can never substitute fake speech for the microphone.
 @MainActor
 public enum SpeechBackend {
+    /// Amendment A44: the backend is `VoiceBackend.inEffect`, the same answer
+    /// the composer and Settings read. The gateway is told no language; the
+    /// phone's recogniser is told the one it listens for.
     public static func make(settings: SettingsStore, connection: ConnectionStore,
                             arguments: [String] = ProcessInfo.processInfo.arguments)
         -> (platform: any SpeechInputPlatform, isScripted: Bool) {
@@ -16,9 +19,9 @@ public enum SpeechBackend {
             return (scriptedPlatform(arguments), true)
         }
         #endif
-        if settings.voiceBackend == .gateway, connection.stt.enabled,
+        if VoiceBackend.inEffect(settings: settings, connection: connection) == .gateway,
            let client = connection.api as? GatewayHTTPClient {
-            return (GatewaySpeechRecognizer(client: client, language: settings.voiceLanguage), false)
+            return (GatewaySpeechRecognizer(client: client), false)
         }
         return (SystemSpeechRecognizer(localeIdentifier: settings.speechLocaleIdentifier), false)
     }

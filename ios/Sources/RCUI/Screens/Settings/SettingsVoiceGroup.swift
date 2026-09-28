@@ -8,6 +8,10 @@ import RCCore
 /// Transcribe row's, and a gateway with no transcription service or no polish
 /// model says so in the row it belongs to rather than under the group.
 ///
+/// Amendment A44: the Dictation language row stands only while the phone is
+/// the one listening (`AppModel.voiceBackendInEffect`). The gateway's provider
+/// detects the language itself, so gateway transcription has nothing to pick.
+///
 /// The polish rows are written here rather than in a view of their own, so the
 /// group is one body and one file.
 struct SettingsVoiceGroup: View {
@@ -40,16 +44,18 @@ struct SettingsVoiceGroup: View {
             // Named for what it is: the interface language is the Reading
             // group's setting, and two rows called "Language" on one screen is
             // a riddle rather than a preference.
-            SettingsMenuRow("Dictation language",
-                            sentence: L10n.string("The language you dictate in; Automatic lets the recogniser decide."),
-                            selection: $settings.voiceLanguage,
-                            chosen: dictationLanguageName) {
-                Text("Automatic").tag("auto")
-                ForEach(languageCodes, id: \.self) { code in
-                    Text(languageName(code)).tag(code)
+            if model.voiceBackendInEffect == .onDevice {
+                SettingsMenuRow("Dictation language",
+                                sentence: L10n.string(
+                                    "The language you speak. The recogniser on this iPhone listens for one at a time."),
+                                selection: dictationLanguage,
+                                chosen: languageName(settings.dictationLanguage)) {
+                    ForEach(DictationLanguage.codes, id: \.self) { code in
+                        Text(languageName(code)).tag(code)
+                    }
                 }
+                .accessibilityIdentifier("settings.voiceLanguage")
             }
-            .accessibilityIdentifier("settings.voiceLanguage")
             // Amendment A29: dictation is the setting above; what happens to
             // the words afterwards is the setting below it.
             SettingsRow("Polish dictation with AI", sentence: polishSentence) {
@@ -107,12 +113,6 @@ struct SettingsVoiceGroup: View {
             "Sends what you dictated and the last few messages to this gateway's model. Nothing is sent while it is off.")
     }
 
-    /// The word at the trailing edge of the Dictation language row.
-    private var dictationLanguageName: String {
-        let code = model.settings.voiceLanguage
-        return code == "auto" ? L10n.string("Automatic") : languageName(code)
-    }
-
     /// The word at the trailing edge of the Model row: the label the gateway
     /// gave the chosen model, the bare id while the list has not arrived, or
     /// an invitation while nothing is chosen.
@@ -127,13 +127,16 @@ struct SettingsVoiceGroup: View {
                    : L10n.string("From the list this gateway serves.")
     }
 
-    private var languageCodes: [String] {
-        let offered = model.connection.stt.languages.filter { $0 != "auto" }
-        return offered.isEmpty ? ["en", "zh", "ja", "de", "fr", "es"] : offered
+    /// The language the recogniser listens for — a legacy `auto` reads as
+    /// Chinese — written only when one is picked (A44).
+    private var dictationLanguage: Binding<String> {
+        Binding(get: { model.settings.dictationLanguage },
+                set: { model.settings.voiceLanguage = $0 })
     }
 
+    /// In the app's own language, which the group holds and is rebuilt with.
     private func languageName(_ code: String) -> String {
-        Locale.current.localizedString(forLanguageCode: code) ?? code
+        DictationLanguage.name(of: code, in: language)
     }
 
     /// The models the gateway offers. A failure says so in the Model row and

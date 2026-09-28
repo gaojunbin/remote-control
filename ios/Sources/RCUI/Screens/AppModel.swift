@@ -143,6 +143,12 @@ public final class AppModel {
     public var isDemo: Bool { connection.isDemo }
     public var isSignedIn: Bool { connection.isSignedIn }
 
+    /// Amendment A44: which backend dictation uses on this gateway — the one
+    /// answer the composer and Settings draw the dictation language from.
+    public var voiceBackendInEffect: VoiceBackend {
+        VoiceBackend.inEffect(settings: settings, connection: connection)
+    }
+
     /// The offline demo never constructs a transport.
     public func enterDemo() async {
         // A UI test looks at the moment between a tap and the device's echo, so

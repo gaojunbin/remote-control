@@ -154,6 +154,23 @@
         }
       }
     },
+    "%@, effort %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, effort %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，思考强度 %@"
+          }
+        }
+      }
+    },
     "%lld ahead": {
       "extractionState": "manual",
       "localizations": {
@@ -252,6 +269,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld 个文件"
+          }
+        }
+      }
+    },
+    "%lld message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld message"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条消息"
+          }
+        }
+      }
+    },
+    "%lld messages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld messages"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条消息"
           }
         }
       }
@@ -1106,19 +1157,19 @@
         }
       }
     },
-    "Audio is streamed to your gateway for transcription.": {
+    "Audio is streamed to your gateway, which recognises the language itself.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Audio is streamed to your gateway for transcription."
+            "value": "Audio is streamed to your gateway, which recognises the language itself."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "音频会上传到你自己的网关进行转写。"
+            "value": "音频会传到你的网关转写，并自动识别语言。"
           }
         }
       }
@@ -1136,40 +1187,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "音频留在本机。需要所选语言的本地模型。"
-          }
-        }
-      }
-    },
-    "Auto": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Auto"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自动"
-          }
-        }
-      }
-    },
-    "Automatic": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Automatic"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自动"
           }
         }
       }
@@ -6206,19 +6223,19 @@
         }
       }
     },
-    "The language you dictate in; Automatic lets the recogniser decide.": {
+    "The language you speak. The recogniser on this iPhone listens for one at a time.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The language you dictate in; Automatic lets the recogniser decide."
+            "value": "The language you speak. The recogniser on this iPhone listens for one at a time."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你听写时使用的语言；“自动”由识别器判断。"
+            "value": "你说的语言。这台 iPhone 上的识别一次只听一种语言。"
           }
         }
       }
@@ -7086,23 +7103,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "待发送"
-          }
-        }
-      }
-    },
-    "Up next · %lld": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Up next · %lld"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "待发送 · %lld"
           }
         }
       }

@@ -35,6 +35,9 @@ public struct GatewayErrorBody: Codable, Sendable, Hashable, Error {
 
 public struct STTConfig: Codable, Sendable, Hashable {
     public let enabled: Bool
+    /// `["auto"]` since A44: the gateway's provider detects the language, so
+    /// there is nothing here for the app to offer. The phone's own recogniser
+    /// has a list of its own (`DictationLanguage`).
     public let languages: [String]
 
     public init(enabled: Bool, languages: [String]) {

@@ -7,6 +7,7 @@ enum STTChecks {
     static func run() async -> CheckResult {
         let checks = CheckRunner(group: "stt")
         await framing(checks)
+        await noLanguage(checks)
         await finalTranscript(checks)
         await cancelled(checks)
         await gatewayError(checks)
@@ -34,6 +35,27 @@ enum STTChecks {
         await second.cancel()
         await settle { await cancelling.sentText.count == 1 }
         checks.equal(await cancelling.sentText, [#"{"type":"stt.cancel"}"#], "cancel sends stt.cancel")
+    }
+
+    /// Amendment A44: the socket names no language, and a final the provider
+    /// put no language on reads as `auto`.
+    private static func noLanguage(_ checks: CheckRunner) async {
+        let connection = FakeSTTConnection()
+        let socket = await makeSocket(connection)
+        let recorder = Recorder()
+        let reader = Task { for await event in socket.events { await recorder.append(event) } }
+        try? await socket.start()
+        let url = await connection.requestURL
+        checks.equal(url?.path, "/ws/stt", "dictation opens the streaming socket")
+        checks.expect(url?.query == nil, "with no language on it: the gateway's provider detects it")
+
+        await socket.stop()
+        await connection.deliver(#"{"type":"stt.final","text":"re-run the suite"}"#)
+        let final = STTEvent.final(text: "re-run the suite", language: "auto")
+        await settle { await recorder.contains(final) }
+        checks.expect(await recorder.contains(final),
+                      "and a final that names no language says auto rather than guessing")
+        reader.cancel()
     }
 
     /// A partial updates the draft; the final ends the utterance.
@@ -117,7 +139,7 @@ enum STTChecks {
         let client = GatewayHTTPClient(endpoint: GatewayEndpoint.placeholder,
                                        transport: UnusedTransport(), secrets: MemorySecretStore())
         await client.adoptToken("verification-token")
-        return STTSocket(client: client, language: "en", factory: FakeSTTFactory(connection: connection))
+        return STTSocket(client: client, factory: FakeSTTFactory(connection: connection))
     }
 
     private static func settle(timeout: TimeInterval = 2,
@@ -141,7 +163,10 @@ private actor Recorder {
 
 private struct FakeSTTFactory: WebSocketFactory {
     let connection: FakeSTTConnection
-    func makeConnection(request: URLRequest) async -> any WebSocketConnection { connection }
+    func makeConnection(request: URLRequest) async -> any WebSocketConnection {
+        await connection.record(request)
+        return connection
+    }
 }
 
 /// Records what the app sends and lets a check push gateway frames back.
@@ -149,8 +174,12 @@ private actor FakeSTTConnection: WebSocketConnection {
     private(set) var sentText: [String] = []
     private(set) var sentBinary: [Data] = []
     private(set) var cancelled = false
+    /// The URL the socket was opened on.
+    private(set) var requestURL: URL?
     private var inbox: [Data] = []
     private var waiting: CheckedContinuation<Data, any Error>?
+
+    func record(_ request: URLRequest) { requestURL = request.url }
 
     func resume() {}
 

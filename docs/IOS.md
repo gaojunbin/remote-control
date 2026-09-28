@@ -103,7 +103,11 @@ is there in the demo — build `3f2b4a9c…`, and for the version whatever this 
 on one number, so the demo cannot fall a round behind): two demo machines run 1.3.0 and the demo
 gateway takes `device.update`, reports the device as updating and brings it back on the served
 build and version a few seconds later (A22). It also claims one printed pairing token, which is
-what the scan flow is driven with.
+what the scan flow is driven with. It reports `stt.enabled` with `languages: ["auto"]`, as every
+gateway has since A44, so both Transcribe choices mean what they say in it: Gateway takes the
+dictation language away, On this iPhone offers it. It serves no `/ws/stt`, though — `SpeechBackend`
+builds the gateway recogniser only on a real gateway client — so a demo dictation is the phone's
+recogniser, or the scripted platform behind `--voice-preview`.
 
 Other launch arguments: `--ui-testing`, `--reset-state`, `--demo-account`, `--demo-update-required`, `--registration-open`,
 and in debug builds `--voice-preview`, which swaps in a scripted speech platform so a UI test never
@@ -225,19 +229,20 @@ empty list means the agent has no such setting rather than that the app could no
 
 | Empty list | What goes | Where |
 | --- | --- | --- |
-| `permission_modes` | the composer's `composer.permissions` chip, and the sheet's Permissions section | `Composer.permissionChip`, `NewSessionSheet.settingsSections` |
+| `permission_modes` | the composer's `composer.permissions` shield, and the sheet's Permissions section | `ChatStore.offersPermissionPicker`, `NewSessionSheet.settingsSections` |
 | `efforts` | the card's `StopSlider`, the sheet's Effort section, and the effort word after the model name | `ModelCard`, `NewSessionSheet.settingsSections` |
 
 No shipped agent has an empty list today. pi's three modes arrived with A26 — they are the device's
 own, enforced by the extension pi loads into every session — and the app draws them exactly as it
 draws Codex's, with nothing changed in the app to do it.
 
-Nothing is greyed out and no caption explains the gap. The same rule reaches the read-only chips a
+Nothing is greyed out and no caption explains the gap. The same rule reaches the read-only values a
 terminal-held session draws (A17): `TerminalSetting.permissionText(for:agent:)` and
 `effortText(for:agent:)` return nil when the agent lists none, so a mirrored Grok session — whose
-update log carries a model and a level but never a permission mode — shows one chip where a Claude
-session shows two. A session whose agent this build has never met keeps A17's fallback and shows the
-raw ids, because with no `AgentInfo` at hand there is no list to say the setting does not exist.
+update log carries a model and a level but never a permission mode — shows the gauge alone where a
+Claude session shows the gauge and the shield. A session whose agent this build has never met keeps
+A17's fallback and shows the raw ids, because with no `AgentInfo` at hand there is no list to say
+the setting does not exist.
 
 The demo device `mac-studio-office` advertises all four agents, copied from
 `protocol/fixtures/objects/agent.grok.json` and `agent.pi.json` to the letter — so its Grok Build
@@ -650,16 +655,18 @@ Tokens first, screens second. Everything visual comes from `Sources/RCUI/Design/
 
 `softSurface()` is one rounded fill with no border and no shadow; `card()` keeps a hairline border
 for the surfaces that still need an edge, an approval card among them, and no longer carries a
-shadow as well. `ChipButtonStyle` is tinted rather than outlined, so the Todos chip, the composer's
-model and permission chips and "Take over" all lost their borders in one place.
+shadow as well. `ChipButtonStyle` is tinted rather than outlined, so the Todos chip and "Take over"
+lost their borders in one place; the composer's controls are icons with no pill at all (A44).
 `sessionRowLayout()` and `settingsRowLayout()` hold the row insets, so Sessions and Devices share
 one rhythm and Settings shares another.
 
 **A box around a label is `@ScaledMetric`, never a constant.** `Theme.Touch.minimum` and
 `Theme.Touch.primary` are the sizes at the default text size; a frame pinned to one of them around
 a label clips long before the largest accessibility size. The composer's Send circle and control
-row take `@ScaledMetric(relativeTo: .body)` from `Theme.Touch.primary`, and its attachment pills
-`@ScaledMetric(relativeTo: .caption)`, the way `CommandPanel` and `AgentLogo` already do.
+row take `@ScaledMetric(relativeTo: .body)` from `Theme.Touch.primary`, its attachment pills
+`@ScaledMetric(relativeTo: .caption)`, the way `CommandPanel` and `AgentLogo` already do, and the
+row's drawn gauge and the Up next badge scale the same way, so they grow with the symbols beside
+them.
 `testSendCircleGrowsWithAccessibilityText` launches with
 `-UIPreferredContentSizeCategoryName UICTContentSizeCategoryAccessibilityExtraExtraExtraLarge` and
 measures the circle.
@@ -716,7 +723,7 @@ so does the session list, through `Session.statusLabel`. Nothing else on the scr
 the status line below.
 
 Two controls can be beyond a `shared` session's reach, and the app hides them rather than dimming
-them under a caption: no `+` without `shared_attachments`, no settings chips without
+them under a caption: no `+` without `shared_attachments`, no live settings controls without
 `shared_settings`. Nothing is printed in their place. The header already reads `terminal ·
 attached`, which is the one thing the reader needs, and a second line saying it again cost the
 transcript a row on every attached session.
@@ -726,7 +733,7 @@ Whether either is reachable is the device's call, not the app's — see the two 
 A message sent into a `shared` session may be held by the device until the terminal-driven turn
 ends. Amendment A19: while it waits it is **a queue entry and nothing else**. The device answers
 `queued`, publishes the queue, and emits no block at all, so the optimistic row from sending retires
-into "Up next · N" exactly as it does on a session this app drives. The bubble appears only when the
+into the Up next count exactly as it does on a session this app drives. The bubble appears only when the
 CLI takes the message, with `delivery: "delivered"` and a `first_seq` that places it after the
 output of the turn it waited for — which is where the terminal draws it too. A bubble pinned at the
 moment of sending sat in the middle of an answer that was still arriving, before the words it was
@@ -777,14 +784,15 @@ device that never heard of them grants nothing:
 
 | Field | What it opens on a `shared` session | `ChatStore` |
 | --- | --- | --- |
-| `shared_settings` | the model card and the permission-mode picker — per setting since A40: `shared_settings_keys` names the ones the device can change, the rest stay A17 chips | `allowsSettingsChanges(for:)`, `allowsModelCardChanges`, `terminalSettings` |
+| `shared_settings` | the model card and the permission-mode picker — per setting since A40: `shared_settings_keys` names the ones the device can change, the rest stay A17 values | `allowsSettingsChanges(for:)`, `allowsModelCardChanges`, `terminalSettings` |
 | `shared_attachments` | the attachment button, so photos and files go into the live thread | `allowsAttachments` |
 
 Both are read straight off `AgentInfo`; nothing in the app branches on the agent id. Stop is
 unaffected and still needs capability `interrupt` plus `shared_interrupt`. A `terminal` session
 takes no input whatever it reports, so `allowsAttachments` stays false there. Both the card and the
-permission picker are chips on the composer row and are drawn only where they are live, so neither
-ever opens on a session it could not change.
+permission picker are live on the composer row only where they can change the session; elsewhere
+the same icon opens the value the terminal set, with nothing to choose, so neither ever offers a
+change it could not make.
 
 Codex behind a running app-server daemon reports `attach: "daemon"`, `attach_ready: true` and all
 three booleans true. A Claude channel reports `shared_interrupt` and `shared_attachments` false and,
@@ -796,7 +804,7 @@ false meaning none. The composer row is two slots — the model card and the per
 either a control or an A17 value, in a fixed order, so nothing on the row fails when tapped. A
 change on a `shared` session is not drawn optimistically: `ChatStore.set` skips `applyLocally`,
 records the keys in `pendingSettings`, the card's row swaps its chevron for a spinner and disables
-the slider, the list and the chip (`isSettingPending`, "Waiting for the terminal" / 等待终端确认),
+the slider, the list and the gauge (`isSettingPending`, "Waiting for the terminal" / 等待终端确认),
 and the value follows the reply's `Session` — the terminal has confirmed it — while a `conflict`
 leaves the value and shows the reply's words in the notice banner. `remote` sessions keep A21's
 optimistic drawing, and a title is immediate on every session because it is never typed. A device
@@ -824,7 +832,7 @@ included, is `bad_request`; the app never renders `elsewhere` as a choice.
 
 The demo carries `demo-session-typecheck` on `mac-studio-office`: a Codex thread the terminal
 started and the daemon shares, running, with Stop in the navigation bar, a live model card and
-permission chip, and a four-option request in the transcript. Changing the effort there goes
+permission picker, and a four-option request in the transcript. Changing the effort there goes
 through `session.set` and is applied; on the attached Claude session (`demo-session-shared`) the
 model and the effort are applied after the demo's 1.5 s of "typing", refused with "the terminal is
 busy; try again in a moment" while its scripted turn runs, and the permission mode is refused as
@@ -845,8 +853,10 @@ reply is taken as the value, a field the account has never been told is offered 
 once per sign-in, and nothing that arrives is echoed back. Two things the first build got wrong and
 the second fixed: writes raced, so of two changes a moment apart the older could land last — they
 are chained now; and applying an arriving object fired the store's change hook mid-pass and wrote a
-stale field back over an incoming one — the pass is suppressed as a whole. `notificationsEnabled`,
-`appLockEnabled`, `voiceBackend` and `terminalFontSize` stay on the device. A gateway carrying no
+stale field back over an incoming one — the pass is suppressed as a whole. Amendment A44 narrows
+`voiceLanguage`: it is the language the phone's own recogniser listens for, an `auto` that arrives
+is kept and heard as Chinese, and only a language the recogniser offers is ever written up.
+`notificationsEnabled`, `appLockEnabled`, `voiceBackend` and `terminalFontSize` stay on the device. A gateway carrying no
 preferences changes nothing. The demo gateway stores preferences per account; the launch argument
 `--demo-preference-change` plays a change from another device a few seconds after Settings opens,
 which is what `testAPreferenceChangedElsewhereMovesTheSwitchInPlace` and the round-49 screenshot
@@ -954,24 +964,55 @@ lowers the keyboard with the drag.
 
 Two rows, and never three. The message field takes the first one to itself. Everything else shares
 the second, in one order: the `+` attachment button and the microphone against the leading edge,
-then the session's chips, then Send against the trailing edge. The chips scroll sideways when they
-do not fit and never wrap, so the transcript loses no height when a chip is added. Stop is not among
-them — it stays in the navigation bar, so no one ends a turn while reaching for Send.
+then the session's controls, then Send against the trailing edge. The controls scroll sideways when
+they do not fit and never wrap, so the transcript loses no height when one is added. Stop is not
+among them — it stays in the navigation bar, so no one ends a turn while reaching for Send.
 
-| Chip | Shown when | Identifier |
-| --- | --- | --- |
-| Model card | `ChatStore.allowsSettingsChanges` | `composer.modelCard` |
-| Permission mode | the same, and `AgentInfo.permissionModes` is non-empty (A25) | `composer.permissions` |
-| Dictation language | always; it belongs to the microphone beside it | `composer.language` |
-| Up next · N | `session.queued > 0`; opens the list of queued messages (A43, "Up next" below) | `composer.queue` |
+**The control row is icons (A44).** Four words do not fit beside Send on a phone
+(`docs/DESIGN.md` § "The control row"), so each control is a glyph on a 44-point target, in the
+order `ComposerControl` gives them — what waits, how you speak, what runs, what it may do.
+`ChatStore.controlRow(backend:)` (`Sources/RCCore/State/ComposerControl.swift`) is the whole rule,
+and the composer draws whatever it returns, left to right:
+
+| Control | Shown when | Glyph | Identifier |
+| --- | --- | --- | --- |
+| Up next | `session.queued > 0`; opens the list of queued messages (A43, "Up next" below) | `note.text` with the count in a small ink badge, white digits, at its top-right corner | `composer.queue` |
+| Dictation language | the phone is the one listening, `AppModel.voiceBackendInEffect == .onDevice` ("Voice" below) | `translate`, the speech bubbles with A and 文 | `composer.language` |
+| Model card | `ChatStore.allowsModelCardChanges`, or a value the terminal set (A17) | `EffortGauge` | `composer.modelCard`, `composer.readonly.modelCard` |
+| Permission mode | `ChatStore.offersPermissionPicker` — the app may change it and the agent lists modes (A25) — or a value the terminal set | `PromptShield` | `composer.permissions`, `composer.readonly.permissionMode` |
+
+Each opens exactly what its words opened: the Up next sheet, the language menu, the model card, the
+permission picker. `ControlGlyph` (`Sources/RCUI/Screens/ComposerControls.swift`) centres a glyph on
+its target; the glyphs are SF Symbols at the body size, so they follow Dynamic Type, and the two
+drawn ones scale with them. `EffortGauge` (`Sources/RCUI/Design/EffortGauge.swift`) is shapes, not
+an image: an open arc through 270°, from lower left over the top to lower right, stroked in
+`Theme.border` (the line colour), the part from the left end to the needle stroked again in
+`Theme.running`, and an ink needle on a round hub — a filled disc where ChatGPT's icon has a ring,
+because at 21 pt a ring with the needle at either end of the arc reads as a magnifying glass.
+`AgentInfo.effortPosition(_:)` places the needle —
+the agent's lowest level at the left end, its highest at the right, the others evenly between — and
+an agent with fewer than two levels, or a value it does not list, stands it upright with nothing
+filled (`EffortGauge.needleAngle(for:)`); while a tier is on a `bolt.fill` sits off the gauge's
+lower-right corner in a clear ring cut out of the arc, as a symbol's own badge has, so it never runs
+into the arc's end or a needle pointing there. The Up next badge is cut out of its notepad the same
+way. `PromptShield` (`Sources/RCUI/Design/PromptShield.swift`) is SF Symbols' `shield` with
+`>_` stroked into it at the shield's own weight, 7 % of its width, placed from a measurement of the
+symbol's inside, because no symbol pairs the two.
+
+Every accessible name carries the value, because the icon shows no words: label and value read
+"Up next, 3 messages", "Dictation language, Chinese", "Model, Opus 4.1, effort High" (with ", Fast"
+while a tier is on, `TerminalSetting.modelCardSpoken`) and "Permissions, Auto-accept edits", in
+Chinese too. A session the terminal holds keeps the same icons: `TerminalValueControl` is a menu with
+nothing to choose — a "Set in the terminal" section holding the value as a disabled item, and the
+tier as a second one — so the reader still learns what the terminal set, and no control stands
+there that would be refused when tapped.
 
 While dictation runs the level meter, the elapsed time and Done replace that whole row.
 
 **The model card: model, effort and speed are one control (A21).** The row does not spend three
-chips on what runs and how hard. One chip reads the model label with the effort word after it
-("Opus 4.1 High"), with a small `bolt.fill` before them while `session.speed` is set; a tap opens a
-popover anchored above it — `.presentationCompactAdaptation(.popover)`, so it is a card on the
-phone and not a sheet — with two rows:
+controls on what runs and how hard. One gauge draws the effort and the tier (A44, above); a tap
+opens a popover anchored above it — `.presentationCompactAdaptation(.popover)`, so it is a card on
+the phone and not a sheet — with two rows:
 
 - a `bolt` toggle at the leading edge, drawn only when `AgentInfo.speeds` is non-empty, filled and
   tinted while a tier is on, cycling standard → each tier → standard through `ChatStore.nextSpeed`
@@ -991,36 +1032,35 @@ phone and not a sheet — with two rows:
   none draws no slider: there is nothing to slide. An agent that lists none at all loses the effort
   word after the model name as well, so its card reads the model alone.
 
-**A width that never changes.** The chip and the card's name row are as wide as the widest
-model-and-effort combination the agent offers, so nothing beside them shifts while a level is
-chosen or a model is picked. The width is measured, not guessed: `ModelCardSizing.pairs(for:model:)`
-returns every `models × efforts` pair — the fallback name standing in where the agent lists no
-model — and `ModelCardSizer` stacks one hidden label per pair behind the visible one in a `ZStack`,
-with `.hidden()`, which keeps the layout and drops the drawing, and `.accessibilityHidden(true)`.
-The chip measures `ModelCardLabel`, with the lightning's width reserved wherever the agent lists a
-tier; the name row measures `ModelNameLabel`, the same two fonts and the same spacing it draws.
-The card's own `frame` is `minWidth: 280` — the name row sizes it now, and it is never narrower
-than it was.
+**A width that never changes.** The gauge is an icon, so the row never moves while a level or a
+tier changes. The card's name row is as wide as the widest model-and-effort combination the agent
+offers, so nothing inside the card shifts either. The width is measured, not guessed:
+`ModelCardSizing.pairs(for:model:)` returns every `models × efforts` pair — the fallback name
+standing in where the agent lists no model — and `ModelCardSizer` stacks one hidden `ModelNameLabel`
+per pair behind the visible one in a `ZStack`, with `.hidden()`, which keeps the layout and drops the
+drawing, and `.accessibilityHidden(true)`. The card's own `frame` is `minWidth: 280` — the name row
+sizes it now, and it is never narrower than it was.
 
 **Drawn at once.** `ChatStore.set(...)` applies the patch to `session` before the request leaves,
-so the lightning fills, the effort word changes and the model name switches on the tap rather than
-on the reply. The device's reply confirms it; a refusal puts the previous value back with the
-error, unless a newer session replaced the optimistic one meanwhile — a `sessionGeneration` counter
-bumped by `session.updated`, by a `meta` event carrying settings and by every reply says which.
+so the lightning fills, the effort word and the gauge's needle move and the model name switches on
+the tap rather than on the reply. The device's reply confirms it; a refusal puts the previous value
+back with the error, unless a newer session replaced the optimistic one meanwhile — a
+`sessionGeneration` counter bumped by `session.updated`, by a `meta` event carrying settings and by
+every reply says which.
 `Tests/RCCoreTests/SessionSetTests.swift` covers all three outcomes.
 
 The accessible names are "Model", "Effort", "Speed" and "Permissions", with the value on each; the
 identifiers are `composer.modelCard`, `composer.model`, `composer.effort`, `composer.speed` and
-`composer.permissions`. A terminal-held session shows the same words as one static chip,
-`composer.readonly.modelCard`, that opens nothing, with the tier's glyph on it and the tier's name
-spelled out in its accessibility value — the glyph says "faster tier" to the eye and nothing at all
-to a screen reader. `ModelCard.swift` holds all of it; `TerminalSetting.modelCardText` words the
-session once, so the live chip and the read-only chip can never disagree.
+`composer.permissions`. The gauge's value spells out the tier's name — the bolt says "faster tier"
+to the eye and nothing at all to a screen reader — and a terminal-held session's
+`composer.readonly.modelCard` reads the same, because `TerminalSetting.modelCardSpoken` words the
+session once for both, and `TerminalSetting.modelCardText` words the value its menu shows.
+`ModelCard.swift` holds the gauge's button and the card.
 
-**After the card, the permission picker.** `composer.permissions` is a `Menu` holding a `Picker` of
-`AgentInfo.permissionModes` with the current one marked, built the way the dictation-language chip
-beside it is; choosing one calls `chat.set(permissionMode:)` and is drawn at once. A plain list and
-nothing else: what runs and how hard comes first, what it may do second.
+**After the card, the permission picker.** `composer.permissions` is a `Menu` behind the shield
+holding a `Picker` of `AgentInfo.permissionModes` with the current one marked, built the way the
+dictation-language menu before it is; choosing one calls `chat.set(permissionMode:)` and is drawn at
+once. A plain list and nothing else: what runs and how hard comes first, what it may do second.
 
 Forms keep list pickers. The new-session sheet lists Model, Effort, Permissions in that order, with
 a `SpeedPicker` after them where the agent offers a tier; it sends `model`, `permission_mode`,
@@ -1259,7 +1299,7 @@ and a turning wheel would claim the app was busy when it is not.
 | The device's `user_message` arrives under the same `block_id` | Replaced in place by the ordinary replacement rule |
 | An older device sends its own id, `source: "remote"`, identical text | Reconciled by text, one row per event |
 | The reply is `sent` or `steered` | Nothing; the row waits for the event |
-| The reply is `queued` | The row goes, and the message is one of the "Up next · N" count until the device dequeues it and emits the `user_message` under the same id |
+| The reply is `queued` | The row goes, and the message is one of the Up next count until the device dequeues it and emits the `user_message` under the same id |
 | The reply is an error the gateway actually sent | The row goes, the message is shown in the composer, and the text returns to the draft if the user has not started another one — and the composer puts its attachment pills back beside them |
 | The socket dropped, or the request timed out | The row stays, "Delivery unconfirmed" and Retry appear, and the retry reuses the id rather than sending a second copy. Retry is disabled while it is out (`OneAtATime`, `Sources/RCUI/Design/OneAtATime.swift`): the id is reused, so two overlapping retries would be two requests under one id |
 | Nothing at all for 60 s | The row says "Delivery unconfirmed" itself, through `OptimisticMessage.isUnconfirmed(at:)` |
@@ -1284,8 +1324,10 @@ echo rather than race it.
 
 ## Up next
 
-What waits behind a turn is one chip, "Up next · N", and never a stack of messages over the field
-(`docs/DESIGN.md` § "The composer" → **Up next**, A43). It opens `QueueSheet`
+What waits behind a turn is one control, first in the row, and never a stack of messages over the
+field (`docs/DESIGN.md` § "The composer" → **Up next**, A43): on the phone a notepad with the count
+in a small dark badge at its top-right corner, `UpNextControl`, whose accessible value says the
+count in words — "3 messages" (A44). It opens `QueueSheet`
 (`Sources/RCUI/Screens/QueueSheet.swift`): the snapshot in delivery order, each row two lines of the
 message at most, how long it has waited, and a paperclip with the count for an entry whose
 `attachments` says it holds files. A swipe, or Remove in the row's context menu, sends
@@ -1346,6 +1388,40 @@ Two backends, chosen in Settings:
 
 Either way dictation only fills the draft. Sending stays a separate, explicit tap.
 
+**The dictation language follows the recogniser (A44).** Which backend is in effect is one answer,
+`VoiceBackend.inEffect(chosen:gatewayTranscribes:)`: the gateway where it was chosen and has a
+transcription service (`stt.enabled`), this iPhone everywhere else — a gateway with none falls back
+to on-device recognition, as the Transcribe row says. `AppModel.voiceBackendInEffect` is what the
+composer and Settings read, and `SpeechBackend.make` builds the recogniser from the same answer, so
+a language is offered exactly where the phone is the one listening.
+
+- **The gateway is told no language.** `GatewaySpeechRecognizer` and `STTSocket` open `/ws/stt`
+  with no query at all and take `stt.final.language` as the gateway gives it, `auto` when it names
+  none. Its provider detects the language, so neither the composer nor Settings draws a language
+  control, and the Transcribe row's sentence says why: "Audio is streamed to your gateway, which
+  recognises the language itself."
+- **The phone is told one.** `SFSpeechRecognizer` cannot detect a language, so `DictationLanguage`
+  (`Sources/RCCore/State/DictationLanguage.swift`) offers the recogniser's own — Chinese, English,
+  Japanese, German, French, Spanish, in that order, whatever `stt.languages` says (always `["auto"]`
+  since A44) — with no Automatic, and hands each to the recogniser as `zh-CN`, `en-US`, `ja-JP`,
+  `de-DE`, `fr-FR` or `es-ES`. The names are in the app's interface language, not the phone's. In
+  Settings the row is **Dictation language**, "The language you speak. The recogniser on this
+  iPhone listens for one at a time.", and it is drawn only while the phone listens; in the composer
+  it is the `translate` icon (§ "The composer").
+- **Chinese until another is picked.** A new install stores `zh`. Unset, an `auto` from before A44
+  or any code outside the list reads as Chinese through `SettingsStore.dictationLanguage` and stays
+  stored as it came, so reading it writes nothing, here or to the account; `PreferenceSync` writes
+  `stt_language` only with a language the recogniser listens for, so this app never puts `auto`
+  back.
+- **Polish hears what was heard.** The polish request's `language` is `auto` for words the gateway
+  transcribed and the phone's language for its own (`DictationLanguage.polishHint`).
+
+The six locales were checked on the iOS 27 simulator in round 53, with a probe built for the
+simulator and run through `simctl spawn`: `SFSpeechRecognizer.supportedLocales()` lists all six and
+`SFSpeechRecognizer(locale:)` accepts each. That simulator carried on-device models for `zh-CN` and
+`en-US` only; the other four report `supportsOnDeviceRecognition == false` there, which is the
+"No on-device model for this language" line a phone shows until it has downloaded one.
+
 ### What listening looks like
 
 The transcript arrives in the composer's own field, not in a panel of its own, and is fully
@@ -1379,7 +1455,7 @@ spinner alone says only that something is happening.
 
 While the transcript is finishing the meter rests and the elapsed clock stops at the moment Done
 was tapped: what it counted is how long the microphone was open. Once the transcript is final the
-ordinary row (`+`, mic, chips) returns around the spinner, which keeps the slot until the words are
+ordinary row (`+`, mic, the session's controls) returns around the spinner, which keeps the slot until the words are
 back. The capsule-to-circle change eases over 0.2 s, and not at all under Reduce Motion.
 
 There is no "stop and send" either. Sending a dictated message is the ordinary Send button,
@@ -1548,8 +1624,8 @@ puts "The model list could not be loaded." in the Model row's own line; the thre
 per-account keys of `SettingsStore` (`polishEnabled`, `polishModel`, `polishStrength`). When a
 dictation ends with polish on, the words land in the field at once as before, `ChatStore` enters its
 polish phase — the status line reads "Polishing…" — and `polish(_:)` is sent the dictated span alone
-(`VoiceDraftTarget` already knows where it starts), the model, the strength, the dictation language
-and the open session's last twenty user and assistant text blocks, oldest first, each trimmed to
+(`VoiceDraftTarget` already knows where it starts), the model, the strength, the language hint
+(`auto` for the gateway's words, the phone's language for its own, A44) and the open session's last twenty user and assistant text blocks, oldest first, each trimmed to
 4000 characters (`State/DictationPolish.swift`, pure). The answer replaces only that span and
 "Polished · Undo" appears under the field until the next edit or send; a failure leaves the words
 and says "Polishing failed, your words are unchanged".
@@ -1868,6 +1944,13 @@ signing in with a username, registering, the role gate and the whole Users scree
 end, but never against a real gateway's accounts. Cross-account isolation is not among them: the
 demo serves the same three machines to whichever account signs in, because scoping devices to their
 owner is the gateway's work and is tested there.
+
+Round 53 (A44): the icon row, the Transcribe switch and the language menu ran only against the
+demo, whose dictation is the scripted platform; no dictation has run on a phone in Japanese,
+German, French or Spanish, and the six locales were checked as `SFSpeechRecognizer` accepting them
+on the simulator (§ "Voice"), not as a recognition in each. The icons were looked at in the light
+theme, at the default text size and at the largest accessibility size, in simulator screenshots;
+what VoiceOver reads was checked through the accessibility tree the UI tests query, not by ear.
 
 The selection haptic on the effort slider cannot be asserted from a UI test — nothing in XCTest
 observes `UIFeedbackGenerator` — so the test taps the last stop and asserts the word that follows

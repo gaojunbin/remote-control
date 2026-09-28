@@ -944,9 +944,12 @@ public enum DemoFixtures {
         ]
     }
 
+    /// The demo gateway transcribes, so both Transcribe choices mean what they
+    /// say in it; and its provider detects the language, as every gateway's
+    /// has since A44.
     public static func config(minimumAppVersion: String = AppBuild.version) -> GatewayConfig {
         GatewayConfig(publicOrigin: "https://demo.remote-control.invalid",
-                      stt: STTConfig(enabled: true, languages: ["auto", "en", "zh"]),
+                      stt: STTConfig(enabled: true, languages: ["auto"]),
                       push: PushConfig(webEnabled: true, apnsEnabled: true),
                       version: "0.1.0-demo",
                       polish: PolishInfo(enabled: true),

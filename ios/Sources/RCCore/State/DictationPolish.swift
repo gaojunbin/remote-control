@@ -76,14 +76,14 @@ public enum DictationPolish {
         return Array(trimmed.suffix(contextLimit))
     }
 
-    /// The body of `POST /api/polish` for one dictation.
+    /// The body of `POST /api/polish` for one dictation. Amendment A44: the
+    /// language is the hint the contract names — `auto` for words the gateway
+    /// transcribed, the code the phone listened for — so it is sent as given
+    /// (`DictationLanguage.polishHint`).
     public static func request(span: DictationSpan, model: String, strength: PolishStrength,
                                language: String, context: [PolishContextItem]) -> PolishRequest {
-        // "auto" is the app's own word for "let the recogniser decide"; the
-        // contract's language field is a hint, so it is simply left out.
-        let hint = (language.isEmpty || language == "auto") ? nil : language
-        return PolishRequest(text: span.dictated, model: model, strength: strength,
-                             language: hint, context: context)
+        PolishRequest(text: span.dictated, model: model, strength: strength,
+                      language: language, context: context)
     }
 
     /// The draft the answer produces, or nil when the field has moved on: the

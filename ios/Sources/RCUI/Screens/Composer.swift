@@ -7,9 +7,10 @@ import RCCore
 ///
 /// Two rows and never three. The field owns the first one and grows with what
 /// is in it; everything else sits on the second, in one order: the `+` and the
-/// microphone, then the session's chips, then Send against the trailing edge.
-/// The chips scroll sideways when they do not fit, because a control row that
-/// wraps costs the transcript a line every time a chip is added.
+/// microphone, then the session's controls, then Send against the trailing
+/// edge. The controls are icons (A44) and scroll sideways when they do not
+/// fit, because a control row that wraps costs the transcript a line every
+/// time one is added.
 ///
 /// Return inserts a newline, and sending is always an explicit, separate tap —
 /// dictation fills the draft and stops there.
@@ -20,7 +21,6 @@ struct Composer: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var voice: InlineVoiceDraftSession?
-    @State private var usesGateway = false
     @State private var attachments: [OutboundAttachment] = []
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showsFileImporter = false
@@ -70,8 +70,8 @@ struct Composer: View {
         }
         .onChange(of: model.connection.phase) { _, _ in syncSendability() }
         .onChange(of: model.device(for: chat.session)?.online) { _, _ in syncSendability() }
-        .onChange(of: model.settings.voiceBackend) { _, _ in prepareVoice() }
-        .onChange(of: model.settings.voiceLanguage) { _, _ in prepareVoice() }
+        .onChange(of: model.voiceBackendInEffect) { _, _ in prepareVoice() }
+        .onChange(of: model.settings.dictationLanguage) { _, _ in prepareVoice() }
         // Amendment A27: the list is fetched when the conversation opens and
         // asked for again the moment `/` is typed, if the last answer has gone
         // stale or was empty. Only the first slash asks; the letters after it
@@ -120,7 +120,7 @@ struct Composer: View {
             Text(attachmentError).font(.caption).foregroundStyle(Theme.danger)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if let voice, voice.voice.phase.isBusy || voice.voice.failure != nil {
-            VoiceStatusLine(session: voice, usesGateway: usesGateway)
+            VoiceStatusLine(session: voice, usesGateway: model.voiceBackendInEffect == .gateway)
                 .task(id: voice.voice.failure == nil) {
                     guard voice.voice.failure != nil else { return }
                     try? await Task.sleep(for: .seconds(6))
@@ -249,7 +249,7 @@ struct Composer: View {
                             .disabled(chat.isReadOnly || chat.isReturningEdit)
                     }
                 }
-                chips
+                sessionControls
                 if primarySlot == .working {
                     WorkingCircle(label: L10n.string(chat.isReturningEdit ? "Sending…" : "Polishing…"))
                 } else {
@@ -371,53 +371,42 @@ struct Composer: View {
         }
     }
 
-    /// The middle of the control row: what this session is set to, and what is
-    /// waiting behind the turn. They scroll sideways rather than wrap, so the
-    /// row keeps its height however many of them there are.
+    /// The middle of the control row, in `ComposerControl`'s order: what waits
+    /// behind the turn, how you speak, what runs, what it may do (A43, A44).
+    /// Each is an icon on a 44-point target. They scroll sideways rather than
+    /// wrap, so the row keeps its height however many of them there are.
     ///
     /// Amendment A17: the session's own settings are offered only where they
     /// can be changed from here. On a session a terminal holds they are shown
-    /// instead, in the same positions, as chips that open nothing.
+    /// instead, in the same positions and behind the same icons, as menus with
+    /// nothing to choose.
     ///
     /// Amendment A40: one setting at a time, because a shared Claude session
     /// is typed into for the model and the effort but has no command for the
     /// permission mode. Each slot is a control or a value, never a control
     /// that fails when tapped, and the two keep their order either way.
-    private var chips: some View {
+    private var sessionControls: some View {
         ScrollView(.horizontal) {
-            HStack(spacing: Theme.Space.tight) {
-                modelSlot
-                permissionSlot
-
-                Menu {
-                    Picker("Dictation language", selection: languageBinding) {
-                        Text("Automatic").tag("auto")
-                        ForEach(languageCodes, id: \.self) { code in
-                            Text(languageName(code)).tag(code)
-                        }
+            HStack(spacing: 0) {
+                ForEach(chat.controlRow(backend: model.voiceBackendInEffect)) { control in
+                    switch control {
+                    case .upNext:
+                        UpNextControl(count: chat.session.queued) { showsQueue = true }
+                    case .dictationLanguage:
+                        DictationLanguageControl(settings: model.settings)
+                    case .modelCard:
+                        modelSlot
+                    case .permissions:
+                        permissionSlot
                     }
-                } label: {
-                    Text(model.settings.voiceLanguage == "auto"
-                         ? L10n.string("Auto") : languageName(model.settings.voiceLanguage))
-                }
-                .menuStyle(.button)
-                .buttonStyle(ChipButtonStyle())
-                .accessibilityLabel("Dictation language")
-                .accessibilityIdentifier("composer.language")
-
-                if chat.session.queued > 0 {
-                    Button { showsQueue = true } label: { Text("Up next · \(chat.session.queued)") }
-                        .buttonStyle(ChipButtonStyle())
-                        .accessibilityIdentifier("composer.queue")
                 }
             }
-            .padding(.horizontal, 2)
         }
         .scrollIndicators(.hidden)
-        // Nothing to scroll while the chips fit, so the row does not rubber-band
-        // under a thumb aiming for Send.
+        // Nothing to scroll while the controls fit, so the row does not
+        // rubber-band under a thumb aiming for Send.
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-        // A chip cut off flat against Send reads as broken text. The last few
+        // A control cut off flat against Send reads as broken. The last few
         // points fade instead, which is how a row says there is more of it.
         .mask {
             HStack(spacing: 0) {
@@ -431,71 +420,31 @@ struct Composer: View {
     }
 
     /// What runs and how hard: the card where this app may change it, the
-    /// value the terminal set where it may not (A17, A40).
+    /// value the terminal set where it may not (A17, A40) — the same gauge
+    /// either way.
     @ViewBuilder
     private var modelSlot: some View {
         if chat.allowsModelCardChanges {
             ModelCardChip(chat: chat, agent: agent)
         } else if let setting = chat.terminalSetting(.modelCard) {
-            terminalChip(setting)
+            TerminalValueControl(setting: setting) {
+                EffortGauge(position: agent?.effortPosition(chat.session.effort),
+                            isFast: setting.speed != nil)
+            }
         }
     }
 
     /// The same two ways for the permission mode, which on a shared Claude
-    /// session is the one the terminal keeps.
+    /// session is the one the terminal keeps. Amendment A25: an agent with no
+    /// permission system (pi) lists no modes, and nothing is drawn at all —
+    /// nothing greyed out and nothing explained.
     @ViewBuilder
     private var permissionSlot: some View {
-        if chat.allowsSettingsChanges(for: .permissionMode) {
-            permissionChip
+        if chat.offersPermissionPicker {
+            PermissionControl(chat: chat, agent: agent)
         } else if let setting = chat.terminalSetting(.permissionMode) {
-            terminalChip(setting)
+            TerminalValueControl(setting: setting) { PromptShield() }
         }
-    }
-
-    /// What the session may do, as a plain list of the agent's own modes with
-    /// the current one marked and nothing else on it. What runs and how hard
-    /// is the model card's; this is the chip after it.
-    ///
-    /// Amendment A25: an agent with no permission system (pi) lists no modes,
-    /// and the chip is not drawn at all. Nothing is greyed out and nothing is
-    /// explained — an absent control means the agent has no such setting.
-    @ViewBuilder
-    private var permissionChip: some View {
-        let modes = agent?.permissionModes ?? []
-        if !modes.isEmpty {
-            Menu {
-                Picker("Permissions", selection: permissionBinding) {
-                    ForEach(modes) { option in Text(option.label).tag(option.id) }
-                }
-            } label: {
-                Text(agent?.permissionModeLabel(chat.session.permissionMode)
-                     ?? L10n.string("Permissions"))
-            }
-            .menuStyle(.button)
-            .buttonStyle(ChipButtonStyle())
-            .accessibilityLabel("Permissions")
-            .accessibilityValue(agent?.permissionModeLabel(chat.session.permissionMode)
-                                ?? chat.session.permissionMode ?? "")
-            .accessibilityIdentifier("composer.permissions")
-        }
-    }
-
-    private var permissionBinding: Binding<String> {
-        Binding(get: { chat.session.permissionMode ?? agent?.defaultPermissionMode ?? "" },
-                set: { value in Task { await chat.set(permissionMode: value) } })
-    }
-
-    /// Amendment A17: what the terminal chose, where its control would have
-    /// been. It reads as "Model, Sonnet 4.5 High, set in the terminal" rather
-    /// than as a control, so nobody reaches for something that cannot move.
-    /// Amendment A21: the tier it is running at rides on the same chip.
-    private func terminalChip(_ setting: TerminalSetting) -> some View {
-        StaticChip { ModelCardLabel(text: setting.text, isFast: setting.speed != nil) }
-            .accessibilityElement()
-            .accessibilityLabel(setting.field.label)
-            .accessibilityValue(setting.spokenValue)
-            .accessibilityHint("Set in the terminal")
-            .accessibilityIdentifier("composer.readonly.\(setting.field.rawValue)")
     }
 
     private var attachmentStrip: some View {
@@ -521,20 +470,6 @@ struct Composer: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var languageCodes: [String] {
-        let offered = model.connection.stt.languages.filter { $0 != "auto" }
-        return offered.isEmpty ? ["en", "zh", "ja", "de", "fr", "es"] : offered
-    }
-
-    private func languageName(_ code: String) -> String {
-        Locale.current.localizedString(forLanguageCode: code) ?? code
-    }
-
-    private var languageBinding: Binding<String> {
-        Binding(get: { model.settings.voiceLanguage },
-                set: { model.settings.voiceLanguage = $0 })
     }
 
     private var placeholder: String {
@@ -634,7 +569,6 @@ struct Composer: View {
         // recording audio session live with no UI to stop them.
         voice?.reset()
         let backend = SpeechBackend.make(settings: model.settings, connection: model.connection)
-        usesGateway = model.settings.voiceBackend == .gateway && model.connection.stt.enabled
         let session = InlineVoiceDraftSession(platform: backend.platform, isPreview: backend.isScripted)
         // Amendment A29: the objects, not this view, so the callback outlives
         // the body that installed it.
@@ -647,13 +581,16 @@ struct Composer: View {
     /// Amendment A29: the words are in the field already. This asks the
     /// gateway's model to say the same thing cleanly, and only where the
     /// gateway has one, the person has turned it on, and a model is chosen.
+    /// Amendment A44: the hint is `auto` for words the gateway transcribed and
+    /// the language the phone listened for otherwise.
     private static func polish(_ span: DictationSpan, model: AppModel, chat: ChatStore) {
         guard model.connection.polish.enabled, model.settings.polishEnabled,
               !model.settings.polishModel.isEmpty, let api = model.connection.api else { return }
         chat.polishService = { request in try await api.polish(request).text }
         chat.polish(span: span, model: model.settings.polishModel,
                     strength: model.settings.polishStrength,
-                    language: model.settings.voiceLanguage)
+                    language: DictationLanguage.polishHint(backend: model.voiceBackendInEffect,
+                                                           listening: model.settings.voiceLanguage))
     }
 
     /// The composer knows about the connection; the chat store does not.

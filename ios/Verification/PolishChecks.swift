@@ -121,9 +121,17 @@ enum PolishChecks {
         checks.equal(request.text, span.dictated, "the dictated words are what is sent")
         checks.equal(request.strength, .strong, "with the strength the user chose")
         checks.equal(request.language, "en", "and the dictation language as a hint")
+        // Amendment A44: words the gateway transcribed carry `auto`, and words
+        // the phone heard carry the language it listened for.
+        checks.equal(DictationLanguage.polishHint(backend: .gateway, listening: "en"), "auto",
+                     "the gateway detected the language, so the hint says auto")
+        checks.equal(DictationLanguage.polishHint(backend: .onDevice, listening: "ja"), "ja",
+                     "the phone's recogniser was told one, so the hint names it")
+        checks.equal(DictationLanguage.polishHint(backend: .onDevice, listening: "auto"), "zh",
+                     "and a legacy auto on the phone is the Chinese it was heard as")
         checks.equal(DictationPolish.request(span: span, model: "m", strength: .moderate,
-                                             language: "auto", context: []).language, nil,
-                     "an automatic dictation language is no hint at all")
+                                             language: "auto", context: []).language, "auto",
+                     "the hint is sent as it is given")
 
         // The frozen fixtures decode into the models the app sends and reads.
         checks.noThrow("http/polish.request.json decodes as a polish request") {

@@ -134,14 +134,14 @@ struct AccountsTests {
         first.remember(origin: "https://rc.example.com", username: "alice")
         first.language = .zhHans
         first.timelineDetail = .detailed
-        first.voiceLanguage = "zh"
+        first.voiceLanguage = "ja"
         first.notificationsEnabled = true
 
         let second = SettingsStore(defaults: defaults)
         second.remember(origin: "https://rc.example.com", username: "bob")
         #expect(second.language == .en)
         #expect(second.timelineDetail == .simple)
-        #expect(second.voiceLanguage == "auto")
+        #expect(second.voiceLanguage == "zh")
         #expect(!second.notificationsEnabled)
 
         second.remember(origin: "https://rc.example.com", username: "alice")

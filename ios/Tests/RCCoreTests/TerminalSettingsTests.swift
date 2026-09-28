@@ -228,7 +228,7 @@ struct TerminalSettingsTests {
         let chips = TerminalSetting.all(for: fast, agent: DemoFixtures.codex)
         #expect(chips.map(\.text) == ["GPT-5.4 Codex High", "Ask when needed"])
         #expect(chips.first?.speed == "Fast")
-        #expect(chips.first?.spokenValue == "GPT-5.4 Codex High, Fast")
+        #expect(chips.first?.spokenValue == "GPT-5.4 Codex, effort High, Fast")
         #expect(chips.last?.speed == nil)
 
         // The standard speed adds nothing at all, not even a word.

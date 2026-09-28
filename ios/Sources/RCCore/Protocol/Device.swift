@@ -91,6 +91,16 @@ public struct AgentInfo: Codable, Sendable, Hashable, Identifiable {
         return efforts.first { $0.id == id }?.label ?? id
     }
 
+    /// Amendment A44: where an effort stands on this agent's own scale — 0 at
+    /// its lowest level, 1 at its highest, the others evenly between — which is
+    /// where the model card's gauge points its needle. Nil where there is no
+    /// scale to read: fewer than two levels, or a value the agent does not list.
+    public func effortPosition(_ id: String?) -> Double? {
+        guard efforts.count > 1, let id,
+              let index = efforts.firstIndex(where: { $0.id == id }) else { return nil }
+        return Double(index) / Double(efforts.count - 1)
+    }
+
     /// The label for a tier, or nil for the standard speed.
     public func speedLabel(_ id: String?) -> String? {
         guard let id else { return nil }

@@ -25,6 +25,7 @@ enum StoreChecks {
         await readingPosition(checks)
         timelineDetail(checks)
         terminalSettings(checks)
+        controlRow(checks)
         await speedTier(checks)
         await slashCommands(checks)
         return checks.result()
@@ -180,8 +181,8 @@ enum StoreChecks {
                          effort: "high", speed: "priority")
         checks.equal(fast.terminalSettings.first?.speed, "Fast",
                      "a tier the terminal turned on rides on the one chip")
-        checks.equal(fast.terminalSettings.first?.spokenValue, "GPT-5.4 Codex High, Fast",
-                     "and is spelled out for assistive technology, which cannot see the glyph")
+        checks.equal(fast.terminalSettings.first?.spokenValue, "GPT-5.4 Codex, effort High, Fast",
+                     "and is spelled out for assistive technology, which cannot see the gauge (A44)")
         checks.equal(store(control: .terminal, agent: DemoFixtures.codex).terminalSettings.first?.speed,
                      nil, "the standard speed adds nothing to it")
 
@@ -200,6 +201,62 @@ enum StoreChecks {
         shared.receive(.sessionEvent(sessionID: "s", deviceID: "d", event: meta))
         checks.equal(TerminalSetting.modelCardText(for: shared.session, agent: shared.agent),
                      "Opus 4.1 High", "and the live card words it identically")
+    }
+
+    /// Amendments A43 and A44: the composer's row is Up next, the dictation
+    /// language, the model card and the permission mode, in that order; each
+    /// stands only where it has something to show, and on the phone each is an
+    /// icon whose accessible value says what the icon draws.
+    @MainActor
+    private static func controlRow(_ checks: CheckRunner) {
+        func store(control: SessionControl = .remote, agent: AgentInfo? = DemoFixtures.claude,
+                   queued: Int = 0, effort: String? = "high") -> ChatStore {
+            let session = Session(sessionID: "s", deviceID: "d", agent: agent?.agent ?? "claude",
+                                  title: "T", cwd: "/tmp", state: .idle, control: control,
+                                  model: agent?.defaultModel ?? "claude-sonnet-4-5",
+                                  permissionMode: "acceptEdits", effort: effort, queued: queued)
+            let chat = ChatStore(session: session, channel: ScriptedChannel())
+            chat.agent = agent
+            return chat
+        }
+
+        checks.equal(store().controlRow(backend: .onDevice), [.dictationLanguage, .modelCard, .permissions],
+                     "the phone listening adds the language before what runs and what it may do")
+        checks.equal(store().controlRow(backend: .gateway), [.modelCard, .permissions],
+                     "and the gateway, which detects the language, adds nothing")
+        checks.equal(store(queued: 3).controlRow(backend: .onDevice),
+                     [.upNext, .dictationLanguage, .modelCard, .permissions],
+                     "what waits behind the turn comes first, while anything does")
+        checks.equal(store(queued: 2).controlRow(backend: .gateway), [.upNext, .modelCard, .permissions],
+                     "on either backend")
+        checks.equal(store(control: .terminal).controlRow(backend: .onDevice),
+                     [.dictationLanguage, .modelCard, .permissions],
+                     "a terminal-held session keeps every slot, as values (A17)")
+        let modeless = AgentInfo(agent: "pi", available: true,
+                                 efforts: [AgentOption(id: "low", label: "Low"),
+                                           AgentOption(id: "high", label: "High")],
+                                 capabilities: [.effort])
+        checks.equal(store(agent: modeless).controlRow(backend: .gateway), [.modelCard],
+                     "and an agent with no permission modes draws no shield (A25)")
+
+        checks.equal(ComposerControl.upNextValue(1), "1 message", "Up next says its count in words")
+        checks.equal(ComposerControl.upNextValue(3), "3 messages", "in the plural past one")
+        checks.equal(TerminalSetting.modelCardSpoken(for: store().session, agent: DemoFixtures.claude),
+                     "Sonnet 4.5, effort High", "the gauge's value names the model and the effort")
+        checks.equal(TerminalSetting.modelCardSpoken(for: store(agent: nil, effort: nil).session, agent: nil),
+                     "claude-sonnet-4-5", "and only the model where no effort is known")
+
+        // The needle: the lowest level at the left end, the highest at the
+        // right, the others evenly between, and upright where there is no scale.
+        checks.equal(DemoFixtures.claude.effortPosition("medium"), 0, "Claude's lower level is the left end")
+        checks.equal(DemoFixtures.claude.effortPosition("high"), 1, "and its higher one the right")
+        checks.equal(DemoFixtures.codex.effortPosition("medium"), 0.5, "Codex's middle of three is upright")
+        checks.equal(DemoFixtures.grok.effortPosition("high"), 2.0 / 3, "Grok's third of four is two thirds")
+        checks.equal(DemoFixtures.claude.effortPosition("max"), nil, "a level the agent does not list has none")
+        checks.equal(DemoFixtures.claude.effortPosition(nil), nil, "and neither has no level at all")
+        checks.equal(AgentInfo(agent: "x", available: true,
+                               efforts: [AgentOption(id: "only", label: "Only")]).effortPosition("only"),
+                     nil, "one level is no scale")
     }
 
     /// Amendment A21: a speed tier beside the model and the effort. One control
@@ -1210,6 +1267,18 @@ enum StoreChecks {
         let defaults = UserDefaults(suiteName: "rc-verify-\(UUID().uuidString)")!
         let store = SettingsStore(defaults: defaults)
         checks.equal(store.voiceBackend, .onDevice, "voice defaults to on-device recognition")
+        // Amendment A44: the phone's recogniser listens for Chinese until told
+        // otherwise, and an `auto` from before the amendment reads the same
+        // without being rewritten.
+        checks.equal(store.voiceLanguage, "zh", "a new install dictates in Chinese")
+        checks.equal(store.speechLocaleIdentifier, "zh-CN", "which the recogniser hears as zh-CN")
+        store.voiceLanguage = "auto"
+        checks.equal(store.dictationLanguage, "zh", "a legacy auto is heard as Chinese")
+        checks.equal(store.voiceLanguage, "auto", "and is left as it was")
+        store.voiceLanguage = "en"
+        checks.equal(store.speechLocaleIdentifier, "en-US", "a chosen language is its own locale")
+        checks.equal(VoiceBackend.inEffect(chosen: .gateway, gatewayTranscribes: false), .onDevice,
+                     "a gateway with no transcription service leaves the phone listening")
         store.remember(origin: "https://rc.example.com", username: "admin")
         checks.equal(store.timelineDetail, .simple, "the timeline opens at Simple")
         store.timelineDetail = .detailed
