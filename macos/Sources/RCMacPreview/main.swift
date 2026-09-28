@@ -6,6 +6,11 @@ import RCMac
 // MacAppModel, drawn in an offscreen window and captured as the window server
 // would composite it. It never shows a window, a Dock icon or a menu bar.
 TextRendering.matchWeb()
+// Scroll bars are overlays in every render, whatever this Mac's setting or its
+// mouse: `-AppleShowScrollBars Always` on the command line renders the other case.
+var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+if arguments["AppleShowScrollBars"] == nil { arguments["AppleShowScrollBars"] = "WhenScrolling" }
+UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
 let app = NSApplication.shared
 app.setActivationPolicy(.prohibited)
 

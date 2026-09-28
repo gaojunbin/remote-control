@@ -19,7 +19,8 @@ enum FoundationScenarios {
             PreviewScenario(name: "gallery-modal-sheet", width: 600, height: 760,
                             content: { _ in AnyView(OverlayGallery(kind: .modal)) }),
             PreviewScenario(name: "gallery-drawer", content: { _ in AnyView(OverlayGallery(kind: .drawer)) }),
-            PreviewScenario(name: "gallery-confirm", content: { _ in AnyView(OverlayGallery(kind: .confirm)) })
+            PreviewScenario(name: "gallery-confirm", content: { _ in AnyView(OverlayGallery(kind: .confirm)) }),
+            PreviewScenario(name: "gallery-scroll-thin", content: { _ in AnyView(ScrollThinGallery()) })
         ] + overlayOrder
     }
 

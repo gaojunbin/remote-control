@@ -128,6 +128,15 @@ three dots, lit by `\.rowIsHovered`), `Badge`, `AgentChip`, `AgentLogo`, `Mark`,
 lucide icon the web imports, named as it imports them. `swift run RCMacPreview
 --demo --scenario gallery,gallery-tokens,gallery-menu` draws all of them.
 
+**Thin scroll bars.** `ThinScrollView` and `.scrollThin()` are the web's
+`.scroll-thin`, which both Chrome and Safari draw as the system's thin scroll bar
+(`scrollbar-width: thin` wins over the `::-webkit-scrollbar` rules under it): an
+overlay that takes no room while the system shows scroll bars when scrolling, and
+the small legacy scroller while they always show (or a mouse makes them), taking
+its width beside or under content that overflows and nothing otherwise.
+`ScrollThin.gutter` is that width — 0 as an overlay — for a pane that sizes itself
+around its scroll bar.
+
 **Overlays** are drawn in the window, never as system popovers, sheets, alerts or
 menus. `.modal(isPresented:title:width:showClose:content:footer:)`,
 `.drawer(isPresented:title:subtitle:content:footer:)`,
@@ -185,7 +194,10 @@ offline demo), taken to its route, prepared, left to settle, and written as
 `account` is `.signedIn`, `.signedOut` (the form) or `.updateRequired`; `setup`
 runs before the window exists and `prepare` after it shows the route; `content`
 draws one view where the route would be. The registry is
-`Scenarios/FoundationScenarios.swift` plus one file per feature.
+`Scenarios/FoundationScenarios.swift` plus one file per feature. Scroll bars render
+as overlays whatever the Mac's setting or its mouse, so a render does not depend on
+the machine it was made on; add `-AppleShowScrollBars Always` to render the small
+legacy scrollers instead (`gallery-scroll-thin` shows both shapes).
 
 The capture renders the window's layer tree through `CARenderer` into a Metal
 texture — the compositor the window server runs — because `NSView.cacheDisplay`

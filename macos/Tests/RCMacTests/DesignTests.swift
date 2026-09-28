@@ -148,3 +148,62 @@ extension LanguageSensitive {
         }
     }
 }
+
+/// `.scroll-thin` as the browsers draw it: the system's thin scroll bar, which
+/// takes no room as an overlay and the small legacy scroller's width otherwise.
+@Suite("Thin scroll bars") @MainActor
+struct ThinScrollTests {
+    @Test func anAxisReadsAsTheScrollerDoes() {
+        let long = ScrollAxis(content: 720, visible: 200, offset: 130)
+        #expect(long.overflows && long.maxOffset == 520)
+        #expect(abs(long.knobProportion - 200.0 / 720) < 0.0001)
+        #expect(abs(long.value - 0.25) < 0.0001)
+        #expect(long.offset(for: 0.5) == 260 && long.offset(for: 1.5) == 520 && long.offset(for: -1) == 0)
+        // WebKit's page: seven eighths of what shows, or all of it but 40 points.
+        #expect(long.page == 175)
+        #expect(ScrollAxis(content: 1000, visible: 600, offset: 0).page == 560)
+        let short = ScrollAxis(content: 200, visible: 200, offset: 0)
+        #expect(!short.overflows && short.knobProportion == 1 && short.value == 0)
+    }
+
+    /// Whatever this Mac's setting, the content and the bar share the pane: the
+    /// content is as wide as the pane less the room the bar takes, which is
+    /// none as an overlay — and, as the small legacy scroller, that scroller
+    /// stands exactly where the content ends.
+    @Test func theContentEndsWhereTheBarBegins() async {
+        let width = WidthBox()
+        let pane = ThinScrollView {
+            VStack(spacing: 0) {
+                ForEach(0..<40, id: \.self) { Text("Row \($0)").frame(maxWidth: .infinity).frame(height: 24) }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width.value = $0 }
+        }
+        .frame(width: 300, height: 200)
+        let window = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 300, height: 200),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: pane)
+        window.orderFrontRegardless()
+        defer { window.close() }
+        for _ in 0..<40 where abs(width.value - (300 - ScrollThin.gutter)) > 0.5 {
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(abs(width.value - (300 - ScrollThin.gutter)) < 0.5, "\(width.value)")
+        let scrollers = Self.views(of: SmallLegacyScroller.self, in: window.contentView)
+        if ScrollThin.gutter > 0 {
+            #expect(scrollers.count == 1 && abs((scrollers.first?.frame.minX ?? 0) - width.value) < 0.5)
+        } else {
+            #expect(scrollers.isEmpty)
+        }
+    }
+
+    private static func views<T: NSView>(of type: T.Type, in view: NSView?) -> [T] {
+        guard let view else { return [] }
+        return view.subviews.flatMap { ($0 as? T).map { [$0] } ?? views(of: type, in: $0) }
+    }
+}
+
+@MainActor
+private final class WidthBox {
+    var value: CGFloat = 0
+}
