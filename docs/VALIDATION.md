@@ -2675,7 +2675,9 @@ timeline row cap, a voice-composer caret, once the pairing page) hit their 5 s l
 of the parallel toolchains and passed alone (111/111 for the files concerned). **Not verified:** a
 real device and a real agent end to end — the device change is agent-independent, every agent
 queueing through `queue.py`, and it is covered by unit tests; the owner's browser and phone. All
-four components 1.9.0 (a feature release), iOS build 26, tag v1.9.0. CI_RESULT_52
+four components 1.9.0 (a feature release), iOS build 26, tag v1.9.0. After the bump the web suite
+passed 822/822 in one run on master, the UI run being over; GitHub "iOS checks" on 69270d7 (run
+36370198408) passed in 7 min 3 s.
 
 ## Smoke procedure
 
