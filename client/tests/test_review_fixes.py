@@ -291,7 +291,10 @@ async def test_queued_messages_keep_their_attachments(tmp_path: Path) -> None:
     )
     assert entry.queue[0]["attachments"] == [attachment]
     snapshot = hub.queue_snapshot(entry)
-    assert snapshot == [{"id": "req-2", "text": "look", "ts": entry.queue[0]["ts"]}]
+    # The files stay on the device; only how many there are goes out (A43).
+    assert snapshot == [
+        {"id": "req-2", "text": "look", "ts": entry.queue[0]["ts"], "attachments": 1}
+    ]
 
     await runner.finish()
     await hub.drain_queue(entry)
