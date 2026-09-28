@@ -210,6 +210,9 @@ text is wider in a Chrome screenshot than in Safari or this app.
 ## Differences from the web that remain
 
 - **Mono text** is SF Mono, as Safari draws the web's `ui-monospace`; a Chrome screenshot shows Menlo.
+- **Chinese on macOS 26** sets about 2 % wider than Chrome's: macOS 26 still gives PingFang SC its
+  size-specific tracking where macOS 27 honours the optical size that removes it. The exact Chinese
+  widths are checked on macOS 27, where they were measured.
 - **A tool's JSON input** lists its keys alphabetically: RCCore's `JSONValue` keeps an object as a
   dictionary (the iPhone app shows the same), where the web keeps the device's order.
 - **Load earlier** on a long conversation leaves the reading position about a line (≈45 pt) lower

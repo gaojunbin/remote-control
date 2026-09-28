@@ -76,6 +76,12 @@ struct DesignTests {
 }
 
 extension LanguageSensitive {
+    /// The Chrome widths below were taken on macOS 27. macOS 26 still gives PingFang
+    /// SC its size-specific tracking at optical size 0, so Chinese sets 2 % wider
+    /// there (a CI runner on 26.6 measures 544 where Chrome and macOS 27 give 533):
+    /// the exact Chinese widths are checked on the release they were measured on.
+    static let chineseWidthsApply = ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+
     /// Chinese as Chrome sets it: `lang` the interface language, the web's
     /// font stack, 13 px / 1.45 (the Settings row sentence). The sizes are
     /// Chrome's; a window with no screen rounds a view up to a whole point.
@@ -91,7 +97,8 @@ extension LanguageSensitive {
                 .fixedSize(horizontal: width == nil, vertical: true)).fittingSize
         }
 
-        @Test func aLineMeasuresWhatChromesDoesUnderZhHans() {
+        @Test(.enabled(if: LanguageSensitive.chineseWidthsApply))
+        func aLineMeasuresWhatChromesDoesUnderZhHans() {
             InterfaceLanguageSource.shared.current = .zhHans
             defer { InterfaceLanguageSource.shared.current = .en }
             let measured: [(String, CGFloat)] = [
@@ -137,7 +144,8 @@ extension LanguageSensitive {
                 (.zhHans, "English", "中文", 107.56), (.zhHans, "简约", "详细", 89.00)
             ]
             defer { InterfaceLanguageSource.shared.current = .en }
-            for (language, first, second, chrome) in measured {
+            for (language, first, second, chrome) in measured
+            where language == .en || LanguageSensitive.chineseWidthsApply {
                 InterfaceLanguageSource.shared.current = language
                 let control = Segmented(value: first, options: [
                     SegmentOption(value: first, label: first), SegmentOption(value: second, label: second)
