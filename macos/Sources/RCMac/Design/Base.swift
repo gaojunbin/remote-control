@@ -5,7 +5,7 @@ extension View {
     /// system face at 14 px, and ink as the tint every control inherits.
     public func webBase() -> some View {
         foregroundStyle(Palette.ink)
-            .font(.system(size: FontSize.fs14))
+            .font(.web(size: FontSize.fs14))
             .tint(Palette.ink)
             .background(Palette.canvas)
     }

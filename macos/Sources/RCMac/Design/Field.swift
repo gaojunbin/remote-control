@@ -31,7 +31,7 @@ public struct FieldText: View {
             }
             entry.accessibilityLabel(placeholder)
         }
-        .font(mono ? .system(size: FontSize.fs13, design: .monospaced) : .system(size: FontSize.fs14))
+        .font(mono ? .system(size: FontSize.fs13, design: .monospaced) : .web(size: FontSize.fs14))
     }
 
     @ViewBuilder private var entry: some View {

@@ -76,7 +76,7 @@ private struct SegmentBody: View {
 
     var body: some View {
         HStack(spacing: Space.sp2) { configuration.label }
-            .font(.system(size: FontSize.fs14))
+            .font(.web(size: FontSize.fs14))
             .lineLimit(1)
             .frame(maxWidth: .infinity)
             .frame(height: 32)

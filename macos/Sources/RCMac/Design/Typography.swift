@@ -31,13 +31,13 @@ public struct TextStyle: Sendable, Hashable {
     }
 
     public var font: Font {
-        mono ? .system(size: size, weight: weight, design: .monospaced) : .system(size: size, weight: weight)
+        mono ? .system(size: size, weight: weight, design: .monospaced) : .web(size: size, weight: weight)
     }
 
     /// The AppKit face of the same style, for views drawn with AppKit.
     public var nsFont: NSFont {
         mono ? .monospacedSystemFont(ofSize: size, weight: weight.nsWeight)
-             : .systemFont(ofSize: size, weight: weight.nsWeight)
+             : SystemFace.font(size: size, weight: weight.nsWeight)
     }
 
     /// One line's box: `line-height × font-size`.

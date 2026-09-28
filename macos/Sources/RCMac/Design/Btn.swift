@@ -78,7 +78,7 @@ private struct BtnBody: View {
         // included, and an ink outline that follows it.
         let shape = RoundedRectangle(cornerRadius: isFocused ? 4 : size.height / 2, style: .circular)
         HStack(spacing: Space.sp2) { configuration.label }
-            .font(.system(size: size.fontSize, weight: .medium))
+            .font(.web(size: size.fontSize, weight: .medium))
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, size.padding)

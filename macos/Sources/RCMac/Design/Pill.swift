@@ -30,7 +30,7 @@ private struct PillBody: View {
         let lit = isEnabled && !quiet && (isHovered || configuration.isPressed)
         let shape = RoundedRectangle(cornerRadius: isFocused ? 4 : 14, style: .circular)
         HStack(spacing: 6) { configuration.label }
-            .font(.system(size: FontSize.fs13))
+            .font(.web(size: FontSize.fs13))
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, quiet ? 2 : 11)

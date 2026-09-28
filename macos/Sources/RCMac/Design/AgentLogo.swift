@@ -29,7 +29,7 @@ public struct AgentLogo: View {
                 }
             } else {
                 Text(agent.prefix(1).uppercased())
-                    .font(.system(size: size, weight: .semibold))
+                    .font(.web(size: size, weight: .semibold))
                     .lineLimit(1)
                     .fixedSize()
             }

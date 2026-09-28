@@ -1,3 +1,4 @@
+import CoreText
 import SwiftUI
 import Testing
 @testable import RCMac
@@ -13,6 +14,21 @@ struct DesignTests {
         ]
         for (size, lineHeight, baseline) in measured {
             #expect(TextStyle(size: size, lineHeight: lineHeight).baseline == baseline, "\(size)px × \(lineHeight)")
+        }
+    }
+
+    /// Chrome's widths for a middle dot line, the same under `lang="en"` and
+    /// `lang="zh-Hans"`: the dot is the system face's own, never the CJK
+    /// symbols font a Chinese-first Mac would otherwise hand it to.
+    @Test func aMiddleDotMeasuresWhatTheBrowsersDoes() {
+        let measured: [(String, CGFloat, NSFont.Weight, CGFloat)] = [
+            ("Up next · 3", 12, .medium, 62.70), ("web · 13m", 13, .regular, 61.22)
+        ]
+        for (text, size, weight, chrome) in measured {
+            let font = SystemFace.font(size: size, weight: weight)
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
+            #expect(abs(CTLineGetTypographicBounds(line, nil, nil, nil) - chrome) < 0.2, "\(text)")
+            #expect((CTLineGetGlyphRuns(line) as? [CTRun])?.count == 1, "\(text) is drawn in one face")
         }
     }
 
