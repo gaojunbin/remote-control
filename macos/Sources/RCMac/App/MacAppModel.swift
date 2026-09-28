@@ -157,7 +157,13 @@ public final class MacAppModel {
     }
 
     /// Bind the account's preference stores to the connection's client.
+    ///
+    /// `stt_language` is the language the iPhone's own recogniser listens for
+    /// (A44); the web never writes it, and the Mac has no recogniser. So the
+    /// Mac listens for none: an empty dictation language, which `PreferenceSync`
+    /// never writes up — it writes only a language a recogniser listens for.
     func attachAccount() {
+        settings.voiceLanguage = ""
         preferences.attach(api: connection.api)
         preferenceSync.attach(api: connection.api)
     }

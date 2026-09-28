@@ -55,7 +55,20 @@ extension LanguageSensitive {
             #expect(calls == ["first:true", "second"])
             #expect(!model.isSignedIn)
             #expect(model.router.route == .login)
+            // Signed out from Settings, the next sign-in lands by the landing rule.
+            #expect(model.router.returnTo == nil)
             #expect(model.deviceUpdateErrors.isEmpty)
+        }
+
+        @Test func aSessionTheGatewayEndedReturnsToThePageOnTheNextSignIn() async {
+            let model = MacAppModel(options: LaunchOptions(demo: true, ephemeral: true))
+            defer { model.discardEphemeralState() }
+            await model.restoreOrPrompt()
+            _ = await wait { model.connection.hasSnapshot }
+            model.router.go(.settings)
+            await model.endSession(keepingPlace: true)
+            #expect(model.router.route == .login)
+            #expect(model.router.returnTo == .settings)
         }
 
         @Test func theFormSaysWhatTheGatewayRefused() async {
@@ -99,6 +112,19 @@ extension LanguageSensitive {
             #expect(model.connection.updateRequired?.minimum == AppVersion(DemoFixtures.laterAppVersion))
             await model.signOut()
             #expect(model.connection.updateRequired == nil)
+        }
+
+        /// A44: `stt_language` is the phone recogniser's. The web never writes
+        /// it, and the Mac has no recogniser, so a sign-in leaves it as it was.
+        @Test func aSignInWritesNoDictationLanguage() async throws {
+            let model = MacAppModel(options: LaunchOptions(demo: true, ephemeral: true))
+            defer { model.discardEphemeralState() }
+            await model.restoreOrPrompt()
+            #expect(await wait { model.connection.hasSnapshot })
+            await model.preferenceSync.settle()
+            let held = try await #require(model.connection.api).preferences().preferences
+            #expect(held.sttLanguage == nil)
+            await model.signOut()
         }
 
         @Test func aTransitionReachesEveryHandler() async {

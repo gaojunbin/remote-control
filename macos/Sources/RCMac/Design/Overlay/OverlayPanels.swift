@@ -57,7 +57,8 @@ struct ModalPanel<Content: View, Footer: View>: View {
                     .padding(.top, Space.sp6)
             }
             FittingScroll {
-                content
+                // `.modal-body` is a block: what it holds stacks with no gap.
+                VStack(alignment: .leading, spacing: 0) { content }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, Space.sp4)
                     .padding(.horizontal, Space.sp6)

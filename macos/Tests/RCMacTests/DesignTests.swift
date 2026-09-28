@@ -1,4 +1,5 @@
 import CoreText
+import RCCore
 import SwiftUI
 import Testing
 @testable import RCMac
@@ -70,6 +71,80 @@ struct DesignTests {
         for agent in ["claude", "codex", "grok", "pi"] {
             let logo = try! #require(AgentLogoArt.logos[agent])
             #expect(logo.paths.allSatisfy { !$0.path.isEmpty }, "\(agent)")
+        }
+    }
+}
+
+extension LanguageSensitive {
+    /// Chinese as Chrome sets it: `lang` the interface language, the web's
+    /// font stack, 13 px / 1.45 (the Settings row sentence). The sizes are
+    /// Chrome's; a window with no screen rounds a view up to a whole point.
+    @Suite("Chinese type") @MainActor
+    struct ChineseTypeTests {
+        private let polish = "开启后，会把你的听写内容和最近几条消息发给此网关配置的模型；关闭时不发送任何内容。"
+        private let style = TextStyle(size: FontSize.fs13, lineHeight: 1.45)
+
+        init() { InterfaceLanguageSource.shared.current = .en }
+
+        private func size(_ text: String, width: CGFloat? = nil) -> CGSize {
+            NSHostingView(rootView: Text(text).textStyle(style).frame(width: width)
+                .fixedSize(horizontal: width == nil, vertical: true)).fittingSize
+        }
+
+        @Test func aLineMeasuresWhatChromesDoesUnderZhHans() {
+            InterfaceLanguageSource.shared.current = .zhHans
+            defer { InterfaceLanguageSource.shared.current = .en }
+            let measured: [(String, CGFloat)] = [
+                (polish, 533.00), ("“适度”只做清理；“加强”还会重组语句并明确指代。", 296.56),
+                ("简约只显示写给你的内容。详细会加上思考、工具调用和任务清单。", 390.00),
+                ("缓存的会话和草稿将从此设备移除，你的机器不受影响。", 325.00)
+            ]
+            for (text, chrome) in measured {
+                let width = size(text).width
+                #expect(width >= chrome && width < chrome + 1, "\(text.prefix(6)): \(width) against \(chrome)")
+            }
+        }
+
+        /// Chrome breaks after 30 characters at 400 px, and puts the last two
+        /// characters of the note on a line of their own at 520 and 530 px, where
+        /// the full stop may not start a line.
+        @Test func wrappedLinesAreChromesUnderZhHans() {
+            InterfaceLanguageSource.shared.current = .zhHans
+            defer { InterfaceLanguageSource.shared.current = .en }
+            let measured: [(String, CGFloat, CGFloat)] = [
+                (polish + polish + polish, 400, 94.22), (polish, 520, 37.69), (polish, 530, 37.69)
+            ]
+            for (text, width, chrome) in measured {
+                let height = size(text, width: width).height
+                #expect(height >= chrome && height < chrome + 1, "\(width) px: \(height) against \(chrome)")
+            }
+        }
+
+        /// Under `en` Chrome draws Han in the system face's own cascade, as CoreText does.
+        @Test func chineseInAnEnglishInterfaceIsTheSystemFacesCascade() {
+            let width = NSHostingView(rootView: Text("中文").textStyle(TextStyle(size: FontSize.fs14)).fixedSize())
+                .fittingSize.width
+            #expect(width >= 27.80 && width < 28.80)
+        }
+
+        /// Settings' Segmented controls, sized by their labels: Chrome's widths
+        /// of the whole control, 3 px inset and between, each segment its label
+        /// and the button's 6 px on either side.
+        @Test func aSegmentedSizedByItsLabelsIsChromes() {
+            let measured: [(InterfaceLanguage, String, String, CGFloat)] = [
+                (.en, "Moderate", "Strong", 138.16), (.en, "English", "中文", 107.36),
+                (.en, "Simple", "Detailed", 130.13), (.zhHans, "适度", "加强", 89.00),
+                (.zhHans, "English", "中文", 107.56), (.zhHans, "简约", "详细", 89.00)
+            ]
+            defer { InterfaceLanguageSource.shared.current = .en }
+            for (language, first, second, chrome) in measured {
+                InterfaceLanguageSource.shared.current = language
+                let control = Segmented(value: first, options: [
+                    SegmentOption(value: first, label: first), SegmentOption(value: second, label: second)
+                ], ariaLabel: "") { _ in }
+                let width = NSHostingView(rootView: control.fixedSize()).fittingSize.width
+                #expect(abs(width - chrome) < 1.5, "\(first) | \(second): \(width) against \(chrome)")
+            }
         }
     }
 }

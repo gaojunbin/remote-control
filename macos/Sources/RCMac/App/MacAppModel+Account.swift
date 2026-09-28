@@ -32,8 +32,15 @@ extension MacAppModel {
     /// `signOut.ts`: every feature's own state first (its handlers run while the
     /// connection still names the account), then the drafts, then the
     /// connection itself, which drops the token, the cached lists and every
-    /// capability the next `hello` has not confirmed.
+    /// capability the next `hello` has not confirmed. The next sign-in lands by
+    /// the landing rule, wherever this one left from.
     public func signOut() async {
+        await endSession(keepingPlace: false)
+    }
+
+    /// Sign out, for the person or for the gateway: a session the gateway
+    /// ended keeps the page the app was on for the next sign-in (`Router`).
+    func endSession(keepingPlace: Bool) async {
         guard !isSigningOut else { return }
         isSigningOut = true
         defer { isSigningOut = false }
@@ -44,19 +51,20 @@ extension MacAppModel {
         await drafts.clear(account: connection.account)
         await connection.signOut()
         wasSignedIn = false
-        router.signedOut()
+        router.signedOut(keepingPlace: keepingPlace)
     }
 
     /// A session the gateway ended on its own — a token it revoked (4401), an
     /// account it refused (4403), a stored token it no longer takes — ends as
-    /// the Sign out button does, which is what the web's `onUnauthorized` does.
+    /// the Sign out button does, which is what the web's `onUnauthorized` does,
+    /// except that the next sign-in returns to where the app was.
     func followSignedIn() {
         let signedIn = withObservationTracking {
             connection.isSignedIn
         } onChange: { [weak self] in
             Task { @MainActor in self?.followSignedIn() }
         }
-        if wasSignedIn && !signedIn && !isSigningOut { Task { await signOut() } }
+        if wasSignedIn && !signedIn && !isSigningOut { Task { await endSession(keepingPlace: true) } }
         wasSignedIn = signedIn
     }
 }

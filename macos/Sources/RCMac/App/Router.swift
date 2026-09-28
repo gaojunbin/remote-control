@@ -6,9 +6,10 @@ import Observation
 /// history**).
 ///
 /// `go` is a link followed, `replace` is `navigate(…, { replace: true })`.
-/// Signing out lands on the login page and remembers where the app was, which
-/// is where a sign-in returns to — the web keeps it as the login route's
-/// `state.from`.
+/// A session the gateway ended lands on the login page remembering where the
+/// app was, which is where the next sign-in returns — the web keeps it as the
+/// login route's `state.from`. Sign out remembers nothing, and the next sign-in
+/// lands by the landing rule.
 @MainActor
 @Observable
 public final class Router {
@@ -68,11 +69,20 @@ public final class Router {
         return pendingNewSession
     }
 
-    /// Nobody is signed in any more: every path is the login page, and the one
-    /// the app was on is where the next sign-in returns. The history goes, so
-    /// Back never opens a page of the account that left.
-    func signedOut() {
-        if route != .login && route != .landing { returnTo = route }
+    /// Nobody is signed in any more: every path is the login page, and the
+    /// history goes, so Back never opens a page of the account that left.
+    ///
+    /// `keepingPlace` is a session the gateway ended — revoked, refused, a
+    /// stored token it no longer takes: the page the app was on is where the
+    /// next sign-in returns, as the web's redirect to the login page carries it
+    /// in `state.from`. Sign out is not: the web's goes to the login page with
+    /// no state, so the next sign-in lands by the landing rule.
+    func signedOut(keepingPlace: Bool) {
+        if !keepingPlace {
+            returnTo = nil
+        } else if route != .login && route != .landing {
+            returnTo = route
+        }
         backStack.removeAll()
         forwardStack.removeAll()
         route = .login

@@ -151,6 +151,20 @@ private struct ControlSamples: View {
                 ], ariaLabel: "Strength") { strength = $0 }
                 .frame(width: 240)
             }
+            // Sized by their labels, as the rows of Settings draw them.
+            HStack(spacing: Space.sp4) {
+                Segmented(value: "moderate", options: [
+                    SegmentOption(value: "moderate", label: "Moderate"), SegmentOption(value: "strong", label: "Strong")
+                ], ariaLabel: "Strength") { _ in }
+                Segmented(value: "en", options: [
+                    SegmentOption(value: "en", label: "English"), SegmentOption(value: "zh-Hans", label: "中文")
+                ], ariaLabel: "Language") { _ in }
+                Segmented(value: TimelineDetail.simple, options: [
+                    SegmentOption(value: TimelineDetail.simple, label: S.timelineDetailLabel(.simple)),
+                    SegmentOption(value: TimelineDetail.detailed, label: S.timelineDetailLabel(.detailed))
+                ], ariaLabel: "Detail") { _ in }
+            }
+            .fixedSize()
             MenuList {
                 MenuItemRow("Rename") {}
                 MenuItemRow("Selected option", description: "With a description under it", selected: true) {}

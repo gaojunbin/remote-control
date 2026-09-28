@@ -28,24 +28,37 @@ struct RouterTests {
         #expect(!router.canGoBack)
     }
 
-    @Test func signingOutRemembersWhereASignInReturns() {
+    /// The web's redirect to the login page carries the page in `state.from`.
+    @Test func aSessionTheGatewayEndedReturnsWhereTheAppWas() {
         let router = Router()
         router.replace(.settings)
         router.go(.devices)
-        router.signedOut()
+        router.signedOut(keepingPlace: true)
         #expect(router.route == .login)
         #expect(!router.canGoBack)
         router.signedIn()
         #expect(router.route == .devices)
-        router.signedOut()
-        router.signedOut()
+        router.signedOut(keepingPlace: true)
+        router.signedOut(keepingPlace: true)
         router.signedIn()
         #expect(router.route == .devices)
     }
 
+    /// The web's Sign out goes to the login page with no state.
+    @Test func signingOutLandsTheNextSignInByTheLandingRule() {
+        let router = Router()
+        router.replace(.settings)
+        router.signedOut(keepingPlace: true)
+        router.signedIn()
+        router.signedOut(keepingPlace: false)
+        #expect(router.route == .login && router.returnTo == nil)
+        router.signedIn()
+        #expect(router.route == .landing)
+    }
+
     @Test func aSignInWithNowhereToReturnLands() {
         let router = Router()
-        router.signedOut()
+        router.signedOut(keepingPlace: true)
         router.signedIn()
         #expect(router.route == .landing)
     }
