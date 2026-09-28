@@ -58,7 +58,9 @@ class Preferences:
     resume_after_limit: bool = False
     #: The app's interface language: ``en`` or ``zh-Hans``.
     language: str | None = None
-    #: The dictation language: ``auto``, or a code from ``stt.languages``.
+    #: The language a phone that recognises speech itself listens for — ``zh``, ``en``, … —
+    #: Chinese when unset, and an ``auto`` written before A44 reads as unset. The gateway's own
+    #: provider detects the language and never reads it; this stores what an app writes.
     stt_language: str | None = None
     #: Whether a finished dictation goes through the gateway's polish model (A29).
     polish_enabled: bool | None = None

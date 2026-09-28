@@ -4,6 +4,8 @@
 parameters as a second line of defence: FastAPI parses a declared form *before* it solves
 dependencies, so with a body parameter the route's own `Depends(require_user)` would run only after
 the upload had been read. With none, the dependency runs first and the form is read explicitly.
+
+A `language` field an older app sends is ignored: the provider detects the language (A44).
 """
 
 from __future__ import annotations
@@ -46,7 +48,6 @@ async def transcribe(request: Request, _: Credential = Depends(require_user)) ->
         audio = form.get("audio")
         if not isinstance(audio, UploadFile):
             raise HTTPException(status_code=400, detail={"code": "bad_request"})
-        language = resolve_language(state.config.stt.languages, form.get("language"))
         payload = await audio.read(MAX_UPLOAD_BYTES + 1)
         if len(payload) > MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail={"code": "too_large"})
@@ -58,7 +59,7 @@ async def transcribe(request: Request, _: Credential = Depends(require_user)) ->
         await form.close()
     try:
         transcript = await state.transcriber.transcribe(
-            payload, filename=filename, content_type=content_type, language=language
+            payload, filename=filename, content_type=content_type
         )
     except SttError as exc:
         status = 400 if exc.code == "bad_request" else 502
@@ -67,19 +68,6 @@ async def transcribe(request: Request, _: Credential = Depends(require_user)) ->
         {"text": transcript.text, "language": transcript.language},
         headers={"Cache-Control": "no-store"},
     )
-
-
-def resolve_language(allowed: tuple[str, ...], requested: object) -> str | None:
-    """Accept only a language the gateway advertises in ``/api/config``.
-
-    The value is forwarded to the speech backend, so it is never taken on trust: an unbounded or
-    unexpected string would reach a third-party API as-is.
-    """
-    if requested is None or requested == "":
-        return None
-    if not isinstance(requested, str) or requested not in allowed:
-        raise HTTPException(status_code=400, detail={"code": "bad_request"})
-    return requested
 
 
 def _guess_type(filename: str) -> str:

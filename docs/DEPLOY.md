@@ -132,7 +132,6 @@ names the missing one.
 | `STT_REALTIME_URL` | empty | The `wss://` endpoint of the `realtime` provider, required with it. The model goes in its query; a bare URL gets `?model={STT_MODEL}` appended |
 | `STT_API_KEY` | empty | Bearer token for that server. Not needed by most local servers |
 | `STT_MODEL` | `whisper-1` | Model name the backend expects |
-| `STT_LANGUAGES` | `auto,zh,en` | The languages offered in the composer's picker. `auto` lets the backend detect |
 | `POLISH_BASE_URL` | empty | OpenAI-compatible base URL for dictation polish (A29); the gateway calls `{POLISH_BASE_URL}/models` and `{POLISH_BASE_URL}/chat/completions`. Empty leaves the feature off and the apps show the setting disabled |
 | `POLISH_API_KEY` | empty | Bearer token for that provider. Both this and the base URL are needed to enable polish |
 | `POLISH_MODELS` | empty | Optional comma-separated allowlist of model ids: it narrows and orders the list the apps offer, stands in for a provider that serves no `/models`, and makes `POST /api/polish` refuse any other model with `400` |
@@ -292,7 +291,9 @@ orphaned along with the VAPID key.
 
 Voice input is off until `STT_PROVIDER` names a backend. Four ways to provide one; only the last
 streams words as they are said — the other three answer whole utterances, and the gateway fakes
-partials by re-sending everything every two seconds.
+partials by re-sending everything every two seconds. Whichever it is, the provider always detects
+the language itself: there is no language setting, the apps offer no choice for dictation the
+gateway transcribes, and a language an older app still sends is ignored (A44).
 
 **A hosted OpenAI-compatible provider.** Any server implementing
 `POST {STT_BASE_URL}/audio/transcriptions`:
@@ -314,10 +315,9 @@ STT_API_KEY=…
 STT_MODEL=mimo-v2.5-asr
 ```
 
-MiMo accepts only `auto`, `zh` and `en`, so `STT_LANGUAGES` must list no others. It also caps an
-utterance at 10 MB of base64; the gateway refuses anything larger before it sends the request, which
-no recording under the protocol's 120 s limit reaches. The request shape was checked against a fake
-local server, not against MiMo: the machine that wrote this had no MiMo key.
+MiMo caps an utterance at 10 MB of base64; the gateway refuses anything larger before it sends the
+request, which no recording under the protocol's 120 s limit reaches. The request shape was checked
+against a fake local server, not against MiMo: the machine that wrote this had no MiMo key.
 
 **Live, over the OpenAI Realtime protocol (round 50).** Alibaba Model Studio's
 `qwen3-asr-flash-realtime` speaks it: the gateway holds one WebSocket to the vendor per utterance,
@@ -335,7 +335,6 @@ STT_PROVIDER=realtime
 STT_REALTIME_URL=wss://<workspace-id>.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime
 STT_MODEL=qwen3-asr-flash-realtime
 STT_API_KEY=sk-…          # the Model Studio API key
-STT_LANGUAGES=auto,zh,en
 ```
 
 The Singapore region is `ap-southeast-1.maas.aliyuncs.com`; the workspace id and the key come from

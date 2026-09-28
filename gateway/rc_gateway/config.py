@@ -24,7 +24,6 @@ from .origins import canonical_origin
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SESSION_TTL_SECONDS = 30 * 24 * 3600
 PAIRING_TTL_SECONDS = 600
-DEFAULT_STT_LANGUAGES = ("auto", "zh", "en")
 #: The speech backends the gateway has a client for; ``none`` disables voice input. ``realtime``
 #: is a live session over the OpenAI Realtime transcription protocol (Alibaba Model Studio's
 #: ``qwen3-asr-flash-realtime`` speaks it), the only one that streams words as they are said.
@@ -44,7 +43,6 @@ class SttConfig:
     base_url: str
     api_key: str
     model: str
-    languages: tuple[str, ...]
     #: The ``wss://`` endpoint of the ``realtime`` provider, with the model in its query when the
     #: vendor wants it there (``?model=qwen3-asr-flash-realtime``). Empty for every other provider.
     realtime_url: str = ""
@@ -167,11 +165,6 @@ def _ensure_vapid_keys(path: Path) -> str:
     return base64.urlsafe_b64encode(point).rstrip(b"=").decode("ascii")
 
 
-def _split_languages(raw: str) -> tuple[str, ...]:
-    values = tuple(item.strip() for item in raw.split(",") if item.strip())
-    return values or DEFAULT_STT_LANGUAGES
-
-
 def _stt_config() -> SttConfig:
     """Read the ``STT_*`` block, rejecting a provider the gateway has no client for."""
     provider = _env("STT_PROVIDER", "none").lower() or "none"
@@ -187,7 +180,6 @@ def _stt_config() -> SttConfig:
         base_url=_env("STT_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
         api_key=_env("STT_API_KEY"),
         model=model,
-        languages=_split_languages(_env("STT_LANGUAGES", ",".join(DEFAULT_STT_LANGUAGES))),
         realtime_url=realtime_url,
     )
 

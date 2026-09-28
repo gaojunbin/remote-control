@@ -7,6 +7,9 @@ the final transcript on ``stt.stop``. With the ``realtime`` backend (``stt_realt
 is forwarded the moment it arrives and every incremental word the vendor sends comes back as
 ``stt.partial``; ``stt.stop`` asks for the last sentence. Audio is never written to disk.
 
+The provider detects the language (A44). A ``language`` query parameter an older app sends is
+ignored, and ``stt.final`` carries the language the provider reported, or ``auto``.
+
 Every transcription spends the operator's speech credit, so the socket is bounded the way nothing
 else on this path was: the address is rate limited at the upgrade, an account may hold only a few
 streams at once, a stream that goes quiet is closed, and signing out closes it immediately rather
@@ -46,7 +49,7 @@ MAX_SOCKETS_PER_USER = 4
 
 
 @router.websocket("/ws/stt")
-async def stt_socket(ws: WebSocket, language: str | None = None) -> None:
+async def stt_socket(ws: WebSocket) -> None:
     state = state_of(ws)
     if state.stt_limiter.limited(client_ip(ws, state)):
         log.warning("stt upgrade rate limited")
@@ -59,16 +62,13 @@ async def stt_socket(ws: WebSocket, language: str | None = None) -> None:
     if state.transcriber is None:
         await _fail(ws, "speech-to-text is not configured", "unsupported")
         return
-    if language and language not in state.config.stt.languages:
-        await _fail(ws, "unsupported language", "bad_request")
-        return
     if state.stt_sockets[credential.username] >= MAX_SOCKETS_PER_USER:
         log.warning("stt socket refused: account at the stream cap")
         await _fail(ws, "too many speech streams open", "too_many_requests")
         return
 
     state.stt_sockets[credential.username] += 1
-    session = _Stream(ws, state.transcriber, language)
+    session = _Stream(ws, state.transcriber)
     watchdog = asyncio.create_task(_watch_revocation(session, state, credential))
     try:
         await session.run()
@@ -105,10 +105,9 @@ async def _watch_revocation(session: _Stream, state: GatewayState, credential: C
 
 
 class _Stream:
-    def __init__(self, ws: WebSocket, transcriber: Transcriber, language: str | None) -> None:
+    def __init__(self, ws: WebSocket, transcriber: Transcriber) -> None:
         self.ws = ws
         self.transcriber = transcriber
-        self.language = language
         self.utterance = Utterance()
         # The realtime backend streams; the others answer whole utterances (see the module doc).
         self.realtime = transcriber if isinstance(transcriber, RealtimeTranscriber) else None
@@ -173,7 +172,7 @@ class _Stream:
         assert self.realtime is not None
         try:
             if self.live is None:
-                self.live = self.realtime.live(self.language, self._live_partial, self._live_error)
+                self.live = self.realtime.live(self._live_partial, self._live_error)
                 await self.live.open()
             await self.live.append(payload)
         except SttError as exc:
@@ -195,10 +194,7 @@ class _Stream:
     async def _live_finalize(self) -> None:
         live = self.live
         if live is None:
-            await _send(
-                self.ws,
-                {"type": "stt.final", "text": "", "language": self.language or "auto"},
-            )
+            await _send(self.ws, {"type": "stt.final", "text": "", "language": "auto"})
             await _close(self.ws)
             return
         try:
@@ -208,10 +204,7 @@ class _Stream:
             return
         finally:
             await self._close_live()
-        await _send(
-            self.ws,
-            {"type": "stt.final", "text": text, "language": self.language or "auto"},
-        )
+        await _send(self.ws, {"type": "stt.final", "text": text, "language": live.language})
         await _close(self.ws)
 
     async def _close_live(self) -> None:
@@ -229,7 +222,7 @@ class _Stream:
     async def _send_partial(self, wav: bytes) -> None:
         try:
             transcript = await self.transcriber.transcribe(
-                wav, filename="audio.wav", content_type="audio/wav", language=self.language
+                wav, filename="audio.wav", content_type="audio/wav"
             )
         except SttError:
             return
@@ -242,18 +235,12 @@ class _Stream:
             return
         await self._cancel_partial()
         if self.utterance.size == 0:
-            await _send(
-                self.ws,
-                {"type": "stt.final", "text": "", "language": self.language or "auto"},
-            )
+            await _send(self.ws, {"type": "stt.final", "text": "", "language": "auto"})
             await _close(self.ws)
             return
         try:
             transcript = await self.transcriber.transcribe(
-                self.utterance.wav(),
-                filename="audio.wav",
-                content_type="audio/wav",
-                language=self.language,
+                self.utterance.wav(), filename="audio.wav", content_type="audio/wav"
             )
         except SttError as exc:
             await _fail(self.ws, str(exc), exc.code)

@@ -7,6 +7,9 @@ recognises audio through a chat completion instead.
 The gateway never stores audio: a request's bytes live in memory for the length of one HTTP call.
 Streaming transcription accumulates raw PCM and re-transcribes the whole utterance every couple of
 seconds, which is what a whisper-style backend supports without a realtime protocol.
+
+No request names a language: the provider detects it (A44), so there is nothing to choose and
+nothing an app sends is forwarded.
 """
 
 from __future__ import annotations
@@ -44,13 +47,12 @@ class SttError(RuntimeError):
 @dataclass(frozen=True)
 class Transcript:
     text: str
+    #: The language the provider reported, or ``auto`` when it names none (A44).
     language: str
 
 
 class Transcriber(Protocol):
-    async def transcribe(
-        self, audio: bytes, *, filename: str, content_type: str, language: str | None
-    ) -> Transcript: ...
+    async def transcribe(self, audio: bytes, *, filename: str, content_type: str) -> Transcript: ...
 
 
 def _unreachable(exc: httpx.HTTPError) -> SttError:
@@ -92,21 +94,20 @@ class _HttpTranscriber:
 
 
 class OpenAiTranscriber(_HttpTranscriber):
-    """Posts multipart audio to ``{base_url}/audio/transcriptions``."""
+    """Posts multipart audio to ``{base_url}/audio/transcriptions``.
 
-    async def transcribe(
-        self, audio: bytes, *, filename: str, content_type: str, language: str | None
-    ) -> Transcript:
+    OpenAI's default ``json`` answer carries the text alone; a compatible server that also names
+    the language it detected is believed.
+    """
+
+    async def transcribe(self, audio: bytes, *, filename: str, content_type: str) -> Transcript:
         if not audio:
             raise SttError("no audio received", "bad_request")
-        data = {"model": self.config.model}
-        if language and language != "auto":
-            data["language"] = language
         try:
             response = await self._http().post(
                 f"{self.config.base_url}/audio/transcriptions",
                 files={"file": (filename, audio, content_type)},
-                data=data,
+                data={"model": self.config.model},
                 headers=self._headers(),
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
@@ -117,7 +118,7 @@ class OpenAiTranscriber(_HttpTranscriber):
         detected = payload.get("language") if isinstance(payload, dict) else None
         return Transcript(
             text=text.strip() if isinstance(text, str) else "",
-            language=detected if isinstance(detected, str) and detected else (language or "auto"),
+            language=detected if isinstance(detected, str) and detected else "auto",
         )
 
 
@@ -125,13 +126,11 @@ class MimoTranscriber(_HttpTranscriber):
     """Posts audio to MiMo's ``{base_url}/chat/completions``, which answers with the transcript.
 
     MiMo has no transcription endpoint: the audio travels as a base64 data URL in the only user
-    message, the language rides in a top-level ``asr_options`` beside ``messages``, and the
-    transcript comes back as the assistant's content.
+    message and the transcript comes back as the assistant's content. With no ``asr_options``
+    beside ``messages`` MiMo detects the language itself, and its answer does not say which.
     """
 
-    async def transcribe(
-        self, audio: bytes, *, filename: str, content_type: str, language: str | None
-    ) -> Transcript:
+    async def transcribe(self, audio: bytes, *, filename: str, content_type: str) -> Transcript:
         if not audio:
             raise SttError("no audio received", "bad_request")
         encoded = base64.b64encode(audio).decode("ascii")
@@ -151,8 +150,6 @@ class MimoTranscriber(_HttpTranscriber):
                 }
             ],
         }
-        if language and language != "auto":
-            body["asr_options"] = {"language": language}
         try:
             response = await self._http().post(
                 f"{self.config.base_url}/chat/completions",
@@ -162,10 +159,7 @@ class MimoTranscriber(_HttpTranscriber):
             )
         except httpx.HTTPError as exc:
             raise _unreachable(exc) from exc
-        return Transcript(
-            text=_completion_text(_decoded(response)),
-            language=language if language and language != "auto" else "auto",
-        )
+        return Transcript(text=_completion_text(_decoded(response)), language="auto")
 
 
 def _completion_text(payload: Any) -> str:
