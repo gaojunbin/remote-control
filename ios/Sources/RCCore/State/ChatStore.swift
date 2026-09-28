@@ -10,14 +10,18 @@ public struct PendingSend: Identifiable, Sendable, Equatable {
     /// sends the same message rather than the text without its attachments.
     public let attachments: [OutboundAttachment]
     public let mode: SendMode
+    /// Amendment A43: the place an edited queued message goes back to, kept
+    /// so a Retry puts it there too rather than at the end of the line.
+    public let queueTs: Int64?
     public var status: Status
 
     public init(id: String, text: String, attachments: [OutboundAttachment],
-                mode: SendMode, status: Status) {
+                mode: SendMode, queueTs: Int64? = nil, status: Status) {
         self.id = id
         self.text = text
         self.attachments = attachments
         self.mode = mode
+        self.queueTs = queueTs
         self.status = status
     }
 
@@ -89,6 +93,15 @@ public final class ChatStore {
     /// the newest content" and "is at the bottom" are the same thing.
     public var isFollowingTail = true { didSet { if isFollowingTail { updatesWhileAway = 0 } } }
     public var draft = "" { didSet { forgetPolishOnEdit() } }
+    /// Amendment A43: the queued message the field is editing, or nil. While
+    /// it is set the field is that message and nothing else.
+    public private(set) var queuedEdit: QueuedEdit?
+    /// Amendment A43: the edit's words are on their way back into the line.
+    /// The field holds still and the button's place holds a spinner until the
+    /// device answers, so nothing is sent twice.
+    public private(set) var isReturningEdit = false
+    /// A `queue_remove` for an edit is out, so a second tap starts nothing.
+    @ObservationIgnored private var isTakingOut = false
     /// Amendment A29: what dictation polish is doing to the draft right now.
     public private(set) var polishPhase: PolishPhase = .idle
     /// Where a dictation is polished. Set by the view layer, which is what
@@ -281,8 +294,12 @@ public final class ChatStore {
     /// composer's button reads Answer while this is set, and the draft in the
     /// message field is the free-text answer to the first question on it that
     /// has nothing chosen or typed for it yet.
+    ///
+    /// Amendment A43: not while a queued message is being edited. The field is
+    /// that message and nothing else, so the question waits for the field
+    /// rather than taking it; the card itself stays live.
     public var pendingQuestion: QuestionPayload? {
-        guard allowsAnswers, let question = timeline.pendingRequest?.question,
+        guard allowsAnswers, queuedEdit == nil, let question = timeline.pendingRequest?.question,
               question.status.isActionable else { return nil }
         return question
     }
@@ -340,11 +357,15 @@ public final class ChatStore {
 
     /// Section 5: `auto` means "send now if idle, otherwise steer or queue".
     /// An agent that lists `steer` joins the running turn instead of waiting
-    /// behind it, so the composer and the status line say so.
-    public var steersRunningTurn: Bool { isRunning && agent?.supports(.steer) == true }
+    /// behind it, so the composer and the status line say so. Amendment A43:
+    /// an edited queued message goes back into the line instead, so it never
+    /// steers.
+    public var steersRunningTurn: Bool {
+        isRunning && queuedEdit == nil && agent?.supports(.steer) == true
+    }
 
     public var canSend: Bool {
-        guard sendBlockReason == nil,
+        guard sendBlockReason == nil, !isReturningEdit,
               !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         // Amendment A27: a command runs between turns, never inside one. The
         // panel says so in its footer; Send simply does not act.
@@ -360,9 +381,10 @@ public final class ChatStore {
 
     /// The draft read as a command, or nil when it is ordinary text. A session
     /// the terminal holds takes nothing from here, and a question outranks
-    /// everything: while one is open the field is the answer field (A20).
+    /// everything: while one is open the field is the answer field (A20). An
+    /// edited queued message is a message and nothing else (A43).
     public var commandDraft: SlashDraft? {
-        guard offersCommands, !isReadOnly, pendingQuestion == nil else { return nil }
+        guard offersCommands, !isReadOnly, queuedEdit == nil, pendingQuestion == nil else { return nil }
         return SlashDraft.parse(draft)
     }
 
@@ -811,14 +833,25 @@ public final class ChatStore {
         // Amendment A29: what goes is what is in the field — the words as
         // dictated while a polish is still out — and that answer is dropped.
         cancelPolish()
-        draft = ""
-        return await deliver(id: UUID().uuidString, text: text, attachments: attachments, mode: mode)
+        guard let edit = queuedEdit else {
+            draft = ""
+            return await deliver(id: UUID().uuidString, text: text, attachments: attachments, mode: mode)
+        }
+        // Amendment A43: the edited words go back into the line where they
+        // were — under the entry's own `ts`, and queued even behind a steering
+        // agent, whose Send would otherwise steer. Interrupt & send is the one
+        // way out of the line, and has no place in it to keep.
+        let requeues = mode != .interrupt
+        return await putBack(edit) {
+            await deliver(id: UUID().uuidString, text: text, attachments: attachments,
+                          mode: requeues ? .queue : .interrupt, queueTs: requeues ? edit.ts : nil)
+        }
     }
 
     @discardableResult
     public func retry(_ pending: PendingSend) async -> SendOutcome {
-        await deliver(id: pending.id, text: pending.text,
-                      attachments: pending.attachments, mode: pending.mode)
+        await deliver(id: pending.id, text: pending.text, attachments: pending.attachments,
+                      mode: pending.mode, queueTs: pending.queueTs)
     }
 
     /// Amendment A12: the request id is the block id the device will echo, so
@@ -826,19 +859,20 @@ public final class ChatStore {
     /// device's own event replaces it in place. Nothing here waits for a round
     /// trip that the user can feel.
     private func deliver(id: String, text: String, attachments: [OutboundAttachment],
-                         mode: SendMode) async -> SendOutcome {
+                         mode: SendMode, queueTs: Int64? = nil) async -> SendOutcome {
         // Sending is a request to watch what happens next, so the
         // transcript returns to the tail before the message lands.
         isFollowingTail = true
         let record = PendingSend(id: id, text: text, attachments: attachments,
-                                 mode: mode, status: .sending)
+                                 mode: mode, queueTs: queueTs, status: .sending)
         if let index = pendingSends.firstIndex(where: { $0.id == id }) { pendingSends[index] = record }
         else { pendingSends.append(record) }
         timeline.addOptimistic(OptimisticMessage(id: id, text: text,
                                                  attachments: attachments.map(\.info)))
         do {
             let request = try GatewayRequest.send(id: id, sessionID: sessionID, text: text,
-                                                  attachments: attachments, mode: mode)
+                                                  attachments: attachments, mode: mode,
+                                                  queueTs: queueTs)
             let result = try await channel.request(request, as: SendResult.self)
             // A queued message is represented by the queue row above the
             // composer until the device dequeues it and emits the
@@ -1066,12 +1100,120 @@ public final class ChatStore {
         }
     }
 
-    public func removeQueued(_ queuedID: String) async {
+    /// Remove takes a message out of the line for good, and out of the list
+    /// before this returns: a swipe's destructive action has already taken the
+    /// row off the screen, and a list that went on counting it until the reply
+    /// would contradict its own animation — UIKit stops the app for that. The
+    /// device's snapshot follows. Amendment A43: `not_found` means the device
+    /// took the message first, which is said the way an edit says it rather
+    /// than in the device's own words. Any other failure means the device still
+    /// holds the message, and nothing would bring the row back until the queue
+    /// next changed, so it goes back where it stood.
+    @discardableResult
+    public func removeQueued(_ queuedID: String) -> Task<Void, Never> {
+        let removal = timeline.dropQueued(queuedID)
+        countQueue()
         timeline.removeOptimistic(queuedID)
         pendingSends.removeAll { $0.id == queuedID }
-        await perform {
-            try await self.channel.request(.queueRemove(sessionID: self.sessionID, queuedID: queuedID))
+        return Task {
+            do {
+                try await channel.request(.queueRemove(sessionID: sessionID, queuedID: queuedID))
+            } catch let refusal as GatewayErrorBody where refusal.code == .notFound {
+                errorMessage = L10n.string("That message has already been sent.")
+            } catch {
+                if let removal {
+                    timeline.restoreQueued(removal)
+                    countQueue()
+                }
+                errorMessage = describe(error)
+            }
         }
+    }
+
+    /// The chip counts what the list holds.
+    private func countQueue() {
+        session.queued = timeline.queue.count
+        onSessionChange(session)
+    }
+
+    // MARK: - Editing a queued message (A43)
+
+    /// Whether a row of the queue can be taken back into the field. Not one
+    /// that carries files — they are on the device, and no frame brings them
+    /// back — and not while the composer cannot send, or while another edit is
+    /// open: the field holds one message at a time.
+    public func canEdit(_ entry: QueuedMessage) -> Bool {
+        !entry.carriesFiles && queuedEdit == nil && sendBlockReason == nil
+    }
+
+    /// Take a queued message out of the line and into the field. The device
+    /// removes it first, so it cannot deliver words that are still changing;
+    /// only then is what the field held set aside and the entry's words put in
+    /// its place. `not_found` means the device took the message before the tap
+    /// arrived: nothing opens, and one line says so.
+    public func beginEdit(_ entry: QueuedMessage) async {
+        guard canEdit(entry), !isTakingOut else { return }
+        isTakingOut = true
+        defer { isTakingOut = false }
+        do {
+            try await channel.request(.queueRemove(sessionID: sessionID, queuedID: entry.id))
+        } catch let refusal as GatewayErrorBody where refusal.code == .notFound {
+            errorMessage = L10n.string("That message has already been sent.")
+            return
+        } catch {
+            errorMessage = describe(error)
+            return
+        }
+        cancelPolish()
+        queuedEdit = QueuedEdit(entry: entry, aside: draft)
+        draft = entry.text
+    }
+
+    /// Cancel puts the original words back into the line the same way Send
+    /// puts the edited ones, and what the field held before comes back in place
+    /// of the edit. A refusal changes nothing: still editing, words and all.
+    public func cancelEdit() async {
+        guard let edit = queuedEdit, canCancelEdit else { return }
+        _ = await putBack(edit) {
+            await deliver(id: UUID().uuidString, text: edit.original, attachments: [],
+                          mode: .queue, queueTs: edit.ts)
+        }
+    }
+
+    /// Cancel is a send, so it waits for whatever holds Send back, and for the
+    /// words already on their way.
+    public var canCancelEdit: Bool {
+        queuedEdit != nil && !isReturningEdit && sendBlockReason == nil
+    }
+
+    /// The name of the one primary while a queued message is being edited, or
+    /// nil when none is. The words go back into the line, so it reads Queue
+    /// while a turn runs — even for a steering agent — and Send while none
+    /// does, because an idle session takes the message at once.
+    public var editingSendLabel: String? {
+        guard queuedEdit != nil else { return nil }
+        return L10n.string(isRunning ? "Queue" : "Send")
+    }
+
+    /// An edit this conversation had open when it was last closed, handed back
+    /// by the app with the draft it saved.
+    public func resumeEdit(_ edit: QueuedEdit?) { queuedEdit = edit }
+
+    /// Words going back into the line, from Send or from Cancel. The field
+    /// keeps them and takes no keys while they are out, and the button's place
+    /// holds a spinner, so nothing is sent twice. The edit is over once they
+    /// are on their way — accepted, or out with their fate unknown and a Retry
+    /// that keeps their place — and the words set aside take the field back. A
+    /// refusal keeps the edit open, the other draft still aside.
+    private func putBack(_ edit: QueuedEdit, _ send: () async -> SendOutcome) async -> SendOutcome {
+        isReturningEdit = true
+        let outcome = await send()
+        isReturningEdit = false
+        if queuedEdit == edit, outcome == .accepted || outcome == .uncertain {
+            queuedEdit = nil
+            draft = edit.aside
+        }
+        return outcome
     }
 
     private func perform(_ operation: @escaping () async throws -> Void) async {

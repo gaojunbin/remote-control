@@ -61,6 +61,16 @@ public final class AppModel {
     /// with. This build, so the demo runs — unless `--demo-update-required`
     /// asked for a higher one, which is how the blocking screen is driven.
     @ObservationIgnored private let demoMinimumAppVersion: String
+    /// Amendment A43: whether the demo's live session opens with messages
+    /// waiting behind a turn that runs on (`--demo-queue`), so the queue can be
+    /// edited and emptied without racing the turn that would deliver it.
+    @ObservationIgnored private let demoHoldsQueue: Bool
+    /// Amendment A43: an edit of a queued message left open when its
+    /// conversation closed, by session key. The message is out of the line and
+    /// the draft it replaced is aside, so both wait here for the conversation
+    /// to open again — in memory for the life of the app, as the web app keeps
+    /// its drafts, and emptied on sign-out.
+    @ObservationIgnored private var queuedEdits: [String: QueuedEdit] = [:]
     @ObservationIgnored private var pendingLink: SessionLink?
     /// Whether the landing rule has already run for this sign-in. It decides
     /// from the first device list and never again, so a `device.updated` that
@@ -92,6 +102,7 @@ public final class AppModel {
         showsPreferenceChange = !isUITesting || arguments.contains("--demo-preference-change")
         demoMinimumAppVersion = arguments.contains("--demo-update-required")
             ? DemoFixtures.laterAppVersion : AppBuild.version
+        demoHoldsQueue = arguments.contains("--demo-queue")
         if arguments.contains("--reset-state") {
             self.settings.reset()
             self.sessions.forgetListState()
@@ -157,7 +168,8 @@ public final class AppModel {
                                   // switch moves, or it would prove nothing.
                                   changesPreferencesElsewhere: showsPreferenceChange,
                                   elsewhereDelay: isUITesting
-                                      ? .seconds(10) : DemoGateway.defaultElsewhereDelay)
+                                      ? .seconds(10) : DemoGateway.defaultElsewhereDelay,
+                                  holdsQueue: demoHoldsQueue)
         await connection.enterDemo(api: gateway, channel: gateway)
         attachPush()
     }
@@ -224,6 +236,7 @@ public final class AppModel {
         preferences.attach(api: nil)
         preferenceSync.attach(api: nil)
         await closeChat()
+        queuedEdits.removeAll()
         path.removeAll()
         hasChosenLandingTab = false
         // The account's drafts go with its cached transcripts and its token.
@@ -279,6 +292,7 @@ public final class AppModel {
         // changing it in Settings redraws an open conversation at once.
         store.detailSource = { [settings] in settings.timelineDetail }
         store.draft = await drafts.draft(account: connection.account, key: session.id)
+        store.resumeEdit(queuedEdits[session.id])
         chat = store
         connection.addFrameHandler("chat") { [weak store] frame in store?.receive(frame) }
         route(to: session.id, inPlace: inPlace)
@@ -299,6 +313,7 @@ public final class AppModel {
     public func closeChat() async {
         guard let store = chat else { return }
         connection.removeFrameHandler("chat")
+        queuedEdits[store.key] = store.queuedEdit
         await drafts.setDraft(store.draft, account: connection.account, key: store.key)
         await connection.persist(transcript: store.timeline.entries.compactMap(\.sourceEvent),
                                  sessionID: store.sessionID, deviceID: store.deviceID)

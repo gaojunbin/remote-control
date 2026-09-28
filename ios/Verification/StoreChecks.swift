@@ -9,6 +9,7 @@ enum StoreChecks {
         let checks = CheckRunner(group: "stores")
         await connection(checks)
         await chat(checks)
+        await queuedEdit(checks)
         sessionsList(checks)
         await revivedSession(checks)
         await closesSession(checks)
@@ -935,6 +936,69 @@ enum StoreChecks {
         await chat.stop()
         await settle(timeout: 10) { !chat.isRunning }
         checks.expect(!chat.isRunning, "Stop interrupts the turn through the leader")
+    }
+
+    /// Amendment A43: a queued message is taken back into the field, edited and
+    /// sent back to the place it left, against a demo device holding three
+    /// messages behind a turn that runs on.
+    @MainActor
+    private static func queuedEdit(_ checks: CheckRunner) async {
+        let gateway = DemoGateway(resumeDelay: nil, holdsQueue: true)
+        let connection = ConnectionStore()
+        await connection.enterDemo(api: gateway, channel: gateway)
+        await settle { connection.hasSnapshot }
+        guard let live = connection.session(deviceID: DemoFixtures.macDeviceID,
+                                            sessionID: DemoFixtures.liveSessionID) else {
+            checks.expect(false, "the demo live session exists")
+            return
+        }
+        checks.equal(live.queued, 3, "the hello counts what the device holds behind the turn")
+        let chat = ChatStore(session: live, channel: gateway)
+        chat.agent = connection.device(live.deviceID)?.agent(live.agent)
+        connection.addFrameHandler("queued") { [weak chat] frame in chat?.receive(frame) }
+        defer { connection.removeFrameHandler("queued") }
+        await chat.open()
+        let line = chat.timeline.queue
+        checks.equal(line.map(\.attachments), [nil, nil, 2],
+                     "the line arrives with the subscribe reply, the files counted")
+        guard line.count == 3 else { return }
+
+        await chat.beginEdit(line[2])
+        checks.expect(chat.queuedEdit == nil, "a message that carries files is not edited")
+
+        chat.draft = "a note of my own"
+        await chat.beginEdit(line[1])
+        await settle { chat.timeline.queue.count == 2 }
+        checks.equal(chat.timeline.queue.map(\.id), [line[0].id, line[2].id],
+                     "an edited message leaves the line at once")
+        checks.equal(chat.draft, line[1].text, "and its words are in the field")
+        checks.equal(chat.queuedEdit?.aside, "a note of my own", "with the draft set aside")
+        checks.equal(chat.editingSendLabel, "Queue", "and the primary reads Queue behind a running turn")
+
+        let edited = "Add a regression test for the refresh race, and one for logout."
+        chat.draft = edited
+        await chat.send()
+        await settle { chat.timeline.queue.count == 3 }
+        checks.equal(chat.timeline.queue.map(\.text), [line[0].text, edited, line[2].text],
+                     "Send puts the edited words back where they were")
+        checks.equal(chat.timeline.queue.map(\.ts), line.map(\.ts), "under the ts the entry had")
+        checks.equal(chat.draft, "a note of my own", "and the draft set aside comes back")
+        checks.expect(chat.queuedEdit == nil, "the edit is over")
+
+        // The device got there first: nothing opens, and one line says so.
+        let taken = chat.timeline.queue[0]
+        let removing = chat.removeQueued(taken.id)
+        checks.equal(chat.timeline.queue.count, 2, "a removed row leaves the list before the reply")
+        await removing.value
+        await chat.beginEdit(taken)
+        checks.equal(chat.errorMessage, "That message has already been sent.",
+                     "a message the device no longer holds cannot be edited")
+        checks.expect(chat.queuedEdit == nil, "and the field keeps what it had")
+        chat.clearError()
+        await chat.removeQueued(taken.id).value
+        checks.equal(chat.errorMessage, "That message has already been sent.",
+                     "and a Remove that finds it gone says the same, not the device's not_found")
+        chat.clearError()
     }
 
     @MainActor

@@ -487,6 +487,89 @@ final class RemoteControlUITests: XCTestCase {
         return abs(scroll.offset - scroll.end) < 2
     }
 
+    /// Amendment A43: what waits behind a turn is one chip, "Up next · N", and
+    /// its list takes a message back into the composer to be edited — out of
+    /// the line at once, into the field with the caret after its last word, and
+    /// back to its own place on Queue, the draft that was in the field set aside
+    /// and returned. A swipe removes a row, and a message that carries files is
+    /// removed and never edited. `docs/DESIGN.md` § "The composer" → **Up next**.
+    func testQueuedMessagesCanBeEditedAndRemoved() {
+        app.launchArguments += ["--demo-queue"]
+        app.launch()
+        openLiveSession()
+
+        let field = promptField()
+        XCTAssertTrue(field.waitForExistence(timeout: 15), "the composer is on screen")
+        field.tap()
+        field.typeText("a note of my own")
+
+        let chip = app.buttons["composer.queue"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "what waits behind the turn is one chip")
+        XCTAssertTrue(chip.label.contains("3"), "counting the three messages")
+        XCTAssertFalse(queueRow(containing: "Then run the full test suite").exists,
+                       "and never a stack of them over the field")
+        chip.tap()
+
+        let suite = queueRow(containing: "Then run the full test suite")
+        let regression = queueRow(containing: "Add a regression test for the refresh race")
+        let evidence = queueRow(containing: "CI log and a screenshot")
+        XCTAssertTrue(suite.waitForExistence(timeout: 10), "the chip opens the list")
+        XCTAssertTrue(regression.exists && evidence.exists, "with every message in it")
+        XCTAssertLessThan(suite.frame.minY, regression.frame.minY, "in the order they will go")
+        XCTAssertLessThan(regression.frame.minY, evidence.frame.minY)
+        attach(name: "99-queue-list")
+
+        // Its files are on the device and nothing brings them back, so a tap on
+        // that row does nothing at all.
+        evidence.tap()
+        let editing = app.descendants(matching: .any)["composer.editingQueued"]
+        XCTAssertFalse(editing.waitForExistence(timeout: 2), "a message with files is not edited")
+        XCTAssertTrue(suite.exists, "and the list stays open")
+
+        regression.tap()
+        XCTAssertTrue(editing.waitForExistence(timeout: 10), "the strip says what the field holds")
+        XCTAssertTrue(app.buttons["composer.cancelEdit"].exists, "with Cancel beside it")
+        XCTAssertTrue(waitFor { (promptField().value as? String) == "Add a regression test for the refresh race." },
+                      "the message's words are in the field, in place of the draft")
+        XCTAssertTrue(waitFor { chip.label.contains("2") }, "and it has left the line")
+        XCTAssertTrue(waitFor { app.keyboards.count > 0 }, "the field has the keyboard")
+        // Typing carries on after the last word: that is where the caret is.
+        promptField().typeText(" And one for logout.")
+        XCTAssertEqual(promptField().value as? String,
+                       "Add a regression test for the refresh race. And one for logout.")
+        let send = app.buttons["composer.send"]
+        XCTAssertEqual(send.label, "Queue", "behind a running turn the edit goes back into the line")
+        attach(name: "100-editing-a-queued-message")
+        send.tap()
+
+        XCTAssertTrue(editing.waitForNonExistence(timeout: 10), "the edit is over once it is back")
+        XCTAssertTrue(waitFor { (promptField().value as? String) == "a note of my own" },
+                      "and the draft set aside is back in the field")
+        XCTAssertTrue(waitFor { chip.label.contains("3") }, "three in the line again")
+
+        chip.tap()
+        let edited = queueRow(containing: "And one for logout.")
+        XCTAssertTrue(edited.waitForExistence(timeout: 10), "the list has the new words")
+        XCTAssertLessThan(suite.frame.minY, edited.frame.minY, "in the place the message left")
+        XCTAssertLessThan(edited.frame.minY, evidence.frame.minY)
+        attach(name: "101-back-in-its-place")
+
+        suite.swipeLeft()
+        let remove = app.buttons["Remove"]
+        XCTAssertTrue(remove.waitForExistence(timeout: 5), "a swipe offers Remove")
+        remove.tap()
+        XCTAssertTrue(suite.waitForNonExistence(timeout: 10), "and nothing asks before it goes")
+        app.buttons["Done"].tap()
+        XCTAssertTrue(waitFor { chip.label.contains("2") }, "the count drops with it")
+    }
+
+    /// A row of the Up next list, found by its words.
+    private func queueRow(containing text: String) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "queue.entry", text))
+            .firstMatch
+    }
+
     /// Amendment A10: an attached terminal session takes a message from here and
     /// its relayed permission request is answered from the app. Amendment A19:
     /// while the device holds the message it is a queue entry and nothing else,

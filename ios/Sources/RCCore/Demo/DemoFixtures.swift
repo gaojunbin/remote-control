@@ -926,6 +926,24 @@ public enum DemoFixtures {
         }
     }
 
+    /// Amendment A43: what `--demo-queue` holds behind the live session's turn,
+    /// in the order it will go. The last one carries two files, so its row can
+    /// be removed and not edited.
+    static func heldMessages(base: Int64 = now) -> [DemoQueue.Item] {
+        [
+            DemoQueue.Item(id: "demo-queued-suite", text: "Then run the full test suite.",
+                           ts: base - 180_000),
+            DemoQueue.Item(id: "demo-queued-regression",
+                           text: "Add a regression test for the refresh race.", ts: base - 120_000),
+            DemoQueue.Item(id: "demo-queued-evidence",
+                           text: "Here are the CI log and a screenshot of the failing run.",
+                           ts: base - 60_000,
+                           files: [AttachmentInfo(name: "ci-log.txt", mime: "text/plain", size: 18_204),
+                                   AttachmentInfo(name: "failing-run.png", mime: "image/png",
+                                                  size: 284_913)])
+        ]
+    }
+
     public static func config(minimumAppVersion: String = AppBuild.version) -> GatewayConfig {
         GatewayConfig(publicOrigin: "https://demo.remote-control.invalid",
                       stt: STTConfig(enabled: true, languages: ["auto", "en", "zh"]),

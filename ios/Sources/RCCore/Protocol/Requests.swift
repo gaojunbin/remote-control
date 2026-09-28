@@ -138,9 +138,13 @@ extension GatewayRequest {
         return GatewayRequest(type: "session.create", body: body)
     }
 
+    /// Amendment A43: `queueTs` is the `ts` a queued entry had before it was
+    /// taken out to be edited. The device holds a queued message that carries
+    /// it under that `ts`, in the place the entry left; it never decides
+    /// whether the message queues — `mode` does.
     public static func send(id: String = UUID().uuidString, sessionID: String, text: String,
                             attachments: [OutboundAttachment] = [],
-                            mode: SendMode = .auto) throws -> GatewayRequest {
+                            mode: SendMode = .auto, queueTs: Int64? = nil) throws -> GatewayRequest {
         guard text.utf8.count <= RequestLimits.maxTextBytes else { throw AttachmentError.textTooLong }
         guard attachments.count <= RequestLimits.maxAttachments else {
             throw AttachmentError.tooMany(RequestLimits.maxAttachments)
@@ -152,6 +156,7 @@ extension GatewayRequest {
             "session_id": .string(sessionID), "text": .string(text), "mode": .string(mode.rawValue)
         ]
         if !attachments.isEmpty { body["attachments"] = .array(attachments.map(\.json)) }
+        if let queueTs { body["queue_ts"] = .integer(queueTs) }
         return GatewayRequest(id: id, type: "session.send", body: body)
     }
 

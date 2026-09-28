@@ -56,4 +56,14 @@ struct ComposerPrimarySlotTests {
                     "Send is not drawn while the model is still writing")
         }
     }
+
+    /// Amendment A43: an edited queued message on its way back into the line
+    /// holds the slot the way a polish still out does, so it is not sent twice.
+    @Test("An edit on its way back into the line holds a spinner where Send was")
+    func anEditOnItsWayBack() {
+        for voice in [VoiceInputPhase.idle, .review, .failed] {
+            #expect(ComposerPrimarySlot.of(voice: voice, polish: .idle, returning: true) == .working)
+            #expect(ComposerPrimarySlot.of(voice: voice, polish: .idle, returning: false) == .send)
+        }
+    }
 }

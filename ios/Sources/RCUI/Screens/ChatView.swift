@@ -524,44 +524,6 @@ private struct TodoPopover: View {
     }
 }
 
-/// Messages waiting behind the current turn.
-struct QueueSheet: View {
-    let chat: ChatStore
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                ForEach(chat.timeline.queue) { message in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(message.text)
-                            .font(.subheadline)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(RelativeTime.short(since: message.ts))
-                            .font(.caption)
-                            .foregroundStyle(Theme.inkSecondary)
-                    }
-                    .swipeActions {
-                        Button("Remove", role: .destructive) {
-                            Task { await chat.removeQueued(message.id) }
-                        }
-                    }
-                }
-                if chat.timeline.queue.isEmpty {
-                    Text("Nothing is queued.").font(.footnote).foregroundStyle(Theme.inkSecondary)
-                }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .pageBackground()
-            .navigationTitle("Up next")
-            .inlineNavigationTitle()
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-        }
-        .sheetSize()
-    }
-}
-
 #Preview("Chat") {
     DemoPreview {
         NavigationStack { ChatView(sessionKey: demoSession().id) }

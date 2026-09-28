@@ -31,6 +31,10 @@ struct Composer: View {
     /// How many photos this composer has taken from the library, so each one
     /// is named for its place in the order they were attached in.
     @State private var photosAttached = 0
+    /// Amendment A43: the files the composer held when a queued message was
+    /// taken out to be edited. They come back when the words the store set
+    /// aside do.
+    @State private var attachmentsAside: [OutboundAttachment] = []
     /// The attachment pill and the Send circle grow with the type, as the
     /// command panel's rows already do: a fixed frame around a label clips
     /// well before the largest accessibility size.
@@ -49,6 +53,7 @@ struct Composer: View {
         return VStack(spacing: Theme.Space.small) {
             commandPanel
             noticeLine
+            editingStrip
             if !attachments.isEmpty { attachmentStrip }
             promptField
             polishNote
@@ -75,6 +80,7 @@ struct Composer: View {
             guard isCommandDraft, !was else { return }
             Task { await chat.refreshCommands() }
         }
+        .onChange(of: chat.queuedEdit) { before, now in followEdit(from: before, to: now) }
         .onChange(of: photoItems) { _, items in Task { await ingest(items) } }
         .fileImporter(isPresented: $showsFileImporter, allowedContentTypes: [.item],
                       allowsMultipleSelection: true) { result in
@@ -128,6 +134,25 @@ struct Composer: View {
         }
     }
 
+    /// Amendment A43: over the field while it holds a queued message taken out
+    /// of the line, with the way to put the original words back.
+    @ViewBuilder
+    private var editingStrip: some View {
+        if chat.queuedEdit != nil {
+            HStack(spacing: Theme.Space.tight) {
+                Text("Editing a queued message").accessibilityIdentifier("composer.editingQueued")
+                Spacer(minLength: 0)
+                Button("Cancel") { cancelEdit() }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.ink)
+                    .disabled(!chat.canCancelEdit)
+                    .accessibilityIdentifier("composer.cancelEdit")
+            }
+            .font(.caption)
+            .foregroundStyle(Theme.inkSecondary)
+        }
+    }
+
     /// The field takes the row to itself and grows with the draft up to
     /// `ComposerLayout.maximumLines`, then scrolls inside itself.
     private var promptField: some View {
@@ -144,7 +169,9 @@ struct Composer: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.surface,
                         in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
-            .disabled(chat.isReadOnly)
+            // Amendment A43: words on their way back into the line hold still
+            // until the device has them.
+            .disabled(chat.isReadOnly || chat.isReturningEdit)
             .overlay { dictationTakeover }
     }
 
@@ -219,12 +246,12 @@ struct Composer: View {
                     attachControl
                     if let voice {
                         VoiceButton(session: voice) { startDictation() }
-                            .disabled(chat.isReadOnly)
+                            .disabled(chat.isReadOnly || chat.isReturningEdit)
                     }
                 }
                 chips
                 if primarySlot == .working {
-                    WorkingCircle(label: L10n.string("Polishing…"))
+                    WorkingCircle(label: L10n.string(chat.isReturningEdit ? "Sending…" : "Polishing…"))
                 } else {
                     sendButton
                 }
@@ -239,7 +266,8 @@ struct Composer: View {
     /// **Done becomes a spinner, and the spinner becomes Send**); both rows read
     /// it from here, so the slot never disagrees with itself across the swap.
     private var primarySlot: ComposerPrimarySlot {
-        ComposerPrimarySlot.of(voice: voice?.voice.phase ?? .idle, polish: chat.polishPhase)
+        ComposerPrimarySlot.of(voice: voice?.voice.phase ?? .idle, polish: chat.polishPhase,
+                               returning: chat.isReturningEdit)
     }
 
     /// Amendment A20: while a question is pending the one primary in the row
@@ -267,9 +295,11 @@ struct Composer: View {
 
     /// What the one primary in the row does right now. The glyph never changes —
     /// it is still the button that takes what was typed — but its name does, so
-    /// a screen reader is never told Send where a command would run (A20, A27).
+    /// a screen reader is never told Send where a command would run (A20, A27),
+    /// or where an edited message goes back into the line (A43).
     private var primaryAction: String {
         if chat.pendingQuestion != nil { return L10n.string("Answer") }
+        if let label = chat.editingSendLabel { return label }
         return chat.draftCommand != nil ? L10n.string("Run") : L10n.string("Send")
     }
 
@@ -308,6 +338,7 @@ struct Composer: View {
                 attachLabel
             }
             .foregroundStyle(Theme.ink)
+            .disabled(chat.isReturningEdit)
             .accessibilityLabel("Add an attachment")
             .accessibilityIdentifier("composer.attach")
         }
@@ -539,10 +570,41 @@ struct Composer: View {
                 // request was out, which are the person's and not ours.
                 if !outgoing.isEmpty, attachments.isEmpty { attachments = outgoing }
             case .accepted, .uncertain:
-                // Nothing is waiting any more, so the next photo is photo-1.jpg.
-                if attachments.isEmpty { photosAttached = 0 }
+                // Nothing is waiting any more, so the next photo is photo-1.jpg
+                // — unless files set aside by an edit are about to come back.
+                if attachments.isEmpty, attachmentsAside.isEmpty { photosAttached = 0 }
             }
             await model.saveDraft()
+        }
+    }
+
+    /// Amendment A43: Cancel puts the original words back into the line; the
+    /// store brings back what the field held once they are there.
+    private func cancelEdit() {
+        Task {
+            await chat.cancelEdit()
+            await model.saveDraft()
+        }
+    }
+
+    /// Amendment A43: the files follow the words. When an edit begins, the
+    /// pills the composer held go aside with the draft and the field takes the
+    /// keyboard, caret after the message's last word; when it ends, they come
+    /// back, in front of anything attached meanwhile — a file attached while
+    /// editing went with the edited message, and one Cancel left is kept.
+    private func followEdit(from before: QueuedEdit?, to now: QueuedEdit?) {
+        switch (before, now) {
+        case (nil, .some):
+            attachmentsAside = attachments
+            attachments = []
+            attachmentError = nil
+            isWriting = true
+        case (.some, nil):
+            let restored = attachmentsAside + attachments
+            attachments = Array(restored.prefix(RequestLimits.maxAttachments))
+            attachmentsAside = []
+        default:
+            break
         }
     }
 

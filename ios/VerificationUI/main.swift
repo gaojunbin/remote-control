@@ -2021,6 +2021,58 @@ func run() async -> (passed: Int, failures: [String]) {
     equal(remaining, "", "a launch with --reset-state forgets the drafts a previous run left")
     try? FileManager.default.removeItem(at: staleDirectory)
 
+    // MARK: - Amendment A43: an edit of a queued message outlives its screen
+    //
+    // `--demo-queue` holds three messages behind the live session's turn. One
+    // taken back into the field is out of the line and the draft it replaced
+    // is aside, so leaving the conversation must lose neither: the app keeps
+    // the edit and hands it back when the conversation opens again.
+    let queueDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("rc-ui-verify-queue-drafts-\(UUID().uuidString)")
+    let queueing = AppModel(settings: SettingsStore(defaults: freshDefaults()),
+                            drafts: DraftStore(directory: queueDirectory),
+                            arguments: ["--demo", "--demo-queue"])
+    await queueing.restoreOrPrompt()
+    await settle { queueing.connection.hasSnapshot }
+    if let live = queueing.connection.sessions.first(where: {
+        $0.sessionID == DemoFixtures.liveSessionID
+    }) {
+        equal(live.queued, 3, "--demo-queue holds three messages behind the live session's turn")
+        await queueing.open(live)
+        await settle { queueing.chat?.timeline.queue.count == 3 }
+        if let chat = queueing.chat, chat.timeline.queue.count == 3 {
+            let line = chat.timeline.queue
+            let entry = line[1]
+            equal(line.map(\.carriesFiles), [false, false, true],
+                  "and the last of them carries files, so its row is Remove only")
+            expect(!chat.canEdit(line[2]), "which the store agrees with")
+            chat.draft = "a note of my own"
+            await chat.beginEdit(entry)
+            equal(chat.draft, entry.text, "a tapped message comes into the field")
+
+            await queueing.closeChat()
+            await queueing.open(live)
+            let reopened = queueing.chat
+            equal(reopened?.queuedEdit?.ts, entry.ts, "the edit is still open when the conversation is back")
+            equal(reopened?.queuedEdit?.aside, "a note of my own", "with the draft still aside")
+            equal(reopened?.draft, entry.text, "and the words being edited in the field")
+            if let reopened {
+                await settle { reopened.timeline.queue.count == 2 }
+                await reopened.cancelEdit()
+                await settle { reopened.timeline.queue.count == 3 }
+                equal(reopened.timeline.queue.map(\.text), line.map(\.text),
+                      "Cancel puts the original words back where they were")
+                equal(reopened.draft, "a note of my own", "and the draft set aside comes back")
+            }
+        } else {
+            expect(false, "the live session opens with its three messages")
+        }
+        await queueing.signOut()
+    } else {
+        expect(false, "the demo lists its live session")
+    }
+    try? FileManager.default.removeItem(at: queueDirectory)
+
     // MARK: - The Settings screen
     //
     // `docs/DESIGN.md` § "The Settings screen" (owner's ruling, 2026-09-18).
