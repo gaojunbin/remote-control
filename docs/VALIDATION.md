@@ -2739,7 +2739,9 @@ negative cases. The web's two timing tests (the timeline row cap, a voice-compos
 their 5 s limit under the parallel toolchains and passed alone (69/69). **Not verified:** real
 dictation in Japanese, German, French or Spanish; the three real providers with no language (no
 keys here — the owner's next dictation through Alibaba is the check); VoiceOver by ear; dark mode.
-All four components 1.10.0 (a feature release), iOS build 27, tag v1.10.0. CI_RESULT_53
+All four components 1.10.0 (a feature release), iOS build 27, tag v1.10.0. After the bump the web
+suite passed 826/826 in one run; GitHub "iOS checks" on 4b1b13b (run 36402598347) passed in 6 min
+12 s.
 
 ## Smoke procedure
 
