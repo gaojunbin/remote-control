@@ -474,8 +474,11 @@ func run() async -> (passed: Int, failures: [String]) {
         equal(chat.agent?.attach, AgentAttach.extension, "which pi loads into every session")
         expect(chat.allowsModelCardChanges && chat.allowsSettingsChanges(for: .permissionMode),
                "a pi session the app started keeps its live controls")
-        equal(ModelCardText.words(for: piSession, agent: chat.agent), "Claude Sonnet 4.5 Medium",
+        equal(TerminalSetting.modelCardSpoken(for: piSession, agent: chat.agent),
+              "Claude Sonnet 4.5, effort Medium",
               "and its model card carries the model and the thinking level")
+        equal(chat.agent?.effortPosition(piSession.effort), 2.0 / 3,
+              "with the gauge's needle two thirds of the way from off to high (A44)")
         equal(ModelCardSizing.pairs(for: chat.agent, model: "pi").count, 8,
               "which the sizer measures as every model against every level")
     } else {
@@ -531,7 +534,8 @@ func run() async -> (passed: Int, failures: [String]) {
             expect(chat.allowsModelCardChanges, "shared_settings keeps the model card live")
             expect(!chat.allowsAttachments, "and shared_attachments is false, so there is no `+`")
             expect(chat.attachHint == nil, "an attached session explains nothing; it works")
-            equal(ModelCardText.words(for: chat.session, agent: chat.agent), "Grok 4.6 High",
+            equal(TerminalSetting.modelCardSpoken(for: chat.session, agent: chat.agent),
+                  "Grok 4.6, effort High",
                   "and the card reads the model and the effort the leader loaded")
         } else {
             expect(false, "the shared Grok session opens")
@@ -838,7 +842,7 @@ func run() async -> (passed: Int, failures: [String]) {
     equal(SystemSpeechRecognizer(localeIdentifier: "en-US").finishGracePeriod, 2,
           "on-device recognition answers within two seconds")
     let gatewayClient = GatewayHTTPClient(endpoint: GatewayEndpoint.placeholder)
-    let gatewayRecognizer = GatewaySpeechRecognizer(client: gatewayClient, language: "en")
+    let gatewayRecognizer = GatewaySpeechRecognizer(client: gatewayClient)
     expect(gatewayRecognizer.finishGracePeriod >= STTSocket.finalTimeout,
            "the gateway grace outlasts the socket's own deadline")
 
@@ -891,6 +895,45 @@ func run() async -> (passed: Int, failures: [String]) {
     #else
     expect(!scriptedBackend.isScripted, "release builds have no scripted speech platform")
     #endif
+
+    // MARK: - Amendment A44: the dictation language follows the recogniser
+    //
+    // `docs/DESIGN.md` § "The control row". The demo gateway transcribes, so
+    // each Transcribe choice means what it says there, and the composer draws a
+    // language exactly where the phone is the one listening.
+
+    let chosenBackend = model.settings.voiceBackend
+    model.settings.voiceBackend = .onDevice
+    equal(model.voiceBackendInEffect, .onDevice, "On this iPhone is the phone listening")
+    if let live = helloSessions.first(where: { $0.sessionID == DemoFixtures.liveSessionID }) {
+        let chat = ChatStore(session: live, channel: DemoGateway())
+        chat.agent = model.agent(for: live)
+        equal(chat.controlRow(backend: model.voiceBackendInEffect),
+              [.dictationLanguage, .modelCard, .permissions],
+              "so the row is the language, then what runs, then what it may do")
+        model.settings.voiceBackend = .gateway
+        equal(model.voiceBackendInEffect, .gateway, "and Gateway is the demo gateway listening")
+        equal(chat.controlRow(backend: model.voiceBackendInEffect), [.modelCard, .permissions],
+              "which detects the language itself, so the row offers none")
+
+        // What each icon says to a screen reader, since it shows no words.
+        equal(TerminalSetting.modelCardSpoken(for: live, agent: chat.agent), "Sonnet 4.5, effort High",
+              "Model, Sonnet 4.5, effort High")
+        equal(chat.agent?.permissionModeLabel(live.permissionMode), "Auto-accept edits",
+              "Permissions, Auto-accept edits")
+        equal(chat.agent?.effortPosition(live.effort), 1,
+              "and the gauge's needle stands at Claude's higher level, the arc's right end")
+    } else {
+        expect(false, "the demo carries its live session")
+    }
+    model.settings.voiceBackend = chosenBackend
+    equal(DictationLanguage.name(of: model.settings.dictationLanguage, in: .en), "Chinese",
+          "Dictation language, Chinese, on a fresh install")
+    equal(ComposerControl.upNextValue(3), "3 messages", "Up next, 3 messages")
+    equal(EffortGauge.needleAngle(for: nil).degrees, 270,
+          "a gauge with no level to show stands its needle upright")
+    equal(EffortGauge.needleAngle(for: 0).degrees, 135, "the lowest level points at the lower left")
+    equal(EffortGauge.needleAngle(for: 1).degrees, 405, "and the highest at the lower right")
 
     // MARK: - Markdown resources
 
@@ -1210,7 +1253,8 @@ func run() async -> (passed: Int, failures: [String]) {
     await sync.settle()
     equal(await held(syncGateway).timelineDetail, .detailed,
           "the field the account had none of is written up from this phone")
-    equal(await held(syncGateway).sttLanguage, "auto", "every such field, in one write")
+    equal(await held(syncGateway).sttLanguage, "zh",
+          "every such field, in one write — Chinese, which a new install listens for (A44)")
     equal(await held(syncGateway).polishStrength, .strong,
           "and a field it did have is not written back over")
 

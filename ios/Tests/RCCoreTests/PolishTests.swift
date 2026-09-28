@@ -62,12 +62,14 @@ struct DictationPolishTests {
         #expect(items.last?.text.count == 4000)
     }
 
-    @Test("An automatic dictation language is no hint, and a chosen one is")
+    @Test("The hint is auto for the gateway's words and the phone's language for its own")
     func languageHint() {
         #expect(DictationPolish.request(span: span, model: "m", strength: .strong,
-                                        language: "auto", context: []).language == nil)
+                                        language: "auto", context: []).language == "auto")
         #expect(DictationPolish.request(span: span, model: "m", strength: .strong,
                                         language: "zh", context: []).language == "zh")
+        #expect(DictationLanguage.polishHint(backend: .gateway, listening: "zh") == "auto")
+        #expect(DictationLanguage.polishHint(backend: .onDevice, listening: "de") == "de")
     }
 }
 

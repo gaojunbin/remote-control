@@ -106,15 +106,31 @@ final class RemoteControlUITests: XCTestCase {
         let send = app.buttons["composer.send"]
         XCTAssertTrue(attachments.exists, "attachments are on the row below the field")
         XCTAssertTrue(voice.exists, "and so is dictation")
-        XCTAssertTrue(model.exists, "and so are the session's chips")
-        XCTAssertTrue(app.buttons["composer.permissions"].exists)
+        XCTAssertTrue(model.exists, "and so are the session's controls")
+        let permissions = app.buttons["composer.permissions"]
+        XCTAssertTrue(permissions.exists)
         XCTAssertTrue(send.exists, "with Send at the other end of that row")
+        // Amendment A44: how you speak, what runs, what it may do — icons, in
+        // that order, each on a target a thumb can hit. A fresh install
+        // transcribes on this iPhone, so the language is among them.
+        let language = app.buttons["composer.language"]
+        XCTAssertTrue(language.exists, "the phone listens, so the row offers its language")
+        XCTAssertLessThan(language.frame.midX, model.frame.midX, "before the model card")
+        XCTAssertLessThan(model.frame.midX, permissions.frame.midX, "which comes before the permissions")
+        for control in [language, model, permissions] {
+            XCTAssertGreaterThanOrEqual(control.frame.width, 44, "\(control.identifier) is a 44-point target")
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44)
+        }
+        XCTAssertEqual(model.label, "Model", "the gauge names itself")
+        XCTAssertEqual(model.value as? String, "Sonnet 4.5, effort High", "and says what it draws")
+        XCTAssertEqual(language.value as? String, "Chinese", "the language is Chinese until another is picked")
+        XCTAssertEqual(permissions.value as? String, "Auto-accept edits")
         XCTAssertGreaterThan(field.frame.width, attachments.frame.width * 4,
                              "the field takes the whole width rather than sharing it")
         XCTAssertGreaterThan(attachments.frame.minY, field.frame.maxY - 1,
                              "the controls sit under the field, not beside it")
-        XCTAssertLessThan(attachments.frame.minX, model.frame.minX,
-                          "the icons lead, then the chips")
+        XCTAssertLessThan(attachments.frame.minX, language.frame.minX,
+                          "the + and the microphone lead, then the session's controls")
         XCTAssertLessThan(model.frame.maxX, send.frame.minX,
                           "and Send is pinned past all of them at the trailing edge")
 
@@ -487,8 +503,9 @@ final class RemoteControlUITests: XCTestCase {
         return abs(scroll.offset - scroll.end) < 2
     }
 
-    /// Amendment A43: what waits behind a turn is one chip, "Up next · N", and
-    /// its list takes a message back into the composer to be edited — out of
+    /// Amendment A43: what waits behind a turn is one control — on the phone a
+    /// notepad carrying the count (A44) — and its list takes a message back
+    /// into the composer to be edited — out of
     /// the line at once, into the field with the caret after its last word, and
     /// back to its own place on Queue, the draft that was in the field set aside
     /// and returned. A swipe removes a row, and a message that carries files is
@@ -504,8 +521,11 @@ final class RemoteControlUITests: XCTestCase {
         field.typeText("a note of my own")
 
         let chip = app.buttons["composer.queue"]
-        XCTAssertTrue(chip.waitForExistence(timeout: 10), "what waits behind the turn is one chip")
-        XCTAssertTrue(chip.label.contains("3"), "counting the three messages")
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "what waits behind the turn is one control")
+        XCTAssertEqual(chip.label, "Up next")
+        XCTAssertEqual(chip.value as? String, "3 messages", "counting the three messages")
+        XCTAssertLessThan(chip.frame.midX, app.buttons["composer.language"].frame.midX,
+                          "first in the row, before how you speak (A44)")
         XCTAssertFalse(queueRow(containing: "Then run the full test suite").exists,
                        "and never a stack of them over the field")
         chip.tap()
@@ -531,7 +551,7 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(app.buttons["composer.cancelEdit"].exists, "with Cancel beside it")
         XCTAssertTrue(waitFor { (promptField().value as? String) == "Add a regression test for the refresh race." },
                       "the message's words are in the field, in place of the draft")
-        XCTAssertTrue(waitFor { chip.label.contains("2") }, "and it has left the line")
+        XCTAssertTrue(waitFor { chip.value as? String == "2 messages" }, "and it has left the line")
         XCTAssertTrue(waitFor { app.keyboards.count > 0 }, "the field has the keyboard")
         // Typing carries on after the last word: that is where the caret is.
         promptField().typeText(" And one for logout.")
@@ -545,7 +565,7 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(editing.waitForNonExistence(timeout: 10), "the edit is over once it is back")
         XCTAssertTrue(waitFor { (promptField().value as? String) == "a note of my own" },
                       "and the draft set aside is back in the field")
-        XCTAssertTrue(waitFor { chip.label.contains("3") }, "three in the line again")
+        XCTAssertTrue(waitFor { chip.value as? String == "3 messages" }, "three in the line again")
 
         chip.tap()
         let edited = queueRow(containing: "And one for logout.")
@@ -560,7 +580,7 @@ final class RemoteControlUITests: XCTestCase {
         remove.tap()
         XCTAssertTrue(suite.waitForNonExistence(timeout: 10), "and nothing asks before it goes")
         app.buttons["Done"].tap()
-        XCTAssertTrue(waitFor { chip.label.contains("2") }, "the count drops with it")
+        XCTAssertTrue(waitFor { chip.value as? String == "2 messages" }, "the count drops with it")
     }
 
     /// A row of the Up next list, found by its words.
@@ -615,7 +635,7 @@ final class RemoteControlUITests: XCTestCase {
         // so the assertion is on the shape of the value rather than on which
         // model happened to be current when it was read.
         let shown = app.buttons["composer.modelCard"].value as? String ?? ""
-        XCTAssertTrue(shown.hasSuffix(" High"),
+        XCTAssertTrue(shown.hasSuffix(", effort High"),
                       "the model and the effort read as one value, not as two chips")
 
         attach(name: "06-shared-idle")
@@ -628,7 +648,7 @@ final class RemoteControlUITests: XCTestCase {
         // holding. It is one entry in the queue until the CLI takes it.
         let queue = app.buttons["composer.queue"]
         XCTAssertTrue(queue.waitForExistence(timeout: 10), "the held message is in the queue")
-        XCTAssertTrue(queue.label.contains("1"), "exactly one of them")
+        XCTAssertEqual(queue.value as? String, "1 message", "exactly one of them")
         XCTAssertFalse(app.descendants(matching: .any)["chat.message.sending"].exists,
                        "and no bubble claims it reached the terminal")
         attach(name: "07-shared-queued")
@@ -794,8 +814,8 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(waitFor(timeout: 20) { row.value as? String == "Sonnet 4.5" },
                       "the reply is what the card follows")
         XCTAssertTrue(row.isEnabled, "and the wait ends with it")
-        XCTAssertEqual(app.buttons["composer.modelCard"].value as? String, "Sonnet 4.5 High",
-                       "so the chip reads what that terminal now runs")
+        XCTAssertEqual(app.buttons["composer.modelCard"].value as? String, "Sonnet 4.5, effort High",
+                       "so the gauge says what that terminal now runs")
         attach(name: "ios-round47-shared-claude-typed")
     }
 
@@ -1191,7 +1211,7 @@ final class RemoteControlUITests: XCTestCase {
         let chip = app.buttons["composer.modelCard"]
         XCTAssertTrue(chip.waitForExistence(timeout: 15), "the model card is on the row")
         XCTAssertEqual(chip.label, "Model")
-        XCTAssertEqual(chip.value as? String, "Claude Sonnet 4.5 Medium",
+        XCTAssertEqual(chip.value as? String, "Claude Sonnet 4.5, effort Medium",
                        "reading the model and the thinking level pi is set to")
         let permissions = app.buttons["composer.permissions"]
         XCTAssertTrue(permissions.waitForExistence(timeout: 10),
@@ -1350,7 +1370,7 @@ final class RemoteControlUITests: XCTestCase {
 
         let card = app.descendants(matching: .any)["composer.readonly.modelCard"]
         XCTAssertTrue(card.waitForExistence(timeout: 15), "the model and level are shown, not offered")
-        XCTAssertEqual(card.value as? String, "Grok 4.6 High")
+        XCTAssertEqual(card.value as? String, "Grok 4.6, effort High")
         XCTAssertFalse(app.descendants(matching: .any)["composer.readonly.permissionMode"].exists,
                        "and the update log knows no permission mode, so no chip claims one")
         XCTAssertFalse(app.buttons["composer.modelCard"].exists,
@@ -1373,6 +1393,15 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Run rc-client grok setup on the device, then restart Grok"]
             .exists, "which is the setup command and a restart, in one line")
         attach(name: "89-grok-leader-hint")
+
+        // Amendment A44: the same gauge as a live session, and a tap shows the
+        // value the terminal set in a menu with nothing to choose.
+        card.tap()
+        let value = app.buttons["Grok 4.6 High"]
+        XCTAssertTrue(value.waitForExistence(timeout: 10), "the tap shows what the terminal chose")
+        XCTAssertFalse(value.isEnabled, "as a value, not a choice")
+        XCTAssertTrue(app.staticTexts["Set in the terminal"].exists, "and says where it was set")
+        attach(name: "ios-a44-terminal-value")
     }
 
     /// Amendment A28: the same agent on a machine that is in the leader. The
@@ -1728,8 +1757,8 @@ final class RemoteControlUITests: XCTestCase {
 
         let chip = app.buttons["composer.modelCard"]
         XCTAssertTrue(chip.waitForExistence(timeout: 15), "the composer spends one chip on what runs")
-        XCTAssertEqual(chip.value as? String, "GPT-5.4 Codex Medium",
-                       "reading the model with the effort word after it")
+        XCTAssertEqual(chip.value as? String, "GPT-5.4 Codex, effort Medium",
+                       "reading the model with the effort after it")
         XCTAssertFalse(app.buttons["composer.effort"].exists,
                        "and the effort is no longer a chip of its own")
         chip.tap()
@@ -1755,10 +1784,12 @@ final class RemoteControlUITests: XCTestCase {
                       "one tap raises the tier the agent named, drawn before the device answers")
         attach(name: "45-model-card-fast")
 
-        // `docs/DESIGN.md` § "The model card": the chip is as wide as the
-        // widest model-and-effort combination, so nothing beside it shifts.
+        // `docs/DESIGN.md` § "The control row": the gauge is an icon, so
+        // nothing beside it shifts whatever the level and the tier.
         XCTAssertEqual(chip.frame.width, chipWidth, accuracy: 0.5,
-                       "the chip keeps its width through a level and a tier change")
+                       "the gauge keeps its width through a level and a tier change")
+        XCTAssertTrue(waitFor { chip.value as? String == "GPT-5.4 Codex, effort High, Fast" },
+                      "and says the level and the tier the needle and the bolt draw")
     }
 
     /// An agent that lists no tier draws no speed control at all, rather than a
@@ -1815,9 +1846,11 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 15), "the composer is on screen")
         XCTAssertTrue(app.buttons["发送"].exists || app.buttons["composer.send"].label == "发送",
                       "the send button names itself in Chinese")
-        XCTAssertTrue(app.buttons["composer.modelCard"].exists, "the model card is still a chip")
-        XCTAssertEqual(app.buttons["composer.modelCard"].value as? String, "Sonnet 4.5 High",
+        XCTAssertTrue(app.buttons["composer.modelCard"].exists, "the model card is still there")
+        XCTAssertEqual(app.buttons["composer.modelCard"].value as? String, "Sonnet 4.5，思考强度 High",
                        "and the device's own model and effort labels are not translated")
+        XCTAssertEqual(app.buttons["composer.language"].value as? String, "中文",
+                       "while the language is named in the app's own words")
         attach(name: "51-chat-chinese")
     }
 
@@ -2665,6 +2698,68 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["settings.polishStrength"].exists,
                       "and how hard the model may work")
         attach(name: "ios-polish-settings")
+    }
+
+    /// Amendment A44: the phone's recogniser is told a language and the
+    /// gateway's provider detects one, so a language is offered exactly where
+    /// the phone listens — in Settings and in the composer alike — and there
+    /// it is the recogniser's list, Chinese first, with no Automatic. The demo
+    /// gateway transcribes, so both Transcribe choices mean what they say.
+    /// `docs/DESIGN.md` § "The control row".
+    func testTranscribeDecidesWhetherALanguageIsOffered() {
+        app.launch()
+        openSettingsTab()
+        let transcribe = app.buttons["settings.voiceBackend"]
+        XCTAssertTrue(scrollDown(to: transcribe), "the Voice group starts with Transcribe")
+        let language = app.buttons["settings.voiceLanguage"]
+        XCTAssertTrue(language.waitForExistence(timeout: 10),
+                      "a fresh install transcribes on this iPhone, so a language is offered")
+        XCTAssertTrue(language.label.contains("Chinese"), "Chinese until another is picked")
+        attach(name: "ios-a44-settings-on-phone")
+
+        transcribe.tap()
+        let gateway = app.buttons["Gateway"]
+        XCTAssertTrue(gateway.waitForExistence(timeout: 10), "Transcribe offers the gateway")
+        gateway.tap()
+        XCTAssertTrue(language.waitForNonExistence(timeout: 10),
+                      "whose provider detects the language, so the row goes")
+        XCTAssertTrue(waitFor { transcribe.label.contains("which recognises the language itself") },
+                      "and Transcribe says why in its own sentence")
+        attach(name: "ios-a44-settings-gateway")
+
+        app.tabBars.buttons["Sessions"].tap()
+        openLiveSession()
+        let model = app.buttons["composer.modelCard"]
+        XCTAssertTrue(model.waitForExistence(timeout: 15), "the composer is up")
+        XCTAssertFalse(app.buttons["composer.language"].exists,
+                       "with no language beside the microphone either")
+        attach(name: "ios-a44-composer-gateway")
+
+        app.navigationBars.buttons.firstMatch.tap()
+        openSettingsTab()
+        XCTAssertTrue(scrollDown(to: transcribe), "Transcribe is where it was")
+        transcribe.tap()
+        let phone = app.buttons["On this iPhone"]
+        XCTAssertTrue(phone.waitForExistence(timeout: 10))
+        phone.tap()
+        XCTAssertTrue(language.waitForExistence(timeout: 10), "back on the phone, the language is back")
+
+        app.tabBars.buttons["Sessions"].tap()
+        openLiveSession()
+        let chip = app.buttons["composer.language"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 15), "and in the composer")
+        XCTAssertEqual(chip.label, "Dictation language")
+        XCTAssertEqual(chip.value as? String, "Chinese")
+        XCTAssertLessThan(chip.frame.midX, model.frame.midX, "before the model card")
+        attach(name: "ios-a44-composer-on-phone")
+        chip.tap()
+        for name in ["Chinese", "English", "Japanese", "German", "French", "Spanish"] {
+            XCTAssertTrue(app.buttons[name].waitForExistence(timeout: 5), "the recogniser offers \(name)")
+        }
+        XCTAssertFalse(app.buttons["Automatic"].exists, "and nothing it cannot do")
+        attach(name: "ios-a44-language-menu")
+        app.buttons["English"].tap()
+        XCTAssertTrue(waitFor { chip.value as? String == "English" }, "a language picked is drawn at once")
     }
 
     // MARK: - A30 and A34, messages from other agents

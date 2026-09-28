@@ -134,8 +134,7 @@ public struct PrimaryButtonStyle: ButtonStyle {
     }
 }
 
-/// The pill itself: the tint, the type ramp and the height every chip shares,
-/// whether it acts when tapped or only shows a value.
+/// The pill itself: the tint, the type ramp and the height every chip shares.
 public struct ChipPill: ViewModifier {
     public init() {}
 
@@ -161,25 +160,6 @@ public struct ChipButtonStyle: ButtonStyle {
             // The pill stays 32 pt tall; the tappable area is 44.
             .frame(minHeight: Theme.Touch.minimum)
             .contentShape(Rectangle())
-    }
-}
-
-/// Amendment A17: a chip that shows rather than offers. It is the same pill as
-/// the menus beside it, and deliberately not a button: there is no request
-/// that would change what it says, and a control that does nothing when tapped
-/// is worse than one that was never offered. The 44 pt row keeps it aligned
-/// with the chips that are tappable.
-public struct StaticChip<Content: View>: View {
-    private let content: Content
-
-    public init(@ViewBuilder content: () -> Content) {
-        self.content = content()
-    }
-
-    public var body: some View {
-        content
-            .modifier(ChipPill())
-            .frame(minHeight: Theme.Touch.minimum)
     }
 }
 

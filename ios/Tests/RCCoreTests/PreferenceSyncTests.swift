@@ -86,7 +86,7 @@ struct PreferenceSyncTests {
         #expect(offered.timelineDetail == .detailed, "this phone's detail becomes the account's")
         #expect(offered.polishModel == "gpt-4.1", "and its model")
         #expect(offered.language == .en, "and every other field the account had none of")
-        #expect(offered.sttLanguage == "auto")
+        #expect(offered.sttLanguage == "zh", "Chinese, which a new install listens for (A44)")
         #expect(offered.polishEnabled == false)
         #expect(offered.polishStrength == .moderate)
         #expect(offered.resumeAfterLimit == nil, "never the switch, which the account already had")
@@ -181,6 +181,42 @@ struct PreferenceSyncTests {
         #expect(settings.timelineDetail == .detailed, "nothing it had is taken away")
         #expect(settings.polishEnabled)
         #expect(await gateway.writes.isEmpty, "and a gateway that offers none is asked for none")
+    }
+
+    @Test("An auto from before A44 is heard as Chinese and never written back")
+    @MainActor
+    func aLegacyAutoIsReadAsChinese() async throws {
+        let settings = store()
+        let gateway = RecordingGateway()
+        let sync = PreferenceSync(settings: settings)
+        sync.attach(api: gateway)
+        sync.receive(hello(Preferences(resumeAfterLimit: false, language: .en, sttLanguage: "auto",
+                                       polishEnabled: false, polishModel: "",
+                                       polishStrength: .moderate, timelineDetail: .simple)))
+        #expect(settings.voiceLanguage == "auto", "the account's value is taken as it came")
+        #expect(settings.dictationLanguage == "zh", "and the recogniser hears Chinese")
+        await sync.settle()
+        #expect(await gateway.writes.isEmpty, "with nothing written back to correct it")
+
+        settings.voiceLanguage = "en"
+        await sync.settle()
+        #expect(await gateway.writes.last?.sttLanguage == "en", "a language picked here goes up")
+    }
+
+    @Test("A phone still holding auto offers the account no dictation language")
+    @MainActor
+    func aLegacyAutoIsNotOffered() async throws {
+        let settings = store()
+        settings.voiceLanguage = "auto"
+        let gateway = RecordingGateway()
+        let sync = PreferenceSync(settings: settings)
+        sync.attach(api: gateway)
+
+        sync.receive(hello(Preferences(resumeAfterLimit: true)))
+        await sync.settle()
+        let offered = try #require(await gateway.writes.first)
+        #expect(offered.sttLanguage == nil, "the account stays unset, which reads as Chinese too")
+        #expect(offered.language == .en, "while the other fields are offered as before")
     }
 
     @Test("Signing out forgets the account's copy")

@@ -20,8 +20,23 @@ public enum VoiceBackend: String, Sendable, Codable, CaseIterable {
         case .onDevice:
             L10n.string("Audio stays on this device. Needs an on-device model for the language you pick.")
         case .gateway:
-            L10n.string("Audio is streamed to your gateway for transcription.")
+            L10n.string("Audio is streamed to your gateway, which recognises the language itself.")
         }
+    }
+
+    /// Amendment A44: the backend that really turns speech into text. The
+    /// gateway transcribes only where it has a transcription service; anywhere
+    /// else dictation falls back to this iPhone, whichever was chosen. The
+    /// composer, Settings and `SpeechBackend` read this one answer, so a
+    /// language is offered exactly where the phone is the one listening.
+    public static func inEffect(chosen: VoiceBackend, gatewayTranscribes: Bool) -> VoiceBackend {
+        chosen == .gateway && gatewayTranscribes ? .gateway : .onDevice
+    }
+
+    /// The same answer for this phone's choice on the gateway it is signed in to.
+    @MainActor
+    public static func inEffect(settings: SettingsStore, connection: ConnectionStore) -> VoiceBackend {
+        inEffect(chosen: settings.voiceBackend, gatewayTranscribes: connection.stt.enabled)
     }
 }
 
@@ -115,7 +130,10 @@ public final class SettingsStore {
     public var notificationsEnabled: Bool { didSet { write(notificationsEnabled, Key.notifications) } }
     public var appLockEnabled: Bool { didSet { write(appLockEnabled, Key.appLock) } }
     public var voiceBackend: VoiceBackend { didSet { write(voiceBackend.rawValue, Key.voiceBackend) } }
-    /// A BCP-47 code, or "auto" to let the gateway decide.
+    /// The account's `stt_language`: the language this iPhone's own recogniser
+    /// listens for (A44), Chinese on a new install. A value it does not listen
+    /// for — an `auto` written before A44 — is kept as it arrived and read as
+    /// Chinese through `dictationLanguage`, so reading it writes nothing.
     public var voiceLanguage: String {
         didSet {
             write(voiceLanguage, Key.voiceLanguage)
@@ -178,7 +196,7 @@ public final class SettingsStore {
         notificationsEnabled = false
         appLockEnabled = false
         voiceBackend = .onDevice
-        voiceLanguage = "auto"
+        voiceLanguage = DictationLanguage.standard
         polishEnabled = false
         polishModel = ""
         polishStrength = .moderate
@@ -231,7 +249,7 @@ public final class SettingsStore {
         notificationsEnabled = defaults.bool(forKey: key(Key.notifications))
         appLockEnabled = defaults.bool(forKey: key(Key.appLock))
         voiceBackend = VoiceBackend(rawValue: defaults.string(forKey: key(Key.voiceBackend)) ?? "") ?? .onDevice
-        voiceLanguage = defaults.string(forKey: key(Key.voiceLanguage)) ?? "auto"
+        voiceLanguage = defaults.string(forKey: key(Key.voiceLanguage)) ?? DictationLanguage.standard
         polishEnabled = defaults.bool(forKey: key(Key.polishEnabled))
         polishModel = defaults.string(forKey: key(Key.polishModel)) ?? ""
         polishStrength = PolishStrength(rawValue: defaults.string(forKey: key(Key.polishStrength)) ?? "")
@@ -276,10 +294,13 @@ public final class SettingsStore {
         readScopedValues()
     }
 
-    /// The locale handed to `SFSpeechRecognizer`, resolved from the preference.
-    public var speechLocaleIdentifier: String {
-        voiceLanguage == "auto" ? Locale.current.identifier : voiceLanguage
-    }
+    /// Amendment A44: the language the phone's recogniser listens for, which
+    /// is the stored one where it is one of the recogniser's and Chinese
+    /// otherwise.
+    public var dictationLanguage: String { DictationLanguage.effective(voiceLanguage) }
+
+    /// The locale handed to `SFSpeechRecognizer` for that language.
+    public var speechLocaleIdentifier: String { DictationLanguage.localeIdentifier(for: dictationLanguage) }
 
     /// Remember who signed in where, and read their preferences.
     public func remember(origin: String, username: String) {

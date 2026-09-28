@@ -23,7 +23,9 @@ public struct Preferences: Codable, Sendable, Hashable {
     public let resumeAfterLimit: Bool
     /// The app's interface language (A41).
     public let language: InterfaceLanguage?
-    /// The dictation language: `auto`, or a code from `stt.languages` (A41).
+    /// The language a phone that recognises speech itself listens for — `zh`,
+    /// `en`, … — Chinese when unset; an `auto` written before A44 reads as
+    /// unset (A41, A44).
     public let sttLanguage: String?
     /// Whether a finished dictation goes through the gateway's polish model
     /// (A29, A41).

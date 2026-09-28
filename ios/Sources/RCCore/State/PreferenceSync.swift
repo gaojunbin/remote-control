@@ -162,7 +162,11 @@ public final class PreferenceSync {
     private func changes(against account: Preferences) -> PreferencePatch? {
         var patch = PreferencePatch()
         if account.language != settings.language { patch.language = settings.language }
-        if account.sttLanguage != settings.voiceLanguage {
+        // Amendment A44: only a language the recogniser listens for is written.
+        // An `auto` from before the amendment reads as Chinese where it stands,
+        // and offering it would put back a word the contract has retired.
+        if account.sttLanguage != settings.voiceLanguage,
+           DictationLanguage.codes.contains(settings.voiceLanguage) {
             patch.sttLanguage = settings.voiceLanguage
         }
         if account.polishEnabled != settings.polishEnabled {

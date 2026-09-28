@@ -1,23 +1,6 @@
 import SwiftUI
 import RCCore
 
-/// The words on a model card, with the lightning glyph before them while a
-/// faster tier is on. The live chip, the card's own first row and the
-/// read-only chip on a terminal-held session all read the same way.
-struct ModelCardLabel: View {
-    let text: String
-    let isFast: Bool
-
-    var body: some View {
-        HStack(spacing: 4) {
-            if isFast {
-                Image(systemName: "bolt.fill").font(.caption2)
-            }
-            Text(text)
-        }
-    }
-}
-
 /// The model name with the effort word after it, as the card's first row draws
 /// it. The sizer behind that row stacks this same view, so the box it measures
 /// is the box the words land in.
@@ -37,10 +20,12 @@ private struct ModelNameLabel: View {
 
 /// Amendment A21: the composer's one control for what runs and how hard.
 ///
-/// The chip reads the model label with the effort word after it; a tap opens a
-/// card over the keyboard holding the speed toggle, the model list and the
-/// effort slider. The card stays up until it is dismissed, so several changes
-/// can be made in one visit.
+/// Amendment A44: on the phone it is the gauge — the needle at the session's
+/// effort, the bolt while a faster tier is on — and its accessible value says
+/// the rest in words (`TerminalSetting.modelCardSpoken`). A tap opens a card
+/// over the keyboard holding the speed toggle, the model list and the effort
+/// slider. The card stays up until it is dismissed, so several changes can be
+/// made in one visit.
 struct ModelCardChip: View {
     let chat: ChatStore
     let agent: AgentInfo?
@@ -48,23 +33,19 @@ struct ModelCardChip: View {
 
     var body: some View {
         Button { isOpen = true } label: {
-            ModelCardSizer(pairs: ModelCardSizing.pairs(for: agent,
-                                                        model: AgentLabel.name(chat.session.agent))) { pair in
-                ModelCardLabel(text: pair.joined,
-                               isFast: ModelCardSizing.reservesLightning(for: agent))
-            } content: {
-                ModelCardLabel(text: ModelCardText.words(for: chat.session, agent: agent),
-                               isFast: chat.session.speed != nil)
+            ControlGlyph {
+                EffortGauge(position: agent?.effortPosition(chat.session.effort),
+                            isFast: chat.session.speed != nil)
             }
         }
-        .buttonStyle(ChipButtonStyle())
+        .buttonStyle(.plain)
         // Amendment A40: while a change is being typed into a terminal the
         // chip is the waiting control. It takes no second change, and it
         // dims, so a card dismissed mid-wait still says one is in flight.
         .disabled(chat.isSettingPending)
         .opacity(chat.isSettingPending ? 0.5 : 1)
         .accessibilityLabel("Model")
-        .accessibilityValue(ModelCardText.spoken(for: chat.session, agent: agent))
+        .accessibilityValue(TerminalSetting.modelCardSpoken(for: chat.session, agent: agent))
         .accessibilityHint(chat.isSettingPending ? L10n.string("Waiting for the terminal") : "")
         .accessibilityIdentifier("composer.modelCard")
         .popover(isPresented: $isOpen, arrowEdge: .bottom) {
@@ -74,25 +55,10 @@ struct ModelCardChip: View {
     }
 }
 
-/// What the chip says, in one place, so the live chip and the read-only chip
-/// never word the same session differently.
-public enum ModelCardText {
-    public static func words(for session: Session, agent: AgentInfo?) -> String {
-        let text = TerminalSetting.modelCardText(for: session, agent: agent)
-        return text.isEmpty ? AgentLabel.name(session.agent) : text
-    }
-
-    /// The glyph says "faster tier" to the eye and nothing to a screen reader.
-    public static func spoken(for session: Session, agent: AgentInfo?) -> String {
-        let words = words(for: session, agent: agent)
-        guard let tier = agent?.speedLabel(session.speed) ?? session.speed else { return words }
-        return "\(words), \(tier)"
-    }
-}
-
-/// `docs/DESIGN.md` § "The model card": the chip and the card's name row are as
-/// wide as the widest model-and-effort combination the agent offers, so nothing
-/// beside them shifts while a level is chosen or a model is picked.
+/// `docs/DESIGN.md` § "The model card": the card's name row is as wide as the
+/// widest model-and-effort combination the agent offers, so nothing beside it
+/// shifts while a level is chosen or a model is picked. The chip in the row is
+/// an icon on the phone (A44), which never changes its width.
 ///
 /// The width is measured, not guessed: every `models × efforts` pair is stacked
 /// behind the visible label with `.hidden()`, which keeps the layout and drops
@@ -118,16 +84,6 @@ public enum ModelCardSizing {
     public struct Pair: Hashable {
         public let model: String
         public let effort: String?
-
-        /// The two words as one string, exactly the way
-        /// `TerminalSetting.modelCardText` words a session for the chip.
-        public var joined: String { effort.map { "\(model) \($0)" } ?? model }
-    }
-
-    /// Whether the lightning glyph takes a place on the row. It is reserved
-    /// wherever the agent lists a tier, so turning the tier on moves nothing.
-    public static func reservesLightning(for agent: AgentInfo?) -> Bool {
-        agent?.speeds.isEmpty == false
     }
 
     /// Every model label with every effort label after it. The fallback stands

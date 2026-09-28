@@ -152,7 +152,8 @@ enum ProtocolChecks {
             // same object, and a full one carries all six.
             let preferences = response.preferences
             checks.equal(preferences.language, .zhHans, "with the account's interface language")
-            checks.equal(preferences.sttLanguage, "auto", "its dictation language")
+            checks.equal(preferences.sttLanguage, "zh",
+                         "the language its phone's recogniser listens for (A44)")
             checks.equal(preferences.polishEnabled, true, "whether dictation is polished")
             checks.equal(preferences.polishModel, "gpt-5.4-mini", "by which model")
             checks.equal(preferences.polishStrength, .moderate, "how far it may go")
@@ -283,6 +284,8 @@ enum ProtocolChecks {
         checks.equal(payload.devices.count, 2, "hello carries both devices")
         checks.equal(payload.sessions.count, 2, "hello carries both sessions")
         checks.expect(payload.stt.enabled, "hello reports gateway transcription")
+        checks.equal(payload.stt.languages, ["auto"],
+                     "and no language to choose: its provider detects it (A44)")
 
         guard let mac = payload.devices.first, let claude = mac.agent("claude") else {
             checks.expect(false, "the first device exposes Claude")

@@ -16,6 +16,9 @@ public enum STTEvent: Sendable, Equatable {
 /// partial transcript roughly every two seconds and one final transcript after
 /// `stop()`. Audio leaves the phone here, which is the difference from
 /// on-device recognition and is stated in the voice settings.
+///
+/// Amendment A44: the socket names no language. The gateway's provider detects
+/// it, and `stt.final` says which one it heard, or `auto`.
 public actor STTSocket {
     public nonisolated let events: AsyncStream<STTEvent>
 
@@ -27,7 +30,6 @@ public actor STTSocket {
     private let continuation: AsyncStream<STTEvent>.Continuation
     private let client: GatewayHTTPClient
     private let factory: any WebSocketFactory
-    private let language: String
     private var connection: (any WebSocketConnection)?
     private var reader: Task<Void, Never>?
     private var sentBytes = 0
@@ -40,10 +42,9 @@ public actor STTSocket {
     /// never answers cannot leave the panel waiting forever.
     public static let finalTimeout: TimeInterval = 30
 
-    public init(client: GatewayHTTPClient, language: String,
+    public init(client: GatewayHTTPClient,
                 factory: any WebSocketFactory = URLSessionWebSocketFactory()) {
         self.client = client
-        self.language = language
         self.factory = factory
         let stream = EventBuffer.makeStream(of: STTEvent.self, capacity: EventBuffer.sttCapacity)
         events = stream.stream
@@ -53,10 +54,7 @@ public actor STTSocket {
     public func start() async throws {
         guard connection == nil, !finished else { return }
         guard let token = await client.bearerToken() else { throw TransportError.unauthorized }
-        var components = URLComponents(url: client.endpoint.socketURL(path: "/ws/stt"), resolvingAgainstBaseURL: false)
-        components?.queryItems = [URLQueryItem(name: "language", value: language)]
-        guard let url = components?.url else { throw TransportError.invalidEndpoint }
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: client.endpoint.socketURL(path: "/ws/stt"))
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 30
         let socket = await factory.makeConnection(request: request)
@@ -122,7 +120,7 @@ public actor STTSocket {
                 case "stt.final":
                     receivedFinal = true
                     continuation.yield(.final(text: object.string("text") ?? "",
-                                              language: object.string("language") ?? language))
+                                              language: object.string("language") ?? "auto"))
                     await close()
                     return
                 case "stt.error":

@@ -16,6 +16,10 @@ import RCCore
 /// The replacement socket is connected and taking audio before the outgoing one
 /// is told to stop, so the seam drops nothing, and the cut waits for the first
 /// quiet moment after the segment length rather than landing mid-word.
+///
+/// Amendment A44: nothing here names a language. The gateway's provider
+/// detects it, which is why the composer offers none while this backend is the
+/// one listening.
 @MainActor public final class GatewaySpeechRecognizer: SpeechInputPlatform {
     /// Well inside the gateway's 120 s and 4 MiB budget for one utterance.
     static let segmentDuration: TimeInterval = 30
@@ -25,7 +29,6 @@ import RCCore
     static let silenceLevel = 0.12
 
     private let client: GatewayHTTPClient
-    private let language: String
     private let route = STTAudioRoute()
     private var engine: AVAudioEngine?
     private var input: AVAudioInputNode?
@@ -44,9 +47,8 @@ import RCCore
     private var ownsAudioSession = false
     private var isFinishing = false
 
-    public init(client: GatewayHTTPClient, language: String) {
+    public init(client: GatewayHTTPClient) {
         self.client = client
-        self.language = language
     }
 
     /// Each socket arms its own deadline at `STTSocket.finalTimeout`; this one
@@ -166,7 +168,7 @@ import RCCore
     /// replaces transcribe what it already holds.
     private func openSegment() async -> Bool {
         let index = segments.begin()
-        let socket = STTSocket(client: client, language: language)
+        let socket = STTSocket(client: client)
         sockets[index] = socket
         readers[index] = Task { [weak self] in
             for await event in socket.events {
@@ -322,7 +324,7 @@ final class STTAudioRoute: @unchecked Sendable {
 }
 #else
 @MainActor public final class GatewaySpeechRecognizer: SpeechInputPlatform {
-    public init(client: GatewayHTTPClient, language: String) {}
+    public init(client: GatewayHTTPClient) {}
     public var finishGracePeriod: TimeInterval { STTSocket.finalTimeout + 3 }
     public func requestPermission() async throws { throw SpeechInputFailure.unsupported }
     public func start(onEvent: @escaping @Sendable (SpeechInputEvent) -> Void) throws {
