@@ -1,4 +1,4 @@
-"""``WS /ws/app`` — the socket the web UI and the iOS app hold open.
+"""``WS /ws/app`` — the socket the web UI and the iPhone and Mac apps hold open.
 
 The gateway sends ``hello`` immediately so a cold app renders without an extra round trip, then
 pushes device and session updates plus the events of every session this connection subscribed to.

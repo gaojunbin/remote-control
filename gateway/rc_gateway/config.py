@@ -18,7 +18,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from dotenv import load_dotenv
 
-from .compat import IOS_MINIMUM_APP_VERSION, is_release_version
+from .compat import IOS_MINIMUM_APP_VERSION, MACOS_MINIMUM_APP_VERSION, is_release_version
 from .origins import canonical_origin
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -109,6 +109,9 @@ class Config:
     #: A31: the oldest iOS app this gateway works with, and where a newer build is.
     ios_minimum_version: str = IOS_MINIMUM_APP_VERSION
     ios_update_url: str = ""
+    #: A45: the same for the Mac app, whose minimum moves separately.
+    macos_minimum_version: str = MACOS_MINIMUM_APP_VERSION
+    macos_update_url: str = ""
 
     @property
     def https_origin(self) -> bool:
@@ -234,25 +237,28 @@ def _polish_config() -> PolishConfig:
     )
 
 
-def _ios_minimum_version(raw: str) -> str:
-    """Read ``IOS_MIN_APP_VERSION``, the operator's override of the release constant (A31)."""
+def _minimum_version(name: str, default: str) -> str:
+    """Read ``name``, the operator's override of one app's release constant (A31, A45)."""
+    raw = _env(name)
     if not raw:
-        return IOS_MINIMUM_APP_VERSION
+        return default
     if not is_release_version(raw):
-        raise ConfigError(
-            f"IOS_MIN_APP_VERSION is not a major.minor.patch version: {raw!r} (for example 1.2.0)"
-        )
+        raise ConfigError(f"{name} is not a major.minor.patch version: {raw!r} (for example 1.2.0)")
     return raw
 
 
-def _ios_update_url(raw: str) -> str:
-    """Read ``IOS_UPDATE_URL``. Refusing a plain-http value beats shipping a link apps reject."""
+def _update_url(name: str) -> str:
+    """Read ``name``, where one app's new build is (A31, A45).
+
+    Refusing a plain-http value beats shipping a link apps reject.
+    """
+    raw = _env(name)
     if not raw:
         return ""
     if not raw.startswith("https://"):
         raise ConfigError(
-            f"IOS_UPDATE_URL must be an https:// address: {raw!r} "
-            "(the TestFlight or App Store page for the new build)"
+            f"{name} must be an https:// address: {raw!r} "
+            "(the TestFlight, App Store or download page for the new build)"
         )
     return raw
 
@@ -294,8 +300,10 @@ def load_config(*, load_env_file: bool = True) -> Config:
     # Before DATA_DIR is touched: a typo in the provider name should not leave secrets behind.
     stt = _stt_config()
     polish = _polish_config()
-    ios_minimum_version = _ios_minimum_version(_env("IOS_MIN_APP_VERSION"))
-    ios_update_url = _ios_update_url(_env("IOS_UPDATE_URL"))
+    ios_minimum_version = _minimum_version("IOS_MIN_APP_VERSION", IOS_MINIMUM_APP_VERSION)
+    ios_update_url = _update_url("IOS_UPDATE_URL")
+    macos_minimum_version = _minimum_version("MACOS_MIN_APP_VERSION", MACOS_MINIMUM_APP_VERSION)
+    macos_update_url = _update_url("MACOS_UPDATE_URL")
 
     data_dir = Path(_env("DATA_DIR", "/data") or "/data").expanduser()
     try:
@@ -336,6 +344,8 @@ def load_config(*, load_env_file: bool = True) -> Config:
         trusted_proxy_networks=_trusted_proxies(_env("TRUSTED_PROXIES")),
         ios_minimum_version=ios_minimum_version,
         ios_update_url=ios_update_url,
+        macos_minimum_version=macos_minimum_version,
+        macos_update_url=macos_update_url,
     )
 
 

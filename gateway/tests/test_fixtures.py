@@ -60,6 +60,8 @@ def test_health_and_config_match_the_fixture_shape(
     assert set(expected) <= set(body)
     assert body["protocol"] == expected["protocol"]
     assert body["auth"] == expected["auth"]
+    # A45: an entry per separately installed app. The values are the operator's, not the fixture's.
+    assert set(body["apps"]) == set(expected["apps"])
 
     expected_config = fixture("http", "config.response.json")
     write_wheel(tmp_path)
@@ -67,6 +69,7 @@ def test_health_and_config_match_the_fixture_shape(
     assert set(config) == set(expected_config)
     # A44: value for value, since the language list is now a constant of the protocol.
     assert config["stt"] == expected_config["stt"]
+    assert set(config["apps"]) == set(expected_config["apps"])
     assert set(config["push"]) == set(expected_config["push"])
     assert set(config["client"]) == set(expected_config["client"])
 
@@ -193,6 +196,7 @@ def test_app_hello_matches_the_fixture_shape(client: TestClient, auth: dict[str,
         hello = drain_until(app, "hello")
     assert set(hello) == set(expected)
     assert hello["stt"] == expected["stt"]
+    assert set(hello["apps"]) == set(expected["apps"])
 
 
 def test_enroll_request_fixture_is_accepted(

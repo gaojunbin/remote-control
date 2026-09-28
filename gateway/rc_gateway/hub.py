@@ -123,8 +123,8 @@ MAX_TRACKED_SESSION_OWNERS = 8192
 MAX_ANNOUNCED_AGENTS = 16
 MAX_AGENT_ENTRY_BYTES = MAX_EVENT_BYTES
 
-#: A31 aside: an account's app sockets. The web app and a phone need two or three, so eight is
-#: generous; a ninth closes the oldest rather than letting one account hold sockets until the
+#: A31 aside: an account's app sockets. The web app, a phone and a Mac need three or four, so eight
+#: is generous; a ninth closes the oldest rather than letting one account hold sockets until the
 #: container runs out of them. Every broadcast is linear in this number.
 MAX_APPS_PER_USER = 8
 APP_REPLACED_CLOSE_REASON = "too many app connections for this account"
