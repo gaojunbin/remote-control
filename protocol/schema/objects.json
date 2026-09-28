@@ -990,7 +990,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 32,
-          "description": "The dictation language: auto, or a code from stt.languages (A41)."
+          "description": "The language a phone that recognises speech itself listens for (A41, A44); Chinese when unset, and an auto written before A44 reads as unset."
         },
         "polish_enabled": {
           "type": "boolean",

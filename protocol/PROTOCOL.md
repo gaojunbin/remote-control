@@ -301,9 +301,7 @@ gateway itself, as soon as it can (A36), or by an app retrying after a failure (
   "stt": {
     "enabled": true,
     "languages": [
-      "auto",
-      "zh",
-      "en"
+      "auto"
     ]
   },
   "polish": {
@@ -328,8 +326,10 @@ in the browser and on every device of the account, so they live on the gateway a
 The first was `resume_after_limit`: whether a session that stopped because the vendor's usage limit
 was reached is resumed by its device once the limit resets (7.2); off until the person turns it on.
 Since A41 the Settings screen's own preferences are there too: `language` (the app's interface
-language, `en` or `zh-Hans`), `stt_language` (the dictation language, `auto` or a code from
-`stt.languages`), `polish_enabled`, `polish_model`, `polish_strength` (`moderate` or `strong`,
+language, `en` or `zh-Hans`), `stt_language` (the language a phone that recognises speech itself
+listens for — `zh`, `en`, `ja`, … — Chinese when unset; an `auto` written before A44 reads as
+unset, because the gateway's provider is the only recogniser that detects the language and it
+needs no setting, A44), `polish_enabled`, `polish_model`, `polish_strength` (`moderate` or `strong`,
 A29) and `timeline_detail` (`simple` or `detailed`). Every field but `resume_after_limit` is
 optional: absent means nobody has set it yet, and an app then keeps the value it has and writes it
 up the first time it connects, so an account that arrives at A41 keeps what its first app had.
@@ -351,7 +351,7 @@ with a note. Only the caller's own preferences are readable or writable.
   "preferences": {
     "resume_after_limit": true,
     "language": "zh-Hans",
-    "stt_language": "auto",
+    "stt_language": "zh",
     "polish_enabled": true,
     "polish_model": "gpt-5.4-mini",
     "polish_strength": "moderate",
@@ -404,7 +404,12 @@ This reads the gateway index, so it renders the last known summaries even while 
 
 | Method | Path | Request | Response | Errors |
 | --- | --- | --- | --- | --- |
-| POST | `/api/stt/transcribe` | multipart form: `audio` (`wav`, `webm`, `m4a`, `mp3`), optional `language` | `SttTranscribeResponse` | `503` with code `unsupported` when speech to text is not configured |
+| POST | `/api/stt/transcribe` | multipart form: `audio` (`wav`, `webm`, `m4a`, `mp3`) | `SttTranscribeResponse` | `503` with code `unsupported` when speech to text is not configured |
+
+The gateway's provider detects the language of what it transcribes; nobody chooses it (A44). A
+`language` field an older client sends is ignored. `language` in the response is the language the
+provider reported, or `auto` when it reports none. `stt.languages` in `hello` and
+`GET /api/config` is therefore always `["auto"]`, and stays in both for the apps that read it.
 
 `fixtures/http/stt.transcribe.response.json`
 
@@ -435,7 +440,8 @@ references from the conversation, while adding no request the speaker did not ma
 language the text was spoken in and return text only. `context` carries at most twenty of the
 session's most recent user and assistant messages as the app already shows them, oldest first, each
 trimmed by the app; the gateway passes them to the model as conversation and nothing else.
-`language` is a hint for the model, the dictation language the user chose or `auto`.
+`language` is a hint for the model: `auto` for words the gateway transcribed, the language the
+phone's own recogniser listened for when it transcribed them (A44).
 
 `fixtures/http/polish.models.response.json`
 
@@ -557,7 +563,9 @@ has the session's `resume`.
 
 ### 3.8 Speech-to-text streaming socket
 
-`WS /ws/stt?language=<code>`, authenticated as above.
+`WS /ws/stt`, authenticated as above. The provider detects the language (A44); a `language`
+query parameter an older app sends is ignored, and `stt.final.language` is the language the
+provider reported, or `auto`.
 
 The client sends **binary** frames of PCM16LE, 16 kHz, mono, 100–200 ms per frame. It sends
 `stt.stop` to finish and transcribe everything received, or `stt.cancel` to discard the utterance.
@@ -2133,9 +2141,7 @@ informational and for routing.
   "stt": {
     "enabled": true,
     "languages": [
-      "auto",
-      "zh",
-      "en"
+      "auto"
     ]
   },
   "polish": {
@@ -3641,6 +3647,9 @@ one app connection that asked. The gateway relays bytes and never reads them.
       field absent until it has been set; validates a `PATCH` value against the field's type and
       words and answers `bad_request` otherwise; publishes the whole object on every change in the
       order the writes arrived (A41).
+- [ ] Has its speech provider detect the language of every transcription, on `/ws/stt` and
+      `POST /api/stt/transcribe` alike; ignores a `language` a client sends; reports `stt.languages`
+      as `["auto"]` (A44).
 
 ### 9.2 Device
 
@@ -3857,6 +3866,9 @@ one app connection that asked. The gateway relays bytes and never reads them.
       the reply as the value, writes its own value up once for a field the account has not set,
       and keeps on the device only what belongs to it — notifications, the app lock, the
       transcription backend, the terminal font size, list folds.
+- [ ] Offers no dictation language where the gateway transcribes, which detects it (A44); where
+      the phone's own recogniser transcribes, offers that recogniser's languages without an
+      automatic choice, Chinese when `stt_language` is unset or `auto`.
 - [ ] Offers the "Resume after the limit resets" switch in Settings bound to the account's
       `preferences` — disabled with a note when `hello` carries none — shows a session's pending
       `resume` above its transcript with the time, a way to change it and a way to cancel it, draws
@@ -4346,3 +4358,15 @@ before. `queue.pending[]` gains `attachments`, the number of files a held messag
 stay on the device and no frame brings them back, so apps offer Remove for such an entry and not
 Edit. Both fields are optional; a device without them queues an edited message at the end. See
 5.12, 6.3 and 9.
+
+**2026-09-28 A44 — the gateway detects the dictation language.** The composer offered a dictation
+language on both apps, `auto` among them, and the gateway validated it against `STT_LANGUAGES`. The
+gateway's providers detect the language themselves, so a choice there only adds a control and a
+way to be wrong; a phone's own recogniser cannot detect it and must be told. The gateway now has
+its provider detect the language of every transcription, ignores a `language` a client sends —
+the `/ws/stt` query parameter, the `POST /api/stt/transcribe` field — and reports `stt.languages`
+as `["auto"]`, kept for the apps that read it; `STT_LANGUAGES` is gone. `stt_language` is the
+language a phone that recognises speech itself listens for, Chinese when unset, and an `auto`
+written before this amendment reads as unset. Apps draw no dictation-language control for gateway
+transcription and offer the recogniser's languages without Automatic where the phone transcribes.
+Nothing else changes on the wire. See 3.2, 3.5, 3.8 and 9.

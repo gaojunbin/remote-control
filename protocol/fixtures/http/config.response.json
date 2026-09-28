@@ -3,9 +3,7 @@
   "stt": {
     "enabled": true,
     "languages": [
-      "auto",
-      "zh",
-      "en"
+      "auto"
     ]
   },
   "polish": {
