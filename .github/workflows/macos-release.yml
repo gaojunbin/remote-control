@@ -1,0 +1,85 @@
+name: macOS release
+
+# Every version tag gets the Mac app as a disk image on its GitHub release,
+# built here from the tagged commit rather than on anyone's machine. The
+# packing tools come from this workflow's own revision and the app from the
+# tag, so a tag pushed before this workflow existed is given its image by
+# running it by hand: `gh workflow run macos-release.yml --ref master -f tag=vX.Y.Z`.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The version tag to build and attach the disk image to, for example v1.11.1'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: macos-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  dmg:
+    name: Mac app disk image on the release
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      # The SDK the checks build with (macos-check.yml).
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Check out the packing tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tools
+          persist-credentials: false
+
+      - name: Check out the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          path: source
+          persist-credentials: false
+
+      - name: Build the app, signed to run locally
+        working-directory: source/macos
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate
+          xcodebuild -project RemoteControl.xcodeproj -scheme RemoteControl -configuration Release \
+            -derivedDataPath build/DerivedData build
+
+      - name: Pack the disk image
+        run: |
+          version="${TAG#v}"
+          app="source/macos/build/DerivedData/Build/Products/Release/Remote Control.app"
+          built="$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")"
+          # A tag whose Mac app was not bumped would ship under the wrong name.
+          [[ "$built" == "$version" ]] || { echo "::error::the app is $built, the tag is $TAG"; exit 1; }
+          bash tools/macos/scripts/make-dmg.sh "$app" "release/Remote-Control-$version.dmg"
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${TAG#v}"
+          files=("release/Remote-Control-$version.dmg" "release/Remote-Control-$version.dmg.sha256")
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            # The annotated tag's own message, then how to install the image.
+            sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq 'select(.object.type == "tag") | .object.sha')"
+            if [[ -n "$sha" ]]; then
+              gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .message > notes.md
+            else
+              echo "$TAG" > notes.md
+            fi
+            printf '\n' >> notes.md
+            sed "s/<version>/$version/g" tools/macos/scripts/dmg-install-notes.md >> notes.md
+            gh release create "$TAG" "${files[@]}" --verify-tag --title "$TAG" --notes-file notes.md \
+              --repo "$GITHUB_REPOSITORY"
+          fi

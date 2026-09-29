@@ -24,6 +24,7 @@ wrong unless the ruling says otherwise.
 | `App/` | `@main`, `Info.plist`, the entitlements, `Assets.xcassets` (the icon in every size, `AccentColor`) |
 | `project.yml`, `RemoteControl.xcodeproj` | the XcodeGen spec and the committed project with its shared scheme |
 | `scripts/ci-check-macos.sh` | what CI runs |
+| `scripts/make-dmg.sh` | packs a built app into the release's disk image, and its SHA-256 |
 
 ## Building and checking
 
@@ -234,3 +235,9 @@ only, as the iOS workflow does). It pins `macos-26` with Xcode 26.6 and runs
 `scripts/ci-check-macos.sh`: `swift build`, `swift test`, every preview scenario on
 the demo, `xcodegen generate` and the unsigned app build, uploading
 `macos/build/CI/` — logs, the `.xcresult` and the previews — as an artifact.
+
+`.github/workflows/macos-release.yml` runs on every version tag: it builds the
+tagged commit's app in Release, checks its version is the tag's, packs it with
+`scripts/make-dmg.sh` and attaches `Remote-Control-<version>.dmg` and its
+`.sha256` to the tag's GitHub release, creating the release from the tag's
+message and `scripts/dmg-install-notes.md` when there is none.
