@@ -2825,7 +2825,8 @@ PCM and hears a partial and the final transcript: it passes against the web's mo
 old cast in 13 ms with `unauthorized`. Mac swift test 426. **Not verified:** the microphone itself
 and the owner's realtime provider — the owner's next dictation is the check. All five components
 1.11.1 (a fix), iOS build 29, Mac build 3, tag v1.11.1.
-CI_RESULT_55
+GitHub "iOS checks" (run 36551041279) passed in 7 min and "macOS checks" (run 36551041272) in
+13 min 16 s, both on 6467cf8; tag v1.11.1 is there.
 
 ## Smoke procedure
 
