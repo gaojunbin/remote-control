@@ -73,7 +73,8 @@ round 46), so the local run is the only one, and a stale test found there is fix
    - Mac: `macos/project.yml` `MARKETING_VERSION` (the app compares it with `apps.macos.minimum_version`,
      A45) and `CURRENT_PROJECT_VERSION` (+1), then `xcodegen generate` in `macos/`.
 3. **Tag and push.** `git tag -a vX.Y.Z -m "<one line on what the release is>"`, then push `master`
-   and the tag. Raise an app's minimum (`IOS_MINIMUM_APP_VERSION`, `MACOS_MINIMUM_APP_VERSION`) in the
+   and the tag. The tag's push builds the Mac app's disk image and attaches it to the tag's GitHub
+   release (`macos-release.yml`); check that run too. Raise an app's minimum (`IOS_MINIMUM_APP_VERSION`, `MACOS_MINIMUM_APP_VERSION`) in the
    same round only if an older build of that app really stopped working (see above).
 
 ## How agents are attached (why terminal sessions can be driven from a phone)
@@ -117,5 +118,5 @@ recorded per round in `docs/VALIDATION.md` (device and gateway) and `docs/VALIDA
 
 VPS: `git pull && docker compose build && docker compose up -d` (`docs/DEPLOY.md`; `.env` reference
 there — STT, POLISH, APNS, VAPID). Devices: the app's Update action or `install.sh`. iOS: TestFlight
-from `ios/` (`docs/IOS.md`). Mac: build it from `macos/` and open it (`docs/MACOS.md`); it has no
-distribution channel yet.
+from `ios/` (`docs/IOS.md`). Mac: the disk image on the tag's GitHub release, or build it from
+`macos/` (`docs/MACOS.md`); it is signed to run locally, not notarized.

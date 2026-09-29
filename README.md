@@ -192,7 +192,9 @@ xcodebuild -project RemoteControl.xcodeproj -scheme RemoteControl \
 The simulator shares the Mac's network, so it signs in against `http://127.0.0.1:8787`. `swift run
 RCVerify` checks the protocol fixtures with plain Command Line Tools and needs no simulator.
 
-The Mac app, signed to run locally, against that gateway or the web's mock:
+The Mac app is on every release as `Remote-Control-<version>.dmg` (drag it to Applications; it is
+not notarized, so the first open wants **Open Anyway** in System Settings → Privacy & Security).
+To build it yourself, signed to run locally, against that gateway or the web's mock:
 
 ```sh
 cd macos && xcodegen generate

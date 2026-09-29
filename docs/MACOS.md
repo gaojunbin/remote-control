@@ -26,9 +26,23 @@ unless DESIGN says otherwise.
 | `App/` | `@main`, `Info.plist`, the entitlements, the icon in every size, `AccentColor` |
 | `project.yml`, `RemoteControl.xcodeproj` | the XcodeGen spec and the committed project with its shared scheme |
 | `scripts/ci-check-macos.sh` | what CI runs |
+| `scripts/make-dmg.sh` | packs a built app into the release's drag-to-Applications disk image |
 
 Bundle id `com.junbingao.remotecontrol.mac`, display name "Remote Control". Sandboxed with the
 network client, audio input and user-selected read-only file entitlements, and the hardened runtime.
+
+## Download
+
+Every version tag's GitHub release carries the app as `Remote-Control-<version>.dmg`, with its
+SHA-256 beside it: `.github/workflows/macos-release.yml` builds it from the tagged commit on the
+tag's push (Xcode 26.6, universal, signed to run locally) and packs it with `scripts/make-dmg.sh`,
+checking first that the app's version is the tag's. Open the image and drag Remote Control onto
+Applications. It is not notarized, so the first open is refused until you choose **Open Anyway** in
+System Settings → Privacy & Security (or clear the quarantine once with
+`xattr -dr com.apple.quarantine "/Applications/Remote Control.app"`). An ad-hoc signature changes
+with every build, so each new version asks again for the microphone, notifications and the Keychain.
+A tag pushed before the workflow existed gets its image by hand:
+`gh workflow run macos-release.yml --ref master -f tag=vX.Y.Z`.
 
 ## Building, checking and running
 
@@ -242,5 +256,5 @@ text is wider in a Chrome screenshot than in Safari or this app.
 - The Keychain: every automated run was `--ephemeral`.
 - VoiceOver, and keyboard navigation beyond the menu shortcuts.
 - A Mac whose scroll bars are set to always show.
-- Distribution: the build is signed to run locally, not notarized, and there is no TestFlight or
-  App Store channel for the Mac yet.
+- Distribution: the release's disk image is signed to run locally, not notarized, and there is no
+  TestFlight or App Store channel for the Mac yet.
