@@ -47,7 +47,11 @@ open "build/DerivedData/Build/Products/Release/Remote Control.app"
 
 Copy `Remote Control.app` to `/Applications` to keep it. The toolchain above (`swift build`,
 `swift test`, every preview scenario, the app build) is the component's gate before a commit; CI runs
-the same through `scripts/ci-check-macos.sh`.
+the same through `scripts/ci-check-macos.sh`. One test needs a gateway and runs only when
+`RC_MOCK_GATEWAY` names one: it signs in as the app does and dictates through the composer's own
+socket (`cd web && npm run mock`, then `RC_MOCK_GATEWAY=http://127.0.0.1:8787 swift test`). Run it
+whenever sign-in, the API wrapper or dictation changes — the previews speak from a script and never
+reach that path.
 
 Without a team the app is signed to run locally (`CODE_SIGN_IDENTITY = -`), so it builds and runs on
 any Mac, and a build made on this Mac opens without a Gatekeeper prompt. A team id, when you want

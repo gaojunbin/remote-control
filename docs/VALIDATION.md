@@ -2806,6 +2806,27 @@ Chinese widths now run on macOS 27, where they were measured (2b6df89); the seco
 (36474232231) passed in 14 min 15 s: 424 tests, 201 scenarios, the unsigned app build. Tag
 v1.11.0 is on 2b6df89.
 
+## 55. Dictation on the Mac reached no gateway (2026-09-29, 1.11.1)
+
+The owner's first use of the Mac app: a press on the microphone ended at once with "Transcription
+failed.", where the web transcribed normally. The composer opened its dictation socket with the
+store's API cast to `GatewayHTTPClient`, but every API the Mac builds is a `RecordingGatewayAPI`
+wrapping one (the login page reads a refusal's status through it), so the cast found nothing,
+RCCore's `STTSocket` was never made, and `start()` threw `unauthorized` before any audio was
+captured. The previews and the demo dictate from a script and the feature agents' checks never
+reached a real gateway's `/ws/stt`, so nothing had run this path. `ConnectionFactory.httpClient(behind:)`
+now unwraps the client in one place, used by the app socket and by `MacAppModel.httpClient`, which
+the composer reads. Every `GatewayAPI` requirement was checked: the wrapper forwards all 29, and no
+other call site cast the API.
+
+**Checks.** A unit test pins the unwrap. A new integration test, run when `RC_MOCK_GATEWAY` names a
+gateway, signs a model in as the app does, opens the composer's own dictation socket, sends 2.5 s of
+PCM and hears a partial and the final transcript: it passes against the web's mock and fails on the
+old cast in 13 ms with `unauthorized`. Mac swift test 426. **Not verified:** the microphone itself
+and the owner's realtime provider — the owner's next dictation is the check. All five components
+1.11.1 (a fix), iOS build 29, Mac build 3, tag v1.11.1.
+CI_RESULT_55
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
