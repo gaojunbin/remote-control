@@ -26,9 +26,17 @@ enum ConnectionFactory {
             makeChannel: { api in
                 // The socket authenticates with the HTTP client's own token, so
                 // it is handed the client the wrapper holds, never a new one.
-                let client = (api as? RecordingGatewayAPI)?.base as? GatewayHTTPClient
-                    ?? GatewayHTTPClient(endpoint: api.endpoint, secrets: secrets)
+                let client = httpClient(behind: api) ?? GatewayHTTPClient(endpoint: api.endpoint, secrets: secrets)
                 return GatewaySocket(client: client)
             })
+    }
+
+    /// The HTTP client an API built here stands on. Every one is wrapped in a
+    /// `RecordingGatewayAPI`, so a plain cast of the store's API finds nothing:
+    /// whatever reaches the gateway past `GatewayAPI` — the app socket, the
+    /// dictation socket — takes its client, and its token, from here.
+    nonisolated static func httpClient(behind api: (any GatewayAPI)?) -> GatewayHTTPClient? {
+        if let recording = api as? RecordingGatewayAPI { return recording.base as? GatewayHTTPClient }
+        return api as? GatewayHTTPClient
     }
 }

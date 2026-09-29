@@ -73,11 +73,9 @@ final class AppComposerHost: ComposerHost {
     /// The Mac's microphone, and the gateway's `WS /ws/stt` through RCCore's
     /// socket. The client is read when a dictation starts, so a gateway signed
     /// into later is the one that transcribes.
-    private static func gatewaySpeech(model: MacAppModel) -> SpeechServices {
+    static func gatewaySpeech(model: MacAppModel) -> SpeechServices {
         SpeechServices(
             recorder: { handlers in MicRecorder(handlers: handlers) },
-            socket: { [weak model] onEvent in
-                GatewaySpeechStream(client: model?.connection.api as? GatewayHTTPClient, onEvent: onEvent)
-            })
+            socket: { [weak model] onEvent in GatewaySpeechStream(client: model?.httpClient, onEvent: onEvent) })
     }
 }

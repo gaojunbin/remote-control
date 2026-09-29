@@ -7,6 +7,11 @@ extension MacAppModel {
     public func device(for session: Session) -> Device? { connection.device(session.deviceID) }
 
     /// The agent a session runs, as its device describes it.
+    /// The signed-in gateway's HTTP client, for the sockets RCCore opens on it
+    /// directly (`WS /ws/stt`). Nil when nobody is signed in, and under the
+    /// offline demo, which has no HTTP client at all.
+    public var httpClient: GatewayHTTPClient? { ConnectionFactory.httpClient(behind: connection.api) }
+
     public func agent(for session: Session) -> AgentInfo? {
         connection.device(session.deviceID)?.agent(session.agent)
     }
