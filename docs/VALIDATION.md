@@ -2828,6 +2828,15 @@ and the owner's realtime provider — the owner's next dictation is the check. A
 GitHub "iOS checks" (run 36551041279) passed in 7 min and "macOS checks" (run 36551041272) in
 13 min 16 s, both on 6467cf8; tag v1.11.1 is there.
 
+**The disk image.** At the owner's ask the Mac app now ships on every version tag's GitHub release:
+`.github/workflows/macos-release.yml` builds the tagged commit (Xcode 26.6, universal, signed to
+run locally, the app's version checked against the tag) and attaches `Remote-Control-<version>.dmg`
+and its `.sha256` (`macos/scripts/make-dmg.sh`). v1.11.1 predates the workflow and was given its
+image by hand (run 36565727071). Downloaded back from the release: the checksum matches, the image
+mounts with the app and an Applications link, the signature verifies (ad-hoc, hardened runtime),
+the app is 1.11.1 build 3 for x86_64 and arm64, and no path of the build machine's user is in it.
+Not notarized: the first open asks for Open Anyway.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
