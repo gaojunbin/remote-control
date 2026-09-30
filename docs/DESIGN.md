@@ -5,7 +5,8 @@ to leave the desk. The design target is an instant-messaging app, not a terminal
 should be able to keep a session moving from a phone on a train, one thumb, no zooming.
 
 Three prototype screens in `web-moke/` fixed the visual language before any code was written. The
-web, iOS and Mac apps implement the same three, with the same vocabulary and the same rules.
+web, iOS, Mac, Android and Windows apps implement the same three, with the same vocabulary and the
+same rules.
 
 ## The three screens
 
@@ -1163,11 +1164,99 @@ PROTOCOL 8.16 in the web's visual language — its own version, the gateway's mi
 Settings."). The Settings caption starts with the app's own version, as the iPhone app's does,
 because the Mac app is installed apart from the gateway that serves the web.
 
+## The Android app
+
+**It is the iPhone app, drawn for Android.** `android/app` draws the iPhone app's screens in Jetpack
+Compose on `android/core`, the Kotlin port of the iPhone app's protocol and state layer
+(`ios/Sources/RCCore`): the same three tabs, the same screens, sheets, rows and controls, the same
+words in both languages, the same tokens, and the same behaviour, down to what the composer does
+with an unfinished composition and what a swipe on a row offers. The iPhone app is the reference.
+Where the two differ, the Android app is wrong unless this section says otherwise; nothing is
+designed for Android first, and neither the web nor the Mac app is a reference.
+
+**Android's conventions replace Apple's only where the platform owns them.** The system back
+gesture and button go back as the iPhone's back button and edge swipe do — closing a menu, a sheet
+or a dialog first, then leaving the screen. The app draws edge to edge, with the iPhone's
+backgrounds behind the system bars. Permissions are asked as Android asks them, at the moment the
+iPhone asks. Text is set in the system sans (Roboto, and Noto Sans CJK for Chinese) at the iPhone's
+point sizes as sp, because SF cannot ship outside Apple's platforms; for the same reason each SF
+Symbol is drawn as the nearest lucide glyph — the set the web and Mac apps already carry — and the
+iPhone's own glyphs (the laptop, the folder, the effort gauge, the prompt shield) are redrawn from
+their paths. Sheets, menus, confirmation dialogs, swipe actions and the tab bar keep the iPhone's
+shapes, not Material's.
+
+**The phone's features are Android's.** Face ID becomes the device's biometric unlock (fingerprint
+or face, falling back to the screen lock) behind the same switch; the privacy shield keeps the
+content out of the recents screen; a pairing QR code is read with the camera (CameraX and the
+on-device ML Kit scanner, so no Play services are needed); photos come from the system photo
+picker and the camera; dictation offers both of the iPhone's recognisers — the phone's (Android's
+speech recogniser, on the device where the phone has one) and the gateway's (A44) — with the
+iPhone's words and rules; Markdown diagrams are drawn by the same renderer in a web view; the screen
+stays awake in a conversation as on the iPhone.
+
+**Notifications post from the app until Android has a push channel.** The gateway pushes through
+APNs, the iPhone app's topic, and Web Push, the browser's. An Android app needs Firebase Cloud
+Messaging, which needs the owner's Firebase project and a sender on the gateway — a later amendment.
+Until then the Android app posts a system notification from its live connection at the moments the
+gateway pushes for — a session that needs you, a turn that ends, a usage-limit resume — with the
+push's words, skipped while that conversation is on screen, and a tap opens the conversation. The
+iPhone's notification setting keeps its place and turns these on and off.
+
+**Update required (A46).** Below `apps.android.minimum_version` the app shows the iPhone's blocking
+screen — its own version, the gateway's minimum, a button to `update_url` when there is one, and
+Sign out — and nothing else.
+
+**Android's own words.** Where the iPhone names Apple — Face ID, the Settings app, TestFlight, the
+App Store — the Android app names Android's counterpart ("Biometric unlock", "Android Settings", the
+update link's own page). Its appearance follows the system as the iPhone app's does.
+
+## The Windows app
+
+**It is the Mac app, drawn for Windows.** `win/` draws the Mac app's screens — which are the web
+app's — in Compose Multiplatform on `android/core`, the Kotlin core the Android app runs on: the same
+routes, the same words in both languages, the same tokens, rows, controls, popovers, overlays and
+breakpoints, and the same behaviour. The Mac app is the reference, and through it the web app; where
+the Windows app differs from the Mac app it is wrong unless this section says otherwise. The iPhone
+and Android apps are not references.
+
+**The window is Windows'.** One main window with the system title bar, so snapping, resizing and
+the caption buttons are Windows' own; below it, the Mac's window content without the traffic-light
+inset — the web's topbar, and on the chat page at 1024 px and wider the session sidebar's head and
+the chat header. The layout follows the web's breakpoints on the window's width, and the window
+narrows to 480 px. The appearance is always light. Scroll bars are the web's thin ones, drawn over
+the content while it scrolls, as Windows 11 draws its own. Closing the window leaves the app running
+and connected in the notification area, as Windows chat apps do, so notifications keep arriving;
+its icon there opens the window again and offers Quit.
+
+**Navigation is the web's history with Windows' keys.** Ctrl takes ⌘'s place: Ctrl+1, Ctrl+2 and
+Ctrl+3 for the three tabs, Ctrl+, for Settings and Ctrl+N for New session. Back and forward are
+Alt+Left and Alt+Right and the mouse's back and forward buttons, as in a Windows browser. There is no
+menu bar; every command the Mac's menus hold is a shortcut here or already on screen.
+
+**Type is the platform's face**, as the web's font stack resolves on Windows: Segoe UI Variable
+(Segoe UI on Windows 10), with Microsoft YaHei UI for Chinese, at the web's sizes. The renderer, run
+on a Mac, sets the Mac's system face, so its pictures compare with the Mac renderer's pixel for
+pixel.
+
+**Sign-in, overlays, dictation and Update required are the Mac's.** The login page asks for the
+gateway's address above the username; the token is kept with Windows' data protection (DPAPI, for
+the signed-in Windows user) in the app's own data folder; popovers, menus, modals and the New
+session drawer are drawn inside the window; dictation is the gateway's, and Windows grants the
+microphone in its privacy settings; below `apps.windows.minimum_version` (A46) the blocking screen
+shows and nothing else.
+
+**Notify me posts from the app**, as on the Mac, through Windows' notifications: the same moments
+and words, skipped while that conversation is open in the focused window, and clicking one opens
+it.
+
+**Windows' own words.** Where the Mac names the Mac, the Windows app names Windows ("Blocked in
+Windows Settings.", "File Explorer").
+
 ## Palette and type
 
-Light theme only in v1, and the Mac app is always light. iOS defines dark values so the app stays
-legible when the system is dark,
-but the design was not reviewed in dark mode.
+Light theme only in v1, and the Mac and Windows apps are always light. iOS defines dark values so
+the app stays legible when the system is dark, and the Android app carries the same values, but the
+design was not reviewed in dark mode.
 
 | Token | Value | Used for |
 | --- | --- | --- |
