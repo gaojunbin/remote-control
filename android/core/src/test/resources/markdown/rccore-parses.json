@@ -1,0 +1,3044 @@
+[
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "heading",
+        "level" : 1,
+        "line" : 0,
+        "text" : "Title"
+      },
+      {
+        "id" : "md-3",
+        "kind" : "heading",
+        "level" : 2,
+        "line" : 3,
+        "text" : "Sub"
+      }
+    ],
+    "document" : "Title\n=====\n\nSub\n---"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "heading",
+        "level" : 2,
+        "line" : 0,
+        "text" : "Closed"
+      }
+    ],
+    "document" : "## Closed ##"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "#hashtag"
+      }
+    ],
+    "document" : "#hashtag"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "math",
+        "line" : 0,
+        "text" : "a + b"
+      }
+    ],
+    "document" : "$$\na + b\n$$"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "math",
+        "line" : 0,
+        "text" : "x"
+      }
+    ],
+    "document" : "\\[x\\]"
+  },
+  {
+    "blocks" : [
+      {
+        "closed" : true,
+        "id" : "md-0",
+        "kind" : "code",
+        "language" : "kotlin",
+        "line" : 0,
+        "source" : "code\n~~~"
+      }
+    ],
+    "document" : "~~~~ Kotlin extra\ncode\n~~~\n~~~~"
+  },
+  {
+    "blocks" : [
+      {
+        "blocks" : [
+          {
+            "id" : "md-q0-0",
+            "kind" : "paragraph",
+            "line" : 0,
+            "text" : "one"
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-q0-q1-1",
+                "kind" : "paragraph",
+                "line" : 1,
+                "text" : "two"
+              }
+            ],
+            "id" : "md-q0-1",
+            "kind" : "quote",
+            "line" : 1
+          }
+        ],
+        "id" : "md-0",
+        "kind" : "quote",
+        "line" : 0
+      }
+    ],
+    "document" : "> one\n> > two"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "para"
+      },
+      {
+        "id" : "md-2",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li2-2",
+                "kind" : "paragraph",
+                "line" : 2,
+                "text" : "a"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item2",
+            "number" : null
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li3-3",
+                "kind" : "paragraph",
+                "line" : 3,
+                "text" : "b"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item3",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 2,
+        "ordered" : false
+      }
+    ],
+    "document" : "para\n\n- a\n- b"
+  },
+  {
+    "blocks" : [
+      {
+        "alignments" : [
+          "leading",
+          "leading"
+        ],
+        "headers" : [
+          "a",
+          "b"
+        ],
+        "id" : "md-0",
+        "kind" : "table",
+        "line" : 0,
+        "rows" : [
+          [
+            "1",
+            "2"
+          ]
+        ]
+      }
+    ],
+    "document" : "a | b\n--- | ---\n1 | 2 | 3"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "done"
+              }
+            ],
+            "checked" : true,
+            "id" : "md-item0",
+            "number" : null
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li1-1",
+                "kind" : "paragraph",
+                "line" : 1,
+                "text" : "pending"
+              },
+              {
+                "id" : "md-li1-2",
+                "items" : [
+                  {
+                    "blocks" : [
+                      {
+                        "id" : "md-li1-li2-2",
+                        "kind" : "paragraph",
+                        "line" : 2,
+                        "text" : "nested"
+                      }
+                    ],
+                    "checked" : null,
+                    "id" : "md-li1-item2",
+                    "number" : null
+                  }
+                ],
+                "kind" : "list",
+                "line" : 2,
+                "ordered" : false
+              }
+            ],
+            "checked" : false,
+            "id" : "md-item1",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : false
+      }
+    ],
+    "document" : "- [x] done\n- [ ] pending\n  - nested"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "first"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : 1
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li1-1",
+                "kind" : "paragraph",
+                "line" : 1,
+                "text" : "second"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item1",
+            "number" : 2
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : true
+      }
+    ],
+    "document" : "1. first\n2. second"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "heading",
+        "level" : 1,
+        "line" : 0,
+        "text" : "Heading"
+      },
+      {
+        "id" : "md-2",
+        "kind" : "paragraph",
+        "line" : 2,
+        "text" : "A paragraph that\nwraps."
+      },
+      {
+        "blocks" : [
+          {
+            "id" : "md-q5-5",
+            "kind" : "paragraph",
+            "line" : 5,
+            "text" : "quoted"
+          }
+        ],
+        "id" : "md-5",
+        "kind" : "quote",
+        "line" : 5
+      },
+      {
+        "id" : "md-7",
+        "kind" : "rule",
+        "line" : 7
+      }
+    ],
+    "document" : "# Heading\n\nA paragraph that\nwraps.\n\n> quoted\n\n---"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "text\n    code?"
+      },
+      {
+        "closed" : true,
+        "id" : "md-3",
+        "kind" : "code",
+        "language" : "",
+        "line" : 3,
+        "source" : "code"
+      }
+    ],
+    "document" : "text\n    code?\n\n    code"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "a"
+              },
+              {
+                "id" : "md-li0-2",
+                "kind" : "paragraph",
+                "line" : 2,
+                "text" : "continued"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : null
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li3-3",
+                "kind" : "paragraph",
+                "line" : 3,
+                "text" : "b"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item3",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : false
+      }
+    ],
+    "document" : "* a\n\n  continued\n* b"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "x"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : 1
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li1-1",
+                "kind" : "paragraph",
+                "line" : 1,
+                "text" : "y"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item1",
+            "number" : 2
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li2-2",
+                "kind" : "paragraph",
+                "line" : 2,
+                "text" : "z"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item2",
+            "number" : 3
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : true
+      }
+    ],
+    "document" : "1) x\n2) y\n3. z"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "| x |\n|:-:|\n| `a|b` |"
+      }
+    ],
+    "document" : "| x |\n|:-:|\n| `a|b` |"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "rule",
+        "line" : 0
+      },
+      {
+        "id" : "md-1",
+        "kind" : "rule",
+        "line" : 1
+      },
+      {
+        "id" : "md-2",
+        "kind" : "rule",
+        "line" : 2
+      }
+    ],
+    "document" : "***\n___\n- - -"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "math",
+        "line" : 0,
+        "text" : "inline"
+      }
+    ],
+    "document" : "$$ inline $$"
+  },
+  {
+    "blocks" : [
+      {
+        "closed" : false,
+        "id" : "md-0",
+        "kind" : "code",
+        "language" : "",
+        "line" : 0,
+        "source" : "unterminated"
+      }
+    ],
+    "document" : "```\nunterminated"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "heading",
+        "level" : 1,
+        "line" : 0,
+        "text" : "indented heading"
+      }
+    ],
+    "document" : "  # indented heading"
+  },
+  {
+    "blocks" : [
+      {
+        "closed" : true,
+        "id" : "md-0",
+        "kind" : "code",
+        "language" : "",
+        "line" : 0,
+        "source" : "# four spaces"
+      }
+    ],
+    "document" : "    # four spaces"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "item\nlazy line"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : false
+      }
+    ],
+    "document" : "- item\nlazy line"
+  },
+  {
+    "blocks" : [
+      {
+        "blocks" : [
+          {
+            "id" : "md-q0-0",
+            "kind" : "paragraph",
+            "line" : 0,
+            "text" : "q"
+          }
+        ],
+        "id" : "md-0",
+        "kind" : "quote",
+        "line" : 0
+      },
+      {
+        "id" : "md-1",
+        "kind" : "paragraph",
+        "line" : 1,
+        "text" : "lazy"
+      }
+    ],
+    "document" : "> q\nlazy"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "ten"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : 10
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li1-1",
+                "kind" : "paragraph",
+                "line" : 1,
+                "text" : "eleven"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item1",
+            "number" : 11
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : true
+      }
+    ],
+    "document" : "10. ten\n11. eleven"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "1234567890. too long"
+      }
+    ],
+    "document" : "1234567890. too long"
+  },
+  {
+    "blocks" : [
+      {
+        "closed" : true,
+        "id" : "md-0",
+        "kind" : "code",
+        "language" : "",
+        "line" : 0,
+        "source" : "- tab item"
+      }
+    ],
+    "document" : "\t- tab item"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "-not a list"
+      }
+    ],
+    "document" : "-not a list"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "plus"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : null
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li1-1",
+                "kind" : "paragraph",
+                "line" : 1,
+                "text" : "plus2"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item1",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : false
+      }
+    ],
+    "document" : "+ plus\n+ plus2"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "a"
+      },
+      {
+        "id" : "md-1",
+        "kind" : "rule",
+        "line" : 1
+      },
+      {
+        "id" : "md-2",
+        "kind" : "paragraph",
+        "line" : 2,
+        "text" : "b"
+      }
+    ],
+    "document" : "a\n***\nb"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "| a |\n| - |"
+      }
+    ],
+    "document" : "| a |\n| - |"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "heading",
+        "level" : 1,
+        "line" : 0,
+        "text" : "x"
+      },
+      {
+        "id" : "md-2",
+        "kind" : "paragraph",
+        "line" : 2,
+        "text" : "y"
+      }
+    ],
+    "document" : "x\n===\ny"
+  },
+  {
+    "blocks" : [
+
+    ],
+    "document" : ""
+  },
+  {
+    "blocks" : [
+
+    ],
+    "document" : "\n\n\n"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "a\nb\nc"
+      }
+    ],
+    "document" : "a\r\nb\rc"
+  },
+  {
+    "blocks" : [
+      {
+        "closed" : true,
+        "id" : "md-0",
+        "kind" : "code",
+        "language" : "swift",
+        "line" : 0,
+        "source" : "let x = 1"
+      }
+    ],
+    "document" : "```swift\nlet x = 1\n```"
+  },
+  {
+    "blocks" : [
+      {
+        "closed" : false,
+        "id" : "md-0",
+        "kind" : "code",
+        "language" : "python",
+        "line" : 0,
+        "source" : "print(1)"
+      }
+    ],
+    "document" : "```python\nprint(1)"
+  },
+  {
+    "blocks" : [
+      {
+        "closed" : true,
+        "id" : "md-0",
+        "kind" : "code",
+        "language" : "",
+        "line" : 0,
+        "source" : "indented code"
+      }
+    ],
+    "document" : "    indented code\n"
+  },
+  {
+    "blocks" : [
+      {
+        "alignments" : [
+          "leading",
+          "trailing"
+        ],
+        "headers" : [
+          "Name",
+          "Count"
+        ],
+        "id" : "md-0",
+        "kind" : "table",
+        "line" : 0,
+        "rows" : [
+          [
+            "a",
+            "1"
+          ],
+          [
+            "b",
+            "2"
+          ]
+        ]
+      }
+    ],
+    "document" : "| Name | Count |\n| :--- | ----: |\n| a | 1 |\n| b | 2 |"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "heading",
+        "level" : 6,
+        "line" : 0,
+        "text" : "six"
+      },
+      {
+        "id" : "md-1",
+        "kind" : "paragraph",
+        "line" : 1,
+        "text" : "####### seven"
+      }
+    ],
+    "document" : "###### six\n####### seven"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "heading",
+        "level" : 1,
+        "line" : 0,
+        "text" : ""
+      },
+      {
+        "id" : "md-1",
+        "kind" : "heading",
+        "level" : 1,
+        "line" : 1,
+        "text" : ""
+      }
+    ],
+    "document" : "# \n#"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "heading",
+        "level" : 2,
+        "line" : 0,
+        "text" : "Heading"
+      },
+      {
+        "id" : "md-2",
+        "kind" : "paragraph",
+        "line" : 2,
+        "text" : "text"
+      }
+    ],
+    "document" : "Heading\n-\ntext"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "a"
+              },
+              {
+                "id" : "md-li0-1",
+                "items" : [
+                  {
+                    "blocks" : [
+                      {
+                        "id" : "md-li0-li1-1",
+                        "kind" : "paragraph",
+                        "line" : 1,
+                        "text" : "b"
+                      },
+                      {
+                        "id" : "md-li0-li1-2",
+                        "items" : [
+                          {
+                            "blocks" : [
+                              {
+                                "id" : "md-li0-li1-li2-2",
+                                "kind" : "paragraph",
+                                "line" : 2,
+                                "text" : "c"
+                              },
+                              {
+                                "id" : "md-li0-li1-li2-3",
+                                "items" : [
+                                  {
+                                    "blocks" : [
+                                      {
+                                        "id" : "md-li0-li1-li2-li3-3",
+                                        "kind" : "paragraph",
+                                        "line" : 3,
+                                        "text" : "d"
+                                      }
+                                    ],
+                                    "checked" : null,
+                                    "id" : "md-li0-li1-li2-item3",
+                                    "number" : null
+                                  }
+                                ],
+                                "kind" : "list",
+                                "line" : 3,
+                                "ordered" : false
+                              }
+                            ],
+                            "checked" : null,
+                            "id" : "md-li0-li1-item2",
+                            "number" : null
+                          }
+                        ],
+                        "kind" : "list",
+                        "line" : 2,
+                        "ordered" : false
+                      }
+                    ],
+                    "checked" : null,
+                    "id" : "md-li0-item1",
+                    "number" : null
+                  }
+                ],
+                "kind" : "list",
+                "line" : 1,
+                "ordered" : false
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : false
+      }
+    ],
+    "document" : "- a\n  - b\n    - c\n      - d"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "one\ncontinued"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : 1
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li2-2",
+                "kind" : "paragraph",
+                "line" : 2,
+                "text" : "two"
+              },
+              {
+                "id" : "md-li2-4",
+                "kind" : "paragraph",
+                "line" : 4,
+                "text" : "para in two"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item2",
+            "number" : 2
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li5-5",
+                "kind" : "paragraph",
+                "line" : 5,
+                "text" : "three"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item5",
+            "number" : 3
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : true
+      }
+    ],
+    "document" : "1. one\n   continued\n2. two\n\n   para in two\n3. three"
+  },
+  {
+    "blocks" : [
+      {
+        "blocks" : [
+          {
+            "id" : "md-q0-0",
+            "kind" : "heading",
+            "level" : 1,
+            "line" : 0,
+            "text" : "quoted heading"
+          },
+          {
+            "id" : "md-q0-1",
+            "items" : [
+              {
+                "blocks" : [
+                  {
+                    "id" : "md-q0-li1-1",
+                    "kind" : "paragraph",
+                    "line" : 1,
+                    "text" : "quoted list"
+                  }
+                ],
+                "checked" : null,
+                "id" : "md-q0-item1",
+                "number" : null
+              }
+            ],
+            "kind" : "list",
+            "line" : 1,
+            "ordered" : false
+          },
+          {
+            "closed" : true,
+            "id" : "md-q0-3",
+            "kind" : "code",
+            "language" : "",
+            "line" : 3,
+            "source" : "quoted code"
+          }
+        ],
+        "id" : "md-0",
+        "kind" : "quote",
+        "line" : 0
+      }
+    ],
+    "document" : "> # quoted heading\n> - quoted list\n>\n> ```\n> quoted code\n> ```"
+  },
+  {
+    "blocks" : [
+      {
+        "closed" : true,
+        "id" : "md-0",
+        "kind" : "code",
+        "language" : "js",
+        "line" : 0,
+        "source" : ""
+      },
+      {
+        "id" : "md-2",
+        "kind" : "paragraph",
+        "line" : 2,
+        "text" : "after"
+      }
+    ],
+    "document" : "```js\n```\nafter"
+  },
+  {
+    "blocks" : [
+      {
+        "closed" : true,
+        "id" : "md-0",
+        "kind" : "code",
+        "language" : "",
+        "line" : 0,
+        "source" : "````\nstill code"
+      }
+    ],
+    "document" : "`````\n````\nstill code\n`````"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "``` a`b\nnot a fence"
+      }
+    ],
+    "document" : "``` a`b\nnot a fence"
+  },
+  {
+    "blocks" : [
+      {
+        "alignments" : [
+          "leading",
+          "center"
+        ],
+        "headers" : [
+          "a",
+          "b"
+        ],
+        "id" : "md-0",
+        "kind" : "table",
+        "line" : 0,
+        "rows" : [
+          [
+            "1",
+            ""
+          ],
+          [
+            "1",
+            "2"
+          ]
+        ]
+      },
+      {
+        "id" : "md-5",
+        "kind" : "paragraph",
+        "line" : 5,
+        "text" : "after"
+      }
+    ],
+    "document" : "| a | b |\n|---|:---:|\n| 1 |\n| 1 | 2 | 3 |\n\nafter"
+  },
+  {
+    "blocks" : [
+      {
+        "alignments" : [
+          "leading",
+          "leading"
+        ],
+        "headers" : [
+          "a",
+          "b"
+        ],
+        "id" : "md-0",
+        "kind" : "table",
+        "line" : 0,
+        "rows" : [
+          [
+            "c",
+            "d"
+          ]
+        ]
+      },
+      {
+        "id" : "md-4",
+        "kind" : "paragraph",
+        "line" : 4,
+        "text" : "|e|"
+      }
+    ],
+    "document" : "a|b\n---|---\nc|d\n\n|e|"
+  },
+  {
+    "blocks" : [
+      {
+        "alignments" : [
+          "leading",
+          "leading"
+        ],
+        "headers" : [
+          "\\| not",
+          "a table"
+        ],
+        "id" : "md-0",
+        "kind" : "table",
+        "line" : 0,
+        "rows" : [
+
+        ]
+      }
+    ],
+    "document" : "\\| not | a table\n---|---"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "text $$\nnot math"
+      }
+    ],
+    "document" : "text $$\nnot math"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "$$\nunclosed math\nmore"
+      }
+    ],
+    "document" : "$$\nunclosed math\nmore"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "math",
+        "line" : 0,
+        "text" : "multiline"
+      }
+    ],
+    "document" : "\\[\nmultiline\n\\]"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+
+            ],
+            "checked" : false,
+            "id" : "md-item0",
+            "number" : null
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li1-1",
+                "kind" : "paragraph",
+                "line" : 1,
+                "text" : "[x]"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item1",
+            "number" : null
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li2-2",
+                "kind" : "paragraph",
+                "line" : 2,
+                "text" : "caps"
+              }
+            ],
+            "checked" : true,
+            "id" : "md-item2",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : false
+      }
+    ],
+    "document" : "- [ ] \n- [x]\n- [X] caps"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : null
+          },
+          {
+            "blocks" : [
+
+            ],
+            "checked" : null,
+            "id" : "md-item1",
+            "number" : null
+          },
+          {
+            "blocks" : [
+
+            ],
+            "checked" : null,
+            "id" : "md-item2",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : false
+      }
+    ],
+    "document" : "*\n-\n+"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "a"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : null
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li3-3",
+                "kind" : "paragraph",
+                "line" : 3,
+                "text" : "b"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item3",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : false
+      }
+    ],
+    "document" : "- a\n\n\n- b"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "a"
+              },
+              {
+                "id" : "md-li0-2",
+                "kind" : "paragraph",
+                "line" : 2,
+                "text" : "b"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : null
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li4-4",
+                "kind" : "paragraph",
+                "line" : 4,
+                "text" : "c"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item4",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : false
+      }
+    ],
+    "document" : "- a\n\n  b\n\n- c"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "two space"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : null
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li1-1",
+                "kind" : "paragraph",
+                "line" : 1,
+                "text" : "items"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item1",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : false
+      }
+    ],
+    "document" : "  - two space\n  - items"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "a"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : false
+      },
+      {
+        "id" : "md-1",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li1-1",
+                "kind" : "paragraph",
+                "line" : 1,
+                "text" : "b"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item1",
+            "number" : 1
+          }
+        ],
+        "kind" : "list",
+        "line" : 1,
+        "ordered" : true
+      }
+    ],
+    "document" : "- a\n 1. b"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "a"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : 1
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : true
+      },
+      {
+        "id" : "md-1",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li1-1",
+                "kind" : "paragraph",
+                "line" : 1,
+                "text" : "b"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item1",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 1,
+        "ordered" : false
+      }
+    ],
+    "document" : "1. a\n- b"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "Some **bold** and _em_ text\nwith `code` and [link](http://x)."
+      }
+    ],
+    "document" : "Some **bold** and _em_ text\nwith `code` and [link](http://x)."
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "中文段落"
+      },
+      {
+        "id" : "md-2",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li2-2",
+                "kind" : "paragraph",
+                "line" : 2,
+                "text" : "列表项"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item2",
+            "number" : null
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li3-3",
+                "kind" : "paragraph",
+                "line" : 3,
+                "text" : "😀 emoji item"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item3",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 2,
+        "ordered" : false
+      },
+      {
+        "alignments" : [
+          "leading",
+          "leading"
+        ],
+        "headers" : [
+          "表头",
+          "值"
+        ],
+        "id" : "md-5",
+        "kind" : "table",
+        "line" : 5,
+        "rows" : [
+          [
+            "甲",
+            "乙"
+          ]
+        ]
+      }
+    ],
+    "document" : "中文段落\n\n- 列表项\n- 😀 emoji item\n\n| 表头 | 值 |\n| --- | --- |\n| 甲 | 乙 |"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "heading",
+        "level" : 2,
+        "line" : 0,
+        "text" : "Plan"
+      },
+      {
+        "id" : "md-2",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li2-2",
+                "kind" : "paragraph",
+                "line" : 2,
+                "text" : "Read `a.swift`"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item2",
+            "number" : 1
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li3-3",
+                "kind" : "paragraph",
+                "line" : 3,
+                "text" : "Edit:"
+              },
+              {
+                "closed" : true,
+                "id" : "md-li3-4",
+                "kind" : "code",
+                "language" : "diff",
+                "line" : 4,
+                "source" : "- old\n+ new"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item3",
+            "number" : 2
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li8-8",
+                "kind" : "paragraph",
+                "line" : 8,
+                "text" : "Run tests"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item8",
+            "number" : 3
+          }
+        ],
+        "kind" : "list",
+        "line" : 2,
+        "ordered" : true
+      },
+      {
+        "blocks" : [
+          {
+            "id" : "md-q10-10",
+            "kind" : "paragraph",
+            "line" : 10,
+            "text" : "Note: done."
+          }
+        ],
+        "id" : "md-10",
+        "kind" : "quote",
+        "line" : 10
+      }
+    ],
+    "document" : "## Plan\n\n1. Read `a.swift`\n2. Edit:\n   ```diff\n   - old\n   + new\n   ```\n3. Run tests\n\n> Note: done.\n"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "Line one\nLine two  \nLine three"
+      }
+    ],
+    "document" : "Line one\nLine two  \nLine three"
+  },
+  {
+    "blocks" : [
+      {
+        "blocks" : [
+          {
+            "blocks" : [
+              {
+                "blocks" : [
+                  {
+                    "id" : "md-q0-q0-q0-0",
+                    "kind" : "paragraph",
+                    "line" : 0,
+                    "text" : "triple"
+                  }
+                ],
+                "id" : "md-q0-q0-0",
+                "kind" : "quote",
+                "line" : 0
+              }
+            ],
+            "id" : "md-q0-0",
+            "kind" : "quote",
+            "line" : 0
+          }
+        ],
+        "id" : "md-0",
+        "kind" : "quote",
+        "line" : 0
+      }
+    ],
+    "document" : ">>> triple"
+  },
+  {
+    "blocks" : [
+      {
+        "blocks" : [
+          {
+            "id" : "md-q0-0",
+            "kind" : "paragraph",
+            "line" : 0,
+            "text" : "a"
+          },
+          {
+            "id" : "md-q0-2",
+            "kind" : "paragraph",
+            "line" : 2,
+            "text" : "b"
+          }
+        ],
+        "id" : "md-0",
+        "kind" : "quote",
+        "line" : 0
+      }
+    ],
+    "document" : "> a\n>\n> b"
+  },
+  {
+    "blocks" : [
+      {
+        "closed" : true,
+        "id" : "md-0",
+        "kind" : "code",
+        "language" : "",
+        "line" : 0,
+        "source" : "a\n\n\nb"
+      }
+    ],
+    "document" : "    a\n\n\n    b\n\n"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "rule",
+        "line" : 0
+      },
+      {
+        "id" : "md-2",
+        "kind" : "rule",
+        "line" : 2
+      }
+    ],
+    "document" : "---\n\n---"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "==="
+      }
+    ],
+    "document" : "==="
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "items" : [
+                  {
+                    "blocks" : [
+                      {
+                        "id" : "md-li0-li0-0",
+                        "kind" : "paragraph",
+                        "line" : 0,
+                        "text" : "x"
+                      }
+                    ],
+                    "checked" : null,
+                    "id" : "md-li0-item0",
+                    "number" : null
+                  }
+                ],
+                "kind" : "list",
+                "line" : 0,
+                "ordered" : false
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : false
+      }
+    ],
+    "document" : "- - x"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "__init__.py"
+      }
+    ],
+    "document" : "__init__.py"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "a"
+      },
+      {
+        "id" : "md-4",
+        "kind" : "paragraph",
+        "line" : 4,
+        "text" : "b"
+      }
+    ],
+    "document" : "a\n\n\n\nb"
+  },
+  {
+    "blocks" : [
+      {
+        "blocks" : [
+          {
+            "blocks" : [
+              {
+                "blocks" : [
+                  {
+                    "blocks" : [
+                      {
+                        "blocks" : [
+                          {
+                            "blocks" : [
+                              {
+                                "blocks" : [
+                                  {
+                                    "blocks" : [
+                                      {
+                                        "blocks" : [
+                                          {
+                                            "blocks" : [
+                                              {
+                                                "blocks" : [
+                                                  {
+                                                    "blocks" : [
+                                                      {
+                                                        "id" : "md-q0-q0-q0-q0-q0-q0-q0-q0-q0-q0-q0-q0-0",
+                                                        "kind" : "paragraph",
+                                                        "line" : 0,
+                                                        "text" : "> > deep"
+                                                      }
+                                                    ],
+                                                    "id" : "md-q0-q0-q0-q0-q0-q0-q0-q0-q0-q0-q0-0",
+                                                    "kind" : "quote",
+                                                    "line" : 0
+                                                  }
+                                                ],
+                                                "id" : "md-q0-q0-q0-q0-q0-q0-q0-q0-q0-q0-0",
+                                                "kind" : "quote",
+                                                "line" : 0
+                                              }
+                                            ],
+                                            "id" : "md-q0-q0-q0-q0-q0-q0-q0-q0-q0-0",
+                                            "kind" : "quote",
+                                            "line" : 0
+                                          }
+                                        ],
+                                        "id" : "md-q0-q0-q0-q0-q0-q0-q0-q0-0",
+                                        "kind" : "quote",
+                                        "line" : 0
+                                      }
+                                    ],
+                                    "id" : "md-q0-q0-q0-q0-q0-q0-q0-0",
+                                    "kind" : "quote",
+                                    "line" : 0
+                                  }
+                                ],
+                                "id" : "md-q0-q0-q0-q0-q0-q0-0",
+                                "kind" : "quote",
+                                "line" : 0
+                              }
+                            ],
+                            "id" : "md-q0-q0-q0-q0-q0-0",
+                            "kind" : "quote",
+                            "line" : 0
+                          }
+                        ],
+                        "id" : "md-q0-q0-q0-q0-0",
+                        "kind" : "quote",
+                        "line" : 0
+                      }
+                    ],
+                    "id" : "md-q0-q0-q0-0",
+                    "kind" : "quote",
+                    "line" : 0
+                  }
+                ],
+                "id" : "md-q0-q0-0",
+                "kind" : "quote",
+                "line" : 0
+              }
+            ],
+            "id" : "md-q0-0",
+            "kind" : "quote",
+            "line" : 0
+          }
+        ],
+        "id" : "md-0",
+        "kind" : "quote",
+        "line" : 0
+      }
+    ],
+    "document" : "> > > > > > > > > > > > > > deep"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "items" : [
+                  {
+                    "blocks" : [
+                      {
+                        "id" : "md-li0-li0-0",
+                        "items" : [
+                          {
+                            "blocks" : [
+                              {
+                                "id" : "md-li0-li0-li0-0",
+                                "items" : [
+                                  {
+                                    "blocks" : [
+                                      {
+                                        "id" : "md-li0-li0-li0-li0-0",
+                                        "items" : [
+                                          {
+                                            "blocks" : [
+                                              {
+                                                "id" : "md-li0-li0-li0-li0-li0-0",
+                                                "items" : [
+                                                  {
+                                                    "blocks" : [
+                                                      {
+                                                        "id" : "md-li0-li0-li0-li0-li0-li0-0",
+                                                        "items" : [
+                                                          {
+                                                            "blocks" : [
+                                                              {
+                                                                "id" : "md-li0-li0-li0-li0-li0-li0-li0-0",
+                                                                "items" : [
+                                                                  {
+                                                                    "blocks" : [
+                                                                      {
+                                                                        "id" : "md-li0-li0-li0-li0-li0-li0-li0-li0-0",
+                                                                        "items" : [
+                                                                          {
+                                                                            "blocks" : [
+                                                                              {
+                                                                                "id" : "md-li0-li0-li0-li0-li0-li0-li0-li0-li0-0",
+                                                                                "items" : [
+                                                                                  {
+                                                                                    "blocks" : [
+                                                                                      {
+                                                                                        "id" : "md-li0-li0-li0-li0-li0-li0-li0-li0-li0-li0-0",
+                                                                                        "items" : [
+                                                                                          {
+                                                                                            "blocks" : [
+                                                                                              {
+                                                                                                "id" : "md-li0-li0-li0-li0-li0-li0-li0-li0-li0-li0-li0-0",
+                                                                                                "items" : [
+                                                                                                  {
+                                                                                                    "blocks" : [
+                                                                                                      {
+                                                                                                        "id" : "md-li0-li0-li0-li0-li0-li0-li0-li0-li0-li0-li0-li0-0",
+                                                                                                        "kind" : "paragraph",
+                                                                                                        "line" : 0,
+                                                                                                        "text" : "- - deep list"
+                                                                                                      }
+                                                                                                    ],
+                                                                                                    "checked" : null,
+                                                                                                    "id" : "md-li0-li0-li0-li0-li0-li0-li0-li0-li0-li0-li0-item0",
+                                                                                                    "number" : null
+                                                                                                  }
+                                                                                                ],
+                                                                                                "kind" : "list",
+                                                                                                "line" : 0,
+                                                                                                "ordered" : false
+                                                                                              }
+                                                                                            ],
+                                                                                            "checked" : null,
+                                                                                            "id" : "md-li0-li0-li0-li0-li0-li0-li0-li0-li0-li0-item0",
+                                                                                            "number" : null
+                                                                                          }
+                                                                                        ],
+                                                                                        "kind" : "list",
+                                                                                        "line" : 0,
+                                                                                        "ordered" : false
+                                                                                      }
+                                                                                    ],
+                                                                                    "checked" : null,
+                                                                                    "id" : "md-li0-li0-li0-li0-li0-li0-li0-li0-li0-item0",
+                                                                                    "number" : null
+                                                                                  }
+                                                                                ],
+                                                                                "kind" : "list",
+                                                                                "line" : 0,
+                                                                                "ordered" : false
+                                                                              }
+                                                                            ],
+                                                                            "checked" : null,
+                                                                            "id" : "md-li0-li0-li0-li0-li0-li0-li0-li0-item0",
+                                                                            "number" : null
+                                                                          }
+                                                                        ],
+                                                                        "kind" : "list",
+                                                                        "line" : 0,
+                                                                        "ordered" : false
+                                                                      }
+                                                                    ],
+                                                                    "checked" : null,
+                                                                    "id" : "md-li0-li0-li0-li0-li0-li0-li0-item0",
+                                                                    "number" : null
+                                                                  }
+                                                                ],
+                                                                "kind" : "list",
+                                                                "line" : 0,
+                                                                "ordered" : false
+                                                              }
+                                                            ],
+                                                            "checked" : null,
+                                                            "id" : "md-li0-li0-li0-li0-li0-li0-item0",
+                                                            "number" : null
+                                                          }
+                                                        ],
+                                                        "kind" : "list",
+                                                        "line" : 0,
+                                                        "ordered" : false
+                                                      }
+                                                    ],
+                                                    "checked" : null,
+                                                    "id" : "md-li0-li0-li0-li0-li0-item0",
+                                                    "number" : null
+                                                  }
+                                                ],
+                                                "kind" : "list",
+                                                "line" : 0,
+                                                "ordered" : false
+                                              }
+                                            ],
+                                            "checked" : null,
+                                            "id" : "md-li0-li0-li0-li0-item0",
+                                            "number" : null
+                                          }
+                                        ],
+                                        "kind" : "list",
+                                        "line" : 0,
+                                        "ordered" : false
+                                      }
+                                    ],
+                                    "checked" : null,
+                                    "id" : "md-li0-li0-li0-item0",
+                                    "number" : null
+                                  }
+                                ],
+                                "kind" : "list",
+                                "line" : 0,
+                                "ordered" : false
+                              }
+                            ],
+                            "checked" : null,
+                            "id" : "md-li0-li0-item0",
+                            "number" : null
+                          }
+                        ],
+                        "kind" : "list",
+                        "line" : 0,
+                        "ordered" : false
+                      }
+                    ],
+                    "checked" : null,
+                    "id" : "md-li0-item0",
+                    "number" : null
+                  }
+                ],
+                "kind" : "list",
+                "line" : 0,
+                "ordered" : false
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : false
+      }
+    ],
+    "document" : "- - - - - - - - - - - - - - deep list"
+  },
+  {
+    "blocks" : [
+      {
+        "alignments" : [
+          "leading"
+        ],
+        "headers" : [
+          "a"
+        ],
+        "id" : "md-0",
+        "kind" : "table",
+        "line" : 0,
+        "rows" : [
+          [
+            "`x | y`"
+          ]
+        ]
+      }
+    ],
+    "document" : "| a |\n| --- |\n| `x | y` | z |"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "\\$ not math \\$"
+      }
+    ],
+    "document" : "\\$ not math \\$"
+  },
+  {
+    "blocks" : [
+      {
+        "closed" : true,
+        "id" : "md-0",
+        "kind" : "code",
+        "language" : "",
+        "line" : 0,
+        "source" : "```"
+      }
+    ],
+    "document" : "~~~\n```\n~~~"
+  },
+  {
+    "blocks" : [
+      {
+        "closed" : true,
+        "id" : "md-0",
+        "kind" : "code",
+        "language" : "",
+        "line" : 0,
+        "source" : "```"
+      }
+    ],
+    "document" : "````\n```\n````"
+  },
+  {
+    "blocks" : [
+      {
+        "closed" : true,
+        "id" : "md-0",
+        "kind" : "code",
+        "language" : "",
+        "line" : 0,
+        "source" : "  indented fence"
+      }
+    ],
+    "document" : "  ```\n  indented fence\n  ```"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "a"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : 1
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li1-1",
+                "kind" : "paragraph",
+                "line" : 1,
+                "text" : "b"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item1",
+            "number" : 1
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li2-2",
+                "kind" : "paragraph",
+                "line" : 2,
+                "text" : "c"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item2",
+            "number" : 1
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : true
+      }
+    ],
+    "document" : "1. a\n1. b\n1. c"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "zero"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : 0
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : true
+      }
+    ],
+    "document" : "0. zero"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "leading zero"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : 1
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : true
+      }
+    ],
+    "document" : "01. leading zero"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li0-0",
+                "kind" : "paragraph",
+                "line" : 0,
+                "text" : "paren"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item0",
+            "number" : 3
+          },
+          {
+            "blocks" : [
+              {
+                "id" : "md-li1-1",
+                "kind" : "paragraph",
+                "line" : 1,
+                "text" : "dot"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item1",
+            "number" : 4
+          }
+        ],
+        "kind" : "list",
+        "line" : 0,
+        "ordered" : true
+      }
+    ],
+    "document" : "3) paren\n4. dot"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "text"
+      },
+      {
+        "id" : "md-1",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li1-1",
+                "kind" : "paragraph",
+                "line" : 1,
+                "text" : "list after text"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item1",
+            "number" : 1
+          }
+        ],
+        "kind" : "list",
+        "line" : 1,
+        "ordered" : true
+      }
+    ],
+    "document" : "text\n1. list after text"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "text"
+      },
+      {
+        "id" : "md-1",
+        "items" : [
+          {
+            "blocks" : [
+              {
+                "id" : "md-li1-1",
+                "kind" : "paragraph",
+                "line" : 1,
+                "text" : "list after text"
+              }
+            ],
+            "checked" : null,
+            "id" : "md-item1",
+            "number" : null
+          }
+        ],
+        "kind" : "list",
+        "line" : 1,
+        "ordered" : false
+      }
+    ],
+    "document" : "text\n- list after text"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "text"
+      },
+      {
+        "id" : "md-1",
+        "kind" : "heading",
+        "level" : 1,
+        "line" : 1,
+        "text" : "heading after text"
+      }
+    ],
+    "document" : "text\n# heading after text"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "text"
+      },
+      {
+        "blocks" : [
+          {
+            "id" : "md-q1-1",
+            "kind" : "paragraph",
+            "line" : 1,
+            "text" : "quote after text"
+          }
+        ],
+        "id" : "md-1",
+        "kind" : "quote",
+        "line" : 1
+      }
+    ],
+    "document" : "text\n> quote after text"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "text"
+      },
+      {
+        "closed" : true,
+        "id" : "md-1",
+        "kind" : "code",
+        "language" : "",
+        "line" : 1,
+        "source" : "fence after text"
+      }
+    ],
+    "document" : "text\n```\nfence after text\n```"
+  },
+  {
+    "blocks" : [
+      {
+        "id" : "md-0",
+        "kind" : "paragraph",
+        "line" : 0,
+        "text" : "text\n| a | b |\n| - | - |"
+      }
+    ],
+    "document" : "text\n| a | b |\n| - | - |"
+  },
+  {
+    "math" : "the total is $12.50 today",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "the total is $12.50 today"
+      }
+    ]
+  },
+  {
+    "math" : "the value $x + y$ matters",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "the value "
+      },
+      {
+        "display" : false,
+        "id" : 1,
+        "isMath" : true,
+        "text" : "x + y"
+      },
+      {
+        "display" : false,
+        "id" : 2,
+        "isMath" : false,
+        "text" : " matters"
+      }
+    ]
+  },
+  {
+    "math" : "`$not math$`",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "`$not math$`"
+      }
+    ]
+  },
+  {
+    "math" : "$$E = mc^2$$",
+    "spans" : [
+      {
+        "display" : true,
+        "id" : 0,
+        "isMath" : true,
+        "text" : "E = mc^2"
+      }
+    ]
+  },
+  {
+    "math" : "\\(a\\) and \\$5",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : true,
+        "text" : "a"
+      },
+      {
+        "display" : false,
+        "id" : 1,
+        "isMath" : false,
+        "text" : " and \\$5"
+      }
+    ]
+  },
+  {
+    "math" : "$3 and $4",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "$3 and $4"
+      }
+    ]
+  },
+  {
+    "math" : "$x$5",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "$x$5"
+      }
+    ]
+  },
+  {
+    "math" : "$ x$",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "$ x$"
+      }
+    ]
+  },
+  {
+    "math" : "$x $",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "$x $"
+      }
+    ]
+  },
+  {
+    "math" : "\\[a\\]",
+    "spans" : [
+      {
+        "display" : true,
+        "id" : 0,
+        "isMath" : true,
+        "text" : "a"
+      }
+    ]
+  },
+  {
+    "math" : "$a\\$b$",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : true,
+        "text" : "a\\$b"
+      }
+    ]
+  },
+  {
+    "math" : "``$a$``",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "``$a$``"
+      }
+    ]
+  },
+  {
+    "math" : "`a` $b$",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "`a` "
+      },
+      {
+        "display" : false,
+        "id" : 1,
+        "isMath" : true,
+        "text" : "b"
+      }
+    ]
+  },
+  {
+    "math" : "$$ a $$",
+    "spans" : [
+      {
+        "display" : true,
+        "id" : 0,
+        "isMath" : true,
+        "text" : " a "
+      }
+    ]
+  },
+  {
+    "math" : "price $5, and $x$",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "price "
+      },
+      {
+        "display" : false,
+        "id" : 1,
+        "isMath" : true,
+        "text" : "5, and $x"
+      }
+    ]
+  },
+  {
+    "math" : "$一$",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "$一$"
+      }
+    ]
+  },
+  {
+    "math" : "$½$",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "$½$"
+      }
+    ]
+  },
+  {
+    "math" : "",
+    "spans" : [
+
+    ]
+  },
+  {
+    "math" : "$",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "$"
+      }
+    ]
+  },
+  {
+    "math" : "$$",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "$$"
+      }
+    ]
+  },
+  {
+    "math" : "\\",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "\\"
+      }
+    ]
+  },
+  {
+    "math" : "a\\",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "a\\"
+      }
+    ]
+  },
+  {
+    "math" : "$a$ and $b$",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : true,
+        "text" : "a"
+      },
+      {
+        "display" : false,
+        "id" : 1,
+        "isMath" : false,
+        "text" : " and "
+      },
+      {
+        "display" : false,
+        "id" : 2,
+        "isMath" : true,
+        "text" : "b"
+      }
+    ]
+  },
+  {
+    "math" : "$$a$$ $b$",
+    "spans" : [
+      {
+        "display" : true,
+        "id" : 0,
+        "isMath" : true,
+        "text" : "a"
+      },
+      {
+        "display" : false,
+        "id" : 1,
+        "isMath" : false,
+        "text" : " "
+      },
+      {
+        "display" : false,
+        "id" : 2,
+        "isMath" : true,
+        "text" : "b"
+      }
+    ]
+  },
+  {
+    "math" : "\\(x\\) \\[y\\]",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : true,
+        "text" : "x"
+      },
+      {
+        "display" : false,
+        "id" : 1,
+        "isMath" : false,
+        "text" : " "
+      },
+      {
+        "display" : true,
+        "id" : 2,
+        "isMath" : true,
+        "text" : "y"
+      }
+    ]
+  },
+  {
+    "math" : "``a` $x$ `b``",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "``a` $x$ `b``"
+      }
+    ]
+  },
+  {
+    "math" : "$a\\\\$",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : true,
+        "text" : "a\\\\"
+      }
+    ]
+  },
+  {
+    "math" : "$1,000$",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "$1,000$"
+      }
+    ]
+  },
+  {
+    "math" : "$x^2$ is $\\alpha$.",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : true,
+        "text" : "x^2"
+      },
+      {
+        "display" : false,
+        "id" : 1,
+        "isMath" : false,
+        "text" : " is "
+      },
+      {
+        "display" : false,
+        "id" : 2,
+        "isMath" : true,
+        "text" : "\\alpha"
+      },
+      {
+        "display" : false,
+        "id" : 3,
+        "isMath" : false,
+        "text" : "."
+      }
+    ]
+  },
+  {
+    "math" : "cost: $5 or $6",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "cost: $5 or $6"
+      }
+    ]
+  },
+  {
+    "math" : "$\\$$",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : true,
+        "text" : "\\$"
+      }
+    ]
+  },
+  {
+    "math" : "\\($x$\\)",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : true,
+        "text" : "$x$"
+      }
+    ]
+  },
+  {
+    "math" : "`` ` `` $y$",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "`` ` `` "
+      },
+      {
+        "display" : false,
+        "id" : 1,
+        "isMath" : true,
+        "text" : "y"
+      }
+    ]
+  },
+  {
+    "math" : "tail $",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "tail $"
+      }
+    ]
+  },
+  {
+    "math" : "$x$x",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : true,
+        "text" : "x"
+      },
+      {
+        "display" : false,
+        "id" : 1,
+        "isMath" : false,
+        "text" : "x"
+      }
+    ]
+  },
+  {
+    "math" : "$ $",
+    "spans" : [
+      {
+        "display" : false,
+        "id" : 0,
+        "isMath" : false,
+        "text" : "$ $"
+      }
+    ]
+  },
+  {
+    "math" : "$$$x$$$",
+    "spans" : [
+      {
+        "display" : true,
+        "id" : 0,
+        "isMath" : true,
+        "text" : "$x"
+      },
+      {
+        "display" : false,
+        "id" : 1,
+        "isMath" : false,
+        "text" : "$"
+      }
+    ]
+  },
+  {
+    "link" : "src/main.swift:42",
+    "path" : "src/main.swift"
+  },
+  {
+    "link" : "https://example.com",
+    "path" : null
+  },
+  {
+    "link" : "file:///Users/me/app.kt:12:3",
+    "path" : "/Users/me/app.kt"
+  },
+  {
+    "link" : "a/b.swift",
+    "path" : "a/b.swift"
+  },
+  {
+    "link" : "main.swift:42",
+    "path" : null
+  },
+  {
+    "link" : "/abs/path.swift:1:2",
+    "path" : "/abs/path.swift"
+  },
+  {
+    "link" : "file:///x%20y.swift:3",
+    "path" : "/x y.swift"
+  },
+  {
+    "link" : "src/a.swift:12:3:4",
+    "path" : "src/a.swift:12"
+  },
+  {
+    "link" : "FILE:///up.swift",
+    "path" : "/up.swift"
+  },
+  {
+    "link" : "mailto:a@b.c",
+    "path" : null
+  },
+  {
+    "link" : "#anchor",
+    "path" : null
+  },
+  {
+    "link" : "?q=1",
+    "path" : null
+  }
+]
