@@ -140,6 +140,10 @@ names the missing one.
 | `IOS_UPDATE_URL` | empty | Where the "Update required" screen sends people: the TestFlight invitation or the App Store page, `https://` only |
 | `MACOS_MIN_APP_VERSION` | the build's own constant | Overrides the oldest Mac app this gateway supports (`major.minor.patch`, A45). Normally left unset: the constant `MACOS_MINIMUM_APP_VERSION` in `rc_gateway/compat.py` is raised in the release that breaks the Mac app's compatibility, apart from the iOS one |
 | `MACOS_UPDATE_URL` | empty | Where the Mac app's "Update required" screen sends people: TestFlight, the App Store or a download page for the new Mac build, `https://` only |
+| `ANDROID_MIN_APP_VERSION` | the build's own constant | Overrides the oldest Android app this gateway supports (`major.minor.patch`, A46). Normally left unset: the constant `ANDROID_MINIMUM_APP_VERSION` in `rc_gateway/compat.py` is raised in the release that breaks the Android app's compatibility |
+| `ANDROID_UPDATE_URL` | empty | Where the Android app's "Update required" screen sends people: an app store or a download page for the new Android build, `https://` only |
+| `WINDOWS_MIN_APP_VERSION` | the build's own constant | Overrides the oldest Windows app this gateway supports (`major.minor.patch`, A46). Normally left unset: the constant `WINDOWS_MINIMUM_APP_VERSION` in `rc_gateway/compat.py` is raised in the release that breaks the Windows app's compatibility |
+| `WINDOWS_UPDATE_URL` | empty | Where the Windows app's "Update required" screen sends people: a download page for the new Windows build, `https://` only |
 | `APNS_TEAM_ID` | empty | Apple developer team id |
 | `APNS_KEY_ID` | empty | Key id of the APNs `.p8` signing key |
 | `APNS_KEY_PATH` | empty | Path to that `.p8` **inside the container** |
@@ -405,7 +409,10 @@ it for one deployment when needed. When you raise it, publish the new iOS build 
 `IOS_UPDATE_URL` to where it is, then deploy the gateway, so nobody is told to update to a build that
 does not exist yet. The Mac app is installed on its own too and reads its own entry, `apps.macos`
 (A45), which works the same way with its own constant `MACOS_MINIMUM_APP_VERSION`, override
-`MACOS_MIN_APP_VERSION` and button `MACOS_UPDATE_URL`; the two minimums move separately, so a
+`MACOS_MIN_APP_VERSION` and button `MACOS_UPDATE_URL`, and so do the Android and Windows apps with
+`apps.android` and `apps.windows` (A46): `ANDROID_MINIMUM_APP_VERSION` and
+`WINDOWS_MINIMUM_APP_VERSION`, overrides `ANDROID_MIN_APP_VERSION` and `WINDOWS_MIN_APP_VERSION`,
+buttons `ANDROID_UPDATE_URL` and `WINDOWS_UPDATE_URL`. The four minimums move separately, so a
 release raises only the one whose older builds it stops supporting.
 
 ## Push notifications
