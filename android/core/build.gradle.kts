@@ -24,8 +24,13 @@ dependencies {
     api(libs.kotlinx.coroutines.core)
     api(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
+    // The stores keep their state in Compose snapshot state, as RCCore's are @Observable, so both
+    // apps' screens read it directly. Each app brings its own runtime (AndroidX on Android,
+    // JetBrains' on the desktop); the core only compiles against the shared API.
+    compileOnly(libs.compose.runtime)
 
     testImplementation(kotlin("test"))
+    testImplementation(libs.compose.runtime)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.okhttp.mockwebserver)
 }
