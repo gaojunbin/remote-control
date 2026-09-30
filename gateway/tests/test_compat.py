@@ -1,7 +1,7 @@
-"""The oldest iOS and Mac apps the gateway works with (A31, A45).
+"""The oldest iOS, Mac, Android and Windows apps the gateway works with (A31, A45, A46).
 
-The two constants, the four env values and the three bodies that carry them. The two minimums move
-separately, so every check covers both apps and neither app's settings may reach the other's entry.
+The four constants, the eight env values and the three bodies that carry them. The minimums move
+separately, so every check covers each app and no app's settings may reach another app's entry.
 """
 
 from __future__ import annotations
@@ -15,8 +15,10 @@ from fastapi.testclient import TestClient
 
 from rc_gateway.app import build_state, create_app
 from rc_gateway.compat import (
+    ANDROID_MINIMUM_APP_VERSION,
     IOS_MINIMUM_APP_VERSION,
     MACOS_MINIMUM_APP_VERSION,
+    WINDOWS_MINIMUM_APP_VERSION,
     apps_view,
     is_release_version,
 )
@@ -26,11 +28,15 @@ from .conftest import FIXTURE_DIR, drain_until, make_config
 
 UPDATE_URL = "https://testflight.apple.com/join/EXAMPLE"
 MAC_UPDATE_URL = "https://example.com/remote-control-mac"
-APP_VARIABLES = (
-    "IOS_MIN_APP_VERSION",
-    "IOS_UPDATE_URL",
-    "MACOS_MIN_APP_VERSION",
-    "MACOS_UPDATE_URL",
+#: Each app's release constant, by its key in `apps` and the prefix of its two env values.
+MINIMUMS = {
+    "ios": IOS_MINIMUM_APP_VERSION,
+    "macos": MACOS_MINIMUM_APP_VERSION,
+    "android": ANDROID_MINIMUM_APP_VERSION,
+    "windows": WINDOWS_MINIMUM_APP_VERSION,
+}
+APP_VARIABLES = tuple(
+    f"{app.upper()}_{suffix}" for app in MINIMUMS for suffix in ("MIN_APP_VERSION", "UPDATE_URL")
 )
 
 
@@ -49,10 +55,15 @@ def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **values: str) -> None:
         monkeypatch.setenv(name, value)
 
 
-# --- J1 the constants and the four env values ---------------------------------------------
+def unconfigured_view() -> dict[str, dict[str, str]]:
+    """`apps` of a gateway whose operator set nothing: every constant, no update URL."""
+    return {app: {"minimum_version": minimum} for app, minimum in MINIMUMS.items()}
 
 
-@pytest.mark.parametrize("constant", [IOS_MINIMUM_APP_VERSION, MACOS_MINIMUM_APP_VERSION])
+# --- J1 the constants and the eight env values --------------------------------------------
+
+
+@pytest.mark.parametrize("constant", list(MINIMUMS.values()))
 def test_the_release_constants_are_major_minor_patch_versions(constant: str) -> None:
     """The apps compare them component by component, and the schema accepts nothing else."""
     assert is_release_version(constant)
@@ -70,10 +81,9 @@ def test_the_constants_are_the_defaults_and_the_env_overrides_them(
 ) -> None:
     env(monkeypatch, tmp_path)
     unset = load_config(load_env_file=False)
-    assert unset.ios_minimum_version == IOS_MINIMUM_APP_VERSION
-    assert unset.ios_update_url == ""
-    assert unset.macos_minimum_version == MACOS_MINIMUM_APP_VERSION
-    assert unset.macos_update_url == ""
+    for app, minimum in MINIMUMS.items():
+        assert getattr(unset, f"{app}_minimum_version") == minimum
+        assert getattr(unset, f"{app}_update_url") == ""
 
     env(
         monkeypatch,
@@ -82,30 +92,47 @@ def test_the_constants_are_the_defaults_and_the_env_overrides_them(
         IOS_UPDATE_URL=UPDATE_URL,
         MACOS_MIN_APP_VERSION="1.12.0",
         MACOS_UPDATE_URL=MAC_UPDATE_URL,
+        ANDROID_MIN_APP_VERSION="1.13.0",
+        ANDROID_UPDATE_URL="https://example.com/remote-control-android",
+        WINDOWS_MIN_APP_VERSION="1.14.0",
+        WINDOWS_UPDATE_URL="https://example.com/remote-control-windows",
     )
     overridden = load_config(load_env_file=False)
     assert overridden.ios_minimum_version == "2.3.4"
     assert overridden.ios_update_url == UPDATE_URL
     assert overridden.macos_minimum_version == "1.12.0"
     assert overridden.macos_update_url == MAC_UPDATE_URL
+    assert overridden.android_minimum_version == "1.13.0"
+    assert overridden.android_update_url == "https://example.com/remote-control-android"
+    assert overridden.windows_minimum_version == "1.14.0"
+    assert overridden.windows_update_url == "https://example.com/remote-control-windows"
 
 
-def test_one_apps_variables_leave_the_other_app_alone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("app", list(MINIMUMS))
+def test_one_apps_variables_leave_the_other_apps_alone(
+    app: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A45: the two minimums move separately, so neither app falls back on the other's values."""
-    env(monkeypatch, tmp_path, IOS_MIN_APP_VERSION="2.3.4", IOS_UPDATE_URL=UPDATE_URL)
-    ios_only = load_config(load_env_file=False)
-    assert ios_only.macos_minimum_version == MACOS_MINIMUM_APP_VERSION
-    assert ios_only.macos_update_url == ""
+    """A45, A46: the minimums move separately, so no app falls back on another app's values."""
+    prefix = app.upper()
+    env(
+        monkeypatch,
+        tmp_path,
+        **{
+            f"{prefix}_MIN_APP_VERSION": "9.9.9",
+            f"{prefix}_UPDATE_URL": "https://example.com/newer",
+        },
+    )
+    config = load_config(load_env_file=False)
+    for other, minimum in MINIMUMS.items():
+        minimum_version = getattr(config, f"{other}_minimum_version")
+        entry = (minimum_version, getattr(config, f"{other}_update_url"))
+        if other == app:
+            assert entry == ("9.9.9", "https://example.com/newer")
+        else:
+            assert entry == (minimum, "")
 
-    env(monkeypatch, tmp_path, MACOS_MIN_APP_VERSION="1.12.0", MACOS_UPDATE_URL=MAC_UPDATE_URL)
-    mac_only = load_config(load_env_file=False)
-    assert mac_only.ios_minimum_version == IOS_MINIMUM_APP_VERSION
-    assert mac_only.ios_update_url == ""
 
-
-@pytest.mark.parametrize("name", ["IOS_MIN_APP_VERSION", "MACOS_MIN_APP_VERSION"])
+@pytest.mark.parametrize("name", [f"{app.upper()}_MIN_APP_VERSION" for app in MINIMUMS])
 def test_a_minimum_that_is_not_a_version_stops_the_gateway(
     name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -115,7 +142,7 @@ def test_a_minimum_that_is_not_a_version_stops_the_gateway(
     assert str(refused.value).startswith(f"{name} is not a major.minor.patch version")
 
 
-@pytest.mark.parametrize("name", ["IOS_UPDATE_URL", "MACOS_UPDATE_URL"])
+@pytest.mark.parametrize("name", [f"{app.upper()}_UPDATE_URL" for app in MINIMUMS])
 def test_the_update_url_must_be_https(
     name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -127,32 +154,41 @@ def test_the_update_url_must_be_https(
 
 
 def test_the_view_omits_an_update_url_that_was_not_configured(tmp_path: Path) -> None:
-    assert apps_view(make_config(tmp_path)) == {
-        "ios": {"minimum_version": IOS_MINIMUM_APP_VERSION},
-        "macos": {"minimum_version": MACOS_MINIMUM_APP_VERSION},
-    }
+    assert apps_view(make_config(tmp_path)) == unconfigured_view()
     mac_url = make_config(tmp_path, macos_update_url=MAC_UPDATE_URL)
     assert apps_view(mac_url) == {
-        "ios": {"minimum_version": IOS_MINIMUM_APP_VERSION},
+        **unconfigured_view(),
         "macos": {"minimum_version": MACOS_MINIMUM_APP_VERSION, "update_url": MAC_UPDATE_URL},
     }
-    both_urls = make_config(
+    every_url = make_config(
         tmp_path,
         ios_minimum_version="2.0.0",
         ios_update_url=UPDATE_URL,
         macos_minimum_version="1.12.0",
         macos_update_url=MAC_UPDATE_URL,
+        android_minimum_version="1.13.0",
+        android_update_url="https://example.com/remote-control-android",
+        windows_minimum_version="1.14.0",
+        windows_update_url="https://example.com/remote-control-windows",
     )
-    assert apps_view(both_urls) == {
+    assert apps_view(every_url) == {
         "ios": {"minimum_version": "2.0.0", "update_url": UPDATE_URL},
         "macos": {"minimum_version": "1.12.0", "update_url": MAC_UPDATE_URL},
+        "android": {
+            "minimum_version": "1.13.0",
+            "update_url": "https://example.com/remote-control-android",
+        },
+        "windows": {
+            "minimum_version": "1.14.0",
+            "update_url": "https://example.com/remote-control-windows",
+        },
     }
 
 
 # --- J2 what health, config and hello report ----------------------------------------------
 
 
-def test_health_config_and_hello_all_carry_both_minimums(tmp_path: Path) -> None:
+def test_health_config_and_hello_all_carry_every_minimum(tmp_path: Path) -> None:
     """The three places an app can learn its minimum, whichever it sees first (8.16).
 
     The gateway is configured as the fixture is, so every body matches it value for value.
@@ -163,6 +199,8 @@ def test_health_config_and_hello_all_carry_both_minimums(tmp_path: Path) -> None
         ios_minimum_version=expected["ios"]["minimum_version"],
         ios_update_url=expected["ios"]["update_url"],
         macos_minimum_version=expected["macos"]["minimum_version"],
+        android_minimum_version=expected["android"]["minimum_version"],
+        windows_minimum_version=expected["windows"]["minimum_version"],
     )
 
     with TestClient(create_app(build_state(config))) as client:
@@ -180,8 +218,4 @@ def test_health_config_and_hello_all_carry_both_minimums(tmp_path: Path) -> None
 
 def test_health_needs_no_credential_to_state_the_minimums(client: TestClient) -> None:
     """An app too old to sign in still learns why before it asks for a password."""
-    body = client.get("/api/health").json()
-    assert body["apps"] == {
-        "ios": {"minimum_version": IOS_MINIMUM_APP_VERSION},
-        "macos": {"minimum_version": MACOS_MINIMUM_APP_VERSION},
-    }
+    assert client.get("/api/health").json()["apps"] == unconfigured_view()

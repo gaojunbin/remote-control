@@ -138,6 +138,8 @@ def create_app(state: GatewayState | None = None) -> FastAPI:
             polish=resolved.config.polish.enabled,
             ios_min=resolved.config.ios_minimum_version,
             macos_min=resolved.config.macos_minimum_version,
+            android_min=resolved.config.android_minimum_version,
+            windows_min=resolved.config.windows_minimum_version,
             web_push=resolved.push.web_enabled,
             apns=resolved.push.apns_enabled,
         )

@@ -156,9 +156,9 @@ def test_hello_ack_and_app_hello_match_the_schema(client: TestClient, auth: dict
 
 
 def test_apps_minimums_match_the_schema_in_all_three_bodies(tmp_path: Path) -> None:
-    """A31, A45: both entries of `apps`, each with its `update_url`, in health, config and `hello`.
+    """A31, A45, A46: every entry of `apps`, each with its `update_url`, in all three bodies.
 
-    The schema requires only `ios`, so each body is also checked for the Mac app's entry.
+    The schema requires only `ios`, so each body is also checked for the other apps' entries.
     """
     config = make_config(
         tmp_path,
@@ -166,6 +166,10 @@ def test_apps_minimums_match_the_schema_in_all_three_bodies(tmp_path: Path) -> N
         ios_update_url="https://testflight.apple.com/join/EXAMPLE",
         macos_minimum_version="1.12.0",
         macos_update_url="https://example.com/remote-control-mac",
+        android_minimum_version="1.13.0",
+        android_update_url="https://example.com/remote-control-android",
+        windows_minimum_version="1.14.0",
+        windows_update_url="https://example.com/remote-control-windows",
     )
     write_wheel(tmp_path)
     with TestClient(create_app(build_state(config))) as configured:
@@ -183,7 +187,7 @@ def test_apps_minimums_match_the_schema_in_all_three_bodies(tmp_path: Path) -> N
             hello = drain_until(app, "hello")
         check(hello, "app_frames.json", "Hello")
     for body in (health, served, hello):
-        assert set(body["apps"]) == {"ios", "macos"}
+        assert set(body["apps"]) == {"ios", "macos", "android", "windows"}
 
 
 def test_pushed_app_frames_match_the_schema(client: TestClient, auth: dict[str, str]) -> None:

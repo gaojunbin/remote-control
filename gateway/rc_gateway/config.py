@@ -18,7 +18,13 @@ from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from dotenv import load_dotenv
 
-from .compat import IOS_MINIMUM_APP_VERSION, MACOS_MINIMUM_APP_VERSION, is_release_version
+from .compat import (
+    ANDROID_MINIMUM_APP_VERSION,
+    IOS_MINIMUM_APP_VERSION,
+    MACOS_MINIMUM_APP_VERSION,
+    WINDOWS_MINIMUM_APP_VERSION,
+    is_release_version,
+)
 from .origins import canonical_origin
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -112,6 +118,11 @@ class Config:
     #: A45: the same for the Mac app, whose minimum moves separately.
     macos_minimum_version: str = MACOS_MINIMUM_APP_VERSION
     macos_update_url: str = ""
+    #: A46: the same for the Android and Windows apps, each moving on its own.
+    android_minimum_version: str = ANDROID_MINIMUM_APP_VERSION
+    android_update_url: str = ""
+    windows_minimum_version: str = WINDOWS_MINIMUM_APP_VERSION
+    windows_update_url: str = ""
 
     @property
     def https_origin(self) -> bool:
@@ -238,7 +249,7 @@ def _polish_config() -> PolishConfig:
 
 
 def _minimum_version(name: str, default: str) -> str:
-    """Read ``name``, the operator's override of one app's release constant (A31, A45)."""
+    """Read ``name``, the operator's override of one app's release constant (A31, A45, A46)."""
     raw = _env(name)
     if not raw:
         return default
@@ -248,7 +259,7 @@ def _minimum_version(name: str, default: str) -> str:
 
 
 def _update_url(name: str) -> str:
-    """Read ``name``, where one app's new build is (A31, A45).
+    """Read ``name``, where one app's new build is (A31, A45, A46).
 
     Refusing a plain-http value beats shipping a link apps reject.
     """
@@ -258,7 +269,7 @@ def _update_url(name: str) -> str:
     if not raw.startswith("https://"):
         raise ConfigError(
             f"{name} must be an https:// address: {raw!r} "
-            "(the TestFlight, App Store or download page for the new build)"
+            "(the TestFlight, app store or download page for the new build)"
         )
     return raw
 
@@ -304,6 +315,14 @@ def load_config(*, load_env_file: bool = True) -> Config:
     ios_update_url = _update_url("IOS_UPDATE_URL")
     macos_minimum_version = _minimum_version("MACOS_MIN_APP_VERSION", MACOS_MINIMUM_APP_VERSION)
     macos_update_url = _update_url("MACOS_UPDATE_URL")
+    android_minimum_version = _minimum_version(
+        "ANDROID_MIN_APP_VERSION", ANDROID_MINIMUM_APP_VERSION
+    )
+    android_update_url = _update_url("ANDROID_UPDATE_URL")
+    windows_minimum_version = _minimum_version(
+        "WINDOWS_MIN_APP_VERSION", WINDOWS_MINIMUM_APP_VERSION
+    )
+    windows_update_url = _update_url("WINDOWS_UPDATE_URL")
 
     data_dir = Path(_env("DATA_DIR", "/data") or "/data").expanduser()
     try:
@@ -346,6 +365,10 @@ def load_config(*, load_env_file: bool = True) -> Config:
         ios_update_url=ios_update_url,
         macos_minimum_version=macos_minimum_version,
         macos_update_url=macos_update_url,
+        android_minimum_version=android_minimum_version,
+        android_update_url=android_update_url,
+        windows_minimum_version=windows_minimum_version,
+        windows_update_url=windows_update_url,
     )
 
 
