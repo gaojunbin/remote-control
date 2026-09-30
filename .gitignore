@@ -32,6 +32,13 @@ macos/*.xcodeproj/project.xcworkspace/xcuserdata/
 macos/build/
 *.xcuserstate
 
+# Gradle / Android / Kotlin (android/, win/)
+.gradle/
+.kotlin/
+local.properties
+*.jks
+*.keystore
+
 # Runtime & secrets
 .env
 data/

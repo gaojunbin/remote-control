@@ -25,6 +25,9 @@ web/dist
 
 # Not part of any image
 ios
+macos
+android
+win
 web-moke
 docs
 protocol
