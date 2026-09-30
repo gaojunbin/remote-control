@@ -1,8 +1,8 @@
 # remote-control wire protocol v1
 
 Normative specification for every component: the **gateway** (VPS service `rc_gateway`), a **device**
-(a machine running the client daemon `rc-client`), and an **app** (the web UI, the iOS app or the
-macOS app).
+(a machine running the client daemon `rc-client`), and an **app** (the web UI, the iOS app, the
+macOS app, the Android app or the Windows app).
 
 This document is the reader-facing form of the frozen contract. It is paired with two things that
 make it machine-checkable, and all three must agree:
@@ -181,9 +181,10 @@ an `Origin` header equal to `PUBLIC_ORIGIN`. Bearer-authenticated requests need 
 | GET | `/api/health` | – | `HealthResponse` | – |
 
 `HealthResponse`, `ConfigResponse` and `hello` all carry `apps` (amendment A31): the oldest build
-of each separately installed app this gateway still works with — `apps.ios` for the iPhone app and
-`apps.macos` for the Mac app (A45) — each a `minimum_version` as `major.minor.patch` with an
-optional `update_url` naming where a newer build is (TestFlight, the App Store or a download page).
+of each separately installed app this gateway still works with — `apps.ios` for the iPhone app,
+`apps.macos` for the Mac app (A45), `apps.android` for the Android app and `apps.windows` for the
+Windows app (A46) — each a `minimum_version` as `major.minor.patch` with an optional `update_url`
+naming where a newer build is (TestFlight, an app store or a download page).
 An app reads its own entry and no other, and an entry that is absent states no requirement for
 that app. It is here, on the one unauthenticated endpoint, so an app can refuse
 to sign in before it has a credential; `hello` repeats it so a gateway upgraded under a connected
@@ -317,6 +318,12 @@ gateway itself, as soon as it can (A36), or by an app retrying after a failure (
     },
     "macos": {
       "minimum_version": "1.11.0"
+    },
+    "android": {
+      "minimum_version": "1.12.0"
+    },
+    "windows": {
+      "minimum_version": "1.12.0"
     }
   },
   "push": {
@@ -2160,6 +2167,12 @@ informational and for routing.
     },
     "macos": {
       "minimum_version": "1.11.0"
+    },
+    "android": {
+      "minimum_version": "1.12.0"
+    },
+    "windows": {
+      "minimum_version": "1.12.0"
     }
   },
   "server_time": 1788944400000
@@ -3642,10 +3655,10 @@ one app connection that asked. The gateway relays bytes and never reads them.
       (A29).
 - [ ] Sends the model exactly the text and the context the app supplied, with the strength
       instructions of 3.5, and never a device's history of its own reading (A29).
-- [ ] Reports `apps.ios.minimum_version` and `apps.macos.minimum_version` as `major.minor.patch` in
-      `GET /api/health`, `GET /api/config` and `hello`, each with its `update_url` when configured,
-      and raises an app's minimum in the same release that stops supporting its older builds (A31,
-      A45).
+- [ ] Reports `minimum_version` as `major.minor.patch` for each of `apps.ios`, `apps.macos`,
+      `apps.android` and `apps.windows` in `GET /api/health`, `GET /api/config` and `hello`, each
+      with its `update_url` when configured, and raises an app's minimum in the same release that
+      stops supporting its older builds (A31, A45, A46).
 
 - [ ] Stores `preferences` per account, answers `GET` and `PATCH /api/preferences` for the caller's
       account only, carries the object in `hello`, sends `preferences.updated` to the account's app
@@ -3865,6 +3878,8 @@ one app connection that asked. The gateway relays bytes and never reads them.
       below it shows the blocking "Update required" screen of 8.16 and nothing else (A31).
 - [ ] (macOS) Does the same with `apps.macos.minimum_version`, and never measures itself against the
       iPhone app's entry (A45).
+- [ ] (Android) Does the same with `apps.android.minimum_version`, and (Windows) with
+      `apps.windows.minimum_version`; each reads its own entry and no other (A46).
 - [ ] Offers the dictation polish switch, model and strength only when `polish.enabled` is true
       (disabled with a note otherwise), polishes only the dictated span, keeps the dictated words one
       undo away, sends the words as dictated when the user sends first, and never sends a polished
@@ -4391,3 +4406,12 @@ that entry alone, with the "Update required" screen of 8.16 below it. The two mi
 separately: a gateway change that only an older Mac app cannot follow raises `apps.macos` and leaves
 the iPhone app alone. Absent, as on every gateway older than this amendment, it states no
 requirement. Nothing else changes on the wire. See 3, 6 and 9.
+
+**2026-09-30 A46 — the gateway states the oldest Android and Windows apps it supports.** Two more
+separately installed apps join: an Android app, the iPhone app's screens drawn for Android, and a
+Windows app, the Mac app's screens drawn for Windows. Each can fall behind the gateway it talks to
+as the iPhone and Mac apps can, so `apps` gains `android` and `windows`, the same shape as `ios` —
+`minimum_version` and an optional `update_url` — and each app holds itself to its own entry alone,
+with the "Update required" screen of 8.16 below it. The four minimums move separately. Absent, as
+on every gateway older than this amendment, an entry states no requirement. Nothing else changes
+on the wire. See 3, 6 and 9.
