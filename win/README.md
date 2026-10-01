@@ -7,9 +7,10 @@ Multiplatform Desktop on the Android app's Kotlin core (`android/core`). The Mac
 the reference for every pixel, word and behaviour; where the two differ, this app is wrong unless
 the ruling says otherwise, and where the Mac's Swift leaves a question open the web answers it.
 
-What is here today is the foundation: the design system, the strings, the router and the window
-shell, the platform services and the renderer. The app model on the core is stage 2 and the
-screens are stage 3; until they arrive the window shows the design system's gallery.
+What is here is the foundation: the design system, the strings, the router and the window shell,
+the platform services, the app model on the core with sign-in and Update required, the web helpers
+the features share, and the renderer. The feature screens are placeholders their owners replace
+(below, **The features' entry points**).
 
 ## Layout
 
@@ -17,16 +18,17 @@ screens are stage 3; until they arrive the window shows the design system's gall
 | --- | --- |
 | `settings.gradle.kts`, `build.gradle.kts`, `gradle/` | Gradle 9.8; the Android app's version catalog; `android/core` included by path as `:core`, never copied |
 | `app/` | the app, `com.junbingao.remotecontrol.win`, and its packaging (`app/packaging/RemoteControl.ico`) |
-| `app/src/main/kotlin/…/win/app/` | `Route`, `Router`, `LayoutClass`, `AppCommands` (the key map), `LaunchOptions`, `ShellState`, `RootView`, `AppServices`, `MainWindow`; `Main.kt` is `main` |
+| `app/src/main/kotlin/…/win/app/` | `WinAppModel` (with its account, device and report extensions), `ConnectionFactory`, `Persistence`, `SignInRecorder`, `Features`, `Route`, `Router`, `LayoutClass`, `AppCommands` (the key map), `LaunchOptions`, `ShellState`, `RootView`, `MainWindow`, `WindowActivity`; `Main.kt` is `main` |
 | `…/win/design/` | `tokens.css` as Kotlin, the web's type, SwiftUI's stacks, every primitive of the Mac's `Design/`; `icons/` (lucide) and `overlay/` (the overlay layer) |
 | `…/win/strings/` | every group of the Mac's `Strings/`, one file per group, with `S` and the Windows-only groups |
 | `…/win/layout/` | the topbar and its tabs, the page head, the page shell, the landing rule, the window strip |
 | `…/win/platform/` | the services: the token vault, notifications and the tray, the microphone, the terminal emulator, the Markdown engine, Windows' settings |
-| `…/win/shared/` | the web helpers more than one feature reads (`Identity`) |
-| `…/win/standin/` | `InterfaceLanguage`, `TimelineDetail`, `DotTone`: stand-ins for the core's types, which stage 2 deletes |
+| `…/win/login/`, `…/win/update/` | the sign-in page and its errors; Update required (A46) |
+| `…/win/shared/` | the web helpers two or more features read: `Format`, `Identity`, `ErrorText`, `AccountErrors`, `SessionOptions`, `LabelPair`, `Attach`, `AttachmentLimits`, `Answering`, `SlashCommands` |
+| `…/win/chat/`, `…/win/chat/composer/`, `…/win/devices/`, `…/win/sessions/`, `…/win/settings/`, `…/win/users/`, `…/win/terminal/`, `…/win/notifications/` | the features' directories, holding their placeholder entry points; `…/win/voice/` is the composer's to make |
 | `…/win/gallery/` | the gallery pages the window and the renderer draw |
 | `app/src/test/` | JUnit 5; `resources/markdown/corpus.json` and `resources/text/linebreaks.json` are the Mac's own results the tests compare with |
-| `preview/` | the renderer: scenarios drawn offscreen and written as PNG |
+| `preview/` | the renderer: scenarios drawn offscreen and written as PNG; `scenarios/` holds the foundation's and one file per feature |
 
 ## Building and checking
 
@@ -35,9 +37,9 @@ cd win
 export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
 export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 ./gradlew --no-daemon :app:test
-./gradlew --no-daemon :preview:run --args="--all --out /tmp/rc-win-previews"
-./gradlew --no-daemon :preview:run --args="--all --language zh-Hans --out /tmp/rc-win-previews-zh"
-./gradlew --no-daemon :app:run --args="--ephemeral"
+./gradlew --no-daemon :preview:run --args="--demo --all --out /tmp/rc-win-previews"
+./gradlew --no-daemon :preview:run --args="--demo --all --language zh-Hans --out /tmp/rc-win-previews-zh"
+./gradlew --no-daemon :app:run --args="--demo --ephemeral"
 ```
 
 Always `--no-daemon`. `:app:run` needs the window server: from a shell outside the logged-in
@@ -46,7 +48,7 @@ session (`launchctl managername` prints `Background`) AWT cannot reach it and th
 
 ```
 ./gradlew --no-daemon -Pcompose.desktop.packaging.checkJdkVendor=false :app:createDistributable
-open -n "app/build/compose/binaries/main/app/Remote Control.app" --args --ephemeral
+open -n "app/build/compose/binaries/main/app/Remote Control.app" --args --demo --ephemeral
 ```
 
 (The property lets jpackage use Homebrew's JDK on a Mac; a Windows build needs none.)
@@ -60,19 +62,22 @@ user, upgrades the previous install in place (a fixed upgrade UUID), and carries
 
 ## Launch arguments
 
-`LaunchOptions` parses the Mac's set; the app model (stage 2) is what acts on most of them.
+`LaunchOptions` parses the Mac's set, and the model acts on them as the Mac's does.
 
 | Argument | What it does |
 | --- | --- |
-| `--demo` | The core's offline demo around the app: an account, two devices and their sessions, nothing on the network (stage 2) |
-| `--demo-account` | The offline demo behind the sign-in form instead; `--registration-open` opens its registrations (stage 2) |
-| `--demo-update-required` | The demo states a minimum above this build, which is how Update required is reached (A46, stage 2) |
-| `--ephemeral` | Nothing of the person's is read or written: the token is kept in memory (`MemorySecretVault`). Every automated run uses it |
-| `--reset-state` | Start as a fresh install (stage 2) |
-| `--language=en\|zh-Hans` | The interface language for the run. On a gateway the account's own preference (A41) arrives with `hello` and wins (stage 2) |
+| `--demo` | The core's `DemoGateway` around the app, as the Mac's `--demo`: an account, two devices and their sessions, nothing on the network |
+| `--demo-account` | The offline demo behind the sign-in form instead; `--registration-open` opens its registrations |
+| `--demo-update-required` | The demo states a minimum above this build, which is how Update required is reached (A46) |
+| `--ephemeral` | Nothing of the person's is read or written: the token in the core's `MemorySecretStore`, the defaults in its `MemoryUserDefaults`, caches and drafts in a scratch directory quitting removes. Every automated run uses it |
+| `--reset-state` | Start as a fresh install |
+| `--language=en\|zh-Hans` | The interface language for the run, the login page included |
 
-Without `--ephemeral`, on Windows, the token is kept with Windows' data protection for the current
-user in `%LOCALAPPDATA%\Remote Control\secrets`.
+Without `--ephemeral`, on Windows, the app keeps what the Mac keeps in the Keychain, the standard
+defaults and Application Support in `%LOCALAPPDATA%\Remote Control`: the token sealed with DPAPI for
+the current user in `secrets\`, the preferences in `defaults.json`, the core's `Cache\` and
+`Drafts\`. The version the app states (A46) is the packaged one, which the installer's launcher
+passes as `jpackage.app-version`, and the core's `AppBuild.shipped` in a run from the build.
 
 ## The window
 
@@ -82,15 +87,38 @@ than 560), always light. There are no traffic lights, so `LocalTrafficLightInset
 starts its content at the web's padding. There is no menu bar; the Mac's menu commands are keys
 (`AppCommands`): Ctrl+1, Ctrl+2 and Ctrl+3 for the tabs, Ctrl+, for Settings, Ctrl+N for New
 session, Alt+Left and Alt+Right and the mouse's back and forward buttons for the history, and
-Escape closes the newest overlay. Closing the window leaves the app running in the notification
-area (`AppTray`), whose icon opens the window again and offers Open and Quit; a click on one of the
-app's notifications opens the window too. Where there is no notification area, closing quits.
+Escape closes the newest overlay. Closing the window leaves the app running and connected in the
+notification area (`AppTray`), whose icon opens the window again and offers Open and Quit; a click
+on one of the app's notifications opens the window on its conversation. Where there is no
+notification area, closing quits; quitting, and a process ended from outside, take an ephemeral
+run's files with it. `main` builds the one model and the window asks it to `restoreOrPrompt()`;
+the window tells it whether it is in front of the person (`isWindowActive`).
 
 ## What the features build on
 
-**The model** is stage 2's: the app model on the Kotlin core, in the place of `MacAppModel`. What
-the shell reads of it today is `ShellState` (`router`, `origin`, `username`, `connectionIsOpen`,
-`hasSnapshot`, `hasDevices`), provided as `LocalShellState`.
+**The model.** `LocalAppModel.current`, a `WinAppModel` — the Mac's `MacAppModel` under the
+Windows app's name — which every screen reads as snapshot state, as the core's stores are:
+`connection` (the core's `ConnectionStore`, measured against `apps.windows`, A46), `sessions`
+(`SessionStore`: search, filters, folded groups), `settings`, `preferences` (A35), `preferenceSync`
+(A41), `drafts` (`DraftStore`), `router`, `origin` (the host the topbar and Settings print),
+`account`, `isSignedIn`, `isDemo`, `isResuming`, `deviceUpdateErrors` and `updateDevice(device)`
+(A22), `pairingFlow()`, `device(id)`, `device(session)`, `agent(session)`, `httpClient` (for the
+sockets the core opens on the gateway itself, as the dictation socket does), `isWindowActive`,
+`showWindow()`, `toasts`, `diagnosticReport()`, `signIn`, `register`, `signOut` and
+`lastSignInError`. Extension points, so no feature edits the model: `onSignOut { }` — every handler
+runs, in order, before the connection goes, and empties what its feature holds of the account, as
+`web/src/stores/signOut.ts` does — and `onSessionTransition { previous, current -> }`, both
+multicast; `connection.addFrameHandler(token) { frame -> }` is multicast, keyed by a token of your
+own. Each feature's launch hook is the `install(on)` of its `…Feature` object, which `Features`
+calls once as the model is built. The shell reads its part of the model as `ShellState` through
+`LocalShellState`; `WithAppModel(model) { }` provides both.
+
+**Work a person asked for runs on `model.tasks`.** The core's stores take the scope their work runs
+in, and a suspend call rethrows cancellation, so a send, an approval or a sign-in started from a
+composable's own scope dies with the composable — the sign-in with the login page, the moment it
+succeeds. Start it with `model.tasks.launch { }`, the window's main thread in the app and the
+renderer's own in a render, as the Mac starts it in an unstructured `Task`. A composable's
+`LaunchedEffect` is for what belongs to it alone.
 
 **The router.** `Route` is the web's routes — `Landing`, `Login`, `Devices`, `Device(id)`,
 `Terminal(deviceId)`, `Sessions`, `Chat(deviceId, sessionId)`, `Settings`, `Users` — with
@@ -114,7 +142,9 @@ UI for Chinese on Windows; on a Mac the Mac's own — SF with its size-specific 
 PingFang — so this renderer's pictures match the Mac renderer's to the pixel. Two of the Mac's text
 system's habits are kept: a paragraph of two lines never ends on one short word (`PushOut`: the
 word before it comes down, a frame after the text is first laid out), and a line drawn where the
-exact layout puts it (below).
+exact layout puts it (below). The Mac's `.css(…)` on a row that holds text rather than on a text is
+`CSSLine(style) { HStack { … } }`: the texts inside take the style's font, and the row is set on the
+browser's baselines as one line box, its first baseline the highest of what it holds.
 
 **Stacks.** Port a SwiftUI `VStack`, `HStack` or `ZStack` as `VStack(modifier, spacing, alignment)`,
 `HStack(…)`, `ZStack(…)`: SwiftUI's defaults (8 apart, centred across), and SwiftUI's layout. The
@@ -137,7 +167,7 @@ modifier)`, the Mac's `ButtonStyle` — and shows a focus ring for the keyboard 
 above it stops it. `Btn(title, icon, variant, size, busy)` and `btn(variant, size)`, `IconBtn(icon,
 size, label)` and `iconBtn`, `pill` and `quietPill`, `MenuTriggerStyle` (the row menus' three dots,
 lit by `LocalRowIsHovered`), `Badge(text, tone)`, `AgentChip(agent)`, `AgentLogo(agent, size)`,
-`Mark(size)`, `Dot(style, pulses)`, `StatusDot(tone, state)`, `OnlineDot(online, pulses)`,
+`Mark(size)`, `Dot(style, pulses)`, `StatusDot(state, control, online)`, `OnlineDot(online, pulses)`,
 `Switch(isOn, label, onChange)`, `Segmented(value, options, ariaLabel)` with `SegmentOption`, `Spinner(size)`,
 `DeviceGroupHeader`, `ArchiveGroupHeader`, `Modifier.surface()`, `Modifier.card()`, `GroupTitle`,
 `FieldLabel`, `Hint`, `FormError`, `EmptyState(text, title)`, `PageHead(title, hint) { actions }`,
@@ -173,28 +203,64 @@ anything a feature keeps in its own locals.
 **Words.** `S.<group>.<key>` in the current interface language (`InterfaceLanguageSource.current`),
 read through snapshot state, so a change redraws every screen; nothing may read a string at
 static-init time. The helpers at the foot of `web/src/strings.ts` are on `S` too (`agentLabel`,
-`platformLabel`, `stateLabel`, `dotToneLabel`, `timelineDetailLabel`, `sessionOriginLabel`,
-`sessionTitle`, …). `S.win` holds Windows' own words where the Mac names the Mac; `S.winComposer`
+`platformLabel`, `stateLabel`, `dotToneLabel`, `timelineDetailLabel`, `sessionOriginLabel(session)`,
+`sessionTitle(session)`, …). `S.win` holds Windows' own words where the Mac names the Mac; `S.winComposer`
 and `S.winSettings` are the composer's and Settings' Windows-only words. A feature's Windows-only
 words go in a strings file of its own built the same way: one class with an `en` and a `zhHans`
 table and `of(language)`, and an accessor on `S`. The group files are generated from the Mac's
 tables, word for word; when the Mac adds a word, regenerate rather than edit.
 
+**The web's helpers** two or more features read are in `shared/`, ported once from the Mac's
+`Shared/`: `Format` (relative times, durations, clocks, counts, sizes, paths, folding — the web's
+`format.ts`, words from `S.format`), `Identity`, `ErrorText` (`text`, `refusal`, `queueRemove`),
+`AccountErrors`, `SessionOptions` (with `SpeedChange` for A21's standard tier), `LabelPair`, `Attach`,
+`AttachmentLimits`, `Answering` and `SlashCommands`. The sign-in errors are `LoginErrorText`.
+
 **Previews.** `LocalPreviewStage.current` is the scenario's stage and null in the app: a view reads
 it to show, for a render, a state that takes a click. `LocalShowsCaret` is false in a render.
 
+**Tests that drive the model** build it on `ModelHarness` (`app/src/test/…/app/`): the model on a
+thread of its own with its work, the stores' state and the test's reads there, and a `waitFor` that
+stands in for the frame clock — the model follows its stores with `snapshotFlow`, which hears of a
+change only when something sends the snapshot's apply notifications, as every frame of a window or
+a scene does.
+
+## The features' entry points
+
+Each feature replaces its placeholders — a page title in the web's type on the web's canvas, or a
+launch hook that does nothing — with exactly these signatures, which the root, the router and the
+model already use, so nothing of the foundation's changes when a feature lands. A feature owns its
+directories, its scenario file in `preview/…/scenarios/` and its own test files.
+
+| Entry point | Signature | Owner |
+| --- | --- | --- |
+| `chat/ChatPage.kt` | `@Composable fun ChatPage(deviceId: String, sessionId: String)`, over the whole window | win-chat |
+| `chat/ChatFeature.kt` | `object ChatFeature { fun install(on: WinAppModel) }` | win-chat |
+| `chat/composer/ComposerView.kt` | `@Composable fun ComposerView(chat: ChatStore)` | win-composer |
+| `chat/composer/ComposerFeature.kt` | `object ComposerFeature { fun install(on: WinAppModel) }`; `voice/` is the composer's too | win-composer |
+| `devices/DevicesPage.kt`, `devices/DevicePage.kt` | `@Composable fun DevicesPage()`, `@Composable fun DevicePage(deviceId: String)`, under the topbar | win-lists |
+| `devices/ListsFeature.kt` | `object ListsFeature { fun install(on: WinAppModel) }` | win-lists |
+| `sessions/SessionsPage.kt`, `sessions/SessionSidebar.kt` | `@Composable fun SessionsPage()`; `@Composable fun SessionSidebar(deviceId: String, sessionId: String)`, which the chat page places and which carries its own New session button and drawer | win-lists |
+| `settings/SettingsPage.kt`, `users/UsersPage.kt` | `@Composable fun SettingsPage()`, `@Composable fun UsersPage()`, under the topbar | win-settings |
+| `terminal/TerminalPage.kt` | `@Composable fun TerminalPage(deviceId: String)`, over the whole window | win-settings |
+| `notifications/SettingsFeature.kt` | `object SettingsFeature { fun install(on: WinAppModel) }`, where the notifier starts; it posts through `model.toasts` | win-settings |
+| `preview/…/scenarios/ChatScenarios.kt`, `ComposerScenarios.kt`, `ListsScenarios.kt`, `SettingsScenarios.kt` | `object XScenarios { val all: List<PreviewScenario> }`, empty until the feature fills it, under the Mac scenarios' names and sizes | each feature |
+
+
 ## The platform services
 
-Each is a small API of its own; stage 2 adapts the core's interfaces to them.
+Each is a small API of its own; where the core declares the seam, the app's service is the core's
+interface.
 
 | Service | API | On Windows | Elsewhere |
 | --- | --- | --- | --- |
-| Token vault | `SecretVault`: `read(key)`, `write(data, key)`, `remove(key)`, all `suspend`; `SecureStorageUnavailable` when it cannot | `DpapiSecretVault`: DPAPI for the current user, one `<key>.secret` file per key in `%LOCALAPPDATA%\Remote Control\secrets`, written atomically | `MemorySecretVault`, also for `--ephemeral` and the renderer |
-| Notifications | `Toasts`: `post(ToastNotice(title, body, target))`, `removeDelivered()`, `onOpen` with the clicked notice's `ToastTarget(deviceId, sessionId)` | `TrayToasts`: Windows' toasts from the app's notification-area icon (`AppTray`); a click arrives as the icon's action (`ToastClicks`) | `InertToasts`: kept in the process, never shown |
+| Token vault | the core's `SecretStore`: `read(key)`, `write(data, key)`, `remove(key)`, all `suspend`; `TransportError.SecureStorageUnavailable` when it cannot | `DpapiSecretVault`: DPAPI for the current user, one `<key>.secret` file per key in `%LOCALAPPDATA%\Remote Control\secrets`, written atomically | the core's `MemorySecretStore`, also for `--ephemeral` and the renderer |
+| Preferences | the core's `UserDefaults` | `FileUserDefaults`: one JSON file, `defaults.json`, read at launch and written whole after every change | the core's `MemoryUserDefaults` for `--ephemeral`, the renderer and the tests |
+| Notifications | `Toasts`: `post(ToastNotice(title, body, target))`, `removeDelivered()`, `onOpen` with the clicked notice's `ToastTarget(deviceId, sessionId)` — the model's `toasts` opens the conversation | `TrayToasts`: Windows' toasts from the app's notification-area icon (`AppTray`); a click arrives as the icon's action (`ToastClicks`) | `InertToasts`: kept in the process, never shown |
 | Microphone | `VoiceRecorder`: `start()`, `stop()`; `RecorderHandlers(onFrame, onLevel, onError)` with `RecorderError` | `MicRecorder`: `javax.sound.sampled`, 16 kHz PCM16LE mono in frames of 1920 samples (120 ms, as the Mac's dictation sends them), resampled when the device cannot do 16 kHz (`Downsample`, `PcmChunker`); Windows' privacy setting read first (`MicrophoneAccess`) | the same, but nothing here ever opens it |
 | Terminal | `TerminalEmulator(feed, onSize, onInput, modifier)` with `TerminalFeed` (`write(bytes)`, `reset()`) | JediTerm in the window (`SwingPanel`), the Mac's terminal font and colours (`TerminalTheme`) | the same; a render, which has no window, draws none |
 | Markdown | `MarkdownEngine.shared.hast(text)`: the hast as JSON (`[tag, properties, children]`, text a string), or null without the pipeline | the Mac app's `markdown.bundle.js` in QuickJS, served from `../macos/Sources/RCMac/Resources/Highlight/` by the build | the same |
-| Settings | `ReduceMotion.current`, `AppData.directory` and `AppData.secrets`, `Host.isWindows` | Windows' animation setting; `%LOCALAPPDATA%\Remote Control` | no reduced motion; the same folder under the home directory |
+| Settings | `ReduceMotion.current`, `AppData.directory` (with `secrets`, `defaults`, `cache`, `drafts`), `Host.isWindows` | Windows' animation setting; `%LOCALAPPDATA%\Remote Control` | no reduced motion; the same folder under the home directory |
 
 ## The renderer
 
@@ -205,14 +271,21 @@ Each is a small API of its own; stage 2 adapts the core's interfaces to them.
 ```
 
 The Mac renderer's arguments, scenarios and sizes, so the two pictures of a scenario compare
-directly. Each scenario is drawn in an `ImageComposeScene` with no window
-(`java.awt.headless=true`) through the real `RootView`, left to settle — its `settle` and then
-until nothing is left to draw — and written as `<out>/<name>.png`, 1280 × 860 at 2× unless it says
-otherwise. A scenario is `PreviewScenario(name, route, width, height, stage, account, language,
-settle, setup, prepare, content)`, the Mac's fields; `content` draws one view where the route would
-be. The registry is `PreviewScenarios.all`: `FoundationScenarios` today, then one file per feature
-beside it. `--demo` and `--gateway` need the app model: until stage 2 signs the renderer in, a
-scenario without `content` stops with "a route needs the app model, which stage 2 brings".
+directly. Each scenario gets a fresh ephemeral `WinAppModel` on the renderer's one thread, signed
+in through the core (`--gateway` against the web's mock gateway, whose `admin` / `dev` works;
+`--demo` on the offline demo), taken to its route and drawn through the real `RootView` in an
+`ImageComposeScene` with no window (`java.awt.headless=true`), prepared, left to settle — its
+`settle` and then until nothing is left to draw — and written as `<out>/<name>.png`, 1280 × 860 at
+2× unless it says otherwise. A scenario is `PreviewScenario(name, route, width, height, stage,
+account, language, settle, setup, prepare, content)`, the Mac's fields: `account` is `signedIn`,
+`signedOut` (the form, on the demo's account form under `--demo`) or `updateRequired`; `setup` runs
+before the scene exists and `prepare` after it shows the route; `content` draws one view where the
+route would be. Both get a `PreviewContext`: the `model`, the `gateway` the command line named,
+`openChat(deviceId, sessionId)` to open one conversation for a scenario that draws a piece of it,
+`chat` to read it back, and `wait(timeout) { }`. The registry is `PreviewScenarios.all`:
+`FoundationScenarios` (the sign-in form in its states, the landing rule, the topbar on each tab and
+below its breakpoints, Update required, the gallery and the overlay checks) and one file per
+feature.
 
 What a render cannot show: the pointer's hover states, a text field's caret, and the terminal
 emulator, which is a Swing component.
@@ -226,7 +299,10 @@ compare pixel for pixel. What it takes, measured against the Mac renderer and Co
   (510 for medium, 590 for semibold), with the size-specific tracking CoreText applies from the
   face's `trak` table and Skia leaves out; widths agree to a thousandth of a pixel.
 - **The Mac's line**: SwiftUI's line heights for its natural text, the browser's baseline rule for
-  a line box, text widths rounded up to the device pixel.
+  a line box, text widths rounded up to the device pixel, and each line aligned by the baseline its
+  primary face gives it (`PrimaryBaseline`): SwiftUI centres Chinese, whose face is taller, about
+  a Latin line, so it sits half a point above Latin of the same style, and Compose's own baseline
+  for that line would put it back down.
 - **Ink**: Skia's glyph coverage depends on the colour; text is drawn in a neutral grey and
   recoloured, which brings its weight of ink to the Mac's.
 - **Exact layout** (above), and the Mac's text system's two-line rule, checked against SwiftUI's
@@ -236,6 +312,9 @@ compare pixel for pixel. What it takes, measured against the Mac renderer and Co
 What still differs: the backdrop is one level of 255 lighter (Skia blends an 8-bit premultiplied
 colour, Core Animation a float one); a few pixels in a thousand differ by more than a level or two,
 at glyph edges and in the blur; and the spinner's phase is the moment the picture is taken, on both.
+Two differences are the ruling's: at 760 and narrower the topbar starts at the web's padding where
+the Mac's starts after its traffic lights, and Update required's button opens the download page
+where the Mac's names TestFlight or the App Store.
 
 ## Not verified on this Mac
 
@@ -249,15 +328,3 @@ JediTerm in a window, and `packageMsi`/`packageExe`.
 `app/packaging/RemoteControl.ico` holds the Mac's `AppIcon` drawing at 16, 20, 24, 32, 40, 48, 64, 128
 and 256 px, each drawn from the vectors rather than scaled; `app/src/main/resources/icon/` holds them
 but the 128 for the window and the notification area.
-
-## What stage 2 wires
-
-- The core's types in place of `standin/` (`InterfaceLanguage`, `TimelineDetail`, `DotTone`), which
-  goes.
-- The app model on the core: it implements `ShellState` and provides `LocalShellState`, acts on
-  `LaunchOptions`, and lets `AppCommands` navigate once someone is signed in (`canNavigate`).
-- `AppServices.vault` as the core's `SecretStore`; `toasts.onOpen` to `router.go(Route.Chat(…))`.
-- `StatusDot`, `S.sessionTitle` and `S.sessionOriginLabel` overloads that take the core's session.
-- `RootView` drawing the routed screens in place of the gallery.
-- The renderer signing in for `--demo` and `--gateway`, a model per scenario, and the scenarios'
-  `PreviewContext` reaching it.

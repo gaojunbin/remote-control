@@ -4,7 +4,7 @@
 
 package com.junbingao.remotecontrol.win.strings
 
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
 
 /** A27: the terminal's `/` menu, above the composer. */
 class CommandsStrings(

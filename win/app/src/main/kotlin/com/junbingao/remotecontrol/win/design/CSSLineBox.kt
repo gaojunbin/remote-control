@@ -28,15 +28,19 @@ import kotlin.math.roundToInt
  * `snapToPoint`, as the browser puts one its container centres: 4.25 px down is drawn at 4) or a
  * whole pixel from its exact place, which the stack around it knows (`StackFrame`). A text left
  * to its own height reports the fraction of a pixel its box was rounded by (`exact`).
+ *
+ * A text names the baseline its primary face gives the line (`aligned`, from `PrimaryBaseline`),
+ * and that is the one put on `baseline`; a box of texts aligns the first baseline they report.
  */
-internal fun Modifier.cssLineBox(lineBox: Float, baseline: Float, snapToPoint: Boolean, exact: ExactHeight): Modifier =
-    this then CSSLineBoxElement(lineBox, baseline, snapToPoint, exact)
+internal fun Modifier.cssLineBox(lineBox: Float, baseline: Float, snapToPoint: Boolean, exact: ExactHeight, aligned: Int? = null): Modifier =
+    this then CSSLineBoxElement(lineBox, baseline, snapToPoint, exact, aligned)
 
 private data class CSSLineBoxElement(
     val lineBox: Float,
     val baseline: Float,
     val snapToPoint: Boolean,
     val exact: ExactHeight,
+    val aligned: Int?,
 ) : ModifierNodeElement<CSSLineBoxNode>() {
     override fun create() = CSSLineBoxNode(this)
 
@@ -48,12 +52,13 @@ private data class CSSLineBoxElement(
 private class CSSLineBoxNode(var element: CSSLineBoxElement) : Modifier.Node(), LayoutModifierNode, ModifierLocalModifierNode {
     override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints): MeasureResult {
         val placeable = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
-        val first = placeable[FirstBaseline].takeIf { it != AlignmentLine.Unspecified } ?: 0
-        val last = placeable[LastBaseline].takeIf { it != AlignmentLine.Unspecified } ?: first
+        val own = placeable[FirstBaseline].takeIf { it != AlignmentLine.Unspecified } ?: 0
+        val last = placeable[LastBaseline].takeIf { it != AlignmentLine.Unspecified } ?: own
+        val first = element.aligned ?: own
         val unit = density
         val boxPx = element.lineBox * unit
         val baselinePx = (element.baseline * unit).roundToInt()
-        val contentPx = max(boxPx, last - first + boxPx)
+        val contentPx = max(boxPx, last - own + boxPx)
         val centred = constraints.hasFixedHeight && constraints.maxHeight > contentPx
         val height = if (centred) constraints.maxHeight else constraints.constrainHeight(contentPx.roundToInt())
         element.exact.fraction = if (!centred && height == contentPx.roundToInt()) contentPx - height else 0f
@@ -61,7 +66,7 @@ private class CSSLineBoxNode(var element: CSSLineBoxElement) : Modifier.Node(), 
         val grid = if (element.snapToPoint) unit else 1f
         val inset = if (centred) (height - contentPx) / 2 else 0f
         val estimate = (roundHalfUp(inset / grid) * grid).roundToInt()
-        return layout(placeable.width, height, mapOf(FirstBaseline to estimate + baselinePx, LastBaseline to estimate + baselinePx + (last - first))) {
+        return layout(placeable.width, height, mapOf(FirstBaseline to estimate + baselinePx, LastBaseline to estimate + baselinePx + (last - own))) {
             val node = coordinates
             val top = if (node == null) {
                 estimate

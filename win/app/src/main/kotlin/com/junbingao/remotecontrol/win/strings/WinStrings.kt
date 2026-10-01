@@ -1,6 +1,6 @@
 package com.junbingao.remotecontrol.win.strings
 
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
 
 /**
  * The Windows app's own words: the ones the web has no need for, because it is served by its

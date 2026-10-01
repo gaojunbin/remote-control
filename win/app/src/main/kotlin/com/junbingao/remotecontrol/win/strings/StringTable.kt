@@ -3,7 +3,7 @@
 
 package com.junbingao.remotecontrol.win.strings
 
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
 
 /** Every group of the app's own words in one language. */
 class StringTable(

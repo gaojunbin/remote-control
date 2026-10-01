@@ -28,9 +28,9 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
 import com.junbingao.remotecontrol.win.design.LocalReduceMotion
 import com.junbingao.remotecontrol.win.design.overlay.OverlayRegistry
-import com.junbingao.remotecontrol.win.gallery.Gallery
 import com.junbingao.remotecontrol.win.platform.AppIcon
 import com.junbingao.remotecontrol.win.platform.AppTray
+import com.junbingao.remotecontrol.win.platform.TrayToasts
 import com.junbingao.remotecontrol.win.platform.ReduceMotion
 import com.junbingao.remotecontrol.win.strings.InterfaceLanguageSource
 import com.junbingao.remotecontrol.win.strings.S
@@ -39,37 +39,39 @@ import java.awt.Dimension
 /**
  * The app's one window (`docs/DESIGN.md` § "The Windows app" → **The window is Windows'**): the
  * system title bar, so snapping, resizing and the caption buttons are Windows' own; 1280 × 860 at
- * first and never narrower than 480; always light. Closing it leaves the app running in the
- * notification area, whose icon opens it again and offers Quit; where there is no notification
- * area, closing it quits. Escape closes the newest overlay, and the rest of the keyboard map is
- * `AppCommands`, with the mouse's back and forward buttons.
- *
- * The screens arrive with the app model (stage 2) and the features (stage 3); until then the
- * window shows the design system's gallery.
+ * first and never smaller than 480 × 560; always light. Closing it leaves the app running and
+ * connected in the notification area, whose icon opens it again and offers Quit; where there is no
+ * notification area, closing it quits, and quitting takes an ephemeral run's files with it.
+ * Escape closes the newest overlay, and the rest of the keyboard map is `AppCommands`, with the
+ * mouse's back and forward buttons.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun ApplicationScope.MainWindow(options: LaunchOptions) {
+fun ApplicationScope.MainWindow(model: WinAppModel) {
     var visible by remember { mutableStateOf(true) }
-    val router = remember { Router() }
     val overlays = remember { OverlayRegistry() }
-    // Nothing is reachable before the model signs someone in (stage 2).
-    val commands = remember { AppCommands(router, canNavigate = { false }) }
+    // Nothing but the form, or the Update required screen, is reachable without an account the gateway accepts.
+    val commands = remember { AppCommands(model.router, canNavigate = { model.isSignedIn && model.connection.updateRequired == null }) }
     val tray = remember { AppTray.install() }
-    val services = remember { AppServices.make(options, tray) }
+    val quit = {
+        model.discardEphemeralState()
+        exitApplication()
+    }
     DisposableEffect(tray) {
+        model.toasts = TrayToasts.make(tray)
         tray?.onOpen = { target ->
             visible = true
-            if (target != null) services.toasts.onOpen?.invoke(target)
+            if (target != null) model.toasts.onOpen?.invoke(target)
         }
-        tray?.onQuit = ::exitApplication
+        tray?.onQuit = quit
         onDispose { tray?.remove() }
     }
     LaunchedEffect(tray) {
         snapshotFlow { InterfaceLanguageSource.current }.collect { tray?.relabel() }
     }
+    LaunchedEffect(model) { model.restoreOrPrompt() }
     Window(
-        onCloseRequest = { if (tray != null) visible = false else exitApplication() },
+        onCloseRequest = { if (tray != null) visible = false else quit() },
         visible = visible,
         state = rememberWindowState(size = DpSize(1280.dp, 860.dp), position = WindowPosition(Alignment.Center)),
         title = S.productName,
@@ -81,10 +83,18 @@ fun ApplicationScope.MainWindow(options: LaunchOptions) {
         LaunchedEffect(Unit) {
             window.minimumSize = Dimension(480, 560)
             window.background = java.awt.Color(0xF5, 0xF5, 0xF4)
+            model.showWindow = {
+                visible = true
+                window.toFront()
+                window.requestFocus()
+            }
         }
+        WindowActivity(model)
         CompositionLocalProvider(LocalReduceMotion provides ReduceMotion.current) {
-            Box(Modifier.fillMaxSize().onPointerEvent(PointerEventType.Press) { commands.handle(it.button) }) {
-                RootView(overlays) { Gallery() }
+            WithAppModel(model) {
+                Box(Modifier.fillMaxSize().onPointerEvent(PointerEventType.Press) { commands.handle(it.button) }) {
+                    RootView(overlays)
+                }
             }
         }
     }

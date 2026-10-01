@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
 
 /** Type and views measured the way `Text` and the window lay them out, at 1 CSS px to the pixel. */
 internal object Measure {

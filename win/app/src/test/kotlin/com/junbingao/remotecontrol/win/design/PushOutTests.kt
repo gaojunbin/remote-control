@@ -7,7 +7,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.float
 import kotlinx.serialization.json.int
@@ -16,9 +19,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 /**
  * Lines broken as SwiftUI breaks the Mac's: `text/linebreaks.json` holds where SwiftUI started

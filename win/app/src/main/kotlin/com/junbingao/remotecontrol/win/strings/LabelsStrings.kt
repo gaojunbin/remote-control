@@ -4,7 +4,7 @@
 
 package com.junbingao.remotecontrol.win.strings
 
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
 
 /** Word lists the helpers below read. Unknown ids fall back to the id itself. */
 class LabelsStrings(

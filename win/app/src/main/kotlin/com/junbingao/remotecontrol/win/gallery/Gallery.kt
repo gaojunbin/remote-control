@@ -13,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.junbingao.remotecontrol.core.state.TimelineDetail
 import com.junbingao.remotecontrol.win.design.AgentChip
 import com.junbingao.remotecontrol.win.design.AgentLogo
 import com.junbingao.remotecontrol.win.design.Badge
@@ -47,7 +48,6 @@ import com.junbingao.remotecontrol.win.design.icons.LucideIcon
 import com.junbingao.remotecontrol.win.design.pill
 import com.junbingao.remotecontrol.win.design.quietPill
 import com.junbingao.remotecontrol.win.layout.PageHead
-import com.junbingao.remotecontrol.win.standin.TimelineDetail
 import com.junbingao.remotecontrol.win.strings.S
 
 /**

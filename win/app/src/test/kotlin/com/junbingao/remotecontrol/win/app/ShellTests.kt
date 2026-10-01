@@ -2,7 +2,7 @@ package com.junbingao.remotecontrol.win.app
 
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.pointer.PointerButton
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

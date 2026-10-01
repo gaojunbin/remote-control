@@ -1,14 +1,14 @@
 package com.junbingao.remotecontrol.win.design
 
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
 import com.junbingao.remotecontrol.win.strings.InterfaceLanguageSource
-import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.condition.EnabledOnOs
-import org.junit.jupiter.api.condition.OS
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.condition.EnabledOnOs
+import org.junit.jupiter.api.condition.OS
 
 /**
  * Chinese as Chrome sets it: `lang` the interface language, the web's font stack, 13 px / 1.45

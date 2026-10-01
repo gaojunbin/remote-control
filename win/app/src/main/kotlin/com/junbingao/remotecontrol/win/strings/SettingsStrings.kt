@@ -4,7 +4,7 @@
 
 package com.junbingao.remotecontrol.win.strings
 
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
 
 /**
  * `docs/DESIGN.md` § "The Settings screen": four groups, and every row a

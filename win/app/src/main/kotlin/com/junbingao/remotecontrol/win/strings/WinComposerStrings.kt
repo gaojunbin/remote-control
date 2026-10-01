@@ -1,6 +1,6 @@
 package com.junbingao.remotecontrol.win.strings
 
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
 
 /**
  * The composer's Windows-only words. Where the web names the browser, the Windows app names the

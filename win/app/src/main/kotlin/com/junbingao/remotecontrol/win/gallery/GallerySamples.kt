@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.junbingao.remotecontrol.core.state.DotTone
 import com.junbingao.remotecontrol.win.design.ArchiveGroupHeader
 import com.junbingao.remotecontrol.win.design.DeviceGroupHeader
 import com.junbingao.remotecontrol.win.design.Dot
@@ -49,7 +50,6 @@ import com.junbingao.remotecontrol.win.design.fieldChrome
 import com.junbingao.remotecontrol.win.design.icons.Icon
 import com.junbingao.remotecontrol.win.design.icons.LucideIcon
 import com.junbingao.remotecontrol.win.design.surface
-import com.junbingao.remotecontrol.win.standin.DotTone
 import com.junbingao.remotecontrol.win.strings.S
 
 @Composable
