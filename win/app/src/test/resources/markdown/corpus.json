@@ -1,0 +1,122 @@
+[
+  {
+    "hast" : "[[\"p\",{},[\"hello\"]]]",
+    "markdown" : "hello"
+  },
+  {
+    "hast" : "[[\"h2\",{},[\"Plan\"]],\"\\n\",[\"p\",{},[\"The \",[\"strong\",{},[\"lock\"]],\" holds.\"]]]",
+    "markdown" : "## Plan\n\nThe **lock** holds."
+  },
+  {
+    "hast" : "[[\"p\",{},[\"a\"]],\"\\n\",[\"hr\",{},[]],\"\\n\",[\"p\",{},[\"b\"]]]",
+    "markdown" : "a\n\n---\n\nb"
+  },
+  {
+    "hast" : "[[\"ol\",{},[\"\\n\",[\"li\",{},[\"a\"]],\"\\n\",[\"li\",{},[\"b\",\"\\n\",[\"ul\",{},[\"\\n\",[\"li\",{},[\"c\"]],\"\\n\"]],\"\\n\"]],\"\\n\"]]]",
+    "markdown" : "1. a\n2. b\n   - c"
+  },
+  {
+    "hast" : "[[\"ol\",{\"start\":3},[\"\\n\",[\"li\",{},[\"x\"]],\"\\n\",[\"li\",{},[\"y\"]],\"\\n\"]]]",
+    "markdown" : "3. x\n4. y"
+  },
+  {
+    "hast" : "[[\"ul\",{\"className\":[\"contains-task-list\"]},[\"\\n\",[\"li\",{\"className\":[\"task-list-item\"]},[[\"input\",{\"type\":\"checkbox\",\"checked\":true,\"disabled\":true},[]],\" \",\"done\"]],\"\\n\",[\"li\",{\"className\":[\"task-list-item\"]},[[\"input\",{\"type\":\"checkbox\",\"checked\":false,\"disabled\":true},[]],\" \",\"todo\"]],\"\\n\"]]]",
+    "markdown" : "- [x] done\n- [ ] todo"
+  },
+  {
+    "hast" : "[[\"table\",{},[\"\\n\",[\"thead\",{},[\"\\n\",[\"tr\",{},[\"\\n\",[\"th\",{},[\"a\"]],\"\\n\",[\"th\",{\"align\":\"right\"},[\"b\"]],\"\\n\",[\"th\",{\"align\":\"center\"},[\"c\"]],\"\\n\"]],\"\\n\"]],\"\\n\",[\"tbody\",{},[\"\\n\",[\"tr\",{},[\"\\n\",[\"td\",{},[\"1\"]],\"\\n\",[\"td\",{\"align\":\"right\"},[\"2\"]],\"\\n\",[\"td\",{\"align\":\"center\"},[\"3\"]],\"\\n\"]],\"\\n\"]],\"\\n\"]]]",
+    "markdown" : "| a | b | c |\n| --- | ---: | :---: |\n| 1 | 2 | 3 |"
+  },
+  {
+    "hast" : "[[\"p\",{},[\"x \",[\"del\",{},[\"y\"]],\" \",[\"a\",{\"href\":\"https://example.com/runs/42\"},[\"https://example.com/runs/42\"]]]]]",
+    "markdown" : "x ~~y~~ https://example.com/runs/42"
+  },
+  {
+    "hast" : "[[\"pre\",{},[[\"code\",{\"className\":[\"hljs\",\"language-python\"]},[[\"span\",{\"className\":[\"hljs-keyword\"]},[\"def\"]],\" \",[\"span\",{\"className\":[\"hljs-title\",\"function_\"]},[\"refresh\"]],\"(\",[\"span\",{\"className\":[\"hljs-params\"]},[\"self, token: \",[\"span\",{\"className\":[\"hljs-built_in\"]},[\"str\"]]]],\") -> Token:\\n    \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"with\"]],\" \",[\"span\",{\"className\":[\"hljs-variable\",\"language_\"]},[\"self\"]],\"._lock:  \",[\"span\",{\"className\":[\"hljs-comment\"]},[\"# one refresh at a time\"]],\"\\n        \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"return\"]],\" \",[\"span\",{\"className\":[\"hljs-variable\",\"language_\"]},[\"self\"]],\"._rotate(token)\\n\"]]]]]",
+    "markdown" : "```python\ndef refresh(self, token: str) -> Token:\n    with self._lock:  # one refresh at a time\n        return self._rotate(token)\n```"
+  },
+  {
+    "hast" : "[[\"pre\",{},[[\"code\",{\"className\":[\"hljs\",\"language-nosuchlang\"]},[\"x = 1\\n\"]]]]]",
+    "markdown" : "```nosuchlang\nx = 1\n```"
+  },
+  {
+    "hast" : "[[\"pre\",{},[[\"code\",{},[\"plain\\n\"]]]]]",
+    "markdown" : "```\nplain\n```"
+  },
+  {
+    "hast" : "[[\"pre\",{},[[\"code\",{\"className\":[\"hljs\",\"language-diff\"]},[[\"span\",{\"className\":[\"hljs-addition\"]},[\"+new\"]],\"\\n\",[\"span\",{\"className\":[\"hljs-deletion\"]},[\"-old\"]],\"\\n\"]]]]]",
+    "markdown" : "```diff\n+new\n-old\n```"
+  },
+  {
+    "hast" : "[[\"h2\",{},[\"Plan\"]],\"\\n\",[\"p\",{},[\"The refresh path now holds \",[\"strong\",{},[\"the session lock\"]],\", and the clock is \",[\"em\",{},[\"injected\"]],\" — see \",[\"code\",{},[\"auth/session.py\"]],\".\"]],\"\\n\",[\"ol\",{},[\"\\n\",[\"li\",{},[\"Reproduce the flake with \",[\"code\",{},[\"--count 20\"]]]],\"\\n\",[\"li\",{},[\"Isolate the shared clock\",\"\\n\",[\"ul\",{},[\"\\n\",[\"li\",{},[\"freeze it per test\"]],\"\\n\",[\"li\",{},[\"drop the module-level \",[\"code\",{},[\"time.monotonic\"]]]],\"\\n\"]],\"\\n\"]],\"\\n\",[\"li\",{},[\"Guard the refresh path\"]],\"\\n\"]],\"\\n\",[\"ul\",{\"className\":[\"contains-task-list\"]},[\"\\n\",[\"li\",{\"className\":[\"task-list-item\"]},[[\"input\",{\"type\":\"checkbox\",\"checked\":true,\"disabled\":true},[]],\" \",\"Reproduce the flake locally\"]],\"\\n\",[\"li\",{\"className\":[\"task-list-item\"]},[[\"input\",{\"type\":\"checkbox\",\"checked\":false,\"disabled\":true},[]],\" \",\"Re-run the suite 100 times\"]],\"\\n\"]],\"\\n\",[\"table\",{},[\"\\n\",[\"thead\",{},[\"\\n\",[\"tr\",{},[\"\\n\",[\"th\",{},[\"run\"]],\"\\n\",[\"th\",{\"align\":\"right\"},[\"failures\"]],\"\\n\",[\"th\",{\"align\":\"center\"},[\"time\"]],\"\\n\"]],\"\\n\"]],\"\\n\",[\"tbody\",{},[\"\\n\",[\"tr\",{},[\"\\n\",[\"td\",{},[\"20\"]],\"\\n\",[\"td\",{\"align\":\"right\"},[\"1\"]],\"\\n\",[\"td\",{\"align\":\"center\"},[\"6.4s\"]],\"\\n\"]],\"\\n\",[\"tr\",{},[\"\\n\",[\"td\",{},[\"100\"]],\"\\n\",[\"td\",{\"align\":\"right\"},[\"0\"]],\"\\n\",[\"td\",{\"align\":\"center\"},[\"41.1s\"]],\"\\n\"]],\"\\n\"]],\"\\n\"]],\"\\n\",[\"blockquote\",{},[\"\\n\",[\"p\",{},[\"The flake only showed up on CI, where tests share a worker.\"]],\"\\n\"]],\"\\n\",[\"pre\",{},[[\"code\",{\"className\":[\"hljs\",\"language-python\"]},[[\"span\",{\"className\":[\"hljs-keyword\"]},[\"def\"]],\" \",[\"span\",{\"className\":[\"hljs-title\",\"function_\"]},[\"refresh\"]],\"(\",[\"span\",{\"className\":[\"hljs-params\"]},[\"self, token: \",[\"span\",{\"className\":[\"hljs-built_in\"]},[\"str\"]]]],\") -> Token:\\n    \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"with\"]],\" \",[\"span\",{\"className\":[\"hljs-variable\",\"language_\"]},[\"self\"]],\"._lock:  \",[\"span\",{\"className\":[\"hljs-comment\"]},[\"# one refresh at a time\"]],\"\\n        \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"if\"]],\" \",[\"span\",{\"className\":[\"hljs-variable\",\"language_\"]},[\"self\"]],\"._expired(token):\\n            \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"raise\"]],\" TokenExpired(token)\\n        \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"return\"]],\" \",[\"span\",{\"className\":[\"hljs-variable\",\"language_\"]},[\"self\"]],\"._rotate(token)\\n\"]]]],\"\\n\",[\"hr\",{},[]],\"\\n\",[\"p\",{},[[\"del\",{},[\"Retry on failure\"]],\" is gone. Details: \",[\"a\",{\"href\":\"https://example.com/runs/42\"},[\"https://example.com/runs/42\"]],\" and \",[\"a\",{\"href\":\"https://github.com/example/pull/7\"},[\"the PR\"]],\".\"]]]",
+    "markdown" : "## Plan\n\nThe refresh path now holds **the session lock**, and the clock is *injected* — see `auth/session.py`.\n\n1. Reproduce the flake with `--count 20`\n2. Isolate the shared clock\n   - freeze it per test\n   - drop the module-level `time.monotonic`\n3. Guard the refresh path\n\n- [x] Reproduce the flake locally\n- [ ] Re-run the suite 100 times\n\n| run | failures | time |\n| --- | ---: | :---: |\n| 20 | 1 | 6.4s |\n| 100 | 0 | 41.1s |\n\n> The flake only showed up on CI, where tests share a worker.\n\n```python\ndef refresh(self, token: str) -> Token:\n    with self._lock:  # one refresh at a time\n        if self._expired(token):\n            raise TokenExpired(token)\n        return self._rotate(token)\n```\n\n---\n\n~~Retry on failure~~ is gone. Details: https://example.com/runs/42 and [the PR](https://github.com/example/pull/7)."
+  },
+  {
+    "hast" : "[[\"p\",{},[\"<b>\",\"bold\",\"</b>\",\" and \",\"<script>\",\"alert(1)\",\"</script>\",\" stay text, and \",\"<!-- a comment -->\",\" too.\"]]]",
+    "markdown" : "<b>bold</b> and <script>alert(1)</script> stay text, and <!-- a comment --> too."
+  },
+  {
+    "hast" : "[[\"p\",{},[[\"a\",{\"href\":\"\"},[\"a link\"]],\", \",[\"a\",{\"href\":\"mailto:a@example.com\"},[\"mail\"]],\" and \",[\"a\",{\"href\":\"./docs/README.md#setup\"},[\"relative\"]]]]]",
+    "markdown" : "[a link](javascript:alert(1)), [mail](mailto:a@example.com) and [relative](./docs/README.md#setup)"
+  },
+  {
+    "hast" : "[[\"p\",{},[[\"img\",{\"src\":\"https://example.com/a.png\",\"alt\":\"a picture\",\"title\":\"title\"},[]]]]]",
+    "markdown" : "![a picture](https://example.com/a.png \"title\")"
+  },
+  {
+    "hast" : "[[\"p\",{},[[\"em\",{},[\"one\"]],\" \",[\"strong\",{},[\"two\"]],\" \",[\"em\",{},[[\"strong\",{},[\"three\"]]]],\" \",[\"code\",{},[\"co\"]],\"de\",[\"code\",{},[\"``with\"]],\" tick`` a\",[\"br\",{},[]],\"\\n\",\"hard break © & 中\"]]]",
+    "markdown" : "*one* **two** ***three*** `co`de` ``with ` tick`` a  \nhard break &copy; &amp; &#x4E2D;"
+  },
+  {
+    "hast" : "[[\"p\",{},[[\"strong\",{},[\"中文\"]],\"和\",[\"code\",{},[\"代码\"]],\"，“引号”。\"]],\"\\n\",[\"ul\",{},[\"\\n\",[\"li\",{},[\"第一项\"]],\"\\n\",[\"li\",{},[\"第二项：\",[\"code\",{},[\"rc-client pair\"]]]],\"\\n\"]],\"\\n\",[\"blockquote\",{},[\"\\n\",[\"p\",{},[\"引用\"]],\"\\n\"]]]",
+    "markdown" : "**中文**和`代码`，“引号”。\n\n- 第一项\n- 第二项：`rc-client pair`\n\n> 引用"
+  },
+  {
+    "hast" : "[[\"h1\",{},[\"h1\"]],\"\\n\",[\"h2\",{},[\"h2\"]],\"\\n\",[\"h3\",{},[\"h3\"]],\"\\n\",[\"h4\",{},[\"h4\"]],\"\\n\",[\"h5\",{},[\"h5\"]],\"\\n\",[\"h6\",{},[\"h6\"]],\"\\n\",[\"blockquote\",{},[\"\\n\",[\"p\",{},[\"outer\"]],\"\\n\",[\"blockquote\",{},[\"\\n\",[\"p\",{},[\"inner\"]],\"\\n\"]],\"\\n\"]],\"\\n\",[\"p\",{},[\"Text with a footnote\",[\"sup\",{},[[\"a\",{\"href\":\"#user-content-fn-1\",\"id\":\"user-content-fnref-1\",\"dataFootnoteRef\":true,\"ariaDescribedBy\":[\"footnote-label\"]},[\"1\"]]]],\".\"]],\"\\n\",[\"section\",{\"dataFootnotes\":true,\"className\":[\"footnotes\"]},[[\"h2\",{\"className\":[\"sr-only\"],\"id\":\"footnote-label\"},[\"Footnotes\"]],\"\\n\",[\"ol\",{},[\"\\n\",[\"li\",{\"id\":\"user-content-fn-1\"},[\"\\n\",[\"p\",{},[\"The note. \",[\"a\",{\"href\":\"#user-content-fnref-1\",\"dataFootnoteBackref\":\"\",\"ariaLabel\":\"Back to reference 1\",\"className\":[\"data-footnote-backref\"]},[\"↩\"]]]],\"\\n\"]],\"\\n\"]],\"\\n\"]]]",
+    "markdown" : "# h1\n## h2\n### h3\n#### h4\n##### h5\n###### h6\n\n> outer\n>> inner\n\nText with a footnote[^1].\n\n[^1]: The note."
+  },
+  {
+    "hast" : "[[\"pre\",{},[[\"code\",{\"className\":[\"hljs\",\"language-ts\"]},[[\"span\",{\"className\":[\"hljs-keyword\"]},[\"export\"]],\" \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"async\"]],\" \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"function\"]],\" \",[\"span\",{\"className\":[\"hljs-title\",\"function_\"]},[\"load\"]],\"(\",[\"span\",{\"className\":[\"hljs-params\"]},[[\"span\",{\"className\":[\"hljs-attr\"]},[\"id\"]],\": \",[\"span\",{\"className\":[\"hljs-built_in\"]},[\"string\"]]]],\"): \",[\"span\",{\"className\":[\"hljs-title\",\"class_\"]},[\"Promise\"]],\"<\",[\"span\",{\"className\":[\"hljs-title\",\"class_\"]},[\"Session\"]],\" | \",[\"span\",{\"className\":[\"hljs-literal\"]},[\"null\"]],\"> {\\n  \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"const\"]],\" res = \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"await\"]],\" \",[\"span\",{\"className\":[\"hljs-title\",\"function_\"]},[\"fetch\"]],\"(\",[\"span\",{\"className\":[\"hljs-string\"]},[\"`/api/sessions/\",[\"span\",{\"className\":[\"hljs-subst\"]},[\"${id}\"]],\"`\"]],\");\\n  \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"return\"]],\" res.\",[\"span\",{\"className\":[\"hljs-property\"]},[\"ok\"]],\" ? ((\",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"await\"]],\" res.\",[\"span\",{\"className\":[\"hljs-title\",\"function_\"]},[\"json\"]],\"()) \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"as\"]],\" \",[\"span\",{\"className\":[\"hljs-title\",\"class_\"]},[\"Session\"]],\") : \",[\"span\",{\"className\":[\"hljs-literal\"]},[\"null\"]],\";\\n}\\n\"]]]],\"\\n\",[\"pre\",{},[[\"code\",{\"className\":[\"hljs\",\"language-json\"]},[[\"span\",{\"className\":[\"hljs-punctuation\"]},[\"{\"]],[\"span\",{\"className\":[\"hljs-attr\"]},[\"\\\"v\\\"\"]],[\"span\",{\"className\":[\"hljs-punctuation\"]},[\":\"]],\" \",[\"span\",{\"className\":[\"hljs-number\"]},[\"1\"]],[\"span\",{\"className\":[\"hljs-punctuation\"]},[\",\"]],\" \",[\"span\",{\"className\":[\"hljs-attr\"]},[\"\\\"kind\\\"\"]],[\"span\",{\"className\":[\"hljs-punctuation\"]},[\":\"]],\" \",[\"span\",{\"className\":[\"hljs-string\"]},[\"\\\"hello\\\"\"]],[\"span\",{\"className\":[\"hljs-punctuation\"]},[\",\"]],\" \",[\"span\",{\"className\":[\"hljs-attr\"]},[\"\\\"ok\\\"\"]],[\"span\",{\"className\":[\"hljs-punctuation\"]},[\":\"]],\" \",[\"span\",{\"className\":[\"hljs-literal\"]},[[\"span\",{\"className\":[\"hljs-keyword\"]},[\"true\"]]]],[\"span\",{\"className\":[\"hljs-punctuation\"]},[\",\"]],\" \",[\"span\",{\"className\":[\"hljs-attr\"]},[\"\\\"n\\\"\"]],[\"span\",{\"className\":[\"hljs-punctuation\"]},[\":\"]],\" \",[\"span\",{\"className\":[\"hljs-literal\"]},[[\"span\",{\"className\":[\"hljs-keyword\"]},[\"null\"]]]],[\"span\",{\"className\":[\"hljs-punctuation\"]},[\"}\"]],\"\\n\"]]]],\"\\n\",[\"pre\",{},[[\"code\",{\"className\":[\"hljs\",\"language-bash\"]},[[\"span\",{\"className\":[\"hljs-built_in\"]},[\"set\"]],\" -euo pipefail\\n\",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"for\"]],\" f \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"in\"]],\" *.\",[\"span\",{\"className\":[\"hljs-built_in\"]},[\"log\"]],\"; \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"do\"]],\" \",[\"span\",{\"className\":[\"hljs-built_in\"]},[\"echo\"]],\" \",[\"span\",{\"className\":[\"hljs-string\"]},[\"\\\"\",[\"span\",{\"className\":[\"hljs-variable\"]},[\"$f\"]],\"\\\"\"]],\"; \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"done\"]],\"  \",[\"span\",{\"className\":[\"hljs-comment\"]},[\"# loop\"]],\"\\n\"]]]]]",
+    "markdown" : "```ts\nexport async function load(id: string): Promise<Session | null> {\n  const res = await fetch(`/api/sessions/${id}`);\n  return res.ok ? ((await res.json()) as Session) : null;\n}\n```\n\n```json\n{\"v\": 1, \"kind\": \"hello\", \"ok\": true, \"n\": null}\n```\n\n```bash\nset -euo pipefail\nfor f in *.log; do echo \"$f\"; done  # loop\n```"
+  },
+  {
+    "hast" : "[[\"pre\",{},[[\"code\",{\"className\":[\"hljs\",\"language-go\"]},[[\"span\",{\"className\":[\"hljs-function\"]},[[\"span\",{\"className\":[\"hljs-keyword\"]},[\"func\"]],\" \",[\"span\",{\"className\":[\"hljs-title\"]},[\"main\"]],[\"span\",{\"className\":[\"hljs-params\"]},[\"()\"]]]],\" {\\n\\tfmt.Println(\",[\"span\",{\"className\":[\"hljs-string\"]},[\"\\\"hi\\\"\"]],\")\\n}\\n\"]]]],\"\\n\",[\"pre\",{},[[\"code\",{\"className\":[\"hljs\",\"language-rust\"]},[[\"span\",{\"className\":[\"hljs-keyword\"]},[\"fn\"]],\" \",[\"span\",{\"className\":[\"hljs-title\",\"function_\"]},[\"main\"]],\"() { \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"let\"]],\" \",[\"span\",{\"className\":[\"hljs-variable\"]},[\"x\"]],\": \",[\"span\",{\"className\":[\"hljs-type\"]},[\"u32\"]],\" = \",[\"span\",{\"className\":[\"hljs-number\"]},[\"1\"]],\"; \",[\"span\",{\"className\":[\"hljs-built_in\"]},[\"println!\"]],\"(\",[\"span\",{\"className\":[\"hljs-string\"]},[\"\\\"{x}\\\"\"]],\"); }\\n\"]]]],\"\\n\",[\"pre\",{},[[\"code\",{\"className\":[\"hljs\",\"language-swift\"]},[[\"span\",{\"className\":[\"hljs-keyword\"]},[\"let\"]],\" value \",[\"span\",{\"className\":[\"hljs-operator\"]},[\"=\"]],\" \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"try\"]],\" \",[\"span\",{\"className\":[\"hljs-keyword\"]},[\"await\"]],\" client.config()\\n\"]]]]]",
+    "markdown" : "```go\nfunc main() {\n\tfmt.Println(\"hi\")\n}\n```\n\n```rust\nfn main() { let x: u32 = 1; println!(\"{x}\"); }\n```\n\n```swift\nlet value = try await client.config()\n```"
+  },
+  {
+    "hast" : "[[\"p\",{},[\"Autolinks: \",[\"a\",{\"href\":\"http://www.example.com\"},[\"www.example.com\"]],\", \",[\"a\",{\"href\":\"https://example.com/a?b=c&d=e\"},[\"https://example.com/a?b=c&d=e\"]],\", and \",[\"a\",{\"href\":\"mailto:a@example.com\"},[\"a@example.com\"]],\".\"]]]",
+    "markdown" : "Autolinks: www.example.com, https://example.com/a?b=c&d=e, and a@example.com."
+  },
+  {
+    "hast" : "[[\"p\",{},[\"Tabs\\tand   spaces\"]],\"\\n\",[\"pre\",{},[[\"code\",{},[\"indented code\\n\"]]]],\"\\n\",[\"ol\",{},[\"\\n\",[\"li\",{},[\"paren list\"]],\"\\n\",[\"li\",{},[\"second\"]],\"\\n\"]],\"\\n\",[\"ul\",{},[\"\\n\",[\"li\",{},[\"star\"]],\"\\n\"]],\"\\n\",[\"ul\",{},[\"\\n\",[\"li\",{},[\"plus\"]],\"\\n\"]]]",
+    "markdown" : "Tabs\tand   spaces\n\n    indented code\n\n1) paren list\n2) second\n\n* star\n+ plus"
+  },
+  {
+    "hast" : "[[\"p\",{},[\"A table with inline marks:\"]],\"\\n\",[\"table\",{},[\"\\n\",[\"thead\",{},[\"\\n\",[\"tr\",{},[\"\\n\",[\"th\",{},[[\"strong\",{},[\"bold\"]]]],\"\\n\",[\"th\",{},[[\"code\",{},[\"code\"]]]],\"\\n\",[\"th\",{},[[\"a\",{\"href\":\"https://x.y\"},[\"link\"]]]],\"\\n\"]],\"\\n\"]],\"\\n\",[\"tbody\",{},[\"\\n\",[\"tr\",{},[\"\\n\",[\"td\",{},[[\"del\",{},[\"s\"]]]],\"\\n\",[\"td\",{},[[\"em\",{},[\"e\"]]]],\"\\n\",[\"td\",{},[\"x | y\"]],\"\\n\"]],\"\\n\"]],\"\\n\"]]]",
+    "markdown" : "A table with inline marks:\n\n| **bold** | `code` | [link](https://x.y) |\n|---|---|---|\n| ~~s~~ | *e* | x \\| y |"
+  },
+  {
+    "hast" : "[[\"p\",{},[\"Emoji 🎉 and a long line word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word\"]]]",
+    "markdown" : "Emoji 🎉 and a long line word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+  },
+  {
+    "hast" : "[]",
+    "markdown" : ""
+  },
+  {
+    "hast" : "[]",
+    "markdown" : "   "
+  },
+  {
+    "hast" : "[[\"p\",{},[\"Line one\\nLine two\"]],\"\\n\",[\"p\",{},[\"Paragraph two\"]]]",
+    "markdown" : "Line one\nLine two\n\nParagraph two"
+  },
+  {
+    "hast" : "[[\"ul\",{},[\"\\n\",[\"li\",{},[\"\\n\",[\"p\",{},[\"a\"]],\"\\n\"]],\"\\n\",[\"li\",{},[\"\\n\",[\"p\",{},[\"b\"]],\"\\n\",[\"p\",{},[\"nested paragraph\"]],\"\\n\",[\"pre\",{},[[\"code\",{},[\"code in item\\n\"]]]],\"\\n\"]],\"\\n\"]]]",
+    "markdown" : "- a\n\n- b\n\n  nested paragraph\n\n  ```\n  code in item\n  ```"
+  },
+  {
+    "hast" : "[\"<details><summary>More</summary>\",\"\\n\",[\"p\",{},[\"Hidden \",[\"strong\",{},[\"text\"]]]],\"\\n\",\"</details>\"]",
+    "markdown" : "<details><summary>More</summary>\n\nHidden **text**\n\n</details>"
+  }
+]

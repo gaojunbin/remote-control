@@ -22,9 +22,29 @@ dependencies {
     implementation(project(":core"))
     implementation(compose.desktop.currentOs)
     implementation(libs.kotlinx.coroutines.swing)
+    // DPAPI for the token, and the Windows settings the app reads.
+    implementation(libs.jna)
+    implementation(libs.jna.platform)
+    // The terminal page's emulator.
+    implementation(libs.jediterm.core)
+    implementation(libs.jediterm.ui)
+    // The web's Markdown pipeline runs in QuickJS; the library ships its natives for Windows,
+    // macOS and Linux. Not in the shared catalog, which only this app needs it from.
+    implementation("io.github.dokar3:quickjs-kt-jvm:1.0.15")
 
     testImplementation(kotlin("test"))
     testImplementation(libs.kotlinx.coroutines.test)
+    // The Markdown corpus is read as JSON.
+    testImplementation(libs.kotlinx.serialization.json)
+}
+
+// The chat's Markdown is the Mac app's own bundle of the web's pipeline, served from where it
+// lives rather than copied, with the licences that travel with it.
+tasks.processResources {
+    from(rootDir.resolve("../macos/Sources/RCMac/Resources/Highlight")) {
+        include("markdown.bundle.js", "LICENSE-highlight.js.txt", "LICENSES-markdown.txt")
+        into("highlight")
+    }
 }
 
 tasks.test {
@@ -45,6 +65,7 @@ compose.desktop {
                 perUserInstall = true
                 // Stable across releases, so an installer upgrades the previous install in place.
                 upgradeUuid = "7d0f1c3e-5b2a-4e8f-9a61-3c4d2b8e5f10"
+                iconFile.set(project.file("packaging/RemoteControl.ico"))
             }
         }
     }
