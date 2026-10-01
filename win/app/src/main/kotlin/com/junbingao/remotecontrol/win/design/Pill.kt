@@ -2,15 +2,12 @@ package com.junbingao.remotecontrol.win.design
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
@@ -33,15 +30,16 @@ class PillStyle(val quiet: Boolean = false) : ButtonStyle {
         )
         val shape = RoundedCornerShape(if (configuration.isFocused) 4.dp else 14.dp)
         val ink = if (!enabled) Palette.inkTertiary else if (quiet) Palette.inkSecondary else Palette.ink
-        Row(
+        // SwiftUI's stack, centred in the 28 px frame at its exact height: a `Row` would round the
+        // label's place to the pixel before the label rounds its line, which the Mac does once.
+        HStack(
             modifier
                 .height(28.dp)
                 .focusOutline(configuration.isFocused)
                 .alpha(if (enabled) 1f else 0.6f)
                 .background(fill, shape)
                 .padding(horizontal = if (quiet) 2.dp else 11.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            spacing = 6.dp,
         ) {
             CompositionLocalProvider(LocalContentColor provides ink, LocalFont provides FontSpec(FontSize.fs13)) {
                 configuration.label()

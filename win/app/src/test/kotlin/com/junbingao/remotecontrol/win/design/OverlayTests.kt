@@ -16,11 +16,12 @@ import com.junbingao.remotecontrol.win.design.overlay.ConfirmDialog
 import com.junbingao.remotecontrol.win.design.overlay.Modal
 import com.junbingao.remotecontrol.win.design.overlay.OverlayRegistry
 import com.junbingao.remotecontrol.win.design.overlay.Popover
+import com.junbingao.remotecontrol.win.design.overlay.claimsEscape
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** The overlay layer's rules, in a scene: what Escape closes, what a press outside closes, what blurs the page. */
+/** The overlay layer's rules, in a scene: what Escape closes, what a field takes of it, what a press outside closes, what blurs the page. */
 class OverlayTests {
     private class Harness(content: @androidx.compose.runtime.Composable () -> Unit) {
         val overlays = OverlayRegistry()
@@ -65,6 +66,30 @@ class OverlayTests {
         harness.frames()
         assertFalse(modal)
         assertFalse(harness.overlays.dismissNewest())
+        assertTrue(harness.overlays.isEmpty)
+        harness.close()
+    }
+
+    /** A field that claims Escape takes it from the modal around it while it has the focus, and gives it back when it goes. */
+    @Test
+    fun aFocusedFieldTakesEscapeFromTheModalAroundIt() {
+        var modal by mutableStateOf(true)
+        var naming by mutableStateOf(true)
+        val harness = Harness {
+            Box(Modifier.fillMaxSize()) {
+                Modal(isPresented = modal, onDismiss = { modal = false }, title = "Choose a folder") {
+                    if (naming) WebField("", {}, modifier = Modifier.claimsEscape { naming = false })
+                }
+            }
+        }
+        harness.frames()
+        assertTrue(harness.overlays.dismissNewest())
+        harness.frames()
+        assertFalse(naming, "the field's Escape")
+        assertTrue(modal)
+        assertTrue(harness.overlays.dismissNewest())
+        harness.frames()
+        assertFalse(modal)
         assertTrue(harness.overlays.isEmpty)
         harness.close()
     }

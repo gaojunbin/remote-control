@@ -18,6 +18,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.junbingao.remotecontrol.win.design.ExactHeight
 import com.junbingao.remotecontrol.win.design.FaceRuns
 import com.junbingao.remotecontrol.win.design.LocalContentColor
+import com.junbingao.remotecontrol.win.design.PrimaryBaseline
 import com.junbingao.remotecontrol.win.design.SystemFace
 import com.junbingao.remotecontrol.win.design.TextRendering
 import com.junbingao.remotecontrol.win.design.TextStyle
@@ -128,7 +129,7 @@ internal fun ChatLine(
     val density = LocalDensity.current
     // The primary face's line, as drawn, is the one put on the browser's baseline — a code chip or
     // a Chinese character in the line does not move it, as it does not move SwiftUI's.
-    val aligned = DrawnBaseline.of(composeStyle, style.weight.weight, style.mono, style.lineBox, measurer, density)
+    val aligned = PrimaryBaseline.of(composeStyle, style.weight, style.mono, style.lineBox, measurer, density)
     val laidOut = remember { arrayOfNulls<TextLayoutResult>(1) }
     val decorations = line.decorations
     BasicText(

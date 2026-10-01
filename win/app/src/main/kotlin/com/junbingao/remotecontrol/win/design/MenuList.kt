@@ -3,7 +3,6 @@ package com.junbingao.remotecontrol.win.design
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -17,12 +16,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.junbingao.remotecontrol.win.design.overlay.LocalPopoverIsOpen
 
-/** `.menu`: the list inside a popover panel, scrolling past 320 px. */
+/**
+ * `.menu`: the list inside a popover panel, every row of it. The web scrolls it past 320 px; the
+ * Mac's scrolls only when its rows do not fit the height it is offered, and a popover offers the
+ * whole height its content asks for, so the Mac's menus never scroll and neither do these.
+ */
 @Composable
 fun MenuList(modifier: Modifier = Modifier, content: @Composable VStackScope.() -> Unit) {
-    Box(modifier.heightIn(max = 320.dp)) {
-        ThinScrollView { VStack(spacing = 0.dp, alignment = Alignment.Start, content = content) }
-    }
+    VStack(modifier, spacing = 0.dp, alignment = Alignment.Start, content = content)
 }
 
 /**

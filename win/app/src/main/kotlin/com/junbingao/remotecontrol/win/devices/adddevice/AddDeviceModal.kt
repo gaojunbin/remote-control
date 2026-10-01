@@ -4,9 +4,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -55,17 +57,13 @@ internal fun AddDeviceModal(pairing: MutableState<AddDevicePairing?>) {
     ) {
         if (open != null) AddDeviceBody(open)
     }
+    // `.onChange(of: pairing, initial: true)`: a new visit starts as the modal shows it.
+    LaunchedEffect(open) { if (open != null) AddDeviceModal.start(model, open) }
 }
 
 internal object AddDeviceModal {
-    /**
-     * Open the modal on a new visit and start it: listen for the handshake, ask for a code. The Mac
-     * starts it when the modal appears; here the opening starts it, so the request leaves with the
-     * click instead of waiting for the modal's first composition — and a render that waits for the
-     * handshake sees it move before the scene draws again.
-     */
-    fun open(model: WinAppModel, slot: MutableState<AddDevicePairing?>, visit: AddDevicePairing) {
-        slot.value = visit
+    /** Listen for the visit's handshake and ask the gateway for its code. */
+    fun start(model: WinAppModel, visit: AddDevicePairing) {
         model.connection.addFrameHandler(TOKEN) { frame -> visit.receive(frame) }
         model.tasks.launch { visit.request(model.connection.api) }
     }
@@ -101,7 +99,8 @@ internal fun AddDeviceBody(pairing: AddDevicePairing) {
             value = Format.nowMillis
         }
     }
-    val now = ListsFeature.clock(model).now
+    // Read again on every tick, as the Mac's `TimelineView` reads it: the code counts down.
+    val now = remember(tick) { ListsFeature.clock(model).now }
     VStack(Modifier.fillMaxWidth(), spacing = 0.dp, alignment = Alignment.Start) {
         Hint(S.pairing.intro, Modifier.widthIn(max = TextMeasure.ch(FontSize.fs13) * 46))
         // `.login-error`'s -6 top margin, collapsed into the intro's 16.
