@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.sp
 import com.junbingao.remotecontrol.android.icons.Icon
 import com.junbingao.remotecontrol.android.icons.SfMetrics
 import com.junbingao.remotecontrol.android.icons.SfSymbol
+import com.junbingao.remotecontrol.android.icons.frameSpan
 import com.junbingao.remotecontrol.android.icons.inkSpan
 
 /**
@@ -27,7 +28,7 @@ fun Label(title: String, symbol: SfSymbol, modifier: Modifier = Modifier, font: 
     val weight = font.fontWeight ?: FontWeight.Normal
     val side = SfMetrics.box(points.sp, symbol.scale)
     val ink = symbol.inkSpan(SfMetrics.strokeUnits(weight))
-    val padding = (SfMetrics.GRID - ink.endInclusive) / SfMetrics.GRID * side
+    val padding = (symbol.frameSpan.endInclusive - ink.endInclusive) / SfMetrics.GRID * side
     val gap = with(LocalDensity.current) { LabelMetrics.gap(points).toDp() }
     Row(
         modifier,

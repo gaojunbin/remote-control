@@ -5,13 +5,12 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipeLeft
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.junbingao.remotecontrol.android.harness.DemoApp
 import com.junbingao.remotecontrol.android.harness.IPhone
+import com.junbingao.remotecontrol.android.harness.swipeOpen
 import com.junbingao.remotecontrol.android.screens.shell.Driving
 import com.junbingao.remotecontrol.android.screens.shell.Phone
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -51,13 +50,13 @@ class UsersUITest {
         app.attach("77-users-screen")
 
         // The operator's row offers nothing; another account's offers three.
-        app.node("user.admin").performTouchInput { swipeLeft() }
+        app.node("user.admin").performTouchInput { swipeOpen() }
         compose.waitForIdle()
         Thread.sleep(500)
         compose.waitForIdle()
         assertTrue("the admin row has no actions to swipe to", drive.shown("user.delete").isEmpty())
 
-        app.node("user.alice").performTouchInput { swipeLeft() }
+        app.node("user.alice").performTouchInput { swipeOpen() }
         app.await("a member's row swipes to Delete", 10_000) { drive.shown("user.delete").isNotEmpty() }
         assertTrue("Disable", drive.shown("user.disable").isNotEmpty())
         assertTrue("and Reset password", drive.shown("user.reset").isNotEmpty())

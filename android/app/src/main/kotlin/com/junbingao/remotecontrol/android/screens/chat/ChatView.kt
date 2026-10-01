@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import com.junbingao.remotecontrol.android.awake.keepsScreenAwake
 import com.junbingao.remotecontrol.android.design.EmptyStateView
 import com.junbingao.remotecontrol.android.design.NoticeBanner
@@ -29,6 +28,7 @@ import com.junbingao.remotecontrol.android.design.dismissesKeyboardOnBackgroundT
 import com.junbingao.remotecontrol.android.design.weight
 import com.junbingao.remotecontrol.android.icons.Sf
 import com.junbingao.remotecontrol.android.navigation.HidesTabBar
+import com.junbingao.remotecontrol.android.navigation.NavigationMetrics
 import com.junbingao.remotecontrol.android.navigation.NavigationScreen
 import com.junbingao.remotecontrol.android.navigation.TitleDisplayMode
 import com.junbingao.remotecontrol.android.screens.chat.voice.LocalVoiceGlow
@@ -100,7 +100,7 @@ fun ChatView(sessionKey: String) {
                 },
             ) { insets ->
                 val safe = safeArea()
-                val top = insets.top + ChatMetrics.inlineBarGap
+                val top = insets.top + NavigationMetrics.barFoot
                 when {
                     chat != null -> Conversation(chat, model, elapsed, top, bottom = maxOf(insets.bottom, safe.keyboard)) { showsQueue = true }
                     session == null -> Box(Modifier.fillMaxSize().padding(top = top), contentAlignment = Alignment.Center) {
@@ -161,13 +161,4 @@ private fun Conversation(chat: ChatStore, model: AppModel, elapsed: String, top:
 private fun elapsedText(model: AppModel): String {
     val seconds = model.chat?.elapsedSinceTurnStart ?: return ""
     return RelativeTime.duration(milliseconds = seconds.inWholeMilliseconds.toInt())
-}
-
-/** Shared measurements of the conversation's screens. */
-internal object ChatMetrics {
-    /**
-     * iOS 26's navigation bar stands 54 points tall under an inline title where its row is 44:
-     * what is laid out under it starts ten points below the buttons.
-     */
-    val inlineBarGap = 10.dp
 }

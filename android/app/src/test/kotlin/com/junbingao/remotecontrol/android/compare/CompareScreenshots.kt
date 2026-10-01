@@ -3,13 +3,13 @@ package com.junbingao.remotecontrol.android.compare
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipeLeft
 import com.junbingao.remotecontrol.android.harness.IPhoneFrame
 import com.junbingao.remotecontrol.android.harness.IPhoneScreenshotTest
 import com.junbingao.remotecontrol.android.harness.ShellAt
 import com.junbingao.remotecontrol.android.harness.Variant
 import com.junbingao.remotecontrol.android.harness.capture
 import com.junbingao.remotecontrol.android.harness.picture
+import com.junbingao.remotecontrol.android.harness.swipeOpen
 import com.junbingao.remotecontrol.android.shell.AppModel
 import com.junbingao.remotecontrol.android.shell.TabRoot
 import com.junbingao.remotecontrol.android.strings.L10n
@@ -95,7 +95,7 @@ class CompareScreenshots : IPhoneScreenshotTest() {
         compose.setContent {
             IPhoneFrame(english) { ShellAt(AppModel.Tab.devices) { if (it is TabRoot) DevicesReplica() } }
         }
-        compose.onNodeWithTag("device.mac-studio-office").performTouchInput { swipeLeft() }
+        compose.onNodeWithTag("device.mac-studio-office").performTouchInput { swipeOpen() }
         compose.waitForIdle()
         compose.capture("compare", "swipe", english)
     }

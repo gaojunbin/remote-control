@@ -27,6 +27,15 @@ class SfTableTest {
     }
 
     @Test
+    fun aSwipeButtonDrawsTheFilledFormWhereThereIsOne() {
+        assertSame(Sf.trashFill, Sf.filled(Sf.trash))
+        assertSame(Sf.keyFill, Sf.filled(Sf.key))
+        assertSame(Sf.pauseCircleFill, Sf.filled(Sf.pauseCircle))
+        assertSame(Sf.xmarkCircleFill, Sf.filled(Sf.xmarkCircle))
+        assertSame("SF Symbols has no filled pencil", Sf.pencil, Sf.filled(Sf.pencil))
+    }
+
+    @Test
     fun everyGlyphsPathDataParses() {
         for (symbol in Sf.all) {
             for (layer in symbol.layers) {

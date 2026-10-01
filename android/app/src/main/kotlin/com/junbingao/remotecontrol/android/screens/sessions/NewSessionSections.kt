@@ -3,8 +3,8 @@ package com.junbingao.remotecontrol.android.screens.sessions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.junbingao.remotecontrol.android.design.AgentLogo
 import com.junbingao.remotecontrol.android.design.Button
 import com.junbingao.remotecontrol.android.design.CodeText
+import com.junbingao.remotecontrol.android.design.FieldLabel
 import com.junbingao.remotecontrol.android.design.SystemColor
 import com.junbingao.remotecontrol.android.design.SystemFont
 import com.junbingao.remotecontrol.android.design.Text
@@ -38,7 +39,7 @@ import com.junbingao.remotecontrol.core.state.RelativeTime
 // The sections of `NewSessionSheet`, in the order `docs/DESIGN.md` gives every form.
 
 internal fun GroupedListScope.deviceSection(form: NewSessionForm, online: List<Device>, actions: NewSessionForm.Actions) {
-    section(key = "device", header = { FormHeader("Device") }) {
+    section(key = "device", header = { FieldLabel("Device") }) {
         row(key = "device", style = FormRow) {
             FormRowContent(separator = online.isEmpty()) {
                 FormPicker(
@@ -71,7 +72,7 @@ internal fun GroupedListScope.deviceSection(form: NewSessionForm, online: List<D
  */
 internal fun GroupedListScope.agentSection(form: NewSessionForm, device: Device?, agent: AgentInfo?, actions: NewSessionForm.Actions) {
     val agents = device?.availableAgents.orEmpty()
-    section(key = "agent", header = { FormHeader("Agent") }) {
+    section(key = "agent", header = { FieldLabel("Agent") }) {
         row(key = "agents", style = FormRow) {
             FormRowContent(separator = agent != null, top = FormMetrics.segmentedTop, bottom = FormMetrics.segmentedBottom) {
                 SegmentedControl(
@@ -117,7 +118,7 @@ internal fun GroupedListScope.settingsSections(form: NewSessionForm, agent: Agen
         pickerSection("permissions", "Permissions", agent.permissionModes, form.permissionMode, "newsession.permissions") { form.permissionMode = it }
     }
     if (agent.speeds.isNotEmpty()) {
-        section(key = "speed", header = { FormHeader("Speed") }) {
+        section(key = "speed", header = { FieldLabel("Speed") }) {
             row(key = "speed", style = FormRow) {
                 FormRowContent(separator = false) { SpeedPicker(agent.speeds, form.speed, "newsession.speed") { form.speed = it } }
             }
@@ -133,7 +134,7 @@ private fun GroupedListScope.pickerSection(
     tag: String,
     choose: (String) -> Unit,
 ) {
-    section(key = key, header = { FormHeader(title) }) {
+    section(key = key, header = { FieldLabel(title) }) {
         row(key = key, style = FormRow) {
             FormRowContent(separator = false) {
                 FormPicker(
@@ -152,7 +153,7 @@ internal fun GroupedListScope.directorySection(form: NewSessionForm, actions: Ne
     section(
         key = "directory",
         header = {
-            FormHeader("Working directory") {
+            FieldLabel("Working directory") {
                 Button(onClick = actions.browse, Modifier.testTag("newsession.browse")) {
                     Text(L10n.string("Browse"), style = SystemFont.caption.weight(FontWeight.Medium), color = Theme.ink)
                 }
@@ -197,7 +198,7 @@ internal fun GroupedListScope.gitSection(form: NewSessionForm, agent: AgentInfo?
     val isolates = agent?.supports(AgentCapability.worktree) == true
     section(
         key = "git",
-        header = { FormHeader("Git") },
+        header = { FieldLabel("Git") },
         footer = if (isolates) {
             {
                 Text(

@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.junbingao.remotecontrol.android.design.SystemColor
 import com.junbingao.remotecontrol.android.design.Theme
+import com.junbingao.remotecontrol.android.navigation.NavigationMetrics
 
 /**
  * A row of `List { … }.listStyle(.plain)` as iOS 26 draws one: on the surface across the whole
@@ -82,5 +83,5 @@ internal object PlainListMetrics {
     val vertical = 15.dp
 
     /** The hairline above the first row ends at the bar's foot. */
-    val top = BarFoot.height
+    val top = NavigationMetrics.barFoot
 }

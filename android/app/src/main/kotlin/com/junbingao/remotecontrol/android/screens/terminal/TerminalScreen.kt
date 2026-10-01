@@ -29,9 +29,9 @@ import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
 import com.junbingao.remotecontrol.android.navigation.HidesTabBar
 import com.junbingao.remotecontrol.android.navigation.LocalNavigator
+import com.junbingao.remotecontrol.android.navigation.NavigationMetrics
 import com.junbingao.remotecontrol.android.navigation.NavigationScreen
 import com.junbingao.remotecontrol.android.navigation.TitleDisplayMode
-import com.junbingao.remotecontrol.android.screens.sessions.BarFoot
 import com.junbingao.remotecontrol.android.security.BiometricLock
 import com.junbingao.remotecontrol.android.shell.LocalAppModel
 import com.junbingao.remotecontrol.android.strings.L10n
@@ -165,7 +165,7 @@ fun TerminalScreen(deviceID: String) {
         top = {
             TopBar {
                 Column {
-                    Spacer(Modifier.height(BarFoot.height))
+                    Spacer(Modifier.height(NavigationMetrics.barFoot))
                     StatusLine(device, session, reconnect = { tasks.launch { session?.attach() } }, newShell = ::start)
                 }
             }

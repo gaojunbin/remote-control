@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.junbingao.remotecontrol.android.design.SystemFont
 import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
+import com.junbingao.remotecontrol.android.design.scrollIndicator
 import com.junbingao.remotecontrol.android.design.weight
 import com.junbingao.remotecontrol.android.icons.Icon
 import com.junbingao.remotecontrol.android.icons.Sf
@@ -136,8 +138,10 @@ fun DirectoryPicker(deviceID: String, onSelect: (String) -> Unit, dismiss: () ->
                 )
             },
         ) { insets ->
+            val list = rememberLazyListState()
             LazyColumn(
-                Modifier.fillMaxSize().testTag("dirs.list"),
+                Modifier.fillMaxSize().scrollIndicator(list).testTag("dirs.list"),
+                state = list,
                 contentPadding = PaddingValues(top = insets.top, bottom = insets.bottom),
             ) {
                 val shown = listing

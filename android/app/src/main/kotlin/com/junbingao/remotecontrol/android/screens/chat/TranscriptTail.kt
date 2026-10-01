@@ -114,14 +114,23 @@ internal class TranscriptTail(
         // changes under an animation is the view's own, which can only confirm the tail is still in
         // view. The rows keep their place and the next content brings the reader down. A notice
         // above the transcript or the status line under it is not the composer, and a reader at
-        // the foot is kept there.
-        val resized = previous.items > 0 && current.viewport != previous.viewport && composer.height != composerHeight
+        // the foot is kept there — even in the moment after a scroll of this view's own, whose
+        // settling would otherwise take the resize for its own geometry and leave the tail under
+        // the composer, where the iPhone's scroll view keeps its foot in place.
+        val viewportChanged = previous.items > 0 && current.viewport != previous.viewport
+        val resized = viewportChanged && composer.height != composerHeight
         composerHeight = composer.height
+        val now = motion
+        val mover = when {
+            resized -> ScrollTail.ReaderMotion.animating
+            viewportChanged && now == ScrollTail.ReaderMotion.animating && jump?.isActive != true -> ScrollTail.ReaderMotion.still
+            else -> now
+        }
         when (val action = ScrollTail.decide(
             rangeChanged = current.range != previous.range,
             atBottom = current.isAtBottom,
             following = chat.isFollowingTail,
-            motion = if (resized) ScrollTail.ReaderMotion.animating else motion,
+            motion = mover,
         )) {
             ScrollTail.TailAction.None -> Unit
             is ScrollTail.TailAction.Follow -> chat.isFollowingTail = action.following

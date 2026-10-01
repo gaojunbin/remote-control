@@ -20,7 +20,6 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.junbingao.remotecontrol.android.design.FieldLabel
 import com.junbingao.remotecontrol.android.design.SystemColor
 import com.junbingao.remotecontrol.android.design.SystemFont
 import com.junbingao.remotecontrol.android.design.Text
@@ -47,15 +46,6 @@ internal fun FormRowContent(separator: Boolean, top: Dp = FormMetrics.vertical, 
         }
         if (separator) Box(Modifier.fillMaxWidth().height(FormMetrics.hairline).background(SystemColor.separator))
     }
-}
-
-/**
- * A form section's caption, `FieldLabel` in the header. UIKit gives the footnote line it sets 16
- * points, two thirds of a point more than the text's own box here, with the words in the middle.
- */
-@Composable
-internal fun FormHeader(key: String, trailing: (@Composable () -> Unit)? = null) {
-    Box(Modifier.heightIn(min = FormMetrics.headerLine), contentAlignment = Alignment.CenterStart) { FieldLabel(key, trailing) }
 }
 
 /**
@@ -100,9 +90,6 @@ internal object FormMetrics {
     /** The segmented control's row, 60 tall in all: the control 15 points under its top and 13 over its foot. */
     val segmentedTop = 15.dp
     val segmentedBottom = 13.dp
-
-    /** A section header's line. */
-    val headerLine = 16.dp
 
     /** A menu's own button, which is the row when the picker shows no title: 43 tall, its value 12 in. */
     val buttonHeight = 43.dp

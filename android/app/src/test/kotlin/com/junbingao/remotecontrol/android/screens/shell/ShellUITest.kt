@@ -50,7 +50,6 @@ class ShellUITest {
         assertTrue("Devices stands first", devices.left < sessions.left)
         assertTrue("then Sessions, then Settings", sessions.left < settings.left)
         app.await("an account with a machine lands where the conversation is") { selected("tab.sessions", app) }
-        ForeignScreen.requiresTheSessionsList()
         assertTrue("on the sessions list itself", drive.waitFor(hasTestTag("sessions.new"), 10_000))
     }
 

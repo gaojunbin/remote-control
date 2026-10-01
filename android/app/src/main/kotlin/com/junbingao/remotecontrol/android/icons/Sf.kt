@@ -15,7 +15,7 @@ object Sf {
     val arrowLeftAndRight = SfSymbol("arrow.left.and.right", listOf(stroke(Lucide.moveHorizontal)))
     val arrowUp = SfSymbol("arrow.up", listOf(stroke(Lucide.arrowUp)))
     val arrowUpCircle = SfSymbol("arrow.up.circle", listOf(stroke(Lucide.circleArrowUp)))
-    val arrowUpLeft = SfSymbol("arrow.up.left", listOf(stroke(Lucide.arrowUpLeft)))
+    val arrowUpLeft = SfSymbol("arrow.up.left", listOf(stroke(Glyphs.arrowUpLeft)))
     val arrowUpLeftAndArrowDownRight =
         SfSymbol("arrow.up.left.and.arrow.down.right", listOf(stroke(Lucide.maximize2)))
     val bolt = SfSymbol("bolt", listOf(stroke(Lucide.zap)))
@@ -51,12 +51,16 @@ object Sf {
 
     /** The navigation bar's back button, which iOS draws larger and heavier than a text-sized chevron. */
     val chevronBackward = SfSymbol("chevron.backward", listOf(stroke(Lucide.chevronLeft)), scale = 1.7f)
-    val chevronDown = SfSymbol("chevron.down", listOf(stroke(Lucide.chevronDown)))
+    /**
+     * The chevrons, a third larger than lucide's at the same size and in frames that hug them, as
+     * SF's do: 6.7 by 11.3 points at the end of a Settings row, 9.7 by 5.7 on a device's group.
+     */
+    val chevronDown = SfSymbol("chevron.down", listOf(stroke(Lucide.chevronDown)), scale = 1.33f, aspect = 0.66f)
     val chevronLeft = SfSymbol("chevron.left", listOf(stroke(Lucide.chevronLeft)))
     val chevronLeftForwardslashChevronRight =
         SfSymbol("chevron.left.forwardslash.chevron.right", listOf(stroke(Lucide.codeXml)))
-    val chevronRight = SfSymbol("chevron.right", listOf(stroke(Lucide.chevronRight)))
-    val chevronUp = SfSymbol("chevron.up", listOf(stroke(Lucide.chevronUp)))
+    val chevronRight = SfSymbol("chevron.right", listOf(stroke(Lucide.chevronRight)), scale = 1.3f, aspect = 0.4f)
+    val chevronUp = SfSymbol("chevron.up", listOf(stroke(Lucide.chevronUp)), scale = 1.33f, aspect = 0.66f)
     val chevronUpChevronDown = SfSymbol("chevron.up.chevron.down", listOf(stroke(Lucide.chevronsUpDown)))
     val circle = SfSymbol("circle", listOf(stroke(Lucide.circle)))
     val circleLefthalfFilled =
@@ -73,19 +77,27 @@ object Sf {
     val docOnDoc = SfSymbol("doc.on.doc", listOf(stroke(Lucide.copy)))
     val docText = SfSymbol("doc.text", listOf(stroke(Lucide.fileText)))
     val folder = SfSymbol("folder", listOf(stroke(Lucide.folder)))
-    val folderBadgePlus = SfSymbol("folder.badge.plus", listOf(stroke(Lucide.folderPlus)))
-    val gaugeWithDotsNeedle33percent =
-        SfSymbol("gauge.with.dots.needle.33percent", listOf(stroke(Lucide.gauge)))
+    val folderBadgePlus = SfSymbol(
+        "folder.badge.plus",
+        listOf(stroke(Glyphs.badgedFolder, weight = 0.77f), fill(Glyphs.folderBadge), cutStroke(Glyphs.folderBadgeCross, weight = 0.58f)),
+        scale = 1.54f,
+    )
+    val gaugeWithDotsNeedle33percent = SfSymbol(
+        "gauge.with.dots.needle.33percent",
+        listOf(stroke(Glyphs.gaugeRing, weight = 0.83f), fill(Glyphs.gaugeDots), fill(Glyphs.gaugeNeedle)),
+        scale = 1.125f,
+    )
     val gearshape = SfSymbol("gearshape", listOf(stroke(Lucide.settings)), scale = 1.07f)
 
-    /** The Settings tab: the gear filled, its centre cut out. */
+    /** The Settings tab: SF's eight-toothed gear, filled, its centre cut out. */
     val gearshapeFill = SfSymbol(
         "gearshape.fill",
-        listOf(fillAndStroke(Lucide.settings.take(1)), cutFill(Lucide.settings.drop(1))),
+        listOf(fillAndStroke(Glyphs.gear, weight = 0.85f), cutFill(Glyphs.gearHole)),
         scale = 1.07f,
     )
     val handRaised = SfSymbol("hand.raised", listOf(stroke(Lucide.hand)))
-    val key = SfSymbol("key", listOf(stroke(Lucide.keyRound)))
+    val key = SfSymbol("key", listOf(stroke(Glyphs.keyOutline), stroke(Glyphs.keyRing)), scale = 1.24f)
+    val keyFill = SfSymbol("key.fill", listOf(fill(Glyphs.keyOutline), cutFill(Glyphs.keyHole)), scale = 1.24f)
     val largecircleFillCircle =
         SfSymbol("largecircle.fill.circle", listOf(stroke(Lucide.circle), fill(Glyphs.radioDot)))
     val line3HorizontalDecrease =
@@ -96,9 +108,11 @@ object Sf {
     val noteText = SfSymbol("note.text", listOf(stroke(Lucide.notepadText)))
     val paperclip = SfSymbol("paperclip", listOf(stroke(Lucide.paperclip)))
     val pauseCircle = SfSymbol("pause.circle", listOf(stroke(Lucide.circlePause)), scale = 0.95f)
+    val pauseCircleFill = SfSymbol("pause.circle.fill", listOf(fill(Lucide.circlePause.take(1)), cutFill(Glyphs.pauseBars)), scale = 1.125f)
     val pencil = SfSymbol("pencil", listOf(stroke(Lucide.pencil)))
     val photo = SfSymbol("photo", listOf(stroke(Glyphs.photoFrame, weight = 0.91f), fillAndStroke(Glyphs.photoScene)), scale = 1.05f)
     val playCircle = SfSymbol("play.circle", listOf(stroke(Lucide.circlePlay)), scale = 0.95f)
+    val playCircleFill = SfSymbol("play.circle.fill", listOf(fill(Lucide.circlePlay.drop(1)), cutFill(Lucide.circlePlay.take(1))), scale = 1.125f)
     val plus = SfSymbol("plus", listOf(stroke(Lucide.plus)), scale = 1.07f)
 
     /** The app mark's symbol: the app icon's three nodes and the bars that join them. */
@@ -119,8 +133,22 @@ object Sf {
     )
     val textLineFirstAndArrowtriangleForward =
         SfSymbol("text.line.first.and.arrowtriangle.forward", listOf(stroke(Lucide.listStart)))
-    val translate = SfSymbol("translate", listOf(stroke(Lucide.languages)), scale = 1.08f)
+    val translate = SfSymbol(
+        "translate",
+        listOf(
+            stroke(Glyphs.translateBack, weight = 0.66f),
+            cutStroke(Glyphs.translateFront, weight = 0.45f),
+            fill(Glyphs.translateFront),
+            cutStroke(Glyphs.translateCharacter, weight = 0.55f),
+        ),
+        scale = 1.43f,
+    )
     val trash = SfSymbol("trash", listOf(stroke(Lucide.trash)))
+    val trashFill = SfSymbol(
+        "trash.fill",
+        listOf(fill(Glyphs.trashCan), stroke(Glyphs.trashLid, weight = 0.67f), cutStroke(Glyphs.trashSlits, weight = 0.67f)),
+        scale = 1.24f,
+    )
     val xmark = SfSymbol("xmark", listOf(stroke(Lucide.x)))
     val xmarkCircle = SfSymbol("xmark.circle", listOf(stroke(Lucide.circleX)))
     val xmarkCircleFill = SfSymbol(
@@ -137,15 +165,21 @@ object Sf {
         chevronLeft, chevronLeftForwardslashChevronRight, chevronRight, chevronUp, chevronUpChevronDown,
         circle, circleLefthalfFilled, clock, desktopcomputer, desktopcomputerFill, docOnDoc, docText,
         folder, folderBadgePlus, gaugeWithDotsNeedle33percent, gearshape, gearshapeFill, handRaised,
-        key, largecircleFillCircle, line3HorizontalDecrease, lockOpen, magnifyingglass, mic, noteText,
-        paperclip, pauseCircle, pencil, photo, playCircle, plus, point3ConnectedTrianglepathDotted,
-        qrcodeViewfinder, questionmarkCircle, shield, shippingbox, square, squareAndArrowUp,
-        stopCircle, textLineFirstAndArrowtriangleForward, translate, trash, xmark, xmarkCircle,
-        xmarkCircleFill,
+        key, keyFill, largecircleFillCircle, line3HorizontalDecrease, lockOpen, magnifyingglass, mic,
+        noteText, paperclip, pauseCircle, pauseCircleFill, pencil, photo, playCircle, playCircleFill,
+        plus, point3ConnectedTrianglepathDotted, qrcodeViewfinder, questionmarkCircle, shield,
+        shippingbox, square, squareAndArrowUp, stopCircle, textLineFirstAndArrowtriangleForward,
+        translate, trash, trashFill, xmark, xmarkCircle, xmarkCircleFill,
     )
 
     private val byName: Map<String, SfSymbol> = all.associateBy { it.name }
 
     /** The symbol the iPhone calls [name], or null for one this table does not draw. */
     fun named(name: String): SfSymbol? = byName[name]
+
+    /**
+     * The form SwiftUI draws in place of [symbol] where it fills symbols itself — a swipe button —
+     * which is its `.fill` variant where SF Symbols has one, and the symbol itself elsewhere.
+     */
+    fun filled(symbol: SfSymbol): SfSymbol = byName["${symbol.name}.fill"] ?: symbol
 }

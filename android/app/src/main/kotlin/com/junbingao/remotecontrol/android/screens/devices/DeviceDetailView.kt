@@ -25,10 +25,11 @@ import androidx.compose.ui.unit.dp
 import com.junbingao.remotecontrol.android.design.Button
 import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
+import com.junbingao.remotecontrol.android.design.scrollIndicator
 import com.junbingao.remotecontrol.android.design.weight
+import com.junbingao.remotecontrol.android.navigation.NavigationMetrics
 import com.junbingao.remotecontrol.android.navigation.NavigationScreen
 import com.junbingao.remotecontrol.android.navigation.TitleDisplayMode
-import com.junbingao.remotecontrol.android.screens.sessions.BarFoot
 import com.junbingao.remotecontrol.android.shell.AppModel
 import com.junbingao.remotecontrol.android.shell.LocalAppModel
 import com.junbingao.remotecontrol.android.strings.L10n
@@ -105,11 +106,13 @@ fun DeviceDetailView(deviceID: String) {
 
     NavigationScreen(device?.name ?: "", displayMode = TitleDisplayMode.inline) { insets ->
         Refreshable(onRefresh = { read() }, top = insets.top) {
+            val scroll = rememberScrollState()
             Column(
                 Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(top = insets.top + BarFoot.height, bottom = insets.bottom)
+                    .scrollIndicator(scroll, top = insets.top, bottom = insets.bottom)
+                    .verticalScroll(scroll)
+                    .padding(top = insets.top + NavigationMetrics.barFoot, bottom = insets.bottom)
                     .padding(Theme.Space.page)
                     .testTag("device.page"),
                 verticalArrangement = Arrangement.spacedBy(Theme.Space.medium),

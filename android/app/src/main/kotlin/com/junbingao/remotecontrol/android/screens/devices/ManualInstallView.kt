@@ -13,9 +13,10 @@ import com.junbingao.remotecontrol.android.design.SystemFont
 import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
 import com.junbingao.remotecontrol.android.design.card
+import com.junbingao.remotecontrol.android.design.scrollIndicator
+import com.junbingao.remotecontrol.android.navigation.NavigationMetrics
 import com.junbingao.remotecontrol.android.navigation.NavigationScreen
 import com.junbingao.remotecontrol.android.navigation.TitleDisplayMode
-import com.junbingao.remotecontrol.android.screens.sessions.BarFoot
 import com.junbingao.remotecontrol.android.strings.L10n
 import com.junbingao.remotecontrol.android.system.BarTextButton
 
@@ -28,12 +29,14 @@ fun ManualInstallView(command: String, code: String, dismiss: () -> Unit) {
         showsBack = false,
         trailing = { BarTextButton(L10n.string("Done"), dismiss, prominent = true) },
     ) { insets ->
+        val scroll = rememberScrollState()
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .scrollIndicator(scroll, top = insets.top, bottom = insets.bottom)
+                .verticalScroll(scroll)
                 .padding(insets.padding())
-                .padding(top = BarFoot.height)
+                .padding(top = NavigationMetrics.barFoot)
                 .padding(Theme.Space.page),
             verticalArrangement = Arrangement.spacedBy(Theme.Space.medium),
         ) {

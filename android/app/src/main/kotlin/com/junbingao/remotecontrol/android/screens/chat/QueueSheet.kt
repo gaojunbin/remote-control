@@ -25,8 +25,10 @@ import com.junbingao.remotecontrol.android.design.SystemColor
 import com.junbingao.remotecontrol.android.design.SystemFont
 import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
+import com.junbingao.remotecontrol.android.design.scrollIndicator
 import com.junbingao.remotecontrol.android.icons.Icon
 import com.junbingao.remotecontrol.android.icons.Sf
+import com.junbingao.remotecontrol.android.navigation.NavigationMetrics
 import com.junbingao.remotecontrol.android.navigation.NavigationScreen
 import com.junbingao.remotecontrol.android.navigation.TitleDisplayMode
 import com.junbingao.remotecontrol.android.shell.LocalAppModel
@@ -75,9 +77,9 @@ internal fun QueueSheet(chat: ChatStore, dismiss: () -> Unit) {
     ) { insets ->
         val line = SystemColor.separator
         LazyColumn(
-            Modifier.fillMaxSize(),
+            Modifier.fillMaxSize().scrollIndicator(list),
             state = list,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(top = insets.top + ChatMetrics.inlineBarGap, bottom = insets.bottom),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(top = insets.top + NavigationMetrics.barFoot, bottom = insets.bottom),
         ) {
             items(chat.timeline.queue, key = { it.id }) { message ->
                 QueueRow(

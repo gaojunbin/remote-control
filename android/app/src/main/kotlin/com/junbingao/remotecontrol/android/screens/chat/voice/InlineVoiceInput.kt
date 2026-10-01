@@ -44,7 +44,6 @@ import com.junbingao.remotecontrol.android.icons.Icon
 import com.junbingao.remotecontrol.android.icons.Sf
 import com.junbingao.remotecontrol.android.launch.LaunchOptions
 import com.junbingao.remotecontrol.android.permissions.PermissionRequest
-import com.junbingao.remotecontrol.android.screens.chat.WorkingSlot
 import com.junbingao.remotecontrol.android.screens.chat.disabledLook
 import com.junbingao.remotecontrol.android.security.SceneRule
 import com.junbingao.remotecontrol.android.security.currentSceneState
@@ -183,7 +182,7 @@ internal fun VoiceListeningControls(session: InlineVoiceDraftSession, slot: Comp
         // is busy.
         Crossfade(slot == ComposerPrimarySlot.working, animationSpec = tween(if (reduceMotion) 0 else 200, easing = EaseInOut), label = "voice slot") { working ->
             if (working) {
-                WorkingCircle(L10n.string("Finishing the transcript"), WorkingSlot.identified)
+                WorkingCircle(L10n.string("Finishing the transcript"))
             } else {
                 Button(
                     onClick = done,

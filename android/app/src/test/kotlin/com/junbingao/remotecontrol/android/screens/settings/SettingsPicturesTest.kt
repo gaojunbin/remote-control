@@ -7,12 +7,12 @@ import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipeLeft
 import androidx.core.content.edit
 import androidx.test.core.app.ApplicationProvider
 import com.junbingao.remotecontrol.android.harness.DemoApp
 import com.junbingao.remotecontrol.android.harness.IPhone
 import com.junbingao.remotecontrol.android.harness.Variant
+import com.junbingao.remotecontrol.android.harness.swipeOpen
 import com.junbingao.remotecontrol.android.screens.shell.Driving
 import com.junbingao.remotecontrol.android.screens.shell.Phone
 import com.junbingao.remotecontrol.android.strings.L10n
@@ -88,7 +88,7 @@ class SettingsPicturesTest(private val variant: Variant) {
         app.tap("settings.users")
         drive.waitFor(hasTestTag("user.bob"), 20_000)
         app.attach("77-users-screen")
-        app.node("user.alice").performTouchInput { swipeLeft() }
+        app.node("user.alice").performTouchInput { swipeOpen() }
         app.await("the swipe") { drive.shown("user.delete").isNotEmpty() }
         app.attach("78-users-swipe-actions")
         drive.tapShown("user.delete")

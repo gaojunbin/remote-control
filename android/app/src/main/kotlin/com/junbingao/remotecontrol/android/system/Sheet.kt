@@ -4,9 +4,11 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -84,18 +86,27 @@ fun FullScreenCover(isPresented: Boolean, onDismiss: () -> Unit, content: @Compo
 /** Whether the screen being drawn is inside a sheet, which moves its bar under the sheet's own top. */
 val LocalInSheet = compositionLocalOf { false }
 
+/**
+ * A sheet and what is behind it. Over other sheets ([depth] of them) it stands ten points lower
+ * than the one it covers, which takes a light dimming of its own while the screen behind them all
+ * keeps the one dimming it already has, as iOS 26 stacks them.
+ */
 @Composable
-internal fun SheetLayer(layer: Presentation, transition: Transition<Boolean>, body: @Composable () -> Unit) {
+internal fun SheetLayer(layer: Presentation, depth: Int, transition: Transition<Boolean>, body: @Composable () -> Unit) {
     val progress = transition.progress(IosDurations.present, IosDurations.dismiss)
     val safe = safeArea()
     val options = layer.options
     val scope = rememberCoroutineScope()
     val drag = remember { Animatable(0f) }
     Box(Modifier.fillMaxSize()) {
-        Scrim(progress, if (options.dismissible) layer.onDismiss else null)
+        if (depth == 0) {
+            Scrim(progress, if (options.dismissible) layer.onDismiss else null)
+        } else {
+            StackedScrim(progress, depth - 1, safe, if (options.dismissible) layer.onDismiss else null)
+        }
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val density = LocalDensity.current
-            val height = SheetMetrics.height(options.detents.last(), maxHeight, safe)
+            val height = SheetMetrics.height(options.detents.last(), maxHeight, safe, depth)
             val heightPx = with(density) { height.toPx() }
             fun settle(velocity: Float) {
                 scope.launch {
@@ -164,6 +175,29 @@ internal fun SheetLayer(layer: Presentation, transition: Transition<Boolean>, bo
     }
 }
 
+/**
+ * The dimming a sheet puts over the sheet it covers: on that sheet alone, in its shape, and
+ * lighter than a first sheet's over the screen. A tap anywhere outside the new sheet dismisses it.
+ */
+@Composable
+private fun StackedScrim(progress: Float, underDepth: Int, safe: SafeArea, onTap: (() -> Unit)?) {
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .clickable(remember { MutableInteractionSource() }, indication = null) { onTap?.invoke() },
+    ) {
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(SheetMetrics.height(SheetDetent.large, maxHeight, safe, underDepth))
+                .graphicsLayer { alpha = progress }
+                .clip(SheetShape(SheetMetrics.topCorner, SheetMetrics.bottomCorner(safe)))
+                .background(SheetMetrics.stackedDimming),
+        )
+    }
+}
+
 @Composable
 private fun Grabber(modifier: Modifier) {
     Box(
@@ -200,8 +234,14 @@ object SheetMetrics {
     /** The display's corner where the window says it, and a square foot where there is none. */
     fun bottomCorner(safe: SafeArea): Dp = safe.displayCorner
 
-    fun height(detent: SheetDetent, screen: Dp, safe: SafeArea): Dp = when (detent) {
-        SheetDetent.large -> screen - safe.top
+    /** How much lower a sheet stands than the sheet it is presented over. */
+    val stackStep = 10.dp
+
+    /** The sheet under a sheet, dimmed: its canvas 245 to 223 on the reference screenshots. */
+    val stackedDimming = Color(0x17000000)
+
+    fun height(detent: SheetDetent, screen: Dp, safe: SafeArea, depth: Int = 0): Dp = when (detent) {
+        SheetDetent.large -> screen - safe.top - stackStep * depth
         SheetDetent.medium -> screen / 2
         is SheetDetent.height -> detent.value
     }

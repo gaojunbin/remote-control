@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -12,6 +13,9 @@ import com.junbingao.remotecontrol.android.navigation.LocalTabBarReserve
 import com.junbingao.remotecontrol.android.navigation.LocalTabBarVisibility
 import com.junbingao.remotecontrol.android.navigation.NavigationStack
 import com.junbingao.remotecontrol.android.strings.L10n
+import com.junbingao.remotecontrol.android.system.Backdrop
+import com.junbingao.remotecontrol.android.system.BackdropSource
+import com.junbingao.remotecontrol.android.system.OverBackdrop
 import com.junbingao.remotecontrol.android.system.TabBar
 import com.junbingao.remotecontrol.android.system.TabBarMetrics
 import com.junbingao.remotecontrol.android.system.TabItem
@@ -34,6 +38,7 @@ fun TabShell(navigation: ShellNavigation, destination: @Composable (tab: AppMode
     )
     val tab = navigation.tab
     val tabsState = rememberSaveableStateHolder()
+    val backdrop = remember { Backdrop() }
     BackRouter(navigation.navigator)
     CompositionLocalProvider(
         LocalTabBarVisibility provides navigation.tabBar,
@@ -41,21 +46,25 @@ fun TabShell(navigation: ShellNavigation, destination: @Composable (tab: AppMode
     ) {
         Box(Modifier.fillMaxSize()) {
             // Each tab keeps what its screens saved while another tab is open, as the iPhone's tabs
-            // stay where they were left.
-            tabsState.SaveableStateProvider(tab.name) {
-                NavigationStack(navigation.navigator(tab)) { route -> destination(tab, route) }
+            // stay where they were left. The stack is what the tab bar's glass blurs.
+            BackdropSource(backdrop, Modifier.fillMaxSize()) {
+                tabsState.SaveableStateProvider(tab.name) {
+                    NavigationStack(navigation.navigator(tab)) { route -> destination(tab, route) }
+                }
             }
             if (visible) {
-                TabBar(
-                    items,
-                    selected = tabs.indexOf(tab),
-                    onSelect = { index ->
-                        val chosen = tabs[index]
-                        // A second tap on the open tab goes back to its root, as UIKit's does.
-                        if (chosen == navigation.tab) navigation.navigator.popToRoot() else navigation.tab = chosen
-                    },
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                )
+                OverBackdrop(backdrop) {
+                    TabBar(
+                        items,
+                        selected = tabs.indexOf(tab),
+                        onSelect = { index ->
+                            val chosen = tabs[index]
+                            // A second tap on the open tab goes back to its root, as UIKit's does.
+                            if (chosen == navigation.tab) navigation.navigator.popToRoot() else navigation.tab = chosen
+                        },
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
+                }
             }
         }
     }
