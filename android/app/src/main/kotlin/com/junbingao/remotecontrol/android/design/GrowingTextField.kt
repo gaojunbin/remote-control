@@ -35,6 +35,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -53,6 +55,10 @@ import kotlinx.coroutines.delay
  * outside leaves both out. [followsTail] keeps the last line in view while something outside is
  * writing into the field — dictation — and is off for typing, where the cursor keeps itself
  * visible. Scrolling down is the only move it makes.
+ *
+ * Text written from outside — a queued message taken back to be edited, a command row, a
+ * dictation — puts the caret after the last character, as a text view's does when its text is
+ * set, so typing carries on where the words end ([FieldText]).
  */
 @Composable
 fun GrowingTextField(
@@ -78,6 +84,8 @@ fun GrowingTextField(
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     var focused by remember { mutableStateOf(false) }
+    val field = remember { FieldText(text) }
+    val shown = field.shown(text)
 
     LaunchedEffect(isFocused, enabled) {
         when {
@@ -93,8 +101,8 @@ fun GrowingTextField(
 
     Box(modifier.fillMaxWidth().textInputRegion()) {
         BasicTextField(
-            value = text,
-            onValueChange = onTextChange,
+            value = shown,
+            onValueChange = { next -> if (field.take(next, shown)) onTextChange(next.text) },
             enabled = enabled,
             textStyle = style,
             cursorBrush = SolidColor(Theme.accent),
@@ -139,6 +147,27 @@ fun GrowingTextField(
                     .testTag("$identifier.scroll"),
             )
         }
+    }
+}
+
+/**
+ * The field's own copy of what it shows: the text, with the caret and any composition the keyboard
+ * holds. Text that arrives different from the copy was written from outside and is shown with the
+ * caret after its last character, as UITextView puts it when its text is set. The field's own edits
+ * come back as the same text, so the copy is never reset under them and the selection and an IME
+ * composition survive the round trip through the owner of the text.
+ */
+internal class FieldText(text: String) {
+    private var held by mutableStateOf(TextFieldValue(text, TextRange(text.length)))
+
+    /** What the field draws for [text]. */
+    fun shown(text: String): TextFieldValue =
+        if (held.text == text) held else TextFieldValue(text, TextRange(text.length))
+
+    /** Take an edit the field made to [shown]; true when it changed the text, not only the selection or the composition. */
+    fun take(next: TextFieldValue, shown: TextFieldValue): Boolean {
+        held = next
+        return next.text != shown.text
     }
 }
 
