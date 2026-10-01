@@ -32,6 +32,7 @@ import com.junbingao.remotecontrol.win.voice.SpeechStream
 import com.junbingao.remotecontrol.win.voice.VoiceTiming
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.TestScope
@@ -180,6 +181,7 @@ val VoiceTiming.Companion.fast: VoiceTiming
     get() = VoiceTiming(segment = 300.milliseconds, segmentLimit = 1300.milliseconds, finalTimeout = 300.milliseconds, poll = 5.milliseconds)
 
 /** Wait for a condition the test's scheduler will reach, for at most two virtual seconds. */
+@OptIn(ExperimentalCoroutinesApi::class)
 fun TestScope.eventually(condition: () -> Boolean): Boolean {
     repeat(400) {
         runCurrent()
@@ -191,6 +193,7 @@ fun TestScope.eventually(condition: () -> Boolean): Boolean {
 }
 
 /** Let `ms` virtual milliseconds pass, and everything due in them run. */
+@OptIn(ExperimentalCoroutinesApi::class)
 fun TestScope.pass(ms: Long) {
     advanceTimeBy(ms)
     runCurrent()

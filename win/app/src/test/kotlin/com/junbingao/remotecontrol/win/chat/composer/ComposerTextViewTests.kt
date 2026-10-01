@@ -9,6 +9,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Density
 import com.junbingao.remotecontrol.core.protocol.stringValue
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -167,6 +168,7 @@ class ComposerTextViewTests {
     }
 
     /** A few frames, with the composer's work run between them. */
+    @OptIn(ExperimentalCoroutinesApi::class)
     private fun TestScope.frames(scene: ImageComposeScene) {
         repeat(3) {
             scene.render()

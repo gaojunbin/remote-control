@@ -51,8 +51,12 @@ class LayoutTests {
         assertEquals(3 * 42, three)
     }
 
-    /** A line centred in a fixed height lands on a whole CSS px: 4.25 px down is drawn at 4. */
+    /**
+     * A line centred in a fixed height lands on a whole CSS px: 4.25 px down is drawn at 4. The
+     * baseline it reads is SF's, so it holds where the renderer sets the Mac's faces.
+     */
     @Test
+    @EnabledOnOs(OS.MAC)
     fun aCentredLineLandsOnAWholePixel() {
         var baseline = 0
         scene(200, 200, density = 2f) {
