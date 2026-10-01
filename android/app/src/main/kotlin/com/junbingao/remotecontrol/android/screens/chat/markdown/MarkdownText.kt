@@ -180,7 +180,7 @@ fun OutputBlock(text: String, foldedLineLimit: Int = 20, isTruncated: Boolean = 
                     }
                 }
                 if (offersFull) {
-                    Button(onClick = { onOpenFull?.invoke() }) { Text(L10n.string("Open full output")) }
+                    Button(onClick = { onOpenFull() }) { Text(L10n.string("Open full output")) }
                 }
             }
         }

@@ -108,7 +108,7 @@ internal fun MarkdownCodeCard(language: String, source: String, closed: Boolean)
                 CodeButton(Sf.squareAndArrowUp, L10n.string("Share this block")) { MarkdownCodeCards.share(context, source) }
             }
         }
-        if (rendered && kind != null) MarkdownVisualView(kind, source) else CodeSource(source)
+        if (rendered) MarkdownVisualView(kind, source) else CodeSource(source)
     }
     Sheet(isPresented = expanded, onDismiss = { expanded = false }) {
         NavigationScreen(

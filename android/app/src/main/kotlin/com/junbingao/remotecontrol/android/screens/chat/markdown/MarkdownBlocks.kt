@@ -19,7 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.invisibleToUser
+import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -132,7 +132,7 @@ private fun MarkdownList(list: MarkdownBlock.Content.List) {
                             if (list.ordered) "${item.number ?: 1}." else "•",
                             marker
                                 .widthIn(min = if (list.ordered) 22.dp else 10.dp)
-                                .semantics { invisibleToUser() },
+                                .semantics { hideFromAccessibility() },
                             style = LocalFont.current.monospacedDigit(),
                             color = SystemColor.secondaryLabel,
                             alignment = TextAlign.End,
