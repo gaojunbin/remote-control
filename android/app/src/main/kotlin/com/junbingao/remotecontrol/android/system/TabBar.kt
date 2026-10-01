@@ -60,7 +60,7 @@ fun TabBar(items: List<TabItem>, selected: Int, onSelect: (Int) -> Unit, modifie
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
         Box(
             Modifier
-                .padding(bottom = TabBarMetrics.footMargin(safe.bottom))
+                .padding(bottom = TabBarMetrics.footMargin(safe))
                 .width(width)
                 .height(TabBarMetrics.height)
                 .glass(CapsuleShape),
@@ -141,9 +141,14 @@ object TabBarMetrics {
     val symbolCentre = 24.57.dp
     val labelTop = 39.57.dp
 
-    /** How far above the screen's bottom the capsule's foot stands: 20.7 on an iPhone 17. */
-    fun footMargin(bottomInset: Dp): Dp = max(bottomInset - 13.33.dp, 8.dp)
+    /**
+     * How far above the screen's bottom the capsule's foot stands: 20.7 on an iPhone 17, whose bar
+     * sits 13.3 into the home indicator's inset, as it does over gesture navigation's handle. Android's
+     * three buttons take touches, so there the whole capsule stands clear of them.
+     */
+    fun footMargin(safe: SafeArea): Dp =
+        max(max(safe.bottom - 13.33.dp, 8.dp), if (safe.tappableBottom > 0.dp) safe.tappableBottom + 8.dp else 0.dp)
 
     /** How much of the bottom a screen leaves for the bar, up to the capsule's top: 83.3 on an iPhone 17. */
-    fun reserved(bottomInset: Dp): Dp = footMargin(bottomInset) + height
+    fun reserved(safe: SafeArea): Dp = footMargin(safe) + height
 }

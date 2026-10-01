@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.tappableElement
 import androidx.compose.foundation.layout.union
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
@@ -34,6 +35,11 @@ data class SafeArea(
     val end: Dp = 0.dp,
     /** The display's own bottom corner radius, which a sheet's foot follows; 0 on a square screen. */
     val displayCorner: Dp = 0.dp,
+    /**
+     * The part of the bottom that takes touches of its own: Android's three-button navigation.
+     * Gesture navigation's handle, like the iPhone's home indicator, takes none, so it is 0 there.
+     */
+    val tappableBottom: Dp = 0.dp,
 ) {
     /** The bottom edge a view avoids when it must stay above the keyboard, as the composer does. */
     val bottomWithKeyboard: Dp get() = if (keyboard > bottom) keyboard else bottom
@@ -56,6 +62,7 @@ fun safeArea(): SafeArea {
     val bars = WindowInsets.statusBars.union(WindowInsets.displayCutout)
     val navigation = WindowInsets.navigationBars
     val ime = WindowInsets.ime
+    val tappable = WindowInsets.tappableElement
     val corner = displayCornerPx(LocalView.current)
     return with(density) {
         SafeArea(
@@ -65,6 +72,7 @@ fun safeArea(): SafeArea {
             start = max(bars.getLeft(this, direction), navigation.getLeft(this, direction)).toDp(),
             end = max(bars.getRight(this, direction), navigation.getRight(this, direction)).toDp(),
             displayCorner = corner.toDp(),
+            tappableBottom = tappable.getBottom(this).toDp(),
         )
     }
 }

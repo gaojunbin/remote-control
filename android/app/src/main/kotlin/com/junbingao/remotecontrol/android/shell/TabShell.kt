@@ -42,7 +42,7 @@ fun TabShell(navigation: ShellNavigation, destination: @Composable (tab: AppMode
     BackRouter(navigation.navigator)
     CompositionLocalProvider(
         LocalTabBarVisibility provides navigation.tabBar,
-        LocalTabBarReserve provides if (visible) TabBarMetrics.reserved(safe.bottom) else safe.bottom,
+        LocalTabBarReserve provides if (visible) TabBarMetrics.reserved(safe) else safe.bottom,
     ) {
         Box(Modifier.fillMaxSize()) {
             // Each tab keeps what its screens saved while another tab is open, as the iPhone's tabs
