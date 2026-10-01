@@ -76,7 +76,8 @@ The Mac's set: `--demo`, `--demo-account` (with `--registration-open`), `--demo-
 ## The window
 
 One window with Windows' own title bar, so snapping, resizing and the caption buttons are Windows';
-below it the Mac's window content without the traffic-light inset. 1280 × 860 at first, never
+below it the Mac's window content without the traffic-light inset. 1280 × 860 at first — or the
+screen's work area less a margin where that is smaller, so the title bar is never off screen — never
 narrower than 480, always light, and the web's breakpoints on its width. Closing it leaves the app
 running and connected in the notification area, so notifications keep arriving; the icon there opens
 it again and offers Quit. Keys: Ctrl+1, Ctrl+2, Ctrl+3 for Devices, Sessions and Settings, Ctrl+,

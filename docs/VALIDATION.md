@@ -2854,7 +2854,12 @@ and env overrides). Kotlin core: 617 JUnit tests — every RCCoreTests case and 
 `ios/Verification` check has its twin, the fixture sweep covers all 203 fixtures, Markdown parity
 with RCCore's own parse of 89 documents, a live check against the web's mock gateway, and the demo
 checked field by field against RCCore's fixtures compiled with `swiftc` (757 scripted events, line
-for line). iOS (fixtures changed): RCVerify 1554, RCUIVerify 627, swift test 461. Mac: swift test 426.
+for line). iOS (fixtures changed, then the bump): RCVerify 1554, RCUIVerify 627, swift test 461, and
+the whole `RemoteControlUITests` target on the iPhone 17 simulator — 78 run, 4 skipped (the real
+gateway's), 72 passed; the two that failed while other builds loaded the machine
+(`testALongDictationKeepsItsLastLineInView`, `testJumpToLatestAppearsWhenTheReaderLeavesTheBottom`)
+passed when rerun alone. Mac: swift test 426, 201 previews, the app builds as 1.12.0 (4). Web 826,
+gateway 492, client 1234.
 
 **Android.** 450 tests on Robolectric with the real graphics stack, none skipped. All 74 of the
 iPhone's UI tests are ported under their own names, with their steps, assertions and screenshot
@@ -2868,12 +2873,16 @@ highlighted code block; force-stopped and relaunched, it is still signed in (the
 the Keystore). The emulator found one defect the JVM could not: over three-button navigation the
 floating tab bar sank under the buttons; it now stands clear of the tappable inset (16167dd).
 
-**Windows.** 485 tests on macOS. All 201 of the Mac renderer's scenarios render under the same names
+**Windows.** 488 tests on macOS. All 201 of the Mac renderer's scenarios render under the same names
 and sizes in both languages; against the Mac renderer's own 402 pictures the median mean difference is
 0.53 of 255 and the median share of pixels more than 24 levels off 0.31%. The worst differences are
 the ruling's (no traffic-light inset at 760 px and below) and two timing cases (chat-jump,
 chat-tools-open). On Windows (CI): the first run on a Windows runner failed one test, which read SF's
-baseline and so belongs to the Mac's faces; it is now macOS-only (2629a93).
+baseline and so belongs to the Mac's faces; it is now macOS-only (2629a93). The second run
+(36914243023) passed everything — the tests, all 402 scenarios rendered on Windows in Segoe UI and
+Microsoft YaHei UI, the 70.6 MB MSI, and the built app started on the runner's desktop against its
+demo. Its picture showed the window's title bar above a 1024 × 768 screen: the window now opens
+inside the work area (1260fcc).
 
 **Not verified.** Windows on a person's machine: DPAPI on a real account, a toast and a click on it,
 the notification-area icon, the microphone, JediTerm's keys in a window, an upgrade from one installer
