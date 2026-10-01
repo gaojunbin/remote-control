@@ -1,28 +1,33 @@
 package com.junbingao.remotecontrol.android.screens.lock
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 
 /**
- * The lock above everything — the iPhone's `AppLockWindow`, which raises its own window over the
- * alert level so an open sheet cannot show queued prompt text over the lock. The root draws this
- * above the presentations; while [locked], [AppLockView] covers the screen and takes every touch.
+ * The lock above everything.
  *
- * Placeholder for `android-settings`, which ports the window's own rules; the signature stays.
+ * The iPhone hosts it in a window of its own above the alert level, because a sheet is presented
+ * by UIKit above the hosting controller and a lock drawn as a sibling view renders behind it. Here
+ * the root draws this above the presentations, so an open sheet cannot show queued prompt text over
+ * the lock either. It is up from the first frame it is asked for and gone on the frame it is not —
+ * a lock that faded in would show the transcript through it on the way.
+ *
+ * While it is up it takes every touch, and the system's Back leaves the app as it does at a tab's
+ * root: what is under the lock is not reachable, and closing a sheet or a screen behind it would
+ * change what the owner finds there.
  */
 @Composable
 fun AppLockWindow(locked: Boolean, onUnlock: () -> Unit) {
-    AnimatedVisibility(locked, enter = fadeIn(), exit = fadeOut()) {
-        Box(Modifier.fillMaxSize().clickable(remember { MutableInteractionSource() }, indication = null) {}) {
-            AppLockView(onUnlock)
-        }
+    if (!locked) return
+    val activity = LocalActivity.current
+    // Composed only while locked, so it is the last Back handler registered and the first asked.
+    BackHandler { activity?.moveTaskToBack(true) }
+    Box(Modifier.fillMaxSize().pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }) {
+        AppLockView(onUnlock)
     }
 }

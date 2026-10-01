@@ -1,8 +1,8 @@
 package com.junbingao.remotecontrol.android.screens.lock
 
-import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,7 +21,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.fragment.app.FragmentActivity
 import com.junbingao.remotecontrol.android.design.AppMark
 import com.junbingao.remotecontrol.android.design.Button
 import com.junbingao.remotecontrol.android.design.Label
@@ -32,20 +31,18 @@ import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
 import com.junbingao.remotecontrol.android.design.weight
 import com.junbingao.remotecontrol.android.icons.Sf
-import com.junbingao.remotecontrol.android.security.BiometricLock
 import com.junbingao.remotecontrol.android.strings.L10n
 import com.junbingao.remotecontrol.android.system.ActivityIndicator
 import kotlinx.coroutines.launch
 
 /**
- * The phone's biometric unlock or its screen lock before the transcript is shown — the iPhone's
- * `AppLockView`, with Android's words for what unlocks it (`docs/DESIGN.md` § "The Android app").
- *
- * The foundation's port, which `android-settings` owns from here; [AppLockWindow] draws it.
+ * The phone's biometric unlock or its screen lock, before the transcript is shown. Android's words
+ * name what unlocks it (`docs/DESIGN.md` § "The Android app": Face ID becomes the device's biometric
+ * unlock, falling back to the screen lock).
  */
 @Composable
 fun AppLockView(onUnlock: () -> Unit) {
-    val activity = LocalActivity.current as? FragmentActivity
+    val owner = rememberDeviceOwnerAuthentication()
     val scope = rememberCoroutineScope()
     var authenticating by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -66,13 +63,12 @@ fun AppLockView(onUnlock: () -> Unit) {
             color = Theme.inkSecondary,
             alignment = TextAlign.Center,
         )
-        error?.let { Text(it, style = SystemFont.caption, color = SystemColor.secondaryLabel) }
+        error?.let { Text(it, Modifier.testTag("app.lock.error"), style = SystemFont.caption, color = SystemColor.secondaryLabel) }
         Button(
             onClick = {
-                val host = activity ?: return@Button
                 authenticating = true
                 scope.launch {
-                    if (BiometricLock.authenticate(host, L10n.string("Unlock Remote Control"))) {
+                    if (owner.evaluate(L10n.string("Unlock Remote Control"))) {
                         onUnlock()
                     } else {
                         error = L10n.string("Not unlocked. You can try again.")
@@ -80,6 +76,7 @@ fun AppLockView(onUnlock: () -> Unit) {
                     authenticating = false
                 }
             },
+            modifier = Modifier.testTag("app.lock.unlock"),
             enabled = !authenticating,
             style = PrimaryButtonStyle(fullWidth = false),
         ) {
@@ -91,6 +88,19 @@ fun AppLockView(onUnlock: () -> Unit) {
                 if (authenticating) ActivityIndicator()
                 Label(L10n.string("Unlock"), Sf.lockOpen)
             }
+        }
+    }
+}
+
+/** What the recents screen sees instead of a transcript. */
+@Composable
+fun AppPrivacyCover() {
+    Box(Modifier.fillMaxSize().background(Theme.canvas).testTag("app.privacy"), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            AppMark(64.dp)
+            // The product's own name, never translated — and no longer a catalogue key, which the
+            // session row now spends on the origin.
+            Text("Remote Control", style = SystemFont.title2.weight(FontWeight.Medium), color = Theme.ink)
         }
     }
 }
