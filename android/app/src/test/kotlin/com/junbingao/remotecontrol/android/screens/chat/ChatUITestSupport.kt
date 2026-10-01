@@ -177,14 +177,15 @@ class ChatDriver(private val compose: ComposeTestRule, val app: DemoApp) {
 
     /**
      * `scrollDown(to:)` scrolls until the row is hittable. A tap is a touch at the row's centre, and
-     * the tab bar floats over the bottom of the list, so the row is moved up until it stands clear
-     * of the bar.
+     * the tab bar and the New session bar above it float over the bottom of the list, so the row is
+     * moved up until it stands clear of the higher of the two.
      */
     private fun bringClearOfTheTabBar(tag: String) {
         val list = compose.onAllNodes(hasScrollToNodeAction()).onFirst()
         await("“$tag” clear of the tab bar") {
             val bounds = nodes(tag).firstOrNull()?.boundsInRoot ?: return@await false
-            val floor = nodes("tab.sessions").firstOrNull()?.boundsInRoot?.top ?: list.fetchSemanticsNode().boundsInRoot.bottom
+            val bars = listOf("tab.sessions", "sessions.new").mapNotNull { nodes(it).firstOrNull()?.boundsInRoot?.top }
+            val floor = bars.minOrNull() ?: list.fetchSemanticsNode().boundsInRoot.bottom
             if (bounds.bottom <= floor) return@await true
             list.performSemanticsAction(SemanticsActions.ScrollBy) { scroll -> scroll(0f, bounds.bottom - floor) }
             false
