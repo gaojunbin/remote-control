@@ -20,8 +20,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
-import androidx.compose.ui.unit.DpSize
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.ApplicationScope
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
@@ -73,7 +71,7 @@ fun ApplicationScope.MainWindow(model: WinAppModel) {
     Window(
         onCloseRequest = { if (tray != null) visible = false else quit() },
         visible = visible,
-        state = rememberWindowState(size = DpSize(1280.dp, 860.dp), position = WindowPosition(Alignment.Center)),
+        state = rememberWindowState(size = InitialWindow.size(), position = WindowPosition(Alignment.Center)),
         title = S.productName,
         icon = AppIcon.painter,
         onPreviewKeyEvent = { event ->
@@ -81,7 +79,7 @@ fun ApplicationScope.MainWindow(model: WinAppModel) {
         },
     ) {
         LaunchedEffect(Unit) {
-            window.minimumSize = Dimension(480, 560)
+            window.minimumSize = Dimension(InitialWindow.minimum.width.value.toInt(), InitialWindow.minimum.height.value.toInt())
             window.background = java.awt.Color(0xF5, 0xF5, 0xF4)
             model.showWindow = {
                 visible = true

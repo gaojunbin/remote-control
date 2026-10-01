@@ -91,7 +91,9 @@ passes as `jpackage.app-version`, and the core's `AppBuild.shipped` in a run fro
 ## The window
 
 One Compose `Window` with the system title bar, so snapping, resizing and the caption buttons are
-Windows' own, titled "Remote Control": 1280 × 860 at first, never narrower than 480 (or shorter
+Windows' own, titled "Remote Control": 1280 × 860 at first, or the screen's work area less a
+margin where that is smaller (`InitialWindow`: Windows would put a larger window's title bar above
+the screen), never narrower than 480 (or shorter
 than 560), always light. There are no traffic lights, so `LocalTrafficLightInset` is 0 and a strip
 starts its content at the web's padding. There is no menu bar; the Mac's menu commands are keys
 (`AppCommands`): Ctrl+1, Ctrl+2 and Ctrl+3 for the tabs, Ctrl+, for Settings, Ctrl+N for New
