@@ -5,8 +5,12 @@ import com.jediterm.terminal.HyperlinkStyle
 import com.jediterm.terminal.TerminalColor
 import com.jediterm.terminal.TextStyle
 import com.jediterm.terminal.emulator.ColorPalette
+import com.jediterm.terminal.ui.TerminalActionPresentation
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider
 import java.awt.Font
+import java.awt.event.InputEvent
+import java.awt.event.KeyEvent
+import javax.swing.KeyStroke
 
 /**
  * `terminalTheme.ts` — A38: how the emulator is dressed, as the Mac dresses its own.
@@ -54,6 +58,9 @@ object TerminalTheme {
     /**
      * JediTerm's settings for the page. xterm.js, as the web opens it, rings no bell, opens no link a
      * shell names and copies nothing a shell asks it to; the person's own copy is the one way out.
+     * Its keys are Windows Terminal's (`TerminalKeys`), and the keys JediTerm keeps for clearing its
+     * buffer, finding and scrolling by a line — Ctrl+L, Ctrl+F, Ctrl+Up and Ctrl+Down on Windows —
+     * are the shell's, as they are on the web, which has none of the three.
      */
     val settings = object : DefaultSettingsProvider() {
         override fun getTerminalColorPalette(): ColorPalette = palette
@@ -79,5 +86,36 @@ object TerminalTheme {
         override fun getBufferMaxLinesCount(): Int = scrollback
 
         override fun caretBlinkingMs(): Int = 600
+
+        override fun getCopyActionPresentation(): TerminalActionPresentation =
+            TerminalActionPresentation("Copy", TerminalKeys.copy(mac = Host.isMac))
+
+        override fun getPasteActionPresentation(): TerminalActionPresentation =
+            TerminalActionPresentation("Paste", TerminalKeys.paste(mac = Host.isMac))
+
+        override fun getClearBufferActionPresentation(): TerminalActionPresentation = TerminalActionPresentation("Clear Buffer", emptyList())
+
+        override fun getFindActionPresentation(): TerminalActionPresentation = TerminalActionPresentation("Find", emptyList())
+
+        override fun getLineUpActionPresentation(): TerminalActionPresentation = TerminalActionPresentation("Line Up", emptyList())
+
+        override fun getLineDownActionPresentation(): TerminalActionPresentation = TerminalActionPresentation("Line Down", emptyList())
     }
+}
+
+/**
+ * The emulator's copy and paste, as Windows Terminal has them: Ctrl+Shift+C, and Ctrl+C while text
+ * is selected — JediTerm sends a Ctrl+C with nothing selected on to the shell, and takes the
+ * selection away after the copy a Ctrl+C makes — and Ctrl+Shift+V. On a Mac, ⌘C and ⌘V.
+ */
+object TerminalKeys {
+    fun copy(mac: Boolean): List<KeyStroke> =
+        if (mac) listOf(stroke(KeyEvent.VK_C, InputEvent.META_DOWN_MASK))
+        else listOf(stroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK or InputEvent.SHIFT_DOWN_MASK), stroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK))
+
+    fun paste(mac: Boolean): List<KeyStroke> =
+        if (mac) listOf(stroke(KeyEvent.VK_V, InputEvent.META_DOWN_MASK))
+        else listOf(stroke(KeyEvent.VK_V, InputEvent.CTRL_DOWN_MASK or InputEvent.SHIFT_DOWN_MASK))
+
+    private fun stroke(key: Int, modifiers: Int): KeyStroke = KeyStroke.getKeyStroke(key, modifiers)
 }
