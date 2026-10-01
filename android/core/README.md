@@ -175,3 +175,60 @@ every event re-encodes without losing a field), `TransportChecks`, `SocketChecks
 lines that read a store (`DeviceUpdate`, `PairingClaimLink`, `CommandSection`, `AccountError`,
 `DictationPolish`, …) are `core-state`'s. `OkHttpTransportTests` drives the real transport and both
 sockets against `mockwebserver3`, and `LiveGatewayTests` against a running gateway.
+
+## Demo
+
+`…core.demo` is the port of RCCore's `Demo/`: `DemoGateway`, the in-memory gateway every demo mode,
+preview, screenshot and UI test runs on, and the `DemoFixtures`, `DemoQueue`, `DemoShell` and
+`DemoDirectoryTree` it serves from — the same devices, sessions, transcripts, agents, accounts,
+quotas, directories, held messages, delays and replies, so an Android or Windows screenshot of the
+demo shows what an iPhone or Mac screenshot of it shows. A46: its `apps` carries the Android and
+Windows entries beside the iPhone's and the Mac's, all four the same; its served client is
+`AppBuild.version`, read when asked, so it follows what the app states at startup.
+
+What the contract did not settle was decided as follows.
+
+- **One object, split by subject.** `DemoFixtures` keeps the identifiers and plain values and
+  implements one sealed interface per subject (`DemoAgentFixtures`, `DemoQuotaFixtures`,
+  `DemoCommandFixtures`, `DemoSessionFixtures`, `DemoHistoryFixtures` and
+  `DemoTerminalHistoryFixtures` for the sessions a terminal holds or shares, `DemoGatewayFixtures`),
+  so a fixture is still `DemoFixtures.claude`, with nothing to import. Swift labels that are Kotlin
+  keywords give way to the internal name: `history(sessionID)`, `commands(agent)`.
+- **One class, its handlers beside it.** Kotlin has no partial classes, so `DemoGateway.kt` holds
+  the state and the `GatewayChannel` and `GatewayAPI` members, and the requests RCCore's actor
+  answers are extension functions in `DemoGatewaySessions.kt`, `DemoGatewayTurns.kt`,
+  `DemoGatewayCommands.kt`, `DemoGatewayScripts.kt` and `DemoGatewayDevices.kt`, by RCCore's own
+  sections. The state is `internal` for that reason alone; it is read and written only on the
+  gateway's isolation, through `request`.
+- **The actor's isolation is a parameter.** `DemoGateway(…, isolation =
+  Dispatchers.Default.limitedParallelism(1))` runs one piece of work at a time, as the actor does.
+  A test passes `StandardTestDispatcher(testScheduler)`, and every scripted delay — the echo, the
+  turns, the injection, the 30-second terminal answer — runs on virtual time. `disconnect()`
+  always runs to the end, as `GatewaySocket.disconnect()` does.
+- **RCCore's pauses, exactly.** `try? await Task.sleep(for:)` is `pause(duration)`: cancellation
+  cuts it short and what follows still runs, and the scripts check `isCancelled()` where RCCore
+  checks `Task.isCancelled`. So the edge cases are RCCore's too: a pairing cancelled mid-step still
+  sends that step, and a reply cancelled on its last word still finishes its turn.
+- `events` buffers the oldest 512 (`Channel(512, DROP_LATEST)`), as RCCore's `bufferingOldest(512)`.
+  RCCore's mutating structs `DemoQueue`, `DemoShell` and `DemoDirectoryTree` are classes changed in
+  place, each owned by one gateway; `DemoShell.feed` answers with a `DemoShell.Response(output, code)`
+  for RCCore's tuple. `queue_ts` is read as RCCore's `JSONValue.integer`: a whole number written as
+  one, never `1.5`, `"12"` or `true`.
+
+**Tests.** `DemoQueueTests` is ported whole but for `editRoundTrip`, which drives `ChatStore` and
+is `core-state`'s; the same round trip at the gateway is `DemoTurnTests.queuedEditGoesBackToItsPlace`.
+The demo's own cases of RCCore's other suites are in this package under the suites' names
+(`AgentsTests`, `AccountsTests`, `AgentAccountsTests`, `CodexDaemonTests`, `DeviceUpdateTests`,
+`GrokLeaderTests`, `QuestionAnswerTests`, `AgentMessageTests`, `SharedControlTests`,
+`TypedTerminalTests`, `SlashCommandTests`), with `PolishChecks.agentMessages` for the demo's line
+of `ios/Verification`; their cases that drive a store are `core-state`'s, and so is the
+`DeviceUpdate.notice` line of `demoRetry`. `DemoGatewayTests` drives the gateway as a store does —
+sign in, `hello`, subscribe, send, the scripted turns to their ends — and, with `DemoTurnTests` and
+`DemoMachineTests`, pins what it does with queues, attached terminals, commands, resumes, shells,
+folders, quotas and pairing. `DemoTestSupport.kt` builds a gateway on the test's clock and reads
+its events the way a store's pump does.
+
+The port was checked against RCCore itself, with scratch tools that are not in the repository:
+every fixture dumped from both and compared field by field, and ten scripted scenarios — 757
+events, replies and refusals, each timed script included — traced through both gateways and
+compared line by line. Both matched; the only differences were A46's two new entries.
