@@ -1,8 +1,8 @@
 # remote-control — working notes for future development
 
 Remote control of terminal coding agents (Claude Code, Codex, Grok Build, pi) from a phone, a
-browser or a Mac, through a gateway you host. Apps never talk to devices; the gateway routes
-everything. Five components, one frozen wire protocol. This file is the short list of what matters when you
+browser, a Mac or a Windows PC, through a gateway you host. Apps never talk to devices; the gateway
+routes everything. Seven components, one frozen wire protocol. This file is the short list of what matters when you
 change any of it; the long form is under `docs/`.
 
 ## Layout
@@ -15,11 +15,13 @@ change any of it; the long form is under `docs/`.
 | `web/` | React + TypeScript app the gateway serves, with a mock gateway for development | `cd web && npm test -- --run && npx tsc --noEmit && npm run lint && npm run build` |
 | `ios/` | SwiftUI app: `Sources/RCCore` (protocol, state), `Sources/RCUI` (screens), `App/`, `Verification*` | `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer swift run RCVerify && swift run RCUIVerify && swift test`, then `xcodegen generate`, the simulator build and the whole `RemoteControlUITests` target on a booted simulator (`docs/IOS.md`); CI runs everything but the UI tests |
 | `macos/` | SwiftUI Mac app, the web app drawn natively on `ios/Sources/RCCore`: `Sources/RCMac` (model, design, strings, screens), `Sources/RCMacPreview` (the offscreen renderer), `App/` | `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer swift build && swift test && swift run RCMacPreview --demo --all --out <dir>`, then `xcodegen generate` and the app build (`docs/MACOS.md`); CI runs the same |
-| `docs/` | `ARCHITECTURE`, `DESIGN` (UX rulings), `CLIENT`, `WEB`, `IOS`, `MACOS`, `DEPLOY`, `VALIDATION`, `VALIDATION-APPS` | Keep them true; every round ends with a docs commit |
+| `android/` | `core/`, the Kotlin port of `ios/Sources/RCCore` the Android and Windows apps share, and `app/`, the iPhone app drawn for Android in Jetpack Compose | `cd android && ./gradlew --no-daemon :core:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` (a JDK 17+ in `JAVA_HOME`, the SDK in `ANDROID_HOME`), and `:app:recordRoborazziDebug` to draw the pictures laid beside the iPhone's (`docs/ANDROID.md`); CI runs the same but the pictures |
+| `win/` | Compose Multiplatform desktop app, the Mac app drawn for Windows on `android/core`: `app/` (model, design, strings, screens), `preview/` (the offscreen renderer) | `cd win && ./gradlew --no-daemon :app:test :preview:run --args="--demo --all --out <dir>"` (`docs/WINDOWS.md`); CI runs the same on Windows, builds the MSI and starts the built app |
+| `docs/` | `ARCHITECTURE`, `DESIGN` (UX rulings), `CLIENT`, `WEB`, `IOS`, `MACOS`, `ANDROID`, `WINDOWS`, `DEPLOY`, `VALIDATION`, `VALIDATION-APPS` | Keep them true; every round ends with a docs commit |
 
 ## The protocol is frozen; change it by amendment
 
-`protocol/PROTOCOL.md` is v1 plus numbered amendments (A1…A45 so far, dated entries at the end). A
+`protocol/PROTOCOL.md` is v1 plus numbered amendments (A1…A46 so far, dated entries at the end). A
 change to the wire is an amendment: edit the section, the schema, the fixtures and the checklist,
 append the entry, run the validator, commit `protocol/` first, and only then let anyone implement
 it. Components consume the contract; nobody edits it mid-implementation. Apps stay agent-agnostic —
@@ -29,19 +31,22 @@ they read `AgentInfo` capabilities and the five attachment fields, never the age
 
 - The gateway serves the web app, so web and gateway always match. The device client is updated
   from the apps (`device.update`, the wheel the gateway serves, A22) or by re-running `install.sh`.
-- **The iOS and Mac apps are installed separately, so the gateway states the oldest build of each
-  it still supports** (`GET /api/config` and `hello` carry `apps.ios.minimum_version`, A31, and
-  `apps.macos.minimum_version`, A45; the constants `IOS_MINIMUM_APP_VERSION` and
-  `MACOS_MINIMUM_APP_VERSION` in `gateway/rc_gateway/compat.py`, overridable with
-  `IOS_MIN_APP_VERSION` and `MACOS_MIN_APP_VERSION`). Each app reads its own entry only; one below
-  it shows a blocking "Update required" screen and does nothing else. **Rule for every release: if
-  the gateway and an app change together and the new gateway no longer works with that app's older
-  builds, raise that app's constant in the same change**, and set `IOS_UPDATE_URL` or
-  `MACOS_UPDATE_URL` on the gateway to where the new build is. Raise it only when compatibility is
+- **The iOS, Mac, Android and Windows apps are installed separately, so the gateway states the
+  oldest build of each it still supports** (`GET /api/config` and `hello` carry `apps.ios`, A31,
+  `apps.macos`, A45, and `apps.android` and `apps.windows`, A46, each a `minimum_version`; the
+  constants `IOS_MINIMUM_APP_VERSION`, `MACOS_MINIMUM_APP_VERSION`, `ANDROID_MINIMUM_APP_VERSION`
+  and `WINDOWS_MINIMUM_APP_VERSION` in `gateway/rc_gateway/compat.py`, overridable with
+  `IOS_MIN_APP_VERSION`, `MACOS_MIN_APP_VERSION`, `ANDROID_MIN_APP_VERSION` and
+  `WINDOWS_MIN_APP_VERSION`). Each app reads its own entry only; one below it shows a blocking
+  "Update required" screen and does nothing else. **Rule for every release: if the gateway and an
+  app change together and the new gateway no longer works with that app's older builds, raise that
+  app's constant in the same change**, and set its `…_UPDATE_URL` on the gateway to where the new
+  build is. Raise it only when compatibility is
   really broken; an app one amendment behind must keep working when the amendment is additive.
-- **One version per release, on all five components, every round.** The owner's standing rule
+- **One version per release, on all seven components, every round.** The owner's standing rule
   (2026-09-16): whenever a round of changes is closed, the gateway, the web app, the device client,
-  the iOS app and the Mac app all move to the same new version number — whether or not each of them changed —
+  the iOS, Mac, Android and Windows apps all move to the same new version number — whether or not
+  each of them changed —
   and the repository is tagged with it. A device's Update action (A22) and the Settings screens
   then read one number per release, and a build can be told from the last one. A component left at
   an old number while the repo is tagged ahead of it is a defect (round 29 found all four at 0.1.0
@@ -58,7 +63,7 @@ round 46), so the local run is the only one, and a stale test found there is fix
 
 1. **Docs commit.** `docs/` tells the truth about what changed (`VALIDATION.md` gets a dated section
    on what was and was not verified), then commit it.
-2. **Bump all five components to the round's version** (patch for fixes, minor for features), in
+2. **Bump all seven components to the round's version** (patch for fixes, minor for features), in
    one commit per component or one commit for the bumps alone:
    - gateway: `gateway/pyproject.toml` `version`, `gateway/rc_gateway/__init__.py` `__version__`
      (what `hello` and `GET /api/config` report), and the `rc-gateway` entry in `gateway/uv.lock`;
@@ -71,11 +76,19 @@ round 46), so the local run is the only one, and a stale test found there is fix
      `ios/VerificationUI/main.swift` that read `project.yml`, and the UI test that reads the Settings
      version row — then `xcodegen generate` so `ios/RemoteControl.xcodeproj` follows;
    - Mac: `macos/project.yml` `MARKETING_VERSION` (the app compares it with `apps.macos.minimum_version`,
-     A45) and `CURRENT_PROJECT_VERSION` (+1), then `xcodegen generate` in `macos/`.
+     A45) and `CURRENT_PROJECT_VERSION` (+1), then `xcodegen generate` in `macos/`;
+   - Android: `android/app/build.gradle.kts` `versionName` (the app compares it with
+     `apps.android.minimum_version`, A46) and `versionCode` (+1), and `AppBuild.shipped` in
+     `android/core/src/main/kotlin/…/core/state/AppVersion.kt`, the version both Kotlin apps state
+     before they read their own;
+   - Windows: `win/app/build.gradle.kts` `packageVersion`, which the installer carries and the app
+     compares with `apps.windows.minimum_version` (A46).
 3. **Tag and push.** `git tag -a vX.Y.Z -m "<one line on what the release is>"`, then push `master`
-   and the tag. The tag's push builds the Mac app's disk image and attaches it to the tag's GitHub
-   release (`macos-release.yml`); check that run too. Raise an app's minimum (`IOS_MINIMUM_APP_VERSION`, `MACOS_MINIMUM_APP_VERSION`) in the
-   same round only if an older build of that app really stopped working (see above).
+   and the tag. The tag's push builds the Mac app's disk image, the Windows installer and the
+   Android APK and attaches them to the tag's GitHub release (`release.yml`); check that run too.
+   Raise an app's minimum (`IOS_MINIMUM_APP_VERSION`, `MACOS_MINIMUM_APP_VERSION`,
+   `ANDROID_MINIMUM_APP_VERSION`, `WINDOWS_MINIMUM_APP_VERSION`) in the same round only if an older
+   build of that app really stopped working (see above).
 
 ## How agents are attached (why terminal sessions can be driven from a phone)
 
@@ -118,5 +131,8 @@ recorded per round in `docs/VALIDATION.md` (device and gateway) and `docs/VALIDA
 
 VPS: `git pull && docker compose build && docker compose up -d` (`docs/DEPLOY.md`; `.env` reference
 there — STT, POLISH, APNS, VAPID). Devices: the app's Update action or `install.sh`. iOS: TestFlight
-from `ios/` (`docs/IOS.md`). Mac: the disk image on the tag's GitHub release, or build it from
-`macos/` (`docs/MACOS.md`); it is signed to run locally, not notarized.
+from `ios/` (`docs/IOS.md`). Mac, Windows and Android: the disk image, the MSI and the APK on the
+tag's GitHub release, or build them from `macos/`, `win/` and `android/` (`docs/MACOS.md`,
+`docs/WINDOWS.md`, `docs/ANDROID.md`). The Mac app is signed to run locally and not notarized, the
+MSI is not code-signed, and the APK is signed with the repository's release key
+(`ANDROID_KEYSTORE_BASE64` and its passwords in the Actions secrets), or a one-off key until one is set.

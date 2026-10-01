@@ -34,15 +34,16 @@ network client, audio input and user-selected read-only file entitlements, and t
 ## Download
 
 Every version tag's GitHub release carries the app as `Remote-Control-<version>.dmg`, with its
-SHA-256 beside it: `.github/workflows/macos-release.yml` builds it from the tagged commit on the
+SHA-256 beside it: `.github/workflows/release.yml` builds it from the tagged commit on the
 tag's push (Xcode 26.6, universal, signed to run locally) and packs it with `scripts/make-dmg.sh`,
 checking first that the app's version is the tag's. Open the image and drag Remote Control onto
 Applications. It is not notarized, so the first open is refused until you choose **Open Anyway** in
 System Settings → Privacy & Security (or clear the quarantine once with
 `xattr -dr com.apple.quarantine "/Applications/Remote Control.app"`). An ad-hoc signature changes
 with every build, so each new version asks again for the microphone, notifications and the Keychain.
-A tag pushed before the workflow existed gets its image by hand:
-`gh workflow run macos-release.yml --ref master -f tag=vX.Y.Z`.
+The same release carries the Windows installer and the Android APK (`docs/WINDOWS.md`,
+`docs/ANDROID.md`). A tag pushed before the workflow existed gets its files by hand:
+`gh workflow run release.yml --ref master -f tag=vX.Y.Z`.
 
 ## Building, checking and running
 

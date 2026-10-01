@@ -2837,6 +2837,54 @@ mounts with the app and an Applications link, the signature verifies (ad-hoc, ha
 the app is 1.11.1 build 3 for x86_64 and arm64, and no path of the build machine's user is in it.
 Not notarized: the first open asks for Open Anyway.
 
+## 56. The Android and Windows apps (A46) (2026-10-02, 1.12.0)
+
+The owner asked for two more clients: a Windows app that replicates the Mac app 1:1 and an Android
+app that replicates the iPhone app 1:1. Both are Kotlin on one shared core. `android/core` is the
+Kotlin port of `ios/Sources/RCCore` — protocol, transport (OkHttp), persistence, the Markdown
+document, every store (observable through Compose snapshot state, as RCCore's are `@Observable`)
+and the offline demo — one Kotlin file per Swift file. `android/app` draws the iPhone app's screens
+in Jetpack Compose, the iPhone's system pieces in their own shapes (`docs/ANDROID.md`); `win/` draws
+the Mac app's in Compose Multiplatform on the JVM and includes the core by path, as the Mac app
+shares RCCore (`docs/WINDOWS.md`). A46 adds `apps.android` and `apps.windows` (minimums 1.12.0).
+The rulings are `docs/DESIGN.md` § "The Android app" and § "The Windows app".
+
+**Checks.** Protocol validator: 203 fixtures, 0 problems. Gateway: 492 tests (the four apps' minimums
+and env overrides). Kotlin core: 617 JUnit tests — every RCCoreTests case and every
+`ios/Verification` check has its twin, the fixture sweep covers all 203 fixtures, Markdown parity
+with RCCore's own parse of 89 documents, a live check against the web's mock gateway, and the demo
+checked field by field against RCCore's fixtures compiled with `swiftc` (757 scripted events, line
+for line). iOS (fixtures changed): RCVerify 1554, RCUIVerify 627, swift test 461. Mac: swift test 426.
+
+**Android.** 450 tests on Robolectric with the real graphics stack, none skipped. All 74 of the
+iPhone's UI tests are ported under their own names, with their steps, assertions and screenshot
+points; their pictures, drawn at the iPhone 17's size, were laid beside the iPhone's 131 reference
+screenshots (mean agreement 0.966 within ±1 pt and 24 levels). The UI tests' real-time waits stretch
+under load: the suite passed beside a second full build. **On an emulator** (API 35, arm64,
+1206 × 2622 at 480 dpi, headless, audio and cameras off): the demo lands on Sessions and opens its
+conversations; against the web's mock gateway at `http://10.0.2.2:8787` the app signs in, streams a
+live turn, approves a tool from the card, answers the turn's question from the composer and reads the
+highlighted code block; force-stopped and relaunched, it is still signed in (the token round-trips
+the Keystore). The emulator found one defect the JVM could not: over three-button navigation the
+floating tab bar sank under the buttons; it now stands clear of the tappable inset (16167dd).
+
+**Windows.** 485 tests on macOS. All 201 of the Mac renderer's scenarios render under the same names
+and sizes in both languages; against the Mac renderer's own 402 pictures the median mean difference is
+0.53 of 255 and the median share of pixels more than 24 levels off 0.31%. The worst differences are
+the ruling's (no traffic-light inset at 760 px and below) and two timing cases (chat-jump,
+chat-tools-open). On Windows (CI): the first run on a Windows runner failed one test, which read SF's
+baseline and so belongs to the Mac's faces; it is now macOS-only (2629a93).
+
+**Not verified.** Windows on a person's machine: DPAPI on a real account, a toast and a click on it,
+the notification-area icon, the microphone, JediTerm's keys in a window, an upgrade from one installer
+to the next. Android on a physical phone: the biometric prompt, the camera and the QR scanner, the
+speech recogniser and the microphone, a posted notification, the Markdown web view's diagrams and
+formulas, haptics. Android has no push channel (DESIGN); the APK on this release is signed with a
+one-off key until a release key is set. **Known differences left:** the core's `PreferenceSync`
+lets the echo of a new account's first upload overwrite a change made before it arrives (RCCore has
+the same rule); on Windows, lines that land on a half point in a long scrolled transcript and some
+Chinese sizes sit 1 px off the Mac's; Android sets Roboto where the iPhone sets SF.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

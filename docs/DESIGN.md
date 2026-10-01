@@ -1281,8 +1281,10 @@ rgba(0,0,0,.12)` carries a modal. Motion is 120–200 ms on a single easing curv
 under `prefers-reduced-motion`.
 
 Every user-visible string lives in one catalog per app — `web/src/strings.ts`,
-`ios/App/Localizable.xcstrings` and `macos/Sources/RCMac/Strings/` (the web's tables, one file per
-group, both languages side by side) — so a second language never means touching a component.
+`ios/App/Localizable.xcstrings`, `macos/Sources/RCMac/Strings/` (the web's tables, one file per
+group, both languages side by side) and its Windows twin under `win/`, and for the Android app the
+iPhone's own catalog with `android/app/src/main/strings/overlay.json` laid over it at build time —
+so a second language never means touching a component.
 
 ## Deliberately not in v1
 

@@ -12,6 +12,8 @@ do. `protocol/PROTOCOL.md` is the normative contract; this document explains the
 | `web` | A browser | The four screens, live rendering of the block timeline, voice capture, Web Push |
 | `ios` | An iPhone | The same four screens natively, on-device or gateway dictation, APNs |
 | `macos` | A Mac | The web app's screens natively on the iPhone app's `RCCore`, gateway dictation, local notifications while it runs |
+| `android` | An Android phone | The iPhone app's screens in Jetpack Compose on `android/core`, the Kotlin port of `RCCore`; on-device or gateway dictation, local notifications from its live connection |
+| `win` | A Windows PC | The Mac app's screens in Compose Multiplatform on the same Kotlin core, gateway dictation, Windows notifications while it runs |
 
 Two WebSocket endpoints carry everything: `WS /ws/device` for daemons and `WS /ws/app` for apps.
 Everything else is a small HTTP surface under `/api`, plus `GET /install.sh` and `GET /dist/*.whl`.
@@ -638,9 +640,11 @@ loop's default thread pool is what every blocking database call in the gateway u
 on a 2-vCPU VPS. A vendor that black-holes connections must not be able to queue logins, device
 lookups and session-index reads behind it.
 
-The Mac app has no push channel of its own — the gateway's APNs topic is the iPhone app's — so its
-Notify me is local: the running app posts a system notification at the same moments with the same
-words, from the frames it already receives, and nothing on the wire or in the gateway changes.
+The Mac, Windows and Android apps have no push channel of their own — the gateway's APNs topic is
+the iPhone app's, and an Android app would need Firebase Cloud Messaging and a sender on the
+gateway — so their notifications are local: the running app posts a system notification at the same
+moments with the same words, from the frames it already receives, and nothing on the wire or in the
+gateway changes.
 
 A registration is bound to the account that made it and never changes hands. Both tables are keyed
 by the subscriber's own identifier — a push endpoint URL, an APNs device token — which is not a
@@ -712,7 +716,7 @@ deliberately absent: a device is one person's machine.
 
 ## The contract
 
-`protocol/PROTOCOL.md` is normative. Its amendments (A1…A45, dated at the end of it) are all part
+`protocol/PROTOCOL.md` is normative. Its amendments (A1…A46, dated at the end of it) are all part
 of the frozen contract; the first eleven, which shaped the architecture above, are:
 
 | Amendment | Ruling |

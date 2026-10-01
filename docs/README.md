@@ -11,12 +11,15 @@ These documents go deeper.
 | [WEB.md](WEB.md) | Build, run or change the browser app, including its mock gateway |
 | [IOS.md](IOS.md) | Build, run or ship the iPhone app, including the TestFlight prerequisites |
 | [MACOS.md](MACOS.md) | Build, run or change the Mac app, including the renderer it is compared with the web through |
+| [ANDROID.md](ANDROID.md) | Build, run or change the Android app and the Kotlin core it shares with the Windows app |
+| [WINDOWS.md](WINDOWS.md) | Build, run or change the Windows app, including the renderer it is compared with the Mac through |
 | [DESIGN.md](DESIGN.md) | Change the interface: the prototype screens, composer semantics, approval rules, status vocabulary, design tokens |
 | [VALIDATION.md](VALIDATION.md) | Know what was tested end to end on the gateway and the device daemon, what broke and was fixed, and what was never verified |
-| [VALIDATION-APPS.md](VALIDATION-APPS.md) | The same for the web and iOS apps, driven against a real gateway, a real device and the real CLIs |
+| [VALIDATION-APPS.md](VALIDATION-APPS.md) | The same for the apps, driven against a real gateway, a real device and the real CLIs |
 
 The normative wire contract lives outside `docs/`, next to its schema and fixtures:
 [`protocol/PROTOCOL.md`](../protocol/PROTOCOL.md). Each component also carries a README with its own
 layout and commands: [`gateway/`](../gateway/README.md), [`client/`](../client/README.md),
 [`web/`](../web/README.md), [`ios/`](../ios/README.md), [`macos/`](../macos/README.md),
+[`android/`](../android/README.md) (with [`android/core/`](../android/core/README.md)), [`win/`](../win/README.md),
 [`protocol/`](../protocol/README.md).
