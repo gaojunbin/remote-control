@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Termux's terminal emulator and view are vendored as they are published, so lint's advice on
+     their own version checks and locale use is left with them rather than acted on in a copy. -->
+<lint>
+    <issue id="ObsoleteSdkInt">
+        <ignore path="src/main/java/com/termux/**" />
+    </issue>
+    <issue id="DefaultLocale">
+        <ignore path="src/main/java/com/termux/**" />
+    </issue>
+    <issue id="UseRequiresApi">
+        <ignore path="src/main/java/com/termux/**" />
+    </issue>
+</lint>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Theme.canvas, for the window behind the first frame. -->
+    <color name="canvas">#F5F5F4</color>
+    <!-- The iPhone icon's background. -->
+    <color name="icon_background">#151515</color>
+</resources>

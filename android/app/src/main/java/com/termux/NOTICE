@@ -1,0 +1,39 @@
+Terminal emulator and terminal view
+====================================
+
+The Java sources under com/termux/terminal and com/termux/view are vendored from the
+`terminal-emulator` and `terminal-view` libraries of Termux:
+
+    https://github.com/termux/termux-app, commit 8629e632fcb95da272221be327db653fb24befe9
+
+Those two libraries derive from Terminal Emulator for Android by Jack Palevich
+(https://github.com/jackpal/Android-Terminal-Emulator) and are released under the Apache License,
+Version 2.0, as termux-app's LICENSE.md states for them (the rest of termux-app is GPLv3 and none
+of it is vendored here). The licence text is in the LICENSE file beside this one.
+
+Remote Control draws a shell that runs on another machine (protocol amendment A38), so the
+libraries were changed where they assumed a local process. Every modified file says so at its top.
+
+Removed
+-------
+- terminal/JNI.java: it created and waited for a local subprocess through a native library,
+  which this app neither ships nor needs.
+
+Modified
+--------
+- terminal/TerminalSession.java: rewritten as a remote session. No subprocess, pseudo-terminal,
+  threads or JNI; bytes from the network are handed in with feed(), the emulator's and the
+  person's bytes leave through an Output the owner sets, which also hears every change of the
+  grid's size. getPid(), getCwd() and the process bookkeeping are removed.
+- view/textselection/TextSelectionCursorController.java: the Copy and Paste items use the
+  platform's own words (android.R.string.copy, android.R.string.paste) instead of the library's
+  string resources, which are not packaged; the More item, which opened Termux's own context
+  menu, is not added.
+- view/textselection/TextSelectionHandleView.java: the selection handles are the platform's own
+  (android:textSelectHandleLeft and textSelectHandleRight from the theme) instead of the
+  library's drawable resources, which are not packaged.
+
+Kept unchanged
+--------------
+Everything else, including the sixel and iTerm image support (ITermImage, TerminalBitmap,
+TerminalSixel), which is plain Java over android.graphics and needs no native code.
