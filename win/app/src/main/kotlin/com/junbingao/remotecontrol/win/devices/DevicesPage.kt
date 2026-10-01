@@ -13,7 +13,6 @@ import androidx.compose.ui.unit.dp
 import com.junbingao.remotecontrol.core.protocol.Device
 import com.junbingao.remotecontrol.core.protocol.DeviceUpdateState
 import com.junbingao.remotecontrol.win.app.LocalAppModel
-import com.junbingao.remotecontrol.win.app.WinAppModel
 import com.junbingao.remotecontrol.win.design.Btn
 import com.junbingao.remotecontrol.win.design.ButtonVariant
 import com.junbingao.remotecontrol.win.design.EmptyState
@@ -46,7 +45,7 @@ fun DevicesPage() {
     VStack(Modifier.fillMaxWidth(), spacing = 0.dp, alignment = Alignment.Start) {
         PageHead(S.devices.title, hint = S.devices.subtitleCount(devices.count { it.online }, devices.size)) {
             Btn(S.devices.add, icon = LucideIcon.plus, variant = ButtonVariant.primary) {
-                AddDeviceModal.open(model, adding, AddDevicePairing())
+                adding.value = AddDevicePairing()
             }
         }
         if (devices.isEmpty()) {
@@ -73,7 +72,7 @@ fun DevicesPage() {
     }
     AddDeviceModal(adding)
     DeviceDialogs(renaming, revoking, retrying)
-    LaunchedEffect(Unit) { DevicesPage.openStaged(model, stage, devices, adding, renaming, revoking, retrying) }
+    LaunchedEffect(Unit) { DevicesPage.openStaged(stage, devices, adding, renaming, revoking, retrying) }
 }
 
 // Preview stages
@@ -107,7 +106,6 @@ object DevicesPage {
         if (stage == Stage.refusal) devices.firstOrNull { !(it.online && it.offersTerminal) }?.deviceID else null
 
     internal fun openStaged(
-        model: WinAppModel,
         stage: Stage?,
         devices: List<Device>,
         adding: MutableState<AddDevicePairing?>,
@@ -119,7 +117,7 @@ object DevicesPage {
             Stage.rename -> renaming.value = devices.firstOrNull()
             Stage.revoke -> revoking.value = devices.firstOrNull()
             Stage.retry -> retrying.value = devices.firstOrNull { it.updateState == DeviceUpdateState.failed }
-            Stage.add, Stage.addManual -> AddDeviceModal.open(model, adding, AddDevicePairing().apply { manual = stage == Stage.addManual })
+            Stage.add, Stage.addManual -> adding.value = AddDevicePairing().apply { manual = stage == Stage.addManual }
             Stage.menu, Stage.failedMenu, Stage.refusal -> {}
         }
     }

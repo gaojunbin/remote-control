@@ -7,10 +7,12 @@ Multiplatform Desktop on the Android app's Kotlin core (`android/core`). The Mac
 the reference for every pixel, word and behaviour; where the two differ, this app is wrong unless
 the ruling says otherwise, and where the Mac's Swift leaves a question open the web answers it.
 
-What is here is the foundation: the design system, the strings, the router and the window shell,
-the platform services, the app model on the core with sign-in and Update required, the web helpers
-the features share, and the renderer. The feature screens are placeholders their owners replace
-(below, **The features' entry points**).
+Every file of the Mac's `RCMac` has its port here with the same logic, under the same name — the
+Mac's own under Windows' (`MacAppModel` is `WinAppModel`, `MacStrings` is `WinStrings`), the Mac's
+window and app delegate the Windows window — and every scenario of the Mac's renderer has its twin
+in this one (201, at the same names and sizes): the sign-in page, Update required, the shell and
+its topbar, the conversation, the composer and dictation, the device and session lists, Settings,
+Users, the terminal and the notifications.
 
 ## Layout
 
@@ -19,15 +21,22 @@ the features share, and the renderer. The feature screens are placeholders their
 | `settings.gradle.kts`, `build.gradle.kts`, `gradle/` | Gradle 9.8; the Android app's version catalog; `android/core` included by path as `:core`, never copied |
 | `app/` | the app, `com.junbingao.remotecontrol.win`, and its packaging (`app/packaging/RemoteControl.ico`) |
 | `app/src/main/kotlin/…/win/app/` | `WinAppModel` (with its account, device and report extensions), `ConnectionFactory`, `Persistence`, `SignInRecorder`, `Features`, `Route`, `Router`, `LayoutClass`, `AppCommands` (the key map), `LaunchOptions`, `ShellState`, `RootView`, `MainWindow`, `WindowActivity`; `Main.kt` is `main` |
-| `…/win/design/` | `tokens.css` as Kotlin, the web's type, SwiftUI's stacks, every primitive of the Mac's `Design/`; `icons/` (lucide) and `overlay/` (the overlay layer) |
-| `…/win/strings/` | every group of the Mac's `Strings/`, one file per group, with `S` and the Windows-only groups |
+| `…/win/design/` | `tokens.css` as Kotlin, the web's type and its line box, SwiftUI's stacks, every primitive of the Mac's `Design/`; `icons/` (lucide) and `overlay/` (the overlay layer, popovers, modals, the drawer, Escape) |
+| `…/win/strings/` | every group of the Mac's `Strings/`, one file per group, with `S`, Windows' own words (`WinStrings`) and the composer's and Settings' Windows-only words |
 | `…/win/layout/` | the topbar and its tabs, the page head, the page shell, the landing rule, the window strip |
-| `…/win/platform/` | the services: the token vault, notifications and the tray, the microphone, the terminal emulator, the Markdown engine, Windows' settings |
+| `…/win/platform/` | the services: the token vault, notifications and the tray, the microphone, the terminal emulator and its keys, the Markdown engine, Windows' settings |
 | `…/win/login/`, `…/win/update/` | the sign-in page and its errors; Update required (A46) |
 | `…/win/shared/` | the web helpers two or more features read: `Format`, `Identity`, `ErrorText`, `AccountErrors`, `SessionOptions`, `LabelPair`, `Attach`, `AttachmentLimits`, `Answering`, `SlashCommands` |
-| `…/win/chat/`, `…/win/chat/composer/`, `…/win/devices/`, `…/win/sessions/`, `…/win/settings/`, `…/win/users/`, `…/win/terminal/`, `…/win/notifications/` | the features' directories, holding their placeholder entry points; `…/win/voice/` is the composer's to make |
+| `…/win/chat/` | the conversation: `ChatPage` (over the whole window) and `ChatFeature`; `page/` the panes, banners and `ChatHost`, which opens and closes a conversation; `header/` the chat header with Todos and usage; `timeline/` the transcript, its exact layout (`TranscriptExact`), the follow rule and the status line; `blocks/` every block — messages, thinking, tools, diffs, output, JSON, approval and question cards, notices; `markdown/` the hast drawn as views, with highlighted, copyable code; `resume/` the usage-limit notice and its form; `support/` the chat's text (`ChatText`: selectable, inline images, each line on the browser's baselines) and its borders, boxes and button styles |
+| `…/win/chat/composer/` | the composer: the field and its keys, drafts, attachments, slash commands, the controls row (Up next, the model card with speed and effort, permissions), the primary button, A43's queued edit; `ComposerFeature` |
+| `…/win/voice/` | dictation: `VoiceController` on the gateway's STT socket, segments, polish, the working pill |
+| `…/win/devices/` | the Devices page and a device's rows, menus, dialogs and update states; `adddevice/` Add device with its code, countdown and live handshake; `page/` a device's page with its agent cards and quotas; `ListsFeature` |
+| `…/win/sessions/` | the Sessions page with its groups, archives, search, filters, legend and Close; `controls/` its fields and buttons; `drawer/` the New session drawer, the directory picker and New folder; `sidebar/` and `SessionSidebar`, the conversation page's session list |
+| `…/win/settings/`, `…/win/users/` | Settings — the identity header, the four groups, change password, sign out, the versions line; the accounts screen with registration and the add, reset and delete dialogs (A24) |
+| `…/win/terminal/` | the terminal page (A38): `TerminalScreen` (the web's open, resize, reconnect and exit rules on the core's `TerminalSession`), the head and status line, and `TerminalStandIn`, what a render draws in the emulator's place |
+| `…/win/notifications/` | `SettingsFeature` and the notifier: Notify me's two halves and the moments it posts at |
 | `…/win/gallery/` | the gallery pages the window and the renderer draw |
-| `app/src/test/` | JUnit 5; `resources/markdown/corpus.json` and `resources/text/linebreaks.json` are the Mac's own results the tests compare with |
+| `app/src/test/` | JUnit 5, one directory per package; `resources/markdown/corpus.json` and `resources/text/linebreaks.json` are the Mac's own results the tests compare with |
 | `preview/` | the renderer: scenarios drawn offscreen and written as PNG; `scenarios/` holds the foundation's and one file per feature |
 
 ## Building and checking
@@ -109,9 +118,10 @@ sockets the core opens on the gateway itself, as the dictation socket does), `is
 runs, in order, before the connection goes, and empties what its feature holds of the account, as
 `web/src/stores/signOut.ts` does — and `onSessionTransition { previous, current -> }`, both
 multicast; `connection.addFrameHandler(token) { frame -> }` is multicast, keyed by a token of your
-own. Each feature's launch hook is the `install(on)` of its `…Feature` object, which `Features`
-calls once as the model is built. The shell reads its part of the model as `ShellState` through
-`LocalShellState`; `WithAppModel(model) { }` provides both.
+own. Each feature's launch hook is the `install(on)` of its `…Feature` object (`ChatFeature`,
+`ComposerFeature`, `ListsFeature`, `SettingsFeature`), which `Features` calls once as the model is
+built. The shell reads its part of the model as `ShellState` through `LocalShellState`;
+`WithAppModel(model) { }` provides both.
 
 **Work a person asked for runs on `model.tasks`.** The core's stores take the scope their work runs
 in, and a suspend call rethrows cancellation, so a send, an approval or a sign-in started from a
@@ -134,17 +144,23 @@ window's content width (`RootView`).
 **Type.** `Text(text, css(size, weight, lineHeight, mono, tracking), modifier, color, textAlign,
 lineLimit, softWrap)` sets type as a CSS rule does and puts it on the browser's baselines, the
 Mac's `.css(…)`: the baseline sits ⌊(L − round(ascent) − round(descent)) ÷ 2⌋ + round(ascent) into
-each line box of height L, and a line box lands on a whole point. Without a style a text takes the
-environment's font (`WithFont`) on the line SwiftUI gives the Mac's text. It takes a `String` or an
-`AnnotatedString`, whose spans' weight, size and `FontFamily.Monospace` pick their faces. The face is
-the platform's: Segoe UI Variable Text (Segoe UI before Windows 11), Consolas, and Microsoft YaHei
-UI for Chinese on Windows; on a Mac the Mac's own — SF with its size-specific tracking, SF Mono,
-PingFang — so this renderer's pictures match the Mac renderer's to the pixel. Two of the Mac's text
-system's habits are kept: a paragraph of two lines never ends on one short word (`PushOut`: the
-word before it comes down, a frame after the text is first laid out), and a line drawn where the
-exact layout puts it (below). The Mac's `.css(…)` on a row that holds text rather than on a text is
+each line box of height L, and a line box lands on a whole point. The line box aligns the baseline
+Skia draws, not the one Compose reports: `PrimaryBaseline` reads it once per style from the foot of
+a Latin letter's stem, because Compose reports a fraction (32.17 for 15 px on a 1.4 line) that Skia
+does not round as the report rounds (it draws that line at 33), and a quarter of the web's styles
+would land a pixel off the Mac's. Without a style a text takes the environment's font
+(`WithFont`) on the line SwiftUI gives the Mac's text. It takes a `String` or an `AnnotatedString`,
+whose spans' weight, size and `FontFamily.Monospace` pick their faces. The face is the platform's:
+Segoe UI Variable Text (Segoe UI before Windows 11), Consolas, and Microsoft YaHei UI for Chinese
+on Windows; on a Mac the Mac's own — SF with its size-specific tracking, SF Mono, PingFang — so this
+renderer's pictures match the Mac renderer's to the pixel. Two of the Mac's text system's habits
+are kept: a paragraph of two lines never ends on one short word (`PushOut`: the word before it
+comes down, a frame after the text is first laid out), and a line drawn where the exact layout puts
+it (below). The Mac's `.css(…)` on a row that holds text rather than on a text is
 `CSSLine(style) { HStack { … } }`: the texts inside take the style's font, and the row is set on the
-browser's baselines as one line box, its first baseline the highest of what it holds.
+browser's baselines as one line box, its first baseline the highest of what it holds. The chat's
+text, which can be selected and holds inline images, is `ChatText` (`chat/support/`), on the same
+line box.
 
 **Stacks.** Port a SwiftUI `VStack`, `HStack` or `ZStack` as `VStack(modifier, spacing, alignment)`,
 `HStack(…)`, `ZStack(…)`: SwiftUI's defaults (8 apart, centred across), and SwiftUI's layout. The
@@ -165,19 +181,22 @@ its height rounded to the pixel, as the Mac's is.
 accessibilityLabel) { label }` takes a `ButtonStyle` — a `fun interface` with `Body(configuration,
 modifier)`, the Mac's `ButtonStyle` — and shows a focus ring for the keyboard only; `Disabled { }`
 above it stops it. `Btn(title, icon, variant, size, busy)` and `btn(variant, size)`, `IconBtn(icon,
-size, label)` and `iconBtn`, `pill` and `quietPill`, `MenuTriggerStyle` (the row menus' three dots,
-lit by `LocalRowIsHovered`), `Badge(text, tone)`, `AgentChip(agent)`, `AgentLogo(agent, size)`,
+size, label)` and `iconBtn`, `pill` and `quietPill` (an `HStack` centred in its 28 px at its exact
+height, as the Mac's frame centres it), `MenuTriggerStyle` (the row menus' three dots, lit by
+`LocalRowIsHovered`), `Badge(text, tone)`, `AgentChip(agent)`, `AgentLogo(agent, size)`,
 `Mark(size)`, `Dot(style, pulses)`, `StatusDot(state, control, online)`, `OnlineDot(online, pulses)`,
-`Switch(isOn, label, onChange)`, `Segmented(value, options, ariaLabel)` with `SegmentOption`, `Spinner(size)`,
-`DeviceGroupHeader`, `ArchiveGroupHeader`, `Modifier.surface()`, `Modifier.card()`, `GroupTitle`,
-`FieldLabel`, `Hint`, `FormError`, `EmptyState(text, title)`, `PageHead(title, hint) { actions }`,
-`FieldText` with `Modifier.fieldChrome(focused)`, `WebField`, `SearchField`, `MenuList`,
-`MenuItemRow`, `SpaceBetween`, `Help(text) { }` (the web's `title` tooltip), and `Icon(LucideIcon.x,
-size, strokeWidth, modifier, color)` for every lucide icon the web imports, named as it imports them. The
-environment is `LocalContentColor` (`WithForeground`), `LocalFont` (`WithFont`), `LocalIsEnabled`
-(`Disabled`) and `LocalReduceMotion` (Windows' animation setting in the window). `./gradlew
---no-daemon :preview:run --args="--scenario gallery,gallery-tokens,gallery-menu --out <dir>"` draws
-all of them.
+`Switch(isOn, label, onChange)`, `Segmented(value, options, ariaLabel)` with `SegmentOption`,
+`Spinner(size)`, `DeviceGroupHeader`, `ArchiveGroupHeader`, `Modifier.surface()`, `Modifier.card()`,
+`GroupTitle`, `FieldLabel`, `Hint`, `FormError`, `EmptyState(text, title)`, `PageHead(title, hint) {
+actions }`, `FieldText` with `Modifier.fieldChrome(focused)`, `WebField`, `SearchField`, `MenuList`
+(every row, never a scroll: the Mac's popover asks its menu for all the height it needs),
+`MenuItemRow`, `SpaceBetween`, `Help(text) { }` (the web's `title` tooltip, which leaves the layout
+alone: what it wraps is measured as it would be without it, a segment still fills its share), and
+`Icon(LucideIcon.x, size, strokeWidth, modifier, color)` for every lucide icon the web imports,
+named as it imports them. The environment is `LocalContentColor` (`WithForeground`), `LocalFont`
+(`WithFont`), `LocalIsEnabled` (`Disabled`) and `LocalReduceMotion` (Windows' animation setting in
+the window). `./gradlew --no-daemon :preview:run --args="--scenario
+gallery,gallery-tokens,gallery-menu --out <dir>"` draws all of them.
 
 **Thin scroll bars.** `ThinScrollView(axes, modifier, state) { }` is the web's `.scroll-thin`, drawn
 as Windows 11 draws its own: over the content, taking no room, shown while the content scrolls or
@@ -192,13 +211,16 @@ footer) { }`, `Drawer(isPresented, onDismiss, title, subtitle, footer) { }`,
 web's `Menu`, options as `MenuOption`), and `Modifier.anchoredPanel(isPresented, onDismiss, align,
 side) { }` for a panel something other than a click opens. They close on Escape (the newest first,
 through the window's key handler), a press outside — the backdrop for a modal or the drawer,
-anywhere but the panel and its trigger for a popover — or their own control. A dialog moves focus
-as the web's does, to its first field (`Modifier.dialogField(requester)` marks one), or to nothing
-when a close button or a button comes first. A modal or the drawer blurs everything under it, the
-drawer included; popovers are placed by `PopoverPlacement`, the web's rule, above everything. A
-modal's and a drawer's content is a `VStackScope`. **An overlay's content is drawn in the overlay
-layer and reads that layer's composition locals**, not those where it was asked for: pass in
-anything a feature keeps in its own locals.
+anywhere but the panel and its trigger for a popover — or their own control. A field inside an
+overlay that closes something of its own on Escape carries `Modifier.claimsEscape { }`: while it
+has the focus it stands as the newest overlay, one with nothing to draw, so Escape is its own and
+the overlay around it stays (the directory picker's New folder name). A dialog moves focus as the
+web's does, to its first field (`Modifier.dialogField(requester)` marks one), or to nothing when a
+close button or a button comes first. A modal or the drawer blurs everything under it, the drawer
+included; popovers are placed by `PopoverPlacement`, the web's rule, above everything. A modal's
+and a drawer's content is a `VStackScope`. **An overlay's content is drawn in the overlay layer and
+reads that layer's composition locals**, not those where it was asked for: pass in anything a
+feature keeps in its own locals.
 
 **Words.** `S.<group>.<key>` in the current interface language (`InterfaceLanguageSource.current`),
 read through snapshot state, so a change redraws every screen; nothing may read a string at
@@ -213,8 +235,8 @@ tables, word for word; when the Mac adds a word, regenerate rather than edit.
 **The web's helpers** two or more features read are in `shared/`, ported once from the Mac's
 `Shared/`: `Format` (relative times, durations, clocks, counts, sizes, paths, folding — the web's
 `format.ts`, words from `S.format`), `Identity`, `ErrorText` (`text`, `refusal`, `queueRemove`),
-`AccountErrors`, `SessionOptions` (with `SpeedChange` for A21's standard tier), `LabelPair`, `Attach`,
-`AttachmentLimits`, `Answering` and `SlashCommands`. The sign-in errors are `LoginErrorText`.
+`AccountErrors`, `SessionOptions` (with `SpeedChange` for A21's standard tier), `LabelPair`,
+`Attach`, `AttachmentLimits`, `Answering` and `SlashCommands`. The sign-in errors are `LoginErrorText`.
 
 **Previews.** `LocalPreviewStage.current` is the scenario's stage and null in the app: a view reads
 it to show, for a render, a state that takes a click. `LocalShowsCaret` is false in a render.
@@ -225,27 +247,49 @@ stands in for the frame clock — the model follows its stores with `snapshotFlo
 change only when something sends the snapshot's apply notifications, as every frame of a window or
 a scene does.
 
-## The features' entry points
+## The features
 
-Each feature replaces its placeholders — a page title in the web's type on the web's canvas, or a
-launch hook that does nothing — with exactly these signatures, which the root, the router and the
-model already use, so nothing of the foundation's changes when a feature lands. A feature owns its
-directories, its scenario file in `preview/…/scenarios/` and its own test files.
+Each is the Mac's feature ported file by file, its scenarios under the Mac's names and sizes in its
+own file in `preview/…/scenarios/`, and the `macos/Tests/RCMacTests/` cases for its files as JUnit
+tests under the same names — or, where the Mac's case is about the Mac (its pasteboard, its
+notification centre), as Windows' own.
 
-| Entry point | Signature | Owner |
-| --- | --- | --- |
-| `chat/ChatPage.kt` | `@Composable fun ChatPage(deviceId: String, sessionId: String)`, over the whole window | win-chat |
-| `chat/ChatFeature.kt` | `object ChatFeature { fun install(on: WinAppModel) }` | win-chat |
-| `chat/composer/ComposerView.kt` | `@Composable fun ComposerView(chat: ChatStore)` | win-composer |
-| `chat/composer/ComposerFeature.kt` | `object ComposerFeature { fun install(on: WinAppModel) }`; `voice/` is the composer's too | win-composer |
-| `devices/DevicesPage.kt`, `devices/DevicePage.kt` | `@Composable fun DevicesPage()`, `@Composable fun DevicePage(deviceId: String)`, under the topbar | win-lists |
-| `devices/ListsFeature.kt` | `object ListsFeature { fun install(on: WinAppModel) }` | win-lists |
-| `sessions/SessionsPage.kt`, `sessions/SessionSidebar.kt` | `@Composable fun SessionsPage()`; `@Composable fun SessionSidebar(deviceId: String, sessionId: String)`, which the chat page places and which carries its own New session button and drawer | win-lists |
-| `settings/SettingsPage.kt`, `users/UsersPage.kt` | `@Composable fun SettingsPage()`, `@Composable fun UsersPage()`, under the topbar | win-settings |
-| `terminal/TerminalPage.kt` | `@Composable fun TerminalPage(deviceId: String)`, over the whole window | win-settings |
-| `notifications/SettingsFeature.kt` | `object SettingsFeature { fun install(on: WinAppModel) }`, where the notifier starts; it posts through `model.toasts` | win-settings |
-| `preview/…/scenarios/ChatScenarios.kt`, `ComposerScenarios.kt`, `ListsScenarios.kt`, `SettingsScenarios.kt` | `object XScenarios { val all: List<PreviewScenario> }`, empty until the feature fills it, under the Mac scenarios' names and sizes | each feature |
+**The conversation** (`chat/`; `ChatScenarios`, 44). Two panes at 1024 px and wider — the session
+sidebar and the conversation — and the conversation alone with a way back below; the header with
+Todos, usage and Stop; the usage-limit notice and its resume form; every block the web draws, the
+JSON input in the device's key order; Markdown from the QuickJS engine's hast with highlighted,
+copyable code; the status line with Take over; Load earlier that keeps the reading position, the
+follow rule and the jump to the latest. The transcript is a lazy list that puts its rows where the
+Mac's lazy stack would (`TranscriptExact`): from the top while its first row shows and from the end
+while its last does, the fraction of a pixel each row is off handed to its text.
 
+**The composer and dictation** (`chat/composer/`, `voice/`; `ComposerScenarios`, 40). The field —
+Enter sends, Shift+Enter breaks the line, the Enter that confirms an input method's composition
+never sends, undo, the Mac's maximum height, a draft per session — attachments from the file
+dialog, a paste or a drop, slash commands, the controls row (Up next, the model card with speed and
+effort, permissions), the primary button that sends, queues, answers and interrupts, A43's queued
+edit, and the gateway's dictation with polish on the core's `STTSocket`.
+
+**The lists** (`devices/`, `sessions/`; `ListsScenarios`, 47). Device rows with their menus, rename
+and revoke and the update states; Add device with the one-liner, the code and its countdown — the
+gateway's clock, read again on every tick — and the live handshake, the request leaving as the
+modal shows, as the Mac's does; a device's page with its agent cards and quotas; Sessions grouped by
+device with folds, archives, search, the agent and device filters, the legend and Close; the New
+session drawer with its directory picker and New folder; and the conversation's session sidebar,
+whose head shows the wordmark the Mac's traffic lights leave no room for.
+
+**Settings, Users, the terminal and notifications** (`settings/`, `users/`, `terminal/`,
+`notifications/`; `SettingsScenarios`, 35). The identity header, the four groups and their states,
+change password, sign out and the versions line; the accounts screen; Notify me through Windows'
+notifications, inert in every ephemeral run. The terminal page is JediTerm in the window with the
+web's open, resize, reconnect and exit rules, and Windows Terminal's keys (`TerminalKeys`):
+Ctrl+Shift+C copies, and Ctrl+C copies while text is selected and goes to the shell when nothing
+is; Ctrl+Shift+V pastes; the keys JediTerm keeps for itself — Ctrl+L, Ctrl+F, Ctrl+Up and Ctrl+Down —
+are the shell's, as they are on the web. A right click is Windows Terminal's (`RightClick`): it
+copies what is selected and pastes when nothing is, and a program that asked for the mouse gets the
+click unless Shift is held. There is no menu. A render has no window for the emulator, so
+`TerminalStandIn` stands in for it: the same grid in the emulator's face and size, and what the
+shell wrote drawn as lines of text with the unfocused cursor after them.
 
 ## The platform services
 
@@ -258,7 +302,7 @@ interface.
 | Preferences | the core's `UserDefaults` | `FileUserDefaults`: one JSON file, `defaults.json`, read at launch and written whole after every change | the core's `MemoryUserDefaults` for `--ephemeral`, the renderer and the tests |
 | Notifications | `Toasts`: `post(ToastNotice(title, body, target))`, `removeDelivered()`, `onOpen` with the clicked notice's `ToastTarget(deviceId, sessionId)` — the model's `toasts` opens the conversation | `TrayToasts`: Windows' toasts from the app's notification-area icon (`AppTray`); a click arrives as the icon's action (`ToastClicks`) | `InertToasts`: kept in the process, never shown |
 | Microphone | `VoiceRecorder`: `start()`, `stop()`; `RecorderHandlers(onFrame, onLevel, onError)` with `RecorderError` | `MicRecorder`: `javax.sound.sampled`, 16 kHz PCM16LE mono in frames of 1920 samples (120 ms, as the Mac's dictation sends them), resampled when the device cannot do 16 kHz (`Downsample`, `PcmChunker`); Windows' privacy setting read first (`MicrophoneAccess`) | the same, but nothing here ever opens it |
-| Terminal | `TerminalEmulator(feed, onSize, onInput, modifier)` with `TerminalFeed` (`write(bytes)`, `reset()`) | JediTerm in the window (`SwingPanel`), the Mac's terminal font and colours (`TerminalTheme`) | the same; a render, which has no window, draws none |
+| Terminal | `TerminalEmulator(feed, onSize, onInput, modifier)` with `TerminalFeed` (`write(bytes)`, `reset()`); `TerminalKeys` and `RightClick` | JediTerm in the window (`SwingPanel`), the Mac's terminal font and colours (`TerminalTheme`), Windows Terminal's copy, paste and right click | the same, ⌘C and ⌘V on a Mac; a render draws `TerminalStandIn` |
 | Markdown | `MarkdownEngine.shared.hast(text)`: the hast as JSON (`[tag, properties, children]`, text a string), or null without the pipeline | the Mac app's `markdown.bundle.js` in QuickJS, served from `../macos/Sources/RCMac/Resources/Highlight/` by the build | the same |
 | Settings | `ReduceMotion.current`, `AppData.directory` (with `secrets`, `defaults`, `cache`, `drafts`), `Host.isWindows` | Windows' animation setting; `%LOCALAPPDATA%\Remote Control` | no reduced motion; the same folder under the home directory |
 
@@ -274,21 +318,29 @@ The Mac renderer's arguments, scenarios and sizes, so the two pictures of a scen
 directly. Each scenario gets a fresh ephemeral `WinAppModel` on the renderer's one thread, signed
 in through the core (`--gateway` against the web's mock gateway, whose `admin` / `dev` works;
 `--demo` on the offline demo), taken to its route and drawn through the real `RootView` in an
-`ImageComposeScene` with no window (`java.awt.headless=true`), prepared, left to settle — its
-`settle` and then until nothing is left to draw — and written as `<out>/<name>.png`, 1280 × 860 at
-2× unless it says otherwise. A scenario is `PreviewScenario(name, route, width, height, stage,
-account, language, settle, setup, prepare, content)`, the Mac's fields: `account` is `signedIn`,
-`signedOut` (the form, on the demo's account form under `--demo`) or `updateRequired`; `setup` runs
-before the scene exists and `prepare` after it shows the route; `content` draws one view where the
-route would be. Both get a `PreviewContext`: the `model`, the `gateway` the command line named,
-`openChat(deviceId, sessionId)` to open one conversation for a scenario that draws a piece of it,
-`chat` to read it back, and `wait(timeout) { }`. The registry is `PreviewScenarios.all`:
+`ImageComposeScene` with no window (`java.awt.headless=true`). A scenario is `PreviewScenario(name,
+route, width, height, stage, account, language, settle, setup, prepare, content)`, the Mac's
+fields: `account` is `signedIn`, `signedOut` (the form, on the demo's account form under `--demo`)
+or `updateRequired`; `setup` runs before the scene exists and `prepare` after it shows the route;
+`content` draws one view where the route would be. Both get a `PreviewContext`: the `model`, the
+`gateway` the command line named, `openChat(deviceId, sessionId)` to open one conversation for a
+scenario that draws a piece of it, `chat` to read it back, and `wait(timeout) { }`.
+
+The scene draws a frame every 16 ms while the scenario prepares and while it settles, as the Mac
+renderer's window keeps refreshing, so what a view starts when it is next composed — a staged
+dialog, Add device's request for a code — happens during a `wait`. The picture is taken when the
+Mac's is, `settle` after the preparation: later would show a later moment — a spinner never stops
+asking for frames, and the demo's handshake and every clock on the page go on — and a scenario
+about one step of a handshake would show the next. It is never taken before the scene has drawn six
+frames, the Mac window's first tenth of a second, in which a staged dialog opens and rises there,
+where one frame behind a modal's blur can take a tenth of a second here. Each picture is
+`<out>/<name>.png`, 1280 × 860 at 2× unless the scenario says otherwise. The registry is `PreviewScenarios.all`:
 `FoundationScenarios` (the sign-in form in its states, the landing rule, the topbar on each tab and
 below its breakpoints, Update required, the gallery and the overlay checks) and one file per
 feature.
 
-What a render cannot show: the pointer's hover states, a text field's caret, and the terminal
-emulator, which is a Swing component.
+What a render cannot show: the pointer's hover states and a text field's caret; the terminal is the
+stand-in's text, not JediTerm's drawing.
 
 ## Matching the Mac's pictures
 
@@ -300,28 +352,52 @@ compare pixel for pixel. What it takes, measured against the Mac renderer and Co
   face's `trak` table and Skia leaves out; widths agree to a thousandth of a pixel.
 - **The Mac's line**: SwiftUI's line heights for its natural text, the browser's baseline rule for
   a line box, text widths rounded up to the device pixel, and each line aligned by the baseline its
-  primary face gives it (`PrimaryBaseline`): SwiftUI centres Chinese, whose face is taller, about
-  a Latin line, so it sits half a point above Latin of the same style, and Compose's own baseline
-  for that line would put it back down.
+  primary face is drawn on (`PrimaryBaseline`, read from the pixels): SwiftUI centres Chinese,
+  whose face is taller, about a Latin line, and Compose's own baseline for that line would move it.
 - **Ink**: Skia's glyph coverage depends on the colour; text is drawn in a neutral grey and
   recoloured, which brings its weight of ink to the Mac's.
 - **Exact layout** (above), and the Mac's text system's two-line rule, checked against SwiftUI's
   own line breaks of 257 paragraphs (`PushOutTests`).
 - **Overlays**: the backdrop's blur is a Gaussian of 0.94 px per CSS px, the Mac's `.blur(radius: 1)`.
 
-What still differs: the backdrop is one level of 255 lighter (Skia blends an 8-bit premultiplied
-colour, Core Animation a float one); a few pixels in a thousand differ by more than a level or two,
-at glyph edges and in the blur; and the spinner's phase is the moment the picture is taken, on both.
-Two differences are the ruling's: at 760 and narrower the topbar starts at the web's padding where
-the Mac's starts after its traffic lights, and Update required's button opens the download page
-where the Mac's names TestFlight or the App Store.
+All 201 scenarios in both languages against the Mac renderer's pictures of the same names
+(`--demo`, 1280 × 860 at 2× unless the scenario says otherwise), on 2026-10-02: the mean difference
+is 0.57 of 255 per channel and 0.50 % of pixels are more than 24 levels off; per feature,
+foundation 0.46 / 0.31 %, conversation 1.05 / 1.08 %, composer 0.06 / 0.09 %, lists 0.60 / 0.47 %,
+Settings 0.61 / 0.47 %. What still differs, and why:
+
+- **The ruling's.** Without traffic lights the strips start at the web's padding where the Mac's
+  start after them: the topbar at 760 and narrower, the chat header below 1024, and the session
+  sidebar's head, which has room for the wordmark. Update required's button opens the download page
+  where the Mac's names TestFlight or the App Store. The versions line names this build (1.12.0)
+  where the Mac's pictures name theirs.
+- **The moment.** A device page's quota resets are times of day and differ with the hour of the
+  render, and a pulsing dot and a spinner are wherever their phase is when the picture is taken, on
+  both.
+- **The Mac's stage.** `chat.jump` and `chat.tools.open` scroll the transcript to its top 1.2 s in,
+  and the tail pin of a live conversation scrolls it back when a pin is still in flight: the Mac's
+  pictures show it back at the tail (its `chat-jump` is its `chat-running`), and this renderer's
+  show it at the top or at the tail as the pin's timing falls.
+- **Half points.** In a transcript read from its end (`chat-question`, `chat-shared`,
+  `chat-running`, `chat-todos`, `chat-codex-shared`) some lines whose exact place falls on half a
+  point are drawn a point from where the Mac draws them: the Mac's rows there sit a fraction of a
+  pixel off the exact layout, which its scroll view keeping its offset on the pixel grid would
+  explain. And Chinese at some sizes sits a pixel from the Mac's (Settings' sentences, 13 px on a
+  1.45 line, a pixel high), CoreText and Skia rounding the taller face's metrics differently.
+- **Glyph edges.** A few pixels in a thousand differ by more than a level or two at glyph edges and
+  in the blur, and the backdrop is one level of 255 lighter (Skia blends an 8-bit premultiplied
+  colour, Core Animation a float one).
 
 ## Not verified on this Mac
 
 Everything that needs Windows: the DPAPI round trip (its test runs on Windows only), the toasts and
 a click on one on Windows 10 and 11 (the click rule is unit-tested; the toasts were never posted
-here), the tray, Segoe UI Variable and Microsoft YaHei UI on screen, the microphone (never opened),
-JediTerm in a window, and `packageMsi`/`packageExe`.
+here), the tray, Segoe UI Variable and Microsoft YaHei UI on screen, the microphone (never opened:
+dictation is driven from scenario stages and unit tests), JediTerm in a window with Windows
+Terminal's keys and right click (the key and click rules are unit-tested; renders draw the
+stand-in), and `packageMsi`/`packageExe`. On this Mac the app image starts with `--demo
+--ephemeral` and stays up, but nothing in it was driven by hand: a tooltip on hover, Escape in a
+focused field, a file dialog, a drop or the clipboard in a live window.
 
 ## Icon
 

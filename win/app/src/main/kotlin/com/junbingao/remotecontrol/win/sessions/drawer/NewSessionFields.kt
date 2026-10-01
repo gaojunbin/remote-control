@@ -10,8 +10,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -27,7 +25,6 @@ import com.junbingao.remotecontrol.win.design.Disabled
 import com.junbingao.remotecontrol.win.design.FieldLabel
 import com.junbingao.remotecontrol.win.design.FontSize
 import com.junbingao.remotecontrol.win.design.HStack
-import com.junbingao.remotecontrol.win.design.Help
 import com.junbingao.remotecontrol.win.design.LocalPreviewStage
 import com.junbingao.remotecontrol.win.design.OnlineDot
 import com.junbingao.remotecontrol.win.design.Palette
@@ -165,11 +162,7 @@ private fun AgentField(form: NewSessionForm, device: Device?, agent: AgentInfo?)
             value = agent?.agent ?: "",
             options = device?.agents.orEmpty().map { option ->
                 val name = if (option.available) S.agentLabel(option.agent) else "${S.agentLabel(option.agent)} · ${S.newSession.agentUnavailable}"
-                // The name is the logo's, for a reader and a hover: a segment given a name of its own
-                // is wrapped in a tooltip that keeps it from stretching to its share of the control.
-                SegmentOption(value = option.agent, disabled = !option.available) {
-                    Help(name) { AgentLogo(option.agent, size = 18f, modifier = Modifier.semantics { contentDescription = name }) }
-                }
+                SegmentOption(value = option.agent, disabled = !option.available, name = name) { AgentLogo(option.agent, size = 18f) }
             },
             ariaLabel = S.newSession.agent,
             modifier = Modifier.fillMaxWidth(),

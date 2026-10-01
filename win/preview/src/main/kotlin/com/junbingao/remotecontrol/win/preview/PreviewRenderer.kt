@@ -46,7 +46,7 @@ class PreviewRenderer(private val arguments: PreviewArguments, private val conte
             }
             val file = scene.use {
                 it.frame()
-                scenario.prepare(preview)
+                it.drawing { scenario.prepare(preview) }
                 it.settle(scenario.settle)
                 File(directory, "${scenario.name}.png").apply { writeBytes(it.png()) }
             }

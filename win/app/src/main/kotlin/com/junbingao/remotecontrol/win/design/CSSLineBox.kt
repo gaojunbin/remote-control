@@ -19,8 +19,8 @@ import kotlin.math.roundToInt
 /**
  * Text on the browser's baselines: the first baseline `baseline` below the top of the first
  * line's box, the last one as far below the top of the last, and the block ending one box below
- * its last line's top. Compose reports a text's baselines in whole pixels, rounded as Skia rounds
- * the glyphs it draws, so the text is moved by whole pixels and its glyphs land where asked.
+ * its last line's top. The text is moved by whole pixels, so its glyphs stay on the pixel rows Skia
+ * drew them on, and land where asked.
  *
  * The box is as wide as the text, in whole device pixels, as SwiftUI measures the Mac's. Given a
  * fixed height — a button's, a pill's, with `fillMaxHeight` — the line centres itself in it. The
@@ -29,8 +29,9 @@ import kotlin.math.roundToInt
  * whole pixel from its exact place, which the stack around it knows (`StackFrame`). A text left
  * to its own height reports the fraction of a pixel its box was rounded by (`exact`).
  *
- * A text names the baseline its primary face gives the line (`aligned`, from `PrimaryBaseline`),
- * and that is the one put on `baseline`; a box of texts aligns the first baseline they report.
+ * A text names the baseline its primary face gives the line as Skia draws it (`aligned`, from
+ * `PrimaryBaseline`), and that is the one put on `baseline`; a box of texts aligns the first
+ * baseline they report, which is where each was put.
  */
 internal fun Modifier.cssLineBox(lineBox: Float, baseline: Float, snapToPoint: Boolean, exact: ExactHeight, aligned: Int? = null): Modifier =
     this then CSSLineBoxElement(lineBox, baseline, snapToPoint, exact, aligned)

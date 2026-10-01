@@ -3,7 +3,6 @@ package com.junbingao.remotecontrol.win.sessions.drawer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -24,12 +23,7 @@ import com.junbingao.remotecontrol.win.design.Space
 import com.junbingao.remotecontrol.win.design.Text
 import com.junbingao.remotecontrol.win.design.VStack
 import com.junbingao.remotecontrol.win.design.css
-import com.junbingao.remotecontrol.win.design.overlay.LocalOverlayRegistry
-import com.junbingao.remotecontrol.win.design.overlay.OverlayEntry
-import com.junbingao.remotecontrol.win.design.overlay.OverlayKind
-import com.junbingao.remotecontrol.win.design.overlay.OverlayRegistry
-import com.junbingao.remotecontrol.win.design.overlay.PopoverAlign
-import com.junbingao.remotecontrol.win.design.overlay.PopoverSide
+import com.junbingao.remotecontrol.win.design.overlay.claimsEscape
 import com.junbingao.remotecontrol.win.sessions.controls.RowBtnStyle
 import com.junbingao.remotecontrol.win.sessions.controls.SizedField
 import com.junbingao.remotecontrol.win.strings.S
@@ -44,7 +38,6 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun NewFolderRow(browser: DirectoryBrowser, modifier: Modifier = Modifier) {
     val model = LocalAppModel.current
-    val escape = rememberEscapeHold(LocalOverlayRegistry.current) { browser.stopNaming() }
     var fieldFocused by remember { mutableStateOf(false) }
     // Whether the name had the focus when it was sent: the browser keeps it there through the
     // request, while the field is disabled.
@@ -56,19 +49,15 @@ internal fun NewFolderRow(browser: DirectoryBrowser, modifier: Modifier = Modifi
         model.tasks.launch { browser.createFolder() }
     }
 
-    fun focusChanged(focused: Boolean) {
-        fieldFocused = focused
-        escape.hold(focused)
-    }
-
     VStack(modifier.fillMaxWidth(), spacing = 0.dp, alignment = Alignment.Start) {
         HStack(Modifier.fillMaxWidth(), spacing = Space.sp2) {
             Disabled(browser.folderBusy) {
                 SizedField(
                     browser.folderName, { browser.folderName = it },
                     placeholder = S.newSession.newFolderName, mono = true, fontSize = FontSize.fs13, height = 32.dp,
-                    autofocus = true, refocus = refocus, onFocus = ::focusChanged, onSubmit = ::create,
-                    modifier = Modifier.weight(1f),
+                    autofocus = true, refocus = refocus, onFocus = { fieldFocused = it }, onSubmit = ::create,
+                    // Escape belongs to the row, not to the modal around it, while the name has the focus.
+                    modifier = Modifier.weight(1f).claimsEscape { browser.stopNaming() },
                 )
             }
             // The field takes one line, so trimming its whitespace is trimming its spaces.
@@ -82,7 +71,6 @@ internal fun NewFolderRow(browser: DirectoryBrowser, modifier: Modifier = Modifi
         val error = browser.folderError
         if (error != null) Text(error, css(FontSize.fs13), Modifier.padding(top = Space.sp2), color = Palette.danger)
     }
-    DisposableEffect(Unit) { onDispose { escape.hold(false) } }
     LaunchedEffect(browser.folderBusy) {
         if (browser.folderBusy) {
             refocusAfter = refocusAfter || fieldFocused
@@ -90,31 +78,5 @@ internal fun NewFolderRow(browser: DirectoryBrowser, modifier: Modifier = Modifi
             refocusAfter = false
             refocus += 1
         }
-    }
-}
-
-/**
- * Escape belongs to the row, not to the modal around it, while the name has the focus: the row
- * stands as the newest overlay for that long — an entry of the overlay layer with no panel to
- * draw and no trigger to anchor one — so the one Escape closes is the row.
- */
-@Composable
-private fun rememberEscapeHold(registry: OverlayRegistry?, onEscape: () -> Unit): EscapeHold {
-    val hold = remember(registry) { EscapeHold(registry) }
-    hold.onEscape = onEscape
-    return hold
-}
-
-private class EscapeHold(private val registry: OverlayRegistry?) {
-    var onEscape: () -> Unit = {}
-    private var entry: OverlayEntry? = null
-
-    fun hold(focused: Boolean) {
-        entry?.let { registry?.unregister(it) }
-        entry = null
-        if (!focused || registry == null) return
-        val held = OverlayEntry(OverlayKind.Popover(PopoverAlign.start, PopoverSide.bottom), content = {}, dismiss = { onEscape() })
-        registry.register(held)
-        entry = held
     }
 }

@@ -12,10 +12,13 @@ import androidx.compose.ui.geometry.Offset
 class OverlayRegistry {
     internal val entries = mutableStateListOf<OverlayEntry>()
 
+    /** The views holding Escape (`claimsEscape`), which stand among the overlays but draw nothing. */
+    private val claims = mutableListOf<EscapeClaim>()
+
     /** Where the layer sits in the window, which a trigger's bounds are measured from. */
     internal var origin: Offset = Offset.Zero
 
-    val isEmpty: Boolean get() = entries.isEmpty()
+    val isEmpty: Boolean get() = entries.isEmpty() && claims.isEmpty()
 
     /** Whether a modal or the drawer is open, which is what blurs the page. */
     val isBlocking: Boolean get() = entries.any { !it.kind.isPopover }
@@ -28,10 +31,23 @@ class OverlayRegistry {
         entries -= entry
     }
 
-    /** Escape: the newest overlay closes, and only that one. True when one did. */
+    internal fun claim(claim: EscapeClaim) {
+        if (claim !in claims) claims += claim
+    }
+
+    internal fun release(claim: EscapeClaim) {
+        claims -= claim
+    }
+
+    /** Escape: the newest overlay, or the newest view holding Escape, closes, and only that one. True when one did. */
     fun dismissNewest(): Boolean {
-        val newest = entries.maxByOrNull { it.openedAt } ?: return false
-        newest.dismiss()
+        val overlay = entries.maxByOrNull { it.openedAt }
+        val claim = claims.maxByOrNull { it.openedAt }
+        when {
+            claim != null && (overlay == null || claim.openedAt > overlay.openedAt) -> claim.dismiss()
+            overlay != null -> overlay.dismiss()
+            else -> return false
+        }
         return true
     }
 
