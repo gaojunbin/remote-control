@@ -25,9 +25,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.TextMeasurer
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.junbingao.remotecontrol.android.design.Button
 import com.junbingao.remotecontrol.android.design.ButtonStyle
@@ -39,6 +38,7 @@ import com.junbingao.remotecontrol.android.design.SystemFont
 import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
 import com.junbingao.remotecontrol.android.design.interfaceLocale
+import com.junbingao.remotecontrol.android.design.widestLine
 import com.junbingao.remotecontrol.android.strings.L10n
 
 /** A button's role in an alert or a dialog, as SwiftUI's `ButtonRole`. */
@@ -149,9 +149,8 @@ private fun AlertField(field: AlertTextField) {
  */
 @Composable
 internal fun AlertButtons(actions: List<AlertAction>, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
-    val measurer = rememberTextMeasurer()
     val cancelLast = actions.sortedBy { if (it.role == ActionRole.cancel) 1 else 0 }
-    val sideBySide = actions.size == 2 && fitsHalf(measurer, actions)
+    val sideBySide = actions.size == 2 && AlertMetrics.sideBySide(widestLine(actions.map { it.title }, SystemFont.body))
     if (sideBySide) {
         val ordered = actions.sortedBy { if (it.role == ActionRole.cancel) 0 else 1 }
         Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(AlertMetrics.buttonGap)) {
@@ -162,14 +161,6 @@ internal fun AlertButtons(actions: List<AlertAction>, onDismiss: () -> Unit, mod
             for (action in cancelLast) AlertButton(action, onDismiss, Modifier.fillMaxWidth())
         }
     }
-}
-
-@Composable
-private fun fitsHalf(measurer: TextMeasurer, actions: List<AlertAction>): Boolean {
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val half = (AlertMetrics.width - AlertMetrics.buttonInset * 2 - AlertMetrics.buttonGap) / 2 - AlertMetrics.buttonTextInset * 2
-    val room = with(density) { half.toPx() }
-    return actions.all { measurer.measure(it.title, SystemFont.body).size.width <= room }
 }
 
 @Composable
@@ -245,6 +236,18 @@ object AlertMetrics {
     val buttonHeight = 48.dp
     val buttonGap = 8.dp
     val buttonTextInset = 12.dp
+
+    /**
+     * How wide a title may be for two buttons to stand side by side. UIKit's room is the half less
+     * its text insets, 116 points of SF; Roboto sets the iPhone's alert words narrower than SF even
+     * after the tracking — "Revoke device" 106 points of ink against SF's 110, "Delete account"
+     * 112 against 116 — so the room is set between the two words the iPhone parts on: Revoke device
+     * stands beside Cancel and Delete account goes above it, in English as on the iPhone, and every
+     * Chinese title, a few characters long, fits.
+     */
+    val titleRoom = 110.dp
+
+    fun sideBySide(widestTitle: Dp): Boolean = widestTitle <= titleRoom
 
     /** The message's grey, which is the system's secondary label read through the glass. */
     val messageColor: Color @Composable @ReadOnlyComposable

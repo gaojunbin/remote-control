@@ -29,15 +29,18 @@ fun PresentationHost(presenter: Presenter, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalPresenter provides presenter) {
         Box(Modifier.fillMaxSize()) {
             content()
-            for (layer in presenter.layers.toList()) {
-                key(layer) { PresentedLayer(presenter, layer) }
+            val layers = presenter.layers.toList()
+            layers.forEachIndexed { index, layer ->
+                // A sheet over a sheet stands lower than the ones it covers, so it knows how many there are.
+                val sheetsUnder = layers.subList(0, index).count { it.kind == PresentationKind.sheet }
+                key(layer) { PresentedLayer(presenter, layer, sheetsUnder) }
             }
         }
     }
 }
 
 @Composable
-private fun PresentedLayer(presenter: Presenter, layer: Presentation) {
+private fun PresentedLayer(presenter: Presenter, layer: Presentation, sheetsUnder: Int) {
     val transition = rememberTransition(layer.visibility, label = "presentation")
     if (!transition.currentState && !transition.targetState && !transition.isRunning) {
         SideEffect { presenter.forget(layer) }
@@ -48,7 +51,7 @@ private fun PresentedLayer(presenter: Presenter, layer: Presentation) {
         if (locals != null) CompositionLocalProvider(locals) { layer.content() } else layer.content()
     }
     when (layer.kind) {
-        PresentationKind.sheet -> SheetLayer(layer, transition, body)
+        PresentationKind.sheet -> SheetLayer(layer, sheetsUnder, transition, body)
         PresentationKind.fullScreenCover -> CoverLayer(transition, body)
         PresentationKind.alert -> AlertLayer(transition, body)
         PresentationKind.confirmationDialog -> DialogLayer(layer, transition, body)

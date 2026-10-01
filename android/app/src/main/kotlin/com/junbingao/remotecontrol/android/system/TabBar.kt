@@ -46,11 +46,12 @@ data class TabItem(val title: String, val symbol: SfSymbol, val tag: String)
 /**
  * The iPhone's tab bar as iOS 26 draws it: a floating glass capsule centred over the bottom of the
  * screen, one item per destination — the filled symbol over its name — and a grey pill behind the
- * one that is chosen. Measured from the reference screenshots: 275 by 55 points for three items,
- * its foot 24 points above the bottom of an iPhone 17, the pill 94 by 45.
+ * one that is chosen, four points in from the capsule's rim. Measured from the reference
+ * screenshots: 275 by 62.7 points for three items, its foot 20.7 points above the bottom of an
+ * iPhone 17, the pill 94 by 54.
  *
- * It floats over the content, which scrolls under it; [TabBarMetrics.reserved] is how much of the
- * bottom a screen leaves for it.
+ * It floats over the content, which scrolls under it and which its glass blurs; [TabBarMetrics.reserved]
+ * is how much of the bottom a screen leaves for it.
  */
 @Composable
 fun TabBar(items: List<TabItem>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
@@ -62,7 +63,7 @@ fun TabBar(items: List<TabItem>, selected: Int, onSelect: (Int) -> Unit, modifie
                 .padding(bottom = TabBarMetrics.footMargin(safe.bottom))
                 .width(width)
                 .height(TabBarMetrics.height)
-                .glass(CapsuleShape, rim = false),
+                .glass(CapsuleShape),
         ) {
             val pillX by animateDpAsState(
                 TabBarMetrics.sidePadding + TabBarMetrics.itemWidth * selected -
@@ -74,7 +75,7 @@ fun TabBar(items: List<TabItem>, selected: Int, onSelect: (Int) -> Unit, modifie
                 Modifier
                     .offset { IntOffset(pillX.roundToPx(), ((TabBarMetrics.height - TabBarMetrics.pillHeight) / 2).roundToPx()) }
                     .size(TabBarMetrics.pillWidth, TabBarMetrics.pillHeight)
-                    .background(Glass.selection, CapsuleShape),
+                    .background(Glass.pill, CapsuleShape),
             )
             Row(Modifier.padding(horizontal = TabBarMetrics.sidePadding).fillMaxHeight()) {
                 items.forEachIndexed { index, item ->
@@ -127,22 +128,22 @@ private fun TabBarItem(item: TabItem, chosen: Boolean, onClick: () -> Unit) {
 
 /** The tab bar's measurements, from the iPhone 17 reference screenshots. */
 object TabBarMetrics {
-    val height = 55.33.dp
+    val height = 62.67.dp
     val itemWidth = 85.8.dp
     val sidePadding = 8.8.dp
     val pillWidth = 94.dp
-    val pillHeight = 44.67.dp
+    val pillHeight = 54.dp
 
     /** The symbols are set at 22 points, the size that makes the three the iPhone's size. */
     val symbolPoints = androidx.compose.ui.unit.TextUnit(22f, androidx.compose.ui.unit.TextUnitType.Sp)
 
     /** Where each symbol's centre and each label's top sit, down from the capsule's top. */
-    val symbolCentre = 20.9.dp
-    val labelTop = 35.9.dp
+    val symbolCentre = 24.57.dp
+    val labelTop = 39.57.dp
 
-    /** How far above the screen's bottom the capsule's foot stands: 24 on an iPhone 17. */
-    fun footMargin(bottomInset: Dp): Dp = max(bottomInset - 9.67.dp, 8.dp)
+    /** How far above the screen's bottom the capsule's foot stands: 20.7 on an iPhone 17. */
+    fun footMargin(bottomInset: Dp): Dp = max(bottomInset - 13.33.dp, 8.dp)
 
-    /** How much of the bottom a screen leaves for the bar: 83 on an iPhone 17. */
-    fun reserved(bottomInset: Dp): Dp = footMargin(bottomInset) + height + 3.dp
+    /** How much of the bottom a screen leaves for the bar, up to the capsule's top: 83.3 on an iPhone 17. */
+    fun reserved(bottomInset: Dp): Dp = footMargin(bottomInset) + height
 }

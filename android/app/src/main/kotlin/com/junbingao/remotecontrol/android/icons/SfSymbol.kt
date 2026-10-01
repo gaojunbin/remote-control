@@ -35,12 +35,15 @@ class SymbolLayer(
  * app"). [name] is the iPhone's own spelling, so a screen that is handed a symbol by name — a row
  * action, an empty state — finds it with [Sf.named]. [scale] corrects lucide's padded 24-unit box
  * towards the size the symbol has on the iPhone at the same point size, measured from the
- * reference screenshots where the symbol appears in them.
+ * reference screenshots where the symbol appears in them. [aspect] is the symbol's frame, as wide
+ * as that much of its height: SF's frame hugs a narrow symbol's ink, so a chevron at the trailing
+ * edge of a row stands where the iPhone's does rather than inside a square of padding.
  */
 class SfSymbol(
     val name: String,
     val layers: List<SymbolLayer>,
     val scale: Float = 1f,
+    val aspect: Float = 1f,
 ) {
     override fun toString(): String = "SfSymbol($name)"
 }
@@ -50,7 +53,7 @@ internal fun stroke(paths: List<String>, weight: Float = 1f) =
 
 internal fun fill(paths: List<String>, alpha: Float = 1f) = SymbolLayer(paths, LayerPaint.fill, alpha = alpha)
 
-internal fun fillAndStroke(paths: List<String>) = SymbolLayer(paths, LayerPaint.fillAndStroke)
+internal fun fillAndStroke(paths: List<String>, weight: Float = 1f) = SymbolLayer(paths, LayerPaint.fillAndStroke, weight = weight)
 
 internal fun cutStroke(paths: List<String>, weight: Float = 1f) =
     SymbolLayer(paths, LayerPaint.cutStroke, weight = weight)

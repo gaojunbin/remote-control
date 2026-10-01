@@ -18,6 +18,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.junbingao.remotecontrol.android.harness.DemoApp
+import com.junbingao.remotecontrol.android.harness.RealTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 
@@ -51,12 +52,13 @@ class Driving(private val compose: ComposeTestRule, val app: DemoApp) {
     fun waitForAbsence(matcher: SemanticsMatcher, timeoutMillis: Long): Boolean = within(timeoutMillis) { !exists(matcher) }
 
     /**
-     * Whether [condition] comes to hold within [timeoutMillis] of real time. The screens' own clock
-     * is moved on with it, so a pause a screen takes — the sign-in form waiting for the typing to
-     * settle before it asks the gateway — passes as it would on a phone.
+     * Whether [condition] comes to hold within [timeoutMillis] of real time, stretched for a loaded
+     * machine ([RealTime]). The screens' own clock is moved on with it, so a pause a screen takes —
+     * the sign-in form waiting for the typing to settle before it asks the gateway — passes as it
+     * would on a phone.
      */
     private fun within(timeoutMillis: Long, condition: () -> Boolean): Boolean {
-        val end = System.currentTimeMillis() + timeoutMillis
+        val end = System.currentTimeMillis() + RealTime.bound(timeoutMillis)
         while (true) {
             compose.waitForIdle()
             if (condition()) return true

@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.platform.LocalDensity
@@ -81,13 +82,16 @@ fun Icon(
     }
     Canvas(
         modifier
-            .size(side)
+            .size(side * symbol.aspect, side)
             // An offscreen layer, so a cut-out clears the symbol's own ink and not the screen.
             .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
             .then(described),
     ) {
-        scale(size.minDimension / SfMetrics.GRID, pivot = Offset.Zero) {
-            symbol.layers.forEachIndexed { index, layer -> draw(layer, layers[index], color, units) }
+        // The glyph is drawn on its square grid, centred in a frame that may be narrower.
+        translate(left = (size.width - size.height) / 2) {
+            scale(size.height / SfMetrics.GRID, pivot = Offset.Zero) {
+                symbol.layers.forEachIndexed { index, layer -> draw(layer, layers[index], color, units) }
+            }
         }
     }
 }
@@ -137,6 +141,10 @@ private object SymbolPaths {
         symbol.layers.map { layer -> layer.paths.map { PathParser().parsePathString(it).toPath() } }
     }
 }
+
+/** Where the symbol's frame runs across lucide's grid: all of it, or the middle of it for a narrow frame. */
+internal val SfSymbol.frameSpan: ClosedFloatingPointRange<Float>
+    get() = SfMetrics.GRID / 2 * (1 - aspect)..SfMetrics.GRID / 2 * (1 + aspect)
 
 /**
  * Where the symbol's ink runs across lucide's grid at a stroke of [units]: its paths' extent,

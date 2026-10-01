@@ -19,6 +19,7 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.text.AnnotatedString
 import com.junbingao.remotecontrol.android.harness.DemoApp
+import com.junbingao.remotecontrol.android.harness.RealTime
 import com.junbingao.remotecontrol.core.state.TimelineDetail
 import java.util.concurrent.TimeUnit
 import org.robolectric.shadows.ShadowLooper
@@ -35,20 +36,24 @@ import org.robolectric.shadows.ShadowLooper
 class ChatDriver(private val compose: ComposeTestRule, val app: DemoApp) {
     private var clock = System.currentTimeMillis()
 
-    /** Wait until [condition] holds, failing with [what] after [timeoutMillis] — `waitForExistence` and its friends. */
+    /**
+     * Wait until [condition] holds, failing with [what] after [timeoutMillis], stretched for a
+     * loaded machine ([RealTime]) — `waitForExistence` and its friends.
+     */
     fun await(what: String, timeoutMillis: Long = 20_000, condition: () -> Boolean) {
-        val end = System.currentTimeMillis() + timeoutMillis
+        val bound = RealTime.bound(timeoutMillis)
+        val end = System.currentTimeMillis() + bound
         while (true) {
             tick()
             if (condition()) return
-            check(System.currentTimeMillis() < end) { "still waiting after $timeoutMillis ms for $what" }
+            check(System.currentTimeMillis() < end) { "still waiting after $bound ms for $what" }
             Thread.sleep(40)
         }
     }
 
-    /** Whether [condition] comes to hold within [timeoutMillis]; false rather than a failure — `waitFor` in the iPhone's tests. */
+    /** Whether [condition] comes to hold within [timeoutMillis], stretched as [await]'s; false rather than a failure — `waitFor` in the iPhone's tests. */
     fun within(timeoutMillis: Long, condition: () -> Boolean): Boolean {
-        val end = System.currentTimeMillis() + timeoutMillis
+        val end = System.currentTimeMillis() + RealTime.bound(timeoutMillis)
         while (System.currentTimeMillis() < end) {
             tick()
             if (condition()) return true

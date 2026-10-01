@@ -29,6 +29,11 @@ Modified
   platform's own words (android.R.string.copy, android.R.string.paste) instead of the library's
   string resources, which are not packaged; the More item, which opened Termux's own context
   menu, is not added.
+- view/TerminalRenderer.java: the cells are SwiftTerm's, 1.25 of the type size tall, with each
+  row's glyphs at the top of its cell, and the block cursor is a faint outline while the view does
+  not have the keyboard, as the iPhone's terminal draws them.
+- view/TerminalView.java: rows start at the top of the view to match (getColumnAndRow,
+  updateSize), the renderer is told whether the view has focus, and a change of focus redraws.
 - view/textselection/TextSelectionHandleView.java: the selection handles are the platform's own
   (android:textSelectHandleLeft and textSelectHandleRight from the theme) instead of the
   library's drawable resources, which are not packaged.

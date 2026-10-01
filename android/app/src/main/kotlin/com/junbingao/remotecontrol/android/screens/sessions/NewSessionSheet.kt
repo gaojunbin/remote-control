@@ -22,6 +22,7 @@ import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
 import com.junbingao.remotecontrol.android.design.dismissesKeyboardOnBackgroundTap
 import com.junbingao.remotecontrol.android.navigation.LocalTabBarReserve
+import com.junbingao.remotecontrol.android.navigation.NavigationMetrics
 import com.junbingao.remotecontrol.android.navigation.NavigationScreen
 import com.junbingao.remotecontrol.android.navigation.TitleDisplayMode
 import com.junbingao.remotecontrol.android.shell.LocalAppModel
@@ -146,7 +147,7 @@ fun NewSessionSheet(dismiss: () -> Unit) {
                 }
             },
         ) { insets ->
-            val padding = PaddingValues(top = insets.top + BarFoot.height, bottom = insets.bottom)
+            val padding = PaddingValues(top = insets.top + NavigationMetrics.barFoot, bottom = insets.bottom)
             InsetGroupedList(Modifier.fillMaxSize().testTag("newsession.form"), rememberLazyListState(), padding) {
                 deviceSection(form, model.connection.onlineDevices, actions)
                 agentSection(form, device, agent, actions)

@@ -24,7 +24,9 @@ import com.junbingao.remotecontrol.android.design.Label
 import com.junbingao.remotecontrol.android.design.SystemFont
 import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
+import com.junbingao.remotecontrol.android.design.scrollIndicator
 import com.junbingao.remotecontrol.android.icons.Sf
+import com.junbingao.remotecontrol.android.navigation.NavigationMetrics
 import com.junbingao.remotecontrol.android.navigation.NavigationScreen
 import com.junbingao.remotecontrol.android.navigation.TitleDisplayMode
 import com.junbingao.remotecontrol.android.strings.L10n
@@ -45,12 +47,14 @@ fun DiagnosticsView(report: String, dismiss: () -> Unit, openGallery: (() -> Uni
         showsBack = false,
         trailing = { BarTextButton(L10n.string("Done"), dismiss, prominent = true, tag = "diagnostics.done") },
     ) { insets ->
+        val scroll = rememberScrollState()
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .scrollIndicator(scroll, top = insets.top, bottom = insets.bottom)
+                .verticalScroll(scroll)
                 .padding(insets.padding())
-                .padding(top = SheetContentTop)
+                .padding(top = NavigationMetrics.barFoot)
                 .padding(Theme.Space.page),
             verticalArrangement = Arrangement.spacedBy(Theme.Space.medium),
         ) {

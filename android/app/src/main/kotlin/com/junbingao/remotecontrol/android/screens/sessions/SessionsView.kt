@@ -249,7 +249,7 @@ private fun Top(model: AppModel, search: SearchDrawer, collapse: Dp) {
                 modifier = if (says) Modifier.barBackground() else Modifier,
             )
         }
-        if (says) Spacer(Modifier.fillMaxWidth().height(BarFoot.height).barBackground())
+        if (says) Spacer(Modifier.fillMaxWidth().height(NavigationMetrics.barFoot).barBackground())
         ConnectionSummary(model.connection.phase, model.isDemo) { model.perform { connection.reconnect() } }
     }
 }

@@ -19,6 +19,7 @@ import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.dp
 import com.junbingao.remotecontrol.android.harness.DemoApp
+import com.junbingao.remotecontrol.android.harness.swipeOpen
 import kotlin.math.abs
 import kotlin.math.sign
 
@@ -73,9 +74,9 @@ class ListsDriver(private val compose: ComposeTestRule, val app: DemoApp) {
 
     fun hasText(words: String): Boolean = compose.onAllNodesWithText(words, substring = true, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
 
-    /** Swipe a row to uncover its trailing actions. */
+    /** Swipe a row to uncover its trailing actions, as XCUITest's `swipeLeft()` does ([swipeOpen]). */
     fun swipeLeft(tag: String) {
-        app.node(tag).performTouchInput { swipeLeft() }
+        app.node(tag).performTouchInput { swipeOpen() }
         compose.waitForIdle()
     }
 

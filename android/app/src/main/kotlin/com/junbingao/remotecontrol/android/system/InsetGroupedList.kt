@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -16,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
@@ -28,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.junbingao.remotecontrol.android.design.ContinuousShape
 import com.junbingao.remotecontrol.android.design.SystemColor
 import com.junbingao.remotecontrol.android.design.Theme
+import com.junbingao.remotecontrol.android.design.scrollIndicator
 
 /** A row's look inside an inset grouped list: `listRowInsets`, `listRowBackground`, `listRowSeparator`. */
 data class RowStyle(
@@ -90,7 +93,7 @@ fun InsetGroupedList(
 ) {
     // Rebuilt on every pass, as SwiftUI re-reads a List's body: the rows read the screen's state.
     val sections = ListBuilder().apply(content).blocks
-    LazyColumn(modifier, state = state, contentPadding = contentPadding) {
+    LazyColumn(modifier.scrollIndicator(state), state = state, contentPadding = contentPadding) {
         var first = true
         var afterFooter = false
         for (block in sections) {
@@ -118,7 +121,12 @@ private fun LazyListScope.emitSection(section: Block.Section, first: Boolean, af
     item(section.key?.let { "$it.top" }) { Spacer(Modifier.height(gap)) }
     if (header != null) {
         item(section.key?.let { "$it.header" }) {
-            Box(Modifier.padding(start = ListMetrics.margin + ListMetrics.headerInset, end = ListMetrics.margin + ListMetrics.headerInset, bottom = ListMetrics.headerBottom)) {
+            Box(
+                Modifier
+                    .padding(start = ListMetrics.margin + ListMetrics.headerInset, end = ListMetrics.margin + ListMetrics.headerInset, bottom = ListMetrics.headerBottom)
+                    .heightIn(min = ListMetrics.headerLine),
+                contentAlignment = Alignment.CenterStart,
+            ) {
                 header()
             }
         }
@@ -242,6 +250,12 @@ object ListMetrics {
     /** A header's words stand at the rows' text, 16 in from the card. */
     val headerInset = 16.dp
     val headerBottom = 10.dp
+
+    /**
+     * A header's line: a little taller than its footnote's own box, so a header and the gaps
+     * round it come to the iPhone's 53 points between one card and the next.
+     */
+    val headerLine = 16.dp
     val footerTop = 7.dp
 
     /** From the bar (or the large title) to the first card. */

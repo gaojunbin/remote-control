@@ -10,13 +10,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import com.junbingao.remotecontrol.android.design.CapsuleShape
-import com.junbingao.remotecontrol.android.design.SystemColor
 import com.junbingao.remotecontrol.android.design.SystemFont
 import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
-import com.junbingao.remotecontrol.android.design.weight
 import com.junbingao.remotecontrol.android.strings.L10n
 
 /**
@@ -27,16 +25,17 @@ class StaticCodeScanner(private val payload: String) : CodeScanning {
     @Composable
     override fun Viewfinder(onCode: (String) -> Unit, modifier: Modifier) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            // `.borderedProminent`: the system's filled capsule in the tint colour.
+            // `.borderedProminent`: iOS 26's filled capsule in the tint colour, which is the app's
+            // accent, the words in the body's own weight — 144 by 34 points on the iPhone 17.
             Text(
                 L10n.string("Simulate a scan"),
                 modifier = Modifier
                     .testTag("scan.simulate")
-                    .background(SystemColor.systemBlue, CapsuleShape)
+                    .background(Theme.accent, CapsuleShape)
                     .clickable(role = Role.Button) { onCode(payload) }
-                    .padding(horizontal = Theme.Space.medium, vertical = Theme.Space.tight + Theme.Space.hair),
-                style = SystemFont.body.weight(FontWeight.SemiBold),
-                color = androidx.compose.ui.graphics.Color.White,
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                style = SystemFont.body,
+                color = Theme.onAccent,
             )
         }
     }

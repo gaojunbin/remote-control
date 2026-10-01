@@ -22,6 +22,8 @@ import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.TextField
 import com.junbingao.remotecontrol.android.design.Theme
 import com.junbingao.remotecontrol.android.design.card
+import com.junbingao.remotecontrol.android.design.scrollIndicator
+import com.junbingao.remotecontrol.android.navigation.NavigationMetrics
 import com.junbingao.remotecontrol.android.navigation.NavigationScreen
 import com.junbingao.remotecontrol.android.navigation.TitleDisplayMode
 import com.junbingao.remotecontrol.android.shell.LocalAppModel
@@ -80,12 +82,14 @@ fun PasswordSheet(dismiss: () -> Unit) {
             )
         },
     ) { insets ->
+        val scroll = rememberScrollState()
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .scrollIndicator(scroll, top = insets.top, bottom = insets.bottom)
+                .verticalScroll(scroll)
                 .padding(insets.padding())
-                .padding(top = SheetContentTop)
+                .padding(top = NavigationMetrics.barFoot)
                 .padding(horizontal = Theme.Space.page)
                 .padding(bottom = Theme.Space.large),
             verticalArrangement = Arrangement.spacedBy(Theme.Space.large),

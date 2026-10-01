@@ -7,8 +7,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
@@ -30,7 +31,9 @@ import com.junbingao.remotecontrol.android.design.Theme
 /**
  * `Toggle`'s switch as iOS 26 draws it: a 63 by 28 capsule, off in grey and on in the app's tint
  * (the accent, `.tint(Theme.accent)` at the root), with a white thumb that is itself a capsule,
- * 37 by 24, inset two points. A disabled switch keeps its shape at half strength.
+ * 37 by 24, inset two points. A disabled switch keeps its shape at half strength. It takes 61
+ * points of its row and draws the last two past them, as iOS 26's does: in a row with a 16-point
+ * inset its track ends 14 points from the card's edge.
  */
 @Composable
 fun Switch(
@@ -49,7 +52,9 @@ fun Switch(
     )
     Box(
         modifier
-            .size(SwitchMetrics.width, SwitchMetrics.height)
+            .size(SwitchMetrics.layoutWidth, SwitchMetrics.height)
+            .wrapContentWidth(Alignment.Start, unbounded = true)
+            .requiredSize(SwitchMetrics.width, SwitchMetrics.height)
             .alpha(if (enabled) 1f else 0.5f)
             .background(track, CapsuleShape)
             .toggleable(
@@ -112,6 +117,7 @@ fun Toggle(
 /** The switch's measurements, from the iPhone 17 reference screenshots. */
 object SwitchMetrics {
     val width = 63.dp
+    val layoutWidth = 61.dp
     val height = 28.dp
     val thumbWidth = 37.dp
     val thumbHeight = 24.dp

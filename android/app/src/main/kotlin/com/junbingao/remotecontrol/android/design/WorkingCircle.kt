@@ -7,9 +7,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.testTag
 import com.junbingao.remotecontrol.android.system.ActivityIndicator
 
 /**
@@ -28,8 +28,12 @@ fun WorkingCircle(label: String, modifier: Modifier = Modifier) {
         modifier
             .size(Theme.Touch.primary)
             .background(Theme.accent, CircleShape)
-            .clearAndSetSemantics { contentDescription = label }
-            .testTag("composer.working"),
+            // The identifier is set inside the semantics the circle clears for its label, or the
+            // clearing would take it too.
+            .clearAndSetSemantics {
+                contentDescription = label
+                testTag = "composer.working"
+            },
         contentAlignment = Alignment.Center,
     ) {
         ActivityIndicator(tint = Theme.onAccent)

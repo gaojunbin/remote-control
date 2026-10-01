@@ -1,24 +1,18 @@
 package com.junbingao.remotecontrol.android.system
 
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +35,7 @@ import com.junbingao.remotecontrol.android.design.SystemFont
 import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
 import com.junbingao.remotecontrol.android.design.weight
+import com.junbingao.remotecontrol.android.design.widestLine
 
 /** One segment: its words, or an image alone (an agent's logo) named for a screen reader. */
 data class Segment(val title: String, val image: ImageVector? = null, val tag: String? = null)
@@ -49,7 +44,8 @@ data class Segment(val title: String, val image: ImageVector? = null, val tag: S
  * `Picker(...).pickerStyle(.segmented)` as iOS 26 draws it: a grey capsule 32 points tall with a
  * white capsule thumb inset two points under the chosen segment, its words in the semibold weight
  * and the others regular, 13 points. [fill] stretches the segments across the width offered, as
- * the new-session sheet's agent control does; otherwise each is as wide as its widest label needs.
+ * the new-session sheet's agent control does; otherwise each is as wide as its widest label needs
+ * in the semibold weight, whichever is chosen, so choosing another never moves the control.
  */
 @Composable
 fun SegmentedControl(
@@ -61,6 +57,8 @@ fun SegmentedControl(
     tag: String? = null,
 ) {
     val still = LocalAppearance.current.reduceMotion
+    val widest = widestLine(segments.filter { it.image == null }.map { it.title }, SystemFont.footnote.weight(FontWeight.SemiBold))
+    val natural = maxOf(widest, if (segments.any { it.image != null }) SegmentedMetrics.imageSide else 0.dp) + SegmentedMetrics.labelPadding * 2
     Box(
         modifier
             .then(if (fill) Modifier.fillMaxWidth() else Modifier)
@@ -68,7 +66,7 @@ fun SegmentedControl(
             .background(SegmentedMetrics.track, CapsuleShape)
             .then(if (tag != null) Modifier.testTag(tag) else Modifier),
     ) {
-        EqualSegments(segments.size, fill) { segment ->
+        EqualSegments(segments.size, fill, natural) { segment ->
             val chosen = segment == selected
             val item = segments[segment]
             Box(
@@ -94,11 +92,10 @@ fun SegmentedControl(
                     )
                 }
                 if (item.image != null) {
-                    Image(item.image, contentDescription = null, colorFilter = ColorFilter.tint(Theme.ink), modifier = Modifier.size(Theme.Mark.control))
+                    Image(item.image, contentDescription = null, colorFilter = ColorFilter.tint(Theme.ink), modifier = Modifier.size(SegmentedMetrics.imageSide))
                 } else {
                     Text(
                         item.title,
-                        Modifier.padding(horizontal = SegmentedMetrics.labelPadding),
                         style = if (chosen) SystemFont.footnote.weight(FontWeight.SemiBold) else SystemFont.footnote,
                         color = Theme.ink,
                         alignment = TextAlign.Center,
@@ -111,15 +108,14 @@ fun SegmentedControl(
 }
 
 /**
- * Segments of one width: the widest label's, or an equal share of the width when the control
- * fills it — UIKit's `apportionsSegmentWidthsByContent` left off, as SwiftUI leaves it.
+ * Segments of one width: [natural], or an equal share of the width when the control fills it —
+ * UIKit's `apportionsSegmentWidthsByContent` left off, as SwiftUI leaves it.
  */
 @Composable
-private fun EqualSegments(count: Int, fill: Boolean, segment: @Composable (Int) -> Unit) {
+private fun EqualSegments(count: Int, fill: Boolean, natural: Dp, segment: @Composable (Int) -> Unit) {
     Layout(content = { repeat(count) { segment(it) } }) { measurables, constraints ->
         val height = constraints.maxHeight
-        val natural = measurables.maxOfOrNull { it.maxIntrinsicWidth(height) } ?: 0
-        val each = if (fill && constraints.hasBoundedWidth) constraints.maxWidth / count.coerceAtLeast(1) else natural
+        val each = if (fill && constraints.hasBoundedWidth) constraints.maxWidth / count.coerceAtLeast(1) else natural.roundToPx()
         val placeables = measurables.map { it.measure(androidx.compose.ui.unit.Constraints.fixed(each, height)) }
         layout(each * count, height) {
             placeables.forEachIndexed { index, placeable -> placeable.place(each * index, 0) }
@@ -131,7 +127,18 @@ private fun EqualSegments(count: Int, fill: Boolean, segment: @Composable (Int) 
 object SegmentedMetrics {
     val height = 32.dp
     val inset = 2.dp
-    val labelPadding = 16.dp
+
+    /**
+     * Either side of the widest label set in the semibold weight: Language's English and 中文 are
+     * 63 points a segment, Detail's 简约 and 详细 42.7.
+     */
+    val labelPadding = 8.5.dp
+
+    /**
+     * An image segment draws its image at the image's own size, as UIKit does: the agents' logos
+     * are 24-point assets, not the 17-point mark a row sets beside its words.
+     */
+    val imageSide = 24.dp
 
     val track: Color @Composable @ReadOnlyComposable
         get() = if (LocalAppearance.current.isDark) Color(0xFF2C2C2E) else Color(0xFFEEEEEF)

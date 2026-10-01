@@ -111,7 +111,7 @@ internal fun ControlsRow(
         SessionControls(chat, agent, showsQueue, Modifier.weight(1f))
         Crossfade(slot == ComposerPrimarySlot.working, animationSpec = tween(if (reduceMotion) 0 else 200, easing = EaseInOut), label = "primary slot") { working ->
             if (working) {
-                WorkingCircle(L10n.string(if (chat.isReturningEdit) "Sending…" else "Polishing…"), WorkingSlot.identified)
+                WorkingCircle(L10n.string(if (chat.isReturningEdit) "Sending…" else "Polishing…"))
             } else {
                 SendButton(chat, agent, state)
             }

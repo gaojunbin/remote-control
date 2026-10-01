@@ -4,6 +4,7 @@ import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -81,6 +82,10 @@ object SystemFont {
             alignment = LineHeightStyle.Alignment.Center,
             trim = LineHeightStyle.Trim.None,
         ),
+        // A line takes every word that fits, as TextKit fills one, rather than leaving words for
+        // the next to even the lines out; so a sentence breaks where the iPhone's does, after the
+        // hyphen of "Re-running" too.
+        lineBreak = LineBreak(LineBreak.Strategy.Simple, LineBreak.Strictness.Strict, LineBreak.WordBreak.Default),
         platformStyle = PlatformTextStyle(includeFontPadding = false),
     )
 }

@@ -9,7 +9,6 @@ import com.junbingao.remotecontrol.android.harness.DemoApp
 import com.junbingao.remotecontrol.android.harness.IPhone
 import com.junbingao.remotecontrol.android.harness.Variant
 import com.junbingao.remotecontrol.android.screens.shell.Driving
-import com.junbingao.remotecontrol.android.screens.shell.ForeignScreen
 import com.junbingao.remotecontrol.android.screens.shell.Phone
 import com.junbingao.remotecontrol.android.strings.L10n
 import org.junit.Assert.assertEquals
@@ -57,7 +56,6 @@ class SettingsLanguageUITest {
         }
         app.attach("50-settings-language-chinese")
 
-        ForeignScreen.requiresTheComposer()
         app.tap("tab.sessions")
         openLiveSession(app)
         assertTrue("the composer is on screen", drive.waitFor(hasTestTag("composer.prompt"), 15_000))
@@ -98,7 +96,6 @@ class SettingsLanguageUITest {
         }
         app.attach("ios-a44-settings-gateway")
 
-        ForeignScreen.requiresTheComposer()
         app.tap("tab.sessions")
         openLiveSession(app)
         assertTrue("the composer is up", drive.waitFor(hasTestTag("composer.modelCard"), 15_000))

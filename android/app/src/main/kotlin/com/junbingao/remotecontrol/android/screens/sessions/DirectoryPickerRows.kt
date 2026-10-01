@@ -102,7 +102,7 @@ internal fun PickerActions(canMakeFolder: Boolean, canSelect: Boolean, newFolder
         }
         Button(
             onClick = select,
-            Modifier.fillMaxHeight().padding(end = BarMetrics.textPadding).testTag("dirs.select"),
+            Modifier.fillMaxHeight().padding(start = PickerMetrics.selectStart, end = PickerMetrics.selectEnd).testTag("dirs.select"),
             enabled = canSelect,
         ) {
             Text(
@@ -115,8 +115,12 @@ internal fun PickerActions(canMakeFolder: Boolean, canSelect: Boolean, newFolder
     }
 }
 
-/** The capsule's measurements, from `53-directory-new-folder-clash`. */
+/** The capsule's measurements, from `53-directory-new-folder-clash` and `55-directory-picker-in-new-folder`. */
 private object PickerMetrics {
-    /** New folder's share of the capsule, the symbol in the middle of it. */
-    val folderWidth = 66.dp
+    /** New folder's share of the capsule, the symbol in the middle of it: its centre 28.5 in. */
+    val folderWidth = 57.dp
+
+    /** Select, 16 after New folder's share and 11.7 before the capsule's end. */
+    val selectStart = 16.dp
+    val selectEnd = 11.67.dp
 }

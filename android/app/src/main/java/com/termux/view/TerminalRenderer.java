@@ -1,7 +1,14 @@
+/*
+ * Modified for Remote Control: the cells are SwiftTerm's — 1.25 of the type size tall, as the
+ * iPhone's terminal sets the system's monospaced face — with each row's glyphs at the top of its
+ * cell rather than under a margin, and the block cursor is drawn as a faint outline while the view
+ * does not have the keyboard, as SwiftTerm draws it then.
+ */
 package com.termux.view;
 
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
@@ -37,6 +44,16 @@ public final class TerminalRenderer {
 
     private final float[] asciiMeasures = new float[127];
 
+    /** A cell's height for its type size: SwiftTerm's, the monospaced face's own line. */
+    private static final float LINE_HEIGHT = 1.25f;
+
+    /** How strongly an outlined cursor is drawn, and how thick its outline is for the type size. */
+    private static final float HOLLOW_ALPHA = 0.12f;
+    private static final float HOLLOW_STROKE = 1f / 9f;
+
+    /** Whether the block cursor is an outline: the view does not have the keyboard. */
+    private boolean mCursorHollow;
+
     public TerminalRenderer(int textSize, Typeface typeface) {
         mTextSize = textSize;
         mTypeface = typeface;
@@ -45,7 +62,7 @@ public final class TerminalRenderer {
         mTextPaint.setAntiAlias(true);
         mTextPaint.setTextSize(textSize);
 
-        mFontLineSpacing = (int) Math.ceil(mTextPaint.getFontSpacing());
+        mFontLineSpacing = (int) Math.ceil(textSize * LINE_HEIGHT);
         mFontAscent = (int) Math.ceil(mTextPaint.ascent());
         mFontLineSpacingAndAscent = mFontLineSpacing + mFontAscent;
         mFontWidth = mTextPaint.measureText("X");
@@ -55,6 +72,11 @@ public final class TerminalRenderer {
             sb.setCharAt(0, (char) i);
             asciiMeasures[i] = mTextPaint.measureText(sb, 0, 1);
         }
+    }
+
+    /** Draw the block cursor as an outline, for a view that does not have the keyboard. */
+    public void setCursorHollow(boolean hollow) {
+        mCursorHollow = hollow;
     }
 
     /** Render the terminal to a canvas with at a specified row scroll, and an optional rectangular selection. */
@@ -73,7 +95,8 @@ public final class TerminalRenderer {
         if (reverseVideo)
             canvas.drawColor(palette[TextStyle.COLOR_INDEX_FOREGROUND], PorterDuff.Mode.SRC);
 
-        float heightOffset = mFontLineSpacingAndAscent;
+        // Each row's cell starts at the top of its own line, so its glyphs stand at the cell's top.
+        float heightOffset = 0;
         for (int row = topRow; row < endRow; row++) {
             heightOffset += mFontLineSpacing;
 
@@ -142,7 +165,7 @@ public final class TerminalRenderer {
                         final int charsSinceLastRun = currentCharIndex - lastRunStartIndex;
                         int cursorColor = lastRunInsideCursor ? mEmulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_CURSOR] : 0;
                         boolean invertCursorTextColor = false;
-                        if (lastRunInsideCursor && cursorShape == TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK) {
+                        if (lastRunInsideCursor && cursorShape == TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK && !mCursorHollow) {
                             invertCursorTextColor = true;
                         }
                         drawTextRun(canvas, line, palette, heightOffset, lastRunStartColumn, columnWidthSinceLastRun,
@@ -171,7 +194,7 @@ public final class TerminalRenderer {
             final int charsSinceLastRun = currentCharIndex - lastRunStartIndex;
             int cursorColor = lastRunInsideCursor ? mEmulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_CURSOR] : 0;
             boolean invertCursorTextColor = false;
-            if (lastRunInsideCursor && cursorShape == TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK) {
+            if (lastRunInsideCursor && cursorShape == TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK && !mCursorHollow) {
                 invertCursorTextColor = true;
             }
             drawTextRun(canvas, line, palette, heightOffset, lastRunStartColumn, columnWidthSinceLastRun, lastRunStartIndex, charsSinceLastRun,
@@ -233,7 +256,16 @@ public final class TerminalRenderer {
             float cursorHeight = mFontLineSpacingAndAscent - mFontAscent;
             if (cursorStyle == TerminalEmulator.TERMINAL_CURSOR_STYLE_UNDERLINE) cursorHeight /= 4.f;
             else if (cursorStyle == TerminalEmulator.TERMINAL_CURSOR_STYLE_BAR) right -= (((right - left) * 3) / 4.f);
-            canvas.drawRect(left, y - cursorHeight, right, y, mTextPaint);
+            if (mCursorHollow && cursorStyle == TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK) {
+                float stroke = mTextSize * HOLLOW_STROKE;
+                mTextPaint.setAlpha(Math.round(Color.alpha(cursor) * HOLLOW_ALPHA));
+                mTextPaint.setStyle(Paint.Style.STROKE);
+                mTextPaint.setStrokeWidth(stroke);
+                canvas.drawRect(left + stroke / 2, y - cursorHeight + stroke / 2, right - stroke / 2, y - stroke / 2, mTextPaint);
+                mTextPaint.setStyle(Paint.Style.FILL);
+            } else {
+                canvas.drawRect(left, y - cursorHeight, right, y, mTextPaint);
+            }
         }
 
         if ((effect & TextStyle.CHARACTER_ATTRIBUTE_INVISIBLE) == 0) {

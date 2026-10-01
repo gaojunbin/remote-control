@@ -1,10 +1,6 @@
 package com.junbingao.remotecontrol.android.design
 
 import android.annotation.SuppressLint
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -24,9 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
@@ -39,7 +32,6 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 
 /**
  * The field a message is written in: one line while the draft is short, growing with it to
@@ -109,6 +101,7 @@ fun GrowingTextField(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = line, max = line * ComposerLayout.maximumLines)
+                .scrollIndicator(scroll, flashesWhenFull = true)
                 .verticalScroll(scroll)
                 .focusRequester(focus)
                 .onFocusChanged { state ->
@@ -130,7 +123,6 @@ fun GrowingTextField(
                 modifier = Modifier.clearAndSetSemantics { },
             )
         }
-        ScrollIndicator(scroll, Modifier.matchParentSize())
         if (FieldScrollProbe.isOn && identifier != null) {
             // The probe exists to print the offset, so it reads it as it changes; only a debug
             // build behind `--field-scroll-probe` ever draws it.
@@ -168,41 +160,5 @@ internal class FieldText(text: String) {
     fun take(next: TextFieldValue, shown: TextFieldValue): Boolean {
         held = next
         return next.text != shown.text
-    }
-}
-
-/**
- * UIKit's scroll indicator: a thin dark capsule down the trailing edge, there while the content
- * moves and for a moment after, and flashed once when there first is somewhere to scroll.
- */
-@Composable
-private fun ScrollIndicator(scroll: ScrollState, modifier: Modifier) {
-    var flash by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        snapshotFlow { scroll.maxValue > 0 }.collect { scrolls ->
-            if (scrolls) {
-                flash = true
-                delay(900)
-                flash = false
-            }
-        }
-    }
-    val visible = scroll.maxValue > 0 && (scroll.isScrollInProgress || flash)
-    val alpha by animateFloatAsState(if (visible) 1f else 0f, tween(if (visible) 100 else 350), label = "indicator")
-    val ink = SystemColor.label.copy(alpha = 0.35f)
-    Canvas(modifier) {
-        if (alpha == 0f || scroll.maxValue <= 0) return@Canvas
-        val viewport = size.height
-        val content = viewport + scroll.maxValue
-        val width = 3.dp.toPx()
-        val inset = 3.dp.toPx()
-        val length = (viewport * viewport / content).coerceAtLeast(36.dp.toPx().coerceAtMost(viewport))
-        val top = (viewport - length) * scroll.value / scroll.maxValue
-        drawRoundRect(
-            ink.copy(alpha = ink.alpha * alpha),
-            topLeft = Offset(size.width - inset - width, top),
-            size = Size(width, length),
-            cornerRadius = CornerRadius(width / 2),
-        )
     }
 }

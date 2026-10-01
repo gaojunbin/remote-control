@@ -37,6 +37,7 @@ import com.junbingao.remotecontrol.android.design.LocalAppearance
 import com.junbingao.remotecontrol.android.design.SystemFont
 import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
+import com.junbingao.remotecontrol.android.design.scrollIndicator
 import com.junbingao.remotecontrol.android.shell.LocalAppModel
 import com.junbingao.remotecontrol.android.strings.L10n
 import com.junbingao.remotecontrol.android.system.ActivityIndicator
@@ -73,6 +74,7 @@ internal fun Transcript(chat: ChatStore, composer: ComposerFrame, modifier: Modi
         LazyColumn(
             Modifier
                 .fillMaxSize()
+                .scrollIndicator(list)
                 .testTag("chat.transcript"),
             state = list,
             contentPadding = PaddingValues(horizontal = Theme.Space.page, vertical = Theme.Space.medium),
