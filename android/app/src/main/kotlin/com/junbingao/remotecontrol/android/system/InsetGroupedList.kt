@@ -38,7 +38,10 @@ data class RowStyle(
     val separator: Boolean = true,
     /** Where the line starts, in from the card's leading edge; the row's leading inset by default. */
     val separatorInset: Dp? = null,
-)
+) {
+    /** For the styles the design system names, such as `RowStyle.settings`. */
+    companion object
+}
 
 /** What a list is built from: sections of rows on cards, and items on the page between them. */
 interface GroupedListScope {

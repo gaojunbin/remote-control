@@ -11,9 +11,10 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
+import com.junbingao.remotecontrol.android.security.SceneRule
+import com.junbingao.remotecontrol.core.state.ScreenAwakeRule
 
 /**
  * The conversations on screen at this moment.
@@ -40,25 +41,23 @@ internal object OpenConversations {
  * Holds the screen on while a conversation is on screen and the app is in front — the only place
  * that touches the window's keep-screen-on flag, and the conversation its only caller.
  * `docs/DESIGN.md` § "The screen stays awake in a conversation": dictating a long message, or
- * watching a turn with the phone propped up, must never end because the screen went dark.
- *
- * [rule] is the core's `ScreenAwakeRule.awake(chatOnScreen:sceneActive:)`, passed in so the rule
- * is written once.
+ * watching a turn with the phone propped up, must never end because the screen went dark. The rule
+ * is the core's `ScreenAwakeRule`, and "in front" is `SceneRule.isForeground`.
  */
-fun Modifier.keepsScreenAwake(rule: (chatOnScreen: Boolean, sceneActive: Boolean) -> Boolean): Modifier = composed {
+fun Modifier.keepsScreenAwake(): Modifier = composed {
     val activity = LocalContext.current.findActivity()
     val state by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
-    val currentRule by rememberUpdatedState(rule)
+    val active by rememberUpdatedState(SceneRule.isForeground(state))
     DisposableEffect(activity) {
         OpenConversations.entered()
-        apply(activity, currentRule(OpenConversations.any, state.isAtLeast(Lifecycle.State.RESUMED)))
+        apply(activity, ScreenAwakeRule.awake(chatOnScreen = OpenConversations.any, sceneActive = active))
         onDispose {
             OpenConversations.left()
-            apply(activity, currentRule(OpenConversations.any, state.isAtLeast(Lifecycle.State.RESUMED)))
+            apply(activity, ScreenAwakeRule.awake(chatOnScreen = OpenConversations.any, sceneActive = active))
         }
     }
-    LaunchedEffect(state) {
-        apply(activity, currentRule(OpenConversations.any, state.isAtLeast(Lifecycle.State.RESUMED)))
+    LaunchedEffect(active) {
+        apply(activity, ScreenAwakeRule.awake(chatOnScreen = OpenConversations.any, sceneActive = active))
     }
     this
 }

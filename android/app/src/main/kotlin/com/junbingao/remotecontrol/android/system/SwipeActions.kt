@@ -45,8 +45,8 @@ import com.junbingao.remotecontrol.android.design.Theme
 import com.junbingao.remotecontrol.android.design.weight
 import com.junbingao.remotecontrol.android.icons.Icon
 import com.junbingao.remotecontrol.android.icons.SfSymbol
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 /**
  * One button of a row's trailing swipe: its words and symbol and the tint it is drawn in — the

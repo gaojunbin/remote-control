@@ -8,8 +8,8 @@ import android.speech.RecognitionSupportCallback
 import android.speech.RecognizerIntent
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * Which languages the phone's recogniser can hear, and which of them it can hear without the
@@ -42,7 +42,7 @@ data class SpeechLanguages(
 
         @RequiresApi(Build.VERSION_CODES.TIRAMISU)
         private suspend fun support(context: Context, tag: String): SpeechLanguages {
-            val recognizer = SystemSpeechRecognizer.make(context) ?: return unknown
+            val recognizer = RecognizerRuns.make(context) ?: return unknown
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE, tag)

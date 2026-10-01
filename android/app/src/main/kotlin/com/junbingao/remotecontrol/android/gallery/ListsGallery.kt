@@ -16,6 +16,8 @@ import com.junbingao.remotecontrol.android.design.OnlineDot
 import com.junbingao.remotecontrol.android.design.SettingsFooter
 import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
+import com.junbingao.remotecontrol.android.design.settings
+import com.junbingao.remotecontrol.android.design.settingsRowLayout
 import com.junbingao.remotecontrol.android.icons.Sf
 import com.junbingao.remotecontrol.android.navigation.NavigationScreen
 import com.junbingao.remotecontrol.android.navigation.TitleDisplayMode
@@ -26,7 +28,6 @@ import com.junbingao.remotecontrol.android.system.MenuItem
 import com.junbingao.remotecontrol.android.system.RowStyle
 import com.junbingao.remotecontrol.android.system.SwipeAction
 import com.junbingao.remotecontrol.android.system.Switch
-import androidx.compose.foundation.layout.PaddingValues
 
 /** An inset grouped list with every kind of row the screens use. */
 @Composable
@@ -38,8 +39,8 @@ internal fun ListsGallery() {
     NavigationScreen(GalleryPages.lists.title, displayMode = TitleDisplayMode.large) { insets ->
         InsetGroupedList(Modifier.fillMaxSize(), contentPadding = insets.padding()) {
             section(key = "switch", footer = { SettingsFooter(L10n.string("Anyone with the gateway address can create an account")) }) {
-                row(key = "registration", style = RowStyle(insets = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 12.dp))) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                row(key = "registration", style = RowStyle.settings) {
+                    Row(Modifier.settingsRowLayout(), verticalAlignment = Alignment.CenterVertically) {
                         Text(L10n.string("Registration"), Modifier.weight(1f), style = Theme.Text.label, color = Theme.ink)
                         Switch(registration, { registration = it })
                     }

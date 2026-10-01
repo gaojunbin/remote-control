@@ -2,6 +2,9 @@ package com.junbingao.remotecontrol.android.strings
 
 import androidx.compose.runtime.mutableStateOf
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.L10n as CoreL10n
+import java.io.File
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -9,7 +12,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.File
 
 /**
  * The iPhone's language rule and its catalogue, as the Android app reads them: English until
@@ -79,6 +81,18 @@ class L10nTest {
         val apple = listOf("Face ID", "Touch ID", "iPhone", "iOS", "TestFlight", "App Store", "keychain")
         val leaks = overlay().keys.filter { key -> apple.any { L10n.table(L10n.english).getValue(key).contains(it) } }
         assertTrue("overlay entries that still name Apple: $leaks", leaks.isEmpty())
+    }
+
+    @Test
+    fun aSentenceTheCoreBuiltIsSaidInAndroidsWords() {
+        val keychain = "Could not reach the keychain. Unlock this device and try again."
+        assertEquals("Could not reach the Android Keystore. Unlock this device and try again.", L10n.platform(CoreL10n.string(keychain)))
+        assertEquals("On this phone", L10n.platform(CoreL10n.string("On this iPhone")))
+        L10n.use(L10n.chinese)
+        CoreL10n.use(InterfaceLanguage.zhHans)
+        assertEquals("无法访问 Android 密钥库。请解锁设备后重试。", L10n.platform(CoreL10n.string(keychain)))
+        CoreL10n.use(InterfaceLanguage.en)
+        assertEquals("any other sentence comes back as it is", "Not connected to the gateway.", L10n.platform("Not connected to the gateway."))
     }
 
     @Test

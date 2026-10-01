@@ -2,6 +2,7 @@ package com.junbingao.remotecontrol.android.terminal
 
 import android.content.ClipboardManager
 import android.content.Context
+import com.junbingao.remotecontrol.core.protocol.TerminalLimits
 
 /**
  * What the clipboard holds, as bytes to type: the key bar's Paste. The phone is the only place
@@ -12,7 +13,7 @@ object TerminalPasteboard {
      * The clipboard's text as UTF-8, or null when there is none or it is larger than [maxBytes]
      * — the core's `TerminalLimits.maxInputBytes`, the most one input frame carries.
      */
-    fun bytes(context: Context, maxBytes: Int): ByteArray? {
+    fun bytes(context: Context, maxBytes: Int = TerminalLimits.maxInputBytes): ByteArray? {
         val clip = context.getSystemService(ClipboardManager::class.java)?.primaryClip ?: return null
         if (clip.itemCount == 0) return null
         val text = clip.getItemAt(0).coerceToText(context)?.toString()

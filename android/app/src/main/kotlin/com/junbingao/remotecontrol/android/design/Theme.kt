@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.junbingao.remotecontrol.core.state.DotTone
 
 /**
  * The product palette from the design brief: a light, quiet page with white surfaces, hairline
@@ -121,6 +122,20 @@ object Theme {
 
         /** Monospace at meta weight, for a path or a branch in a list row. */
         val metaMono: TextStyle = SystemFont.caption.monospaced()
+    }
+
+    /**
+     * The colour a session's status dot uses. `waiting` and `live` share the amber, because both
+     * mean there is something for the person; the pulse is what tells a question still to answer
+     * from a turn already finished. Green is left for the one state that needs nobody.
+     */
+    @Composable
+    @ReadOnlyComposable
+    fun dotColor(tone: DotTone): Color = when (tone) {
+        DotTone.working -> running
+        DotTone.waiting, DotTone.live -> attention
+        DotTone.failed -> danger
+        DotTone.off -> resting
     }
 
     @Composable

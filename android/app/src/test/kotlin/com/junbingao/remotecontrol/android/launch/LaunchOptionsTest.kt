@@ -3,7 +3,7 @@ package com.junbingao.remotecontrol.android.launch
 import android.content.Intent
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.junbingao.remotecontrol.android.navigation.SessionLink
+import com.junbingao.remotecontrol.core.transport.SessionLink
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -70,8 +70,22 @@ class LaunchOptionsTest {
 
     @Test
     fun anIntentsDataIsTheConversationItAsksFor() {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("remotecontrol://session?device=d&id=s"))
-        assertEquals(SessionLink("d", "s"), LaunchOptions.link(intent))
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("remotecontrol://session?device=mac-studio-office&id=sess-01"))
+        assertEquals(SessionLink(deviceID = "mac-studio-office", sessionID = "sess-01"), LaunchOptions.link(intent))
         assertNull(LaunchOptions.link(Intent()))
+    }
+
+    @Test
+    fun aLinkTheAppWritesIsTheOneItReads() {
+        val link = SessionLink(deviceID = "dev/1", sessionID = "a b&c")
+        assertEquals(link, LaunchOptions.link(Intent(Intent.ACTION_VIEW, Uri.parse(link.url.toString()))))
+    }
+
+    @Test
+    fun anythingElseIsNoLink() {
+        for (other in listOf("https://session?device=a&id=b", "remotecontrol://device?device=a&id=b",
+                             "remotecontrol://session?device=a", "remotecontrol://session?device=&id=b", "not a uri at all")) {
+            assertNull(other, LaunchOptions.link(Intent(Intent.ACTION_VIEW, Uri.parse(other))))
+        }
     }
 }

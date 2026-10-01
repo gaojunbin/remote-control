@@ -4,21 +4,24 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Base64
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
+import com.junbingao.remotecontrol.core.persistence.SecretStore
+import com.junbingao.remotecontrol.core.transport.TransportError
 import java.security.GeneralSecurityException
 import java.security.KeyStoreException
 import java.security.UnrecoverableKeyException
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
- * The gateway bearer token's home on Android: the counterpart of `KeychainSecretStore`
- * (`ios/Sources/RCCore/Persistence/SecretStore.swift`), with the same three calls, so the core's
- * `SecretStore` interface can be laid over it unchanged.
+ * The gateway bearer token's home on Android: the core's [SecretStore], as `KeychainSecretStore`
+ * (`ios/Sources/RCCore/Persistence/SecretStore.swift`) is RCCore's, failing as it fails — with
+ * [TransportError.SecureStorageUnavailable], which the core words as the keychain's sentence and
+ * the app says in Android's (`L10n.platform`).
  *
  * Each value is sealed with AES-256-GCM under a key the Android Keystore generates and never
  * lets out, usable only while the phone is unlocked — the counterpart of the Keychain's
@@ -30,7 +33,7 @@ import javax.crypto.spec.GCMParameterSpec
 class KeystoreSecretStore internal constructor(
     private val storage: SharedPreferences,
     private val keys: SecretKeySource,
-) {
+) : SecretStore {
     constructor(context: Context) : this(
         context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE),
         AndroidKeystoreKeySource(ALIAS),
@@ -39,7 +42,7 @@ class KeystoreSecretStore internal constructor(
     /** One read or write at a time: the key is generated once, and a write is not interleaved. */
     private val lock = Mutex()
 
-    suspend fun read(key: String): ByteArray? = access {
+    override suspend fun read(key: String): ByteArray? = access {
         val stored = storage.getString(entry(key), null) ?: return@access null
         // An entry that is not what this store writes can never be opened; it is no token.
         val sealed = try {
@@ -62,21 +65,21 @@ class KeystoreSecretStore internal constructor(
         }
     }
 
-    suspend fun write(data: ByteArray, key: String) {
+    override suspend fun write(data: ByteArray, key: String) {
         access {
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.ENCRYPT_MODE, keys.key())
             cipher.updateAAD(key.toByteArray(Charsets.UTF_8))
             val sealed = cipher.iv + cipher.doFinal(data)
             if (!commit { putString(entry(key), Base64.encodeToString(sealed, Base64.NO_WRAP)) }) {
-                throw SecureStorageUnavailable()
+                throw TransportError.SecureStorageUnavailable
             }
         }
     }
 
-    suspend fun remove(key: String) {
+    override suspend fun remove(key: String) {
         access {
-            if (!commit { remove(entry(key)) }) throw SecureStorageUnavailable()
+            if (!commit { remove(entry(key)) }) throw TransportError.SecureStorageUnavailable
         }
     }
 
@@ -100,16 +103,14 @@ class KeystoreSecretStore internal constructor(
         lock.withLock {
             try {
                 work()
-            } catch (failure: SecureStorageUnavailable) {
-                throw failure
-            } catch (failure: GeneralSecurityException) {
-                throw SecureStorageUnavailable(failure)
-            } catch (failure: KeyStoreException) {
-                throw SecureStorageUnavailable(failure)
-            } catch (failure: IllegalStateException) {
-                throw SecureStorageUnavailable(failure)
-            } catch (failure: IllegalArgumentException) {
-                throw SecureStorageUnavailable(failure)
+            } catch (_: GeneralSecurityException) {
+                throw TransportError.SecureStorageUnavailable
+            } catch (_: KeyStoreException) {
+                throw TransportError.SecureStorageUnavailable
+            } catch (_: IllegalStateException) {
+                throw TransportError.SecureStorageUnavailable
+            } catch (_: IllegalArgumentException) {
+                throw TransportError.SecureStorageUnavailable
             }
         }
     }

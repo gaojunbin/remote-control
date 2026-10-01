@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.junbingao.remotecontrol.android.icons.Sf
@@ -17,34 +18,41 @@ import com.junbingao.remotecontrol.android.system.TabItem
 import com.junbingao.remotecontrol.android.system.safeArea
 
 /**
- * The iPhone's `MainShell`: three tabs — Devices, Sessions, Settings, in that order — each its
- * own navigation stack, under the floating tab bar, which a conversation hides. [destination]
- * draws a route; until the screens arrive (stage 3) the shell's own placeholders do.
+ * The iPhone's `TabView` of three destinations — Devices, Sessions, Settings, in that order — each
+ * its own navigation stack, under the floating tab bar, which a conversation hides. [destination]
+ * draws a route of a tab's stack; the app's is `MainShell`'s, a picture's whatever it shows.
  */
 @Composable
-fun MainShell(state: ShellState, destination: @Composable (Any) -> Unit = { ShellDestination(it) }) {
+fun TabShell(navigation: ShellNavigation, destination: @Composable (tab: AppModel.Tab, route: Any) -> Unit) {
     val safe = safeArea()
-    val visible = state.tabBar.isVisible
+    val visible = navigation.tabBar.isVisible
+    val tabs = listOf(AppModel.Tab.devices, AppModel.Tab.sessions, AppModel.Tab.settings)
     val items = listOf(
         TabItem(L10n.string("Devices"), Sf.desktopcomputerFill, "tab.devices"),
         TabItem(L10n.string("Sessions"), Sf.bubbleLeftAndTextBubbleRightFill, "tab.sessions"),
         TabItem(L10n.string("Settings"), Sf.gearshapeFill, "tab.settings"),
     )
-    BackRouter(state.presenter, state.navigator)
+    val tab = navigation.tab
+    val tabsState = rememberSaveableStateHolder()
+    BackRouter(navigation.navigator)
     CompositionLocalProvider(
-        LocalTabBarVisibility provides state.tabBar,
+        LocalTabBarVisibility provides navigation.tabBar,
         LocalTabBarReserve provides if (visible) TabBarMetrics.reserved(safe.bottom) else safe.bottom,
     ) {
         Box(Modifier.fillMaxSize()) {
-            NavigationStack(state.navigator, destination = destination)
+            // Each tab keeps what its screens saved while another tab is open, as the iPhone's tabs
+            // stay where they were left.
+            tabsState.SaveableStateProvider(tab.name) {
+                NavigationStack(navigation.navigator(tab)) { route -> destination(tab, route) }
+            }
             if (visible) {
                 TabBar(
                     items,
-                    selected = state.tab.ordinal,
+                    selected = tabs.indexOf(tab),
                     onSelect = { index ->
-                        val chosen = AppTab.entries[index]
+                        val chosen = tabs[index]
                         // A second tap on the open tab goes back to its root, as UIKit's does.
-                        if (chosen == state.tab) state.navigator.popToRoot() else state.tab = chosen
+                        if (chosen == navigation.tab) navigation.navigator.popToRoot() else navigation.tab = chosen
                     },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )

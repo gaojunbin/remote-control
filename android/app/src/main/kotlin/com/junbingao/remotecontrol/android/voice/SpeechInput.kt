@@ -39,9 +39,9 @@ sealed interface SpeechInputEvent {
 }
 
 /**
- * A dictation backend: the phone's recogniser or the gateway's. The controller that drives it
- * (`VoiceInputController`, which needs the core's `VoiceInputPhase`) arrives in stage 2 and talks
- * to either through this.
+ * A dictation backend: the phone's recogniser ([SystemSpeechRecognizer]) or the gateway's
+ * ([GatewaySpeechRecognizer]). The composer's `VoiceInputController`, which the conversation
+ * owns, drives either through this, as the iPhone's does.
  */
 interface SpeechInputPlatform {
     /**

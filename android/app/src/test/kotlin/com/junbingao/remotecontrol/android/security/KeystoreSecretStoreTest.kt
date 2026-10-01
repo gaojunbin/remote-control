@@ -3,6 +3,9 @@ package com.junbingao.remotecontrol.android.security
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.junbingao.remotecontrol.android.strings.L10n
+import com.junbingao.remotecontrol.core.transport.TransportError
+import javax.crypto.KeyGenerator
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -11,7 +14,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
-import javax.crypto.KeyGenerator
 
 /**
  * The store's sealing and filing, with a software key standing in for the Keystore's: the JVM
@@ -88,9 +90,10 @@ class KeystoreSecretStoreTest {
         val broken = KeystoreSecretStore(storage) { throw java.security.KeyStoreException("locked") }
         try {
             broken.write("x".toByteArray(), "k")
-            fail("expected SecureStorageUnavailable")
-        } catch (failure: SecureStorageUnavailable) {
-            assertEquals("Could not reach the Android Keystore. Unlock this device and try again.", failure.message)
+            fail("expected TransportError.SecureStorageUnavailable")
+        } catch (failure: TransportError.SecureStorageUnavailable) {
+            // The core words it as the keychain's sentence; the app says it in Android's.
+            assertEquals("Could not reach the Android Keystore. Unlock this device and try again.", L10n.platform(failure.message))
         }
     }
 }

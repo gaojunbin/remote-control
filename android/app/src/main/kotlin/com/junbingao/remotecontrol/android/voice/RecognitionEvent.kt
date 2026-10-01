@@ -5,9 +5,9 @@ package com.junbingao.remotecontrol.android.voice
  *
  * One `SpeechRecognizer` request ends when the speaker pauses, so a dictation with no maximum
  * duration is a chain of runs, numbered from 0 each time listening starts. Each run is one slot
- * of the core's `TranscriptSegments`, exactly as each rolled-over request is on the iPhone
- * (`SystemSpeechRecognizer.swift`): stage 2 begins a slot on [Began], updates it on [Partial] and
- * [Final], ends it on [Ended], and publishes the joined text as final after [Finished].
+ * of the core's `TranscriptSegments`, exactly as each rolled-over request is on the iPhone:
+ * [SystemSpeechRecognizer] begins a slot on [Began], updates it on [Partial] and [Final], ends it
+ * on [Ended], and publishes the joined text as final after [Finished].
  */
 sealed interface RecognitionEvent {
     /** A run started listening; it is the slot the next results belong to. */
@@ -30,4 +30,19 @@ sealed interface RecognitionEvent {
 
     /** After `finish()`: the last run has ended and nothing more will come. */
     data object Finished : RecognitionEvent
+}
+
+/**
+ * Listening as a chain of runs, each reported by its own [RecognitionEvent]s: [RecognizerRuns] on
+ * the phone, scripted runs in a test, so the joining above them can be read without a recogniser.
+ */
+interface RecognitionRuns {
+    /** Start the first run; throws a [SpeechInputFailure] when there is no recogniser to run. */
+    fun start(onEvent: (RecognitionEvent) -> Unit)
+
+    /** Let the run under way deliver what it heard, then report [RecognitionEvent.Finished]. */
+    fun finish()
+
+    /** Stop and drop everything; no event follows. */
+    fun cancel()
 }

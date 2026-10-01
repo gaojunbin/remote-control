@@ -1,11 +1,11 @@
 package com.junbingao.remotecontrol.android.design
 
+import android.provider.Settings
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.platform.LocalConfiguration
-import android.provider.Settings
 import androidx.compose.ui.platform.LocalContext
 
 /**

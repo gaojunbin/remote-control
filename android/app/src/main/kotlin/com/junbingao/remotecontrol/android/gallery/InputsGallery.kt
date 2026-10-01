@@ -14,12 +14,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.junbingao.remotecontrol.android.design.AgentLogo
 import com.junbingao.remotecontrol.android.design.ContinuousShape
 import com.junbingao.remotecontrol.android.design.GrowingTextField
 import com.junbingao.remotecontrol.android.design.StopSlider
 import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
-import com.junbingao.remotecontrol.android.design.AgentLogo
 import com.junbingao.remotecontrol.android.strings.L10n
 import com.junbingao.remotecontrol.android.system.SearchField
 import com.junbingao.remotecontrol.android.system.Segment

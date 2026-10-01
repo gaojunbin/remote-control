@@ -49,7 +49,7 @@ fun EmptyStateView(symbol: String, title: String, message: String, modifier: Mod
     }
 }
 
-/** The app mark: a black rounded square with the app icon's connected nodes. */
+/** The app mark: a black rounded square with the connected nodes, `point.3.connected.trianglepath.dotted`, at half its size. */
 @Composable
 fun AppMark(size: Dp = 44.dp) {
     Box(

@@ -1,11 +1,11 @@
 package com.junbingao.remotecontrol.android.icons
 
 import androidx.compose.ui.graphics.vector.PathParser
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.File
 
 /**
  * The SF Symbol table against the iPhone's own source: every symbol RCUI names is drawn here

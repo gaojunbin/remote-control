@@ -29,6 +29,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.junbingao.remotecontrol.android.strings.L10n
+import com.junbingao.remotecontrol.core.protocol.AgentLabel
+import com.junbingao.remotecontrol.core.state.DotTone
 
 /**
  * A circle that breathes between full and half opacity while it is asked to, and stands still at
@@ -54,13 +56,24 @@ private fun BreathingCircle(color: Color, size: Dp, pulsing: Boolean) {
 
 /**
  * A session status dot. The colour is a shortcut; the label next to it always says the same
- * thing in words. [color] and [pulses] are `Theme.dotColor(tone)` and `StatusDot.pulses(tone:)`
- * of the session's `DotTone`, the core's rule, which only the waiting tone moves under; Reduce
- * Motion (the system's animator scale at zero) holds even that one still.
+ * thing in words.
+ *
+ * `DotTone` in the core decides what the dot looks like from the state, who owns the session and
+ * whether the machine is reachable. Green means working — leave it; amber means there is
+ * something for you. Only a session blocked on the user pulses, so the one state that needs an
+ * answer is the one that moves and a running session asks for nothing.
  */
 @Composable
-fun StatusDot(color: Color, pulses: Boolean, size: Dp = 8.dp) {
-    BreathingCircle(color, size, pulsing = pulses && !LocalAppearance.current.reduceMotion)
+fun StatusDot(tone: DotTone, size: Dp = 8.dp) {
+    BreathingCircle(Theme.dotColor(tone), size, pulsing = StatusDot.pulses(tone, LocalAppearance.current.reduceMotion))
+}
+
+object StatusDot {
+    /**
+     * Which tone moves. Reduce Motion (the system's animator scale at zero) holds it still, where
+     * the amber alone still says it.
+     */
+    fun pulses(tone: DotTone, reduceMotion: Boolean): Boolean = tone == DotTone.waiting && !reduceMotion
 }
 
 /**
@@ -120,43 +133,44 @@ val ChipButtonStyle = ButtonStyle { configuration, label ->
 
 /**
  * A dot and a word, in that order, always both. The dot alone is never the signal, and the word
- * alone loses the glanceable colour. [textColor] is `Theme.attention` for the waiting tone and
- * the secondary ink for every other, as the iPhone's does.
+ * alone loses the glanceable colour.
  */
 @Composable
-fun StatusLabel(dot: Color, pulses: Boolean, text: String, textColor: Color = Theme.inkSecondary) {
+fun StatusLabel(tone: DotTone, text: String) {
     Row(
         Modifier.clearAndSetSemantics { contentDescription = text },
         horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        StatusDot(dot, pulses)
-        Text(text, style = Theme.Text.meta, color = textColor, lineLimit = 1)
+        StatusDot(tone)
+        Text(text, style = Theme.Text.meta, color = if (tone == DotTone.waiting) Theme.attention else Theme.inkSecondary, lineLimit = 1)
     }
 }
 
 /**
  * A session row's dot and the word beside it: the state in colour, the origin in words. The word
- * keeps the secondary ink whatever the dot says, so the two never say the same thing twice.
+ * keeps the secondary ink whatever the dot says, so the two never say the same thing twice and
+ * never say two different things.
  */
 @Composable
-fun SessionOriginLabel(dot: Color, pulses: Boolean, origin: String) {
+fun SessionOriginLabel(tone: DotTone, origin: String) {
     Row(
         Modifier.clearAndSetSemantics { contentDescription = origin },
         horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        StatusDot(dot, pulses)
+        StatusDot(tone)
         Text(origin, style = Theme.Text.meta, color = Theme.inkSecondary, lineLimit = 1)
     }
 }
 
 /**
- * The agent a session runs, as a tinted pill: its logo, then its name (`AgentLabel.name`, the
- * core's). Tinted and never outlined, and no agent carries a colour of its own.
+ * The agent a session runs, as a tinted pill: its logo, then its name (`AgentLabel.name`).
+ * Tinted and never outlined, so a row keeps its one edge budget for the surface it sits on, and
+ * no agent carries a colour of its own.
  */
 @Composable
-fun AgentChip(agent: String, name: String) {
+fun AgentChip(agent: String) {
     Row(
         Modifier
             .background(Theme.quietFill, CapsuleShape)
@@ -165,7 +179,7 @@ fun AgentChip(agent: String, name: String) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AgentLogo(agent)
-        Text(name, style = Theme.Text.caption, color = Theme.inkSecondary, lineLimit = 1)
+        Text(AgentLabel.name(agent), style = Theme.Text.caption, color = Theme.inkSecondary, lineLimit = 1)
     }
 }
 

@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.viewinterop.AndroidView
 import com.junbingao.remotecontrol.android.design.Theme
+import com.junbingao.remotecontrol.core.state.TerminalSize
 import com.termux.view.TerminalView
 
 /**
@@ -19,18 +20,16 @@ import com.termux.view.TerminalView
  * @param fontSize the type size in points, remembered between terminals.
  * @param onSize the emulator was laid out at this many columns and rows; said once per size.
  * @param onInput bytes the person typed, as the emulator encodes them.
- * @param onFontSize a pinch landed on a new type size.
- * @param scaledFontSize the size a pinch of a scale lands on from a base size — the core's
- *   `TerminalTypeSize.scaled`, which bounds and rounds it.
+ * @param onFontSize a pinch landed on a new type size (the core's `TerminalTypeSize.scaled`,
+ *   which bounds and rounds it).
  */
 @Composable
 fun TerminalHost(
     feed: TerminalFeed,
     fontSize: Double,
-    onSize: (cols: Int, rows: Int) -> Unit,
+    onSize: (TerminalSize) -> Unit,
     onInput: (ByteArray) -> Unit,
     onFontSize: (Double) -> Unit,
-    scaledFontSize: (base: Double, scale: Double) -> Double,
     modifier: Modifier = Modifier,
 ) {
     // The app's own ink on the app's own surface: an emulator's usual light grey on black would
@@ -40,15 +39,13 @@ fun TerminalHost(
     val size by rememberUpdatedState(onSize)
     val input by rememberUpdatedState(onInput)
     val pinched by rememberUpdatedState(onFontSize)
-    val scaled by rememberUpdatedState(scaledFontSize)
     AndroidView(
         modifier = modifier.testTag("terminal.emulator"),
         factory = { context ->
             val bridge = TerminalBridge(context, feed, fontSize)
-            bridge.onSize = { cols, rows -> size(cols, rows) }
+            bridge.onSize = { grid -> size(grid) }
             bridge.onInput = { bytes -> input(bytes) }
             bridge.onFontSize = { points -> pinched(points) }
-            bridge.scaledFontSize = { base, scale -> scaled(base, scale) }
             bridge.view.also { it.tag = bridge }
         },
         update = { view ->

@@ -1,9 +1,9 @@
 package com.junbingao.remotecontrol.android.voice
 
+import kotlin.math.pow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.math.pow
 
 /** The checks `ios/VerificationUI/main.swift` makes of `InputLevel`. */
 class InputLevelTest {

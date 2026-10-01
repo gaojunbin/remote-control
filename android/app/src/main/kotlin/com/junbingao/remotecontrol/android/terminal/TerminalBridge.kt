@@ -3,6 +3,8 @@ package com.junbingao.remotecontrol.android.terminal
 import android.annotation.SuppressLint
 import android.content.Context
 import android.view.MotionEvent
+import com.junbingao.remotecontrol.core.state.TerminalSize
+import com.junbingao.remotecontrol.core.state.TerminalTypeSize
 import com.termux.terminal.TerminalColors
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TextStyle
@@ -12,24 +14,24 @@ import kotlin.math.roundToInt
 /**
  * Termux's terminal view and a remote session, joined the way the iPhone's `TerminalHost`
  * coordinator joins SwiftTerm to the screen: bytes from the feed are drawn, bytes the person
- * types go out, every new grid is reported once, and a pinch changes the type size.
+ * types go out, every new size is reported once (clamped to what a device accepts, the core's
+ * `TerminalSize`), and a pinch changes the type size by the core's `TerminalTypeSize.scaled`.
  *
  * It renders, selects, scrolls and produces key sequences; what to do with those bytes and what
  * the status line says belong to the screen around it.
  */
 @SuppressLint("ClickableViewAccessibility")
 internal class TerminalBridge(context: Context, private val feed: TerminalFeed, fontSize: Double) {
-    var onSize: (Int, Int) -> Unit = { _, _ -> }
+    var onSize: (TerminalSize) -> Unit = {}
     var onInput: (ByteArray) -> Unit = {}
     var onFontSize: (Double) -> Unit = {}
-    var scaledFontSize: (Double, Double) -> Double = { base, _ -> base }
 
     val view = TerminalView(context, null)
 
     private val session = TerminalSession(null, SessionCallbacks(context) { view })
     private val density = context.resources.displayMetrics.density
     private var points = 0.0
-    private var reported: TerminalGrid? = null
+    private var reported: TerminalSize? = null
     private var colors: IntArray? = null
     private var pinchBase: Double? = null
     private var pinchScale = 1.0
@@ -108,11 +110,11 @@ internal class TerminalBridge(context: Context, private val feed: TerminalFeed, 
     /** One report per size, whichever of the first layout or a later change got there. */
     private fun report(cols: Int, rows: Int) {
         if (cols <= 0 || rows <= 0) return
-        val grid = TerminalGrid(cols, rows)
-        if (grid == reported) return
-        reported = grid
-        feed.size = grid
-        onSize(cols, rows)
+        val size = TerminalSize(cols = cols, rows = rows)
+        if (size == reported) return
+        reported = size
+        feed.size = size
+        onSize(size)
     }
 
     private fun beginPinch() {
@@ -124,7 +126,7 @@ internal class TerminalBridge(context: Context, private val feed: TerminalFeed, 
     private fun pinched(step: Float) {
         val base = pinchBase ?: points.also { beginPinch() }
         pinchScale *= step
-        val size = scaledFontSize(base, pinchScale)
+        val size = TerminalTypeSize.scaled(base, by = pinchScale)
         if (size == points) return
         setFontSize(size)
         onFontSize(size)
