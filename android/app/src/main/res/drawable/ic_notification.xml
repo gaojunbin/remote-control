@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The status bar's mark for the app's notifications: the launcher's three linked nodes in one
+     colour, cropped to the drawing so it fills the 24 dp square the way the system's own do. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="658"
+    android:viewportHeight="658">
+    <group
+        android:translateX="-438.5"
+        android:translateY="-455.5">
+        <path
+            android:fillAlpha="0.5"
+            android:fillColor="#FFFFFF"
+            android:pathData="M645.92,636.5 L889.08,636.5 A92,92 0 0,1 889.08,602.5 L645.92,602.5 A92,92 0 0,1 645.92,636.5 Z M590.07,704.76 L704.33,882.62 A92,92 0 0,1 732.93,864.24 L618.67,686.38 A92,92 0 0,1 590.07,704.76 Z M916.33,686.38 L802.07,864.24 A92,92 0 0,1 830.67,882.62 L944.93,704.76 A92,92 0 0,1 916.33,686.38 Z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M493.5,619.5 a62,62 0 1,0 124,0 a62,62 0 1,0 -124,0 Z M917.5,619.5 a62,62 0 1,0 124,0 a62,62 0 1,0 -124,0 Z M705.5,949.5 a62,62 0 1,0 124,0 a62,62 0 1,0 -124,0 Z" />
+    </group>
+</vector>

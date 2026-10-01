@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The iPhone relaxes App Transport Security for local networking only (NSAllowsLocalNetworking)
+     and GatewayEndpoint refuses plain HTTP for anything that is not loopback, an RFC 1918 address
+     or a .local name, because a bearer token rides on every request. Android cannot name address
+     ranges here, so cleartext is permitted at this level and GatewayEndpoint remains the rule that
+     decides, exactly as it does on the iPhone. -->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config
+        cleartextTrafficPermitted="true"
+        tools:ignore="InsecureBaseConfiguration">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

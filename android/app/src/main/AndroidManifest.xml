@@ -1,20 +1,84 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- The gateway, and nothing else on the network. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Each of these stands for one of the iPhone's purpose strings and is asked for at the
+         moment the iPhone asks: the camera for a pairing code or a photo, the microphone for
+         dictation (Android's speech recogniser needs no permission of its own beyond it),
+         notifications when the Notifications switch is turned on, and biometric unlock when
+         the app lock is. The photo library needs none: the system photo picker hands over
+         only what the person chose. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <!-- A phone without a camera or a microphone still installs the app; the features that
+         need one are offered only where there is one, as on the iPhone. -->
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+
+    <queries>
+        <!-- The system speech recogniser, which package visibility hides otherwise. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <!-- The camera app a photo is taken with. -->
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+    </queries>
 
     <application
+        android:name=".android.RemoteControlApplication"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
         android:label="Remote Control"
-        android:supportsRtl="true">
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.RemoteControl">
+        <!-- One activity for the whole app, as the iPhone has one scene. It handles its own
+             configuration changes, so turning the phone or switching the system appearance
+             redraws the screen in place instead of rebuilding it. -->
         <activity
             android:name=".android.MainActivity"
-            android:exported="true">
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|locale|layoutDirection"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- remotecontrol://session?device=<id>&id=<session_id>, the iPhone's deep link. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="session"
+                    android:scheme="remotecontrol" />
+            </intent-filter>
         </activity>
+
+        <!-- Where a camera shot is written for the camera app, and read back from once. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

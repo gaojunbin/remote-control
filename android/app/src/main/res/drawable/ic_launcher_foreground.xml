@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The iPhone's icon (ios/App/Assets.xcassets/AppIcon.appiconset), redrawn as a vector: three
+     white nodes joined by grey bars, each bar stopping short of its nodes in a concave cut. The
+     iPhone's 1024-point square is the adaptive icon's 72 dp visible area, so the viewport is
+     1536 units wide and every coordinate is the iPhone's plus 256. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="1536"
+    android:viewportHeight="1536">
+    <path
+        android:fillColor="#959595"
+        android:pathData="M645.92,636.5 L889.08,636.5 A92,92 0 0,1 889.08,602.5 L645.92,602.5 A92,92 0 0,1 645.92,636.5 Z M590.07,704.76 L704.33,882.62 A92,92 0 0,1 732.93,864.24 L618.67,686.38 A92,92 0 0,1 590.07,704.76 Z M916.33,686.38 L802.07,864.24 A92,92 0 0,1 830.67,882.62 L944.93,704.76 A92,92 0 0,1 916.33,686.38 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M493.5,619.5 a62,62 0 1,0 124,0 a62,62 0 1,0 -124,0 Z M917.5,619.5 a62,62 0 1,0 124,0 a62,62 0 1,0 -124,0 Z M705.5,949.5 a62,62 0 1,0 124,0 a62,62 0 1,0 -124,0 Z" />
+</vector>

@@ -1,0 +1,47 @@
+{
+  "//": "docs/DESIGN.md, The Android app: where the iPhone names Apple (Face ID, the Settings app, the Keychain, TestFlight, the App Store, the iPhone itself), the Android app names Android's counterpart. Each entry replaces the words of one key of ios/App/Localizable.xcstrings, which screens keep asking for by the iPhone's key; nothing else belongs here.",
+  "Blocked in iOS Settings": {
+    "en": "Blocked in Android Settings",
+    "zh-Hans": "已在系统设置中禁用"
+  },
+  "Blocked in iOS Settings. Tap to open them.": {
+    "en": "Blocked in Android Settings. Tap to open them.",
+    "zh-Hans": "已在 Android 设置中关闭，点按前往。"
+  },
+  "Could not reach the keychain. Unlock this device and try again.": {
+    "en": "Could not reach the Android Keystore. Unlock this device and try again.",
+    "zh-Hans": "无法访问 Android 密钥库。请解锁设备后重试。"
+  },
+  "On this iPhone": {
+    "en": "On this phone",
+    "zh-Hans": "在本机"
+  },
+  "Open iOS Settings": {
+    "en": "Open Android Settings",
+    "zh-Hans": "打开系统设置"
+  },
+  "Open TestFlight": {
+    "en": "Open the update page",
+    "zh-Hans": "打开更新页面"
+  },
+  "Open the App Store": {
+    "en": "Open the update page",
+    "zh-Hans": "打开更新页面"
+  },
+  "Require Face ID": {
+    "en": "Require biometric unlock",
+    "zh-Hans": "需要生物识别解锁"
+  },
+  "The language you speak. The recogniser on this iPhone listens for one at a time.": {
+    "en": "The language you speak. The recogniser on this phone listens for one at a time.",
+    "zh-Hans": "你说的语言。这台手机上的识别一次只听一种语言。"
+  },
+  "Unlock with Face ID, Touch ID or your passcode to see your sessions.": {
+    "en": "Unlock with your fingerprint, face or screen lock to see your sessions.",
+    "zh-Hans": "使用指纹、面部或屏幕锁定解锁后查看会话。"
+  },
+  "Unlock with Face ID, Touch ID or your passcode when the app returns from the background.": {
+    "en": "Unlock with your fingerprint, face or screen lock when the app returns from the background.",
+    "zh-Hans": "应用从后台返回时，使用指纹、面部或屏幕锁定解锁。"
+  }
+}

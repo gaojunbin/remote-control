@@ -1,0 +1,23 @@
+{
+  "//": "The words UIKit supplies on the iPhone for the system pieces this app draws itself, in UIKit's own translations. The iPhone's catalogue never needed them; none may be one of its keys.",
+  "Back": {
+    "en": "Back",
+    "zh-Hans": "返回"
+  },
+  "Search": {
+    "en": "Search",
+    "zh-Hans": "搜索"
+  },
+  "Clear text": {
+    "en": "Clear text",
+    "zh-Hans": "清除文本"
+  },
+  "OK": {
+    "en": "OK",
+    "zh-Hans": "好"
+  },
+  "More": {
+    "en": "More",
+    "zh-Hans": "更多"
+  }
+}
