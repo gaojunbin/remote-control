@@ -4,7 +4,7 @@
 
 package com.junbingao.remotecontrol.win.strings
 
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
 
 /** The `connection` group of the web's string table. */
 class ConnectionStrings(

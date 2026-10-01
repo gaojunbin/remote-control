@@ -37,6 +37,7 @@ import com.junbingao.remotecontrol.win.design.Radius
 import com.junbingao.remotecontrol.win.design.Shadow
 import com.junbingao.remotecontrol.win.design.Space
 import com.junbingao.remotecontrol.win.design.boxShadow
+import com.junbingao.remotecontrol.win.design.stackChild
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -205,12 +206,15 @@ fun WholePointCenter(bottom: Boolean = false, minimumHeight: Dp = 0.dp, modifier
         val child = measurables.firstOrNull()?.measure(constraints.copy(minWidth = 0, minHeight = 0))
         val childWidth = child?.width ?: 0
         val childHeight = child?.height ?: 0
+        // The content's exact height, as the Mac centres it: a card of fractional lines is not
+        // the whole pixels it was laid out in (`ExactHeight`).
+        val exactHeight = childHeight + (measurables.firstOrNull()?.stackChild?.exact?.fraction ?: 0f)
         val width = if (constraints.hasBoundedWidth) constraints.maxWidth else childWidth
         val height = if (constraints.hasBoundedHeight) constraints.maxHeight else max(childHeight, minimumHeight.roundToPx())
         layout(width, height) {
             val unit = density
             val x = (kotlin.math.floor((width - childWidth) / 2f / unit + 0.5f) * unit).roundToInt()
-            val y = if (bottom) height - childHeight else (kotlin.math.floor((height - childHeight) / 2f / unit + 0.5f) * unit).roundToInt()
+            val y = if (bottom) height - childHeight else (kotlin.math.floor((height - exactHeight) / 2f / unit + 0.5f) * unit).roundToInt()
             child?.place(x, y)
         }
     }

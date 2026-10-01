@@ -4,7 +4,7 @@
 
 package com.junbingao.remotecontrol.win.strings
 
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
 
 /** A24: the words about an account, wherever one is named or typed. */
 class AccountStrings(

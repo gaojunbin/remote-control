@@ -1,6 +1,6 @@
 package com.junbingao.remotecontrol.win.preview
 
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
 import java.io.File
 import java.net.URI
 
@@ -51,7 +51,7 @@ class PreviewArguments(arguments: List<String>) {
                 "--width" -> width = value(flag).toDoubleOrNull()?.toInt() ?: 1280
                 "--height" -> height = value(flag).toDoubleOrNull()?.toInt() ?: 860
                 "--scale" -> scale = value(flag).toIntOrNull() ?: 2
-                "--language" -> language = InterfaceLanguage.of(value(flag))
+                "--language" -> language = InterfaceLanguage(rawValue = value(flag))
                 "--out" -> out = File(value(flag))
                 else -> {
                     // `-Key value` is a user default on the Mac; nothing here reads one.

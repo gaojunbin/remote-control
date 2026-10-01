@@ -34,8 +34,6 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation(libs.kotlinx.coroutines.test)
-    // The Markdown corpus is read as JSON.
-    testImplementation(libs.kotlinx.serialization.json)
 }
 
 // The chat's Markdown is the Mac app's own bundle of the web's pipeline, served from where it
@@ -49,6 +47,8 @@ tasks.processResources {
 
 tasks.test {
     useJUnitPlatform()
+    // The frozen contract's fixtures, which the shared helpers' tests read as the web's tests do.
+    systemProperty("rc.protocol.dir", rootDir.resolve("../protocol").canonicalPath)
 }
 
 compose.desktop {

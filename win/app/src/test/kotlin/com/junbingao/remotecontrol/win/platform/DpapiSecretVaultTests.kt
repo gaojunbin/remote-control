@@ -1,5 +1,6 @@
 package com.junbingao.remotecontrol.win.platform
 
+import com.junbingao.remotecontrol.core.transport.TransportError
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
@@ -15,10 +16,10 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * The token's vaults. The DPAPI vault's files are checked everywhere with a stand-in seal; the
- * seal itself is Windows' and is checked on Windows, where CI runs the same suite.
+ * The token's vault on Windows. Its files are checked everywhere with a stand-in seal; the seal
+ * itself is Windows' and is checked on Windows, where CI runs the same suite.
  */
-class SecretVaultTests {
+class DpapiSecretVaultTests {
     /** Reverses the bytes and marks them, so a file holds nothing readable as the token. */
     private object FakeSeal : DpapiSecretVault.Protector {
         override fun protect(data: ByteArray) = byteArrayOf(0x7F) + data.reversedArray()
@@ -27,18 +28,6 @@ class SecretVaultTests {
             require(data.firstOrNull() == 0x7F.toByte()) { "not sealed here" }
             return data.drop(1).reversed().toByteArray()
         }
-    }
-
-    @Test
-    fun theMemoryVaultKeepsWhatItIsGivenAndNothingElse() = runTest {
-        val vault = MemorySecretVault()
-        assertNull(vault.read("token"))
-        val token = "secret".toByteArray()
-        vault.write(token, "token")
-        token[0] = 0
-        assertContentEquals("secret".toByteArray(), vault.read("token"))
-        vault.remove("token")
-        assertNull(vault.read("token"))
     }
 
     @Test
@@ -69,7 +58,7 @@ class SecretVaultTests {
     fun aFileSealedElsewhereReadsAsUnavailable(@TempDir directory: Path) = runTest {
         val vault = DpapiSecretVault(directory, FakeSeal)
         Files.write(vault.file("token"), "plain".toByteArray())
-        assertFailsWith<SecureStorageUnavailable> { vault.read("token") }
+        assertEquals(TransportError.SecureStorageUnavailable, assertFailsWith<TransportError> { vault.read("token") })
     }
 
     @Test

@@ -16,7 +16,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.junbingao.remotecontrol.win.standin.DotTone
+import com.junbingao.remotecontrol.core.protocol.SessionControl
+import com.junbingao.remotecontrol.core.protocol.SessionState
+import com.junbingao.remotecontrol.core.state.DotTone
 import com.junbingao.remotecontrol.win.strings.S
 
 /**
@@ -87,14 +89,15 @@ fun Dot(style: DotStyle, pulses: Boolean = false, modifier: Modifier = Modifier)
 }
 
 /**
- * `web/src/components/StatusDot.tsx`: a session's dot, in the tone `DotTone` picked from the
- * state, the control owner and the device together. The accessible name stays the raw state and
- * the tooltip names the tone. Stage 2 adds the form that takes the core's session types.
+ * `web/src/components/StatusDot.tsx`: a session's dot, in the tone `DotTone` picks from the state,
+ * the control owner and the device together. The accessible name stays the raw state and the
+ * tooltip names the tone.
  */
 @Composable
-fun StatusDot(tone: DotTone, state: String, modifier: Modifier = Modifier) {
+fun StatusDot(state: SessionState, control: SessionControl, online: Boolean = true, modifier: Modifier = Modifier) {
+    val tone = DotTone.of(state = state, control = control, online = online)
     Help(S.dotToneLabel(tone.rawValue)) {
-        Dot(DotStyle.Tone(tone), modifier = modifier.semantics { contentDescription = S.stateLabel(state) })
+        Dot(DotStyle.Tone(tone), modifier = modifier.semantics { contentDescription = S.stateLabel(state.rawValue) })
     }
 }
 

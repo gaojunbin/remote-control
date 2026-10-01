@@ -1,5 +1,7 @@
 package com.junbingao.remotecontrol.win.platform
 
+import com.junbingao.remotecontrol.core.persistence.SecretStore
+import com.junbingao.remotecontrol.core.transport.TransportError
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -10,14 +12,16 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 
 /**
- * The token on disk, sealed with Windows' data protection for the signed-in Windows user
- * (`docs/DESIGN.md` § "The Windows app": DPAPI, in the app's own data folder). Each key is one
- * file in `directory`, holding the sealed bytes and nothing else; only the same Windows account
- * on the same machine can open it, and a file another account or another machine made reads as
- * unavailable rather than as a token. A write replaces the file whole, so a crash leaves the old
- * token or the new one and never half of either.
+ * The core's `SecretStore` on Windows: the token on disk, sealed with Windows' data protection
+ * for the signed-in Windows user (`docs/DESIGN.md` § "The Windows app": DPAPI, in the app's own
+ * data folder), where the Mac keeps it in the Keychain. Each key is one file in `directory`,
+ * holding the sealed bytes and nothing else; only the same Windows account on the same machine can
+ * open it, and a file another account or another machine made reads as unavailable rather than as
+ * a token, as a Keychain item the app may not read does. A write replaces the file whole, so a
+ * crash leaves the old token or the new one and never half of either. `--ephemeral`, the renderer
+ * and a run anywhere but Windows keep the token in the core's `MemorySecretStore` instead.
  */
-class DpapiSecretVault(private val directory: Path, private val protector: Protector = Dpapi) : SecretVault {
+class DpapiSecretVault(private val directory: Path, private val protector: Protector = Dpapi) : SecretStore {
     /** What seals the bytes: Windows' DPAPI in the app, and a stand-in in the tests that run anywhere. */
     interface Protector {
         fun protect(data: ByteArray): ByteArray
@@ -31,11 +35,11 @@ class DpapiSecretVault(private val directory: Path, private val protector: Prote
         val file = file(key)
         if (!Files.exists(file)) return@io null
         val sealed = Files.readAllBytes(file)
-        runCatching { protector.unprotect(sealed) }.getOrElse { throw SecureStorageUnavailable(it) }
+        runCatching { protector.unprotect(sealed) }.getOrElse { throw TransportError.SecureStorageUnavailable }
     }
 
     override suspend fun write(data: ByteArray, key: String) = io {
-        val sealed = runCatching { protector.protect(data) }.getOrElse { throw SecureStorageUnavailable(it) }
+        val sealed = runCatching { protector.protect(data) }.getOrElse { throw TransportError.SecureStorageUnavailable }
         Files.createDirectories(directory)
         val temporary = Files.createTempFile(directory, ".vault", ".tmp")
         try {

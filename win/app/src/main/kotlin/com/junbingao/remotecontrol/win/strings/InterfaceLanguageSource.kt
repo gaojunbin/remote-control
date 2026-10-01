@@ -3,7 +3,7 @@ package com.junbingao.remotecontrol.win.strings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
 
 /**
  * The interface language `S` reads, kept in Compose snapshot state so that every composable which

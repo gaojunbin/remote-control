@@ -1,6 +1,6 @@
 package com.junbingao.remotecontrol.win.app
 
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
 
 /**
  * What the launch arguments ask of this run, as the Mac app reads its own.
@@ -33,6 +33,6 @@ data class LaunchOptions(
         ephemeral = "--ephemeral" in arguments,
         resetState = "--reset-state" in arguments,
         language = arguments.firstOrNull { it.startsWith("--language=") }
-            ?.let { InterfaceLanguage.of(it.removePrefix("--language=")) },
+            ?.let { InterfaceLanguage(rawValue = it.removePrefix("--language=")) },
     )
 }

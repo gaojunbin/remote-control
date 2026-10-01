@@ -1,7 +1,9 @@
 package com.junbingao.remotecontrol.win.strings
 
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
-import com.junbingao.remotecontrol.win.standin.TimelineDetail
+import com.junbingao.remotecontrol.core.protocol.Session
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.TimelineDetail
+import com.junbingao.remotecontrol.core.state.trimmed
 
 /**
  * The app's own words: `S.<group>.<key>`, read through the interface language every time, as the
@@ -110,20 +112,20 @@ object S {
     fun userStateLabel(state: String): String = labels.userState[state] ?: state
 
     /**
-     * Row label for a session, from its `origin`: where it came from, never what it is doing
-     * (`docs/DESIGN.md` § "The session row says where it came from"). The state is the dot's
-     * colour alone, so a row never says the same thing twice.
+     * Row label for a session: where it came from, never what it is doing (`docs/DESIGN.md`
+     * § "The session row says where it came from"). The state is the dot's colour alone, so a row
+     * never says the same thing twice.
      */
-    fun sessionOriginLabel(origin: String): String = labels.origin[origin] ?: origin
+    fun sessionOriginLabel(session: Session): String = labels.origin[session.origin.rawValue] ?: session.origin.rawValue
 
     /**
-     * The name every surface prints for a session, from its `title`. A thread the agent has not
-     * named yet arrives with an empty title; the row, the chat header and the sidebar all fall
-     * back to the same words in the title's own type, rather than leaving a blank line above the
-     * meta (`docs/DESIGN.md` § "Session lists"). The session search reads the same value, so an
+     * The name every surface prints for a session. A thread the agent has not named yet arrives
+     * with an empty `title`; the row, the chat header and the sidebar all fall back to the same
+     * words in the title's own type, rather than leaving a blank line above the meta
+     * (`docs/DESIGN.md` § "Session lists"). The session search reads the same value, so an
      * untitled row is found by those words too.
      */
-    fun sessionTitle(title: String): String = title.trim().ifEmpty { sessions.untitled }
+    fun sessionTitle(session: Session): String = session.title.trimmed.ifEmpty { sessions.untitled }
 }
 
 /** The two timeline detail levels, in the order Settings offers them. */

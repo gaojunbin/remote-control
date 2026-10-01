@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -15,8 +16,9 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
 import com.junbingao.remotecontrol.win.strings.InterfaceLanguageSource
 import androidx.compose.ui.text.TextStyle as ComposeTextStyle
 
@@ -77,12 +79,16 @@ fun Text(
     val maxLines = lineLimit ?: Int.MAX_VALUE
     val overflow = if (lineLimit != null) TextOverflow.Ellipsis else TextOverflow.Clip
     val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    // A span in a size or face of its own is not a fallback: the line keeps the baseline it gives.
+    val ownLine = text.spanStyles.any { it.item.fontSize != TextUnit.Unspecified || it.item.fontFamily == FontFamily.Monospace }
+    val aligned = if (ownLine) null else PrimaryBaseline.of(composeStyle, weight, mono, line.lineBox, measurer, density)
     val shown = remember(faced, maxLines, wraps) { mutableStateOf(faced) }
     val exact = remember { ExactHeight() }
     BasicText(
         text = shown.value,
         modifier = modifier
-            .cssLineBox(line.lineBox, line.baseline, line.snapToPoint, exact)
+            .cssLineBox(line.lineBox, line.baseline, line.snapToPoint, exact, aligned)
             .then(if (neutral != null) Modifier.recoloured(ink) else Modifier)
             .then(if (wraps) Modifier.pushingOut(faced, composeStyle, maxLines, overflow, measurer, shown) else Modifier)
             .exactHeight(exact),

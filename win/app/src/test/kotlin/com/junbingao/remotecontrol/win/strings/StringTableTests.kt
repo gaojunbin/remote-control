@@ -1,11 +1,13 @@
 package com.junbingao.remotecontrol.win.strings
 
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
-import com.junbingao.remotecontrol.win.standin.TimelineDetail
-import org.junit.jupiter.api.AfterEach
+import com.junbingao.remotecontrol.core.protocol.EventSource
+import com.junbingao.remotecontrol.core.protocol.Session
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.TimelineDetail
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.AfterEach
 
 /**
  * Every group of the web's string table, in both languages. The compiler already refuses a table
@@ -111,8 +113,9 @@ class StringTableTests {
         assertEquals("needs approval", S.stateLabel("needs_approval"))
         assertEquals("owner", S.roleLabel("owner"))
         assertEquals("中文", S.interfaceLanguageLabel(InterfaceLanguage.zhHans))
-        assertEquals("Untitled session", S.sessionTitle("  "))
-        assertEquals("Remote Control", S.sessionOriginLabel("remote"))
+        val untitled = Session(sessionID = "s", deviceID = "d", agent = "claude", title = "  ", cwd = "/")
+        assertEquals("Untitled session", S.sessionTitle(untitled))
+        assertEquals("Remote Control", S.sessionOriginLabel(untitled.copy(origin = EventSource.remote)))
         assertEquals("Detailed", S.timelineDetailLabel(TimelineDetail.detailed))
         assertEquals("Waiting for you", S.dotToneLabel("waiting"))
     }

@@ -1,14 +1,14 @@
 package com.junbingao.remotecontrol.win.design
 
 import androidx.compose.ui.text.font.FontWeight
-import com.junbingao.remotecontrol.win.standin.InterfaceLanguage
+import com.junbingao.remotecontrol.core.state.InterfaceLanguage
+import java.util.concurrent.ConcurrentHashMap
 import org.jetbrains.skia.FontMgr
 import org.jetbrains.skia.FontSlant
 import org.jetbrains.skia.FontStyle
 import org.jetbrains.skia.FontVariation
 import org.jetbrains.skia.FontWidth
 import org.jetbrains.skia.Typeface
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The system face as a browser draws the web's font stack (`--font-sans`, `--font-mono`).
