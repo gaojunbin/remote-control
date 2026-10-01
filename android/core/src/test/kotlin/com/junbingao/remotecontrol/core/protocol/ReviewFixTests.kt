@@ -10,8 +10,8 @@ import kotlin.test.assertTrue
 
 /**
  * Review fixes in these layers. RCCore's suite of this name also holds the timeline's gap, cursor
- * and child-index fixes (`Timeline`) and the composer's send reasons (`ChatStore`); those cases
- * are `core-state`'s to add here.
+ * and child-index fixes (`Timeline`) and the composer's send reasons (`ChatStore`); those cases are
+ * in `state/ReviewFixTests.kt`.
  */
 class ReviewFixTests {
     /** A message longer than the protocol limit is refused before it is sent. */

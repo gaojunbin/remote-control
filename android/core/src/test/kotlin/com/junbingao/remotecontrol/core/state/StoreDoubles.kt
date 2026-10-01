@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalCoroutinesApi::class)
+
 package com.junbingao.remotecontrol.core.state
 
 import com.junbingao.remotecontrol.core.protocol.Device
@@ -22,11 +24,18 @@ import com.junbingao.remotecontrol.core.transport.PolishResponse
 import com.junbingao.remotecontrol.core.transport.SessionInfoResponse
 import com.junbingao.remotecontrol.core.transport.TransportError
 import com.junbingao.remotecontrol.core.transport.UserListResponse
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.serialization.json.JsonElement
 import java.io.File
 import java.nio.file.Files
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 // The doubles RCCore's suites each spell out in full, written once: a gateway and a channel that
 // answer nothing, which a suite's own double extends with the routes it is about.
@@ -76,3 +85,17 @@ open class InertChannel : GatewayChannel {
 
 /** A fresh directory for one test's cache or drafts, which the test deletes when it is done. */
 fun scratchDirectory(prefix: String): File = Files.createTempDirectory("rc-$prefix-").toFile()
+
+/**
+ * RCCore's `settle(timeout:_:)`: wait until the condition holds or the time is up — on the test's
+ * virtual clock, in RCCore's own small steps, so a state a check reads on the way is not skipped.
+ */
+fun TestScope.settle(timeout: Duration = 3.seconds, step: Duration = 10.milliseconds, condition: () -> Boolean) {
+    runCurrent()
+    var waited = Duration.ZERO
+    while (!condition() && waited < timeout) {
+        advanceTimeBy(step)
+        runCurrent()
+        waited += step
+    }
+}

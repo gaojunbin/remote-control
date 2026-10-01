@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 
 /**
  * Amendment A43, editing a queued message: the wire. RCCore's suite of this name also drives the
- * store's half through `ChatStore`; those cases are `core-state`'s to add here.
+ * store's half through `ChatStore`; those cases are in `state/QueuedEditTests.kt`.
  */
 class QueuedEditTests {
     /** An entry says how many files it holds, and says nothing when it holds none. */

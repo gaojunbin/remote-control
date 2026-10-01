@@ -1,6 +1,8 @@
 package com.junbingao.remotecontrol.core.state
 
+import com.junbingao.remotecontrol.core.demo.DemoFixtures
 import com.junbingao.remotecontrol.core.protocol.AppFrame
+import com.junbingao.remotecontrol.core.protocol.EventSource
 import com.junbingao.remotecontrol.core.protocol.GatewayErrorBody
 import com.junbingao.remotecontrol.core.protocol.GatewayErrorCode
 import com.junbingao.remotecontrol.core.protocol.GatewayRequest
@@ -9,6 +11,7 @@ import com.junbingao.remotecontrol.core.protocol.Session
 import com.junbingao.remotecontrol.core.protocol.SessionControl
 import com.junbingao.remotecontrol.core.protocol.SessionResult
 import com.junbingao.remotecontrol.core.protocol.SessionState
+import com.junbingao.remotecontrol.core.protocol.SharedSetting
 import com.junbingao.remotecontrol.core.protocol.SpeedChange
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -16,11 +19,9 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
-
-// The three cases on a `shared` session — `sharedSettingWaitsForTheReply`,
-// `sharedConflictChangesNothing` and `sharedTitleStaysOptimistic` — read the demo's Claude agent and
-// arrive with the demo.
+import kotlin.test.assertTrue
 
 /**
  * `docs/DESIGN.md` § "The model card": on a session this app drives, every change made from the card
@@ -34,6 +35,14 @@ class SessionSetTests {
     private fun session(title: String = "T", effort: String? = "medium", speed: String? = null): Session =
         Session(sessionID = "s", deviceID = "d", agent = "codex", title = title, cwd = "/tmp", state = SessionState.idle,
                 control = SessionControl.remote, effort = effort, speed = speed)
+
+    /**
+     * The same session a terminal owns and the device is attached to, on the agent whose shim types
+     * the model and the effort in (A40).
+     */
+    private fun shared(title: String = "T", effort: String? = "medium"): Session =
+        Session(sessionID = "s", deviceID = "d", agent = "claude", title = title, cwd = "/tmp", state = SessionState.idle,
+                origin = EventSource.terminal, control = SessionControl.shared, effort = effort)
 
     /** A speed change is visible before the channel answers. */
     @Test
@@ -87,6 +96,67 @@ class SessionSetTests {
         assertEquals("low", chat.session.effort, "the newer session stands")
         assertEquals("renamed at the terminal", chat.session.title)
         assertEquals("Not on this agent.", chat.errorMessage)
+    }
+
+    // Amendment A40, a change that is typed into a terminal
+
+    /** On a shared session the control waits instead of drawing the change. */
+    @Test
+    fun sharedSettingWaitsForTheReply() = runTest {
+        val channel = HeldSetChannel()
+        val chat = ChatStore(session = shared(), channel = channel, tasks = backgroundScope)
+        chat.agent = DemoFixtures.claude
+
+        val setting = async { chat.set(effort = "high") }
+        channel.waitForSet()
+        assertEquals("medium", chat.session.effort, "the card still reads the level the terminal is on")
+        assertEquals(setOf(SharedSetting.effort), chat.pendingSettings, "and names the control that is waiting")
+        assertTrue(chat.isSettingPending)
+
+        channel.release(Result.success(SessionResult(session = shared(effort = "high"))))
+        setting.await()
+        assertEquals("high", chat.session.effort, "the reply is what the card follows")
+        assertFalse(chat.isSettingPending, "and the wait is over with it")
+        assertNull(chat.errorMessage)
+    }
+
+    /** A busy terminal leaves the value alone and says so in the device's words. */
+    @Test
+    fun sharedConflictChangesNothing() = runTest {
+        val channel = HeldSetChannel()
+        val chat = ChatStore(session = shared(), channel = channel, tasks = backgroundScope)
+        chat.agent = DemoFixtures.claude
+
+        val setting = async { chat.set(model = "claude-opus-4-1") }
+        channel.waitForSet()
+        assertNull(chat.session.model, "nothing was drawn to put back")
+
+        channel.release(Result.failure(GatewayErrorBody(code = GatewayErrorCode.conflict,
+                                                        message = "the terminal is busy; try again in a moment")))
+        setting.await()
+        assertNull(chat.session.model, "and the refusal leaves it exactly where it was")
+        assertFalse(chat.isSettingPending)
+        assertEquals("the terminal is busy; try again in a moment", chat.errorMessage)
+    }
+
+    /**
+     * A rename on a shared session is still drawn at once. The title is not typed into anything — it
+     * is the app's on every session — so a rename is still drawn the moment it is made.
+     */
+    @Test
+    fun sharedTitleStaysOptimistic() = runTest {
+        val channel = HeldSetChannel()
+        val chat = ChatStore(session = shared(), channel = channel, tasks = backgroundScope)
+        chat.agent = DemoFixtures.claude
+
+        val setting = async { chat.set(title = "Release notes") }
+        channel.waitForSet()
+        assertEquals("Release notes", chat.session.title)
+        assertFalse(chat.isSettingPending, "nothing is being typed for a title")
+
+        channel.release(Result.success(SessionResult(session = shared(title = "Release notes"))))
+        setting.await()
+        assertNull(chat.errorMessage)
     }
 
     /** A channel that holds one `session.set` until the test says what the device answered, so the moment between the tap and the reply can be looked at. */

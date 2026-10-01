@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 // The decoding cases of RCCore's suite — `userIdentity`, `unknownRole`, `helloWithoutUser`,
 // `userRecord`, `operatorRecord`, `health`, `passwordLength` — are in `protocol/AccountsTests.kt`.
 // The cases that drive the demo gateway — `demoSignIn`, `demoMemberIsRefused`, `demoRegistration` —
-// arrive with the demo.
+// are in `demo/AccountsTests.kt`.
 
 /**
  * Amendment A24: every person on a gateway has their own devices, sessions and settings. These are

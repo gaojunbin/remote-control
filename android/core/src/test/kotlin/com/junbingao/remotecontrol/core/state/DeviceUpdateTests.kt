@@ -1,20 +1,34 @@
 package com.junbingao.remotecontrol.core.state
 
+import com.junbingao.remotecontrol.core.demo.DemoFixtures
+import com.junbingao.remotecontrol.core.demo.demoGateway
+import com.junbingao.remotecontrol.core.protocol.AppFrame
 import com.junbingao.remotecontrol.core.protocol.Device
 import com.junbingao.remotecontrol.core.protocol.DevicePlatform
+import com.junbingao.remotecontrol.core.protocol.DeviceUpdateResult
 import com.junbingao.remotecontrol.core.protocol.DeviceUpdateState
+import com.junbingao.remotecontrol.core.protocol.GatewayErrorBody
+import com.junbingao.remotecontrol.core.protocol.GatewayRequest
+import com.junbingao.remotecontrol.core.protocol.PairingProgress
+import com.junbingao.remotecontrol.core.protocol.PairingStep
 import com.junbingao.remotecontrol.core.transport.GatewayConfig
 import com.junbingao.remotecontrol.core.transport.GatewayEndpoint
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 // The wire cases of RCCore's suite — `servedVersion`, `decoding`, `decodingWithoutUpdateFields`,
-// `request` — are in `protocol/DeviceUpdateTests.kt`. The cases that drive the demo gateway —
-// `demoRetry`, `demoRefusesTheSameBuild`, `demoRefusesOffline`, and the A23 suite's
-// `claimFollowsProgress` and `unknownToken` — arrive with the demo.
+// `request` — are in `protocol/DeviceUpdateTests.kt`, and the demo device's own — `demoRetry` but for
+// its last line, `demoRefusesTheSameBuild`, `demoRefusesOffline` — in `demo/DeviceUpdateTests.kt`.
+// `demoRetry` here takes the same steps for the line that reads `DeviceUpdate.notice`.
 
 /**
  * Amendment A36: what a device says about its client now that the gateway keeps every machine on the
@@ -79,6 +93,34 @@ class DeviceUpdateTests {
         assertNull(GatewayConfig.empty.servedBuild)
         assertEquals(DeviceUpdate.Block.offline, DeviceUpdate.block(device(build = old, online = false), servedBuild = served))
     }
+
+    /** The demo's failed device takes a retry, then comes back on the new build, and its row says nothing. */
+    @Test
+    fun demoRetry() = runTest {
+        val gateway = demoGateway()
+        val laptop = DemoFixtures.laptopDeviceID
+        val stranded = gateway.devices().firstOrNull { it.deviceID == laptop }
+        assertEquals(DeviceUpdateState.failed, stranded?.updateState)
+
+        val result = gateway.request(GatewayRequest.updateDevice(deviceID = laptop, build = DemoFixtures.servedBuild),
+                                     DeviceUpdateResult.serializer())
+        assertTrue(result.accepted)
+
+        var settled: Device? = null
+        var waited = 0.seconds
+        while (waited < 15.seconds) {
+            delay(100.milliseconds)
+            waited += 100.milliseconds
+            val device = gateway.devices().firstOrNull { it.deviceID == laptop }
+            if (device?.updateState == DeviceUpdateState.idle) {
+                settled = device
+                break
+            }
+        }
+        assertEquals(DemoFixtures.servedBuild, settled?.clientBuild)
+        assertEquals(true, settled?.let { DeviceUpdate.notice(it) == null })
+        gateway.disconnect()
+    }
 }
 
 /** Amendment A23: the link a host prints as a QR code, and the claim it leads to. */
@@ -119,5 +161,35 @@ class PairingClaimTests {
         val lan = GatewayEndpoint("http://192.168.1.20:8080")
         val link = PairingClaimLink(payload = "https://rc.example.com/pair#ABCDEFGH", gateways = listOf(lan, gateway))
         assertEquals("ABCDEFGH", link?.token)
+    }
+
+    /** A claimed token hands the flow the gateway's own pairing code. */
+    @Test
+    fun claimFollowsProgress() = runTest {
+        val gateway = demoGateway()
+        val flow = PairingFlow(api = gateway)
+        flow.begin()
+        val minted = flow.code
+        assertTrue(minted.isNotEmpty())
+
+        flow.claim(token = DemoFixtures.claimToken)
+        val claimed = flow.code
+        assertEquals(DemoFixtures.pairingClaim.code, claimed)
+        assertNotEquals(minted, claimed)
+        // The scan flow has no one-liner: the host ran one to get here.
+        assertTrue(flow.command.isEmpty())
+
+        flow.receive(AppFrame.PairingProgress(PairingProgress(code = claimed, step = PairingStep.enrolled, device = null)))
+        assertEquals(PairingStep.enrolled, flow.reached)
+        gateway.disconnect()
+    }
+
+    /** An unknown token is refused. */
+    @Test
+    fun unknownToken() = runTest {
+        val gateway = demoGateway()
+        val flow = PairingFlow(api = gateway)
+        assertFailsWith<GatewayErrorBody> { flow.claim(token = "0000000000000000000000000A") }
+        gateway.disconnect()
     }
 }

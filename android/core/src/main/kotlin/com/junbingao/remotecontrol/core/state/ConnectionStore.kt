@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.junbingao.remotecontrol.core.attempt
+import com.junbingao.remotecontrol.core.demo.DemoGateway
 import com.junbingao.remotecontrol.core.persistence.CachedWorkspace
 import com.junbingao.remotecontrol.core.persistence.LocalCache
 import com.junbingao.remotecontrol.core.persistence.MemorySecretStore
@@ -578,5 +579,20 @@ class ConnectionStore(
 
     fun clearError() {
         errorMessage = null
+    }
+
+    companion object {
+        /**
+         * A store whose gateway is the offline demo, reached through the sign-in form rather than
+         * around it. It is how the account screens — signing in with a username, registering, the
+         * admin's Users screen — are driven without a gateway to reach. The app hands in the scope
+         * and the cache it would give a connection to a real gateway.
+         */
+        fun offlineDemo(tasks: CoroutineScope, cache: LocalCache, installedApp: InstalledApp = InstalledApp.ios,
+                        registrationOpen: Boolean = false): ConnectionStore {
+            val gateway = DemoGateway(registrationOpen = registrationOpen)
+            return ConnectionStore(tasks = tasks, installedApp = installedApp, cache = cache, makeAPI = { gateway },
+                                   makeChannel = { gateway })
+        }
     }
 }

@@ -1,17 +1,22 @@
 package com.junbingao.remotecontrol.core.state
 
 import com.junbingao.remotecontrol.core.CheckRunner
+import com.junbingao.remotecontrol.core.demo.DemoGateway
+import com.junbingao.remotecontrol.core.demo.demoGateway
+import com.junbingao.remotecontrol.core.persistence.LocalCache
 import com.junbingao.remotecontrol.core.protocol.PushKind
 import com.junbingao.remotecontrol.core.protocol.Session
+import com.junbingao.remotecontrol.core.protocol.SessionControl
 import com.junbingao.remotecontrol.core.protocol.SessionState
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
-
-// `storeHook`, which watches a scripted turn on the demo gateway announce its end, arrives with the
-// demo.
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * `ios/Verification/AlertChecks.swift`: the two rules behind "tell me when the turn ends" and "don't
- * lock the screen on me". Both are pure, so both are checked here rather than on a device.
+ * lock the screen on me". Both are pure, so both are checked here rather than on a device, and so is
+ * the hook the store tells the app of a transition through.
  */
 class AlertChecks {
     /**
@@ -62,6 +67,49 @@ class AlertChecks {
         checks.expect(TurnAlerts.kind(previous = session(SessionState.running, device = "other"),
                                       current = session(SessionState.idle)) == null,
                       "and neither are two devices' sessions that share an id")
+        checks.assertAll()
+    }
+
+    /**
+     * Where the app learns of a transition: the store hands over both versions of a session it
+     * already held, and nothing at all for the `hello` list.
+     */
+    @Test
+    fun storeHook() = runTest {
+        val checks = CheckRunner("alerts")
+        val directory = scratchDirectory("alerts")
+        try {
+            val gateway = demoGateway(echoDelay = 50.milliseconds, resumeDelay = DemoGateway.defaultResumeDelay)
+            val store = ConnectionStore(tasks = backgroundScope, cache = LocalCache(directory), makeAPI = { StubGateway(it) })
+            val pairs = mutableListOf<Pair<Session, Session>>()
+            store.onSessionTransition = { previous, current -> pairs.add(previous to current) }
+            store.enterDemo(api = gateway, channel = gateway)
+            settle { store.hasSnapshot }
+            checks.equal(pairs.size, 0, "a hello is a list, not a transition")
+
+            val idle = store.sessions.firstOrNull {
+                it.state == SessionState.idle && it.control == SessionControl.remote && !it.archived
+            }
+            if (idle == null) {
+                checks.expect(false, "the demo carries an idle session to type into")
+            } else {
+                val chat = ChatStore(session = idle, channel = gateway, tasks = backgroundScope)
+                store.addFrameHandler("alerts") { frame -> chat.receive(frame) }
+                chat.open()
+                chat.draft = "run the suite again"
+                chat.send()
+                settle(timeout = 10.seconds) {
+                    pairs.any { TurnAlerts.kind(previous = it.first, current = it.second) == PushKind.turnCompleted }
+                }
+                val kinds = pairs.filter { it.second.id == idle.id }
+                    .mapNotNull { TurnAlerts.kind(previous = it.first, current = it.second) }
+                checks.equal(kinds, listOf(PushKind.turnCompleted), "a scripted turn announces its end, once")
+                checks.expect(pairs.all { it.first.id == it.second.id }, "and each pair is one session before and after")
+                store.signOut()
+            }
+        } finally {
+            directory.deleteRecursively()
+        }
         checks.assertAll()
     }
 

@@ -7,10 +7,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Amendments A25 and A26: the agents beside Claude and Codex — the names the app draws and what
- * the device advertises. RCCore's suite of this name also holds the demo's agents and sessions,
- * the chips (`TerminalSetting`), the composer (`ChatStore`) and the list (`SessionListLayout`);
- * those cases are `core-state`'s and `core-demo`'s to add here.
+ * Amendments A25 and A26: the agents beside Claude and Codex — the names the app draws and what the
+ * device advertises. RCCore's suite of this name also holds the demo's agents and sessions, the
+ * chips (`TerminalSetting`), the composer (`ChatStore`) and the list (`SessionListLayout`); those
+ * cases are in `state/AgentsTests.kt` and `demo/AgentsTests.kt`.
  */
 class AgentsTests {
     private fun agentFixture(name: String): AgentInfo = FixtureSource.json("objects/$name").decode()

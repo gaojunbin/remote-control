@@ -8,8 +8,8 @@ import kotlin.test.assertTrue
 
 /**
  * Amendment A10, shared control: decoding. RCCore's suite of this name also drives the composer
- * (`ChatStore`) and the demo's attached sessions; those cases are `core-state`'s and
- * `core-demo`'s to add here.
+ * (`ChatStore`) and the demo's attached sessions; those cases are in `state/SharedControlTests.kt`
+ * and `demo/SharedControlTests.kt`.
  */
 class SharedControlTests {
     /** control accepts shared and keeps an unknown value distinct. */

@@ -24,9 +24,9 @@ import java.time.Instant
 import kotlin.test.Test
 
 /**
- * `ios/Verification/ProtocolChecks.swift`, the frames, the HTTP bodies, the commands, the
- * terminals and the usage limit. The lines of those checks that read a store's type —
- * `DeviceUpdate`, `PairingClaimLink`, `CommandSection` — are `core-state`'s to add here.
+ * `ios/Verification/ProtocolChecks.swift`, the frames, the HTTP bodies, the commands, the terminals
+ * and the usage limit. The lines of those checks that read a store's type — `DeviceUpdate`,
+ * `PairingClaimLink`, `CommandSection` — are in `state/ProtocolChecks.kt`.
  */
 class ProtocolFrameChecks {
     @Test

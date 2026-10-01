@@ -1,9 +1,17 @@
 package com.junbingao.remotecontrol.core.state
 
 import com.junbingao.remotecontrol.core.FixtureSource
+import com.junbingao.remotecontrol.core.demo.DemoFixtures
+import com.junbingao.remotecontrol.core.demo.DemoGateway
+import com.junbingao.remotecontrol.core.demo.demoGateway
+import com.junbingao.remotecontrol.core.persistence.LocalCache
 import com.junbingao.remotecontrol.core.protocol.AppSupport
 import com.junbingao.remotecontrol.core.protocol.AppsInfo
 import com.junbingao.remotecontrol.core.protocol.EventSource
+import com.junbingao.remotecontrol.core.protocol.GatewayRequest
+import com.junbingao.remotecontrol.core.protocol.JSONValue
+import com.junbingao.remotecontrol.core.protocol.SendAcceptance
+import com.junbingao.remotecontrol.core.protocol.SendResult
 import com.junbingao.remotecontrol.core.protocol.SessionEvent
 import com.junbingao.remotecontrol.core.protocol.SessionEventBody
 import com.junbingao.remotecontrol.core.protocol.StreamTextPayload
@@ -14,6 +22,11 @@ import com.junbingao.remotecontrol.core.protocol.jsonObjectOf
 import com.junbingao.remotecontrol.core.transport.HealthResponse
 import com.junbingao.remotecontrol.core.transport.PolishRole
 import com.junbingao.remotecontrol.core.transport.PolishStrength
+import com.junbingao.remotecontrol.core.transport.TransportError
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonElement
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -21,9 +34,8 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-// RCCore's `PolishTests.swift` holds four suites. `DictationPolishFlowTests`, which opens a demo
-// session, and the cases `connectionRule` (a demo gateway) and `demo` (`DemoFixtures`) arrive with the
-// demo gateway.
+// RCCore's `PolishTests.swift` holds four suites. `AgentMessageTests.demo`, which reads the demo's
+// fixtures alone, is in `demo/AgentMessageTests.kt`.
 
 /** Amendment A29 — the dictated span is what is polished, and nothing else. */
 class DictationPolishTests {
@@ -92,6 +104,101 @@ class DictationPolishTests {
     }
 }
 
+/** The composer's half of A29, driven through `ChatStore` with a fake model. */
+class DictationPolishFlowTests {
+    private val span = DictationSpan(base = "", dictated = "um fix the the dot")
+
+    private fun store(tasks: CoroutineScope): ChatStore {
+        val chat = ChatStore(session = DemoFixtures.sessions[0], channel = AcceptingChannel(), tasks = tasks)
+        chat.deviceOnline = true
+        chat.draft = span.dictatedDraft
+        return chat
+    }
+
+    /** The answer lands in the field and leaves Undo behind it. */
+    @Test
+    fun success() = runTest {
+        val chat = store(backgroundScope)
+        chat.polishService = { "Fix the dot." }
+        chat.polish(span = span, model = "gpt-4.1-mini", strength = PolishStrength.moderate, language = "en")
+        assertEquals("Polishing…", chat.statusLine)
+        settle { chat.polishPhase != PolishPhase.Polishing }
+        assertEquals("Fix the dot.", chat.draft)
+        chat.undoPolish()
+        assertEquals(span.dictatedDraft, chat.draft)
+        assertEquals(PolishPhase.Idle, chat.polishPhase)
+    }
+
+    /** A failure says so in one line and changes not one word. */
+    @Test
+    fun failure() = runTest {
+        val chat = store(backgroundScope)
+        chat.polishService = { throw TransportError.NotConnected }
+        chat.polish(span = span, model = "m", strength = PolishStrength.strong, language = "en")
+        settle { chat.polishPhase != PolishPhase.Polishing }
+        assertEquals(PolishPhase.Failed, chat.polishPhase)
+        assertEquals(span.dictatedDraft, chat.draft)
+        chat.clearPolishNote()
+        assertEquals(PolishPhase.Idle, chat.polishPhase)
+    }
+
+    /** A send drops a request still out, and what goes is what was in the field. */
+    @Test
+    fun sendWins() = runTest {
+        val chat = store(backgroundScope)
+        chat.polishService = {
+            delay(200)
+            "Fix the dot."
+        }
+        chat.polish(span = span, model = "m", strength = PolishStrength.moderate, language = "en")
+        chat.send()
+        assertEquals(PolishPhase.Idle, chat.polishPhase)
+        assertTrue(chat.draft.isEmpty())
+        delay(350)
+        assertTrue(chat.draft.isEmpty())
+    }
+
+    /**
+     * An edit while the request is out drops it, and the late answer never lands. `docs/DESIGN.md`
+     * § "The composer": typing into the field while the spinner is up ends the wait. The person's
+     * words win, so the request is dropped and the answer that arrives afterwards is never applied.
+     */
+    @Test
+    fun editWhilePolishing() = runTest {
+        val chat = store(backgroundScope)
+        chat.polishService = {
+            delay(200)
+            "Fix the dot."
+        }
+        chat.polish(span = span, model = "m", strength = PolishStrength.moderate, language = "en")
+        assertEquals(PolishPhase.Polishing, chat.polishPhase)
+
+        chat.draft += " and the spinner"
+        val typed = chat.draft
+        assertEquals(PolishPhase.Idle, chat.polishPhase, "the request is dropped the moment they type")
+        delay(400)
+        assertEquals(typed, chat.draft, "and the answer that was already out is never applied")
+        assertEquals(PolishPhase.Idle, chat.polishPhase)
+    }
+
+    /** The note goes on the next edit. */
+    @Test
+    fun editEndsTheNote() = runTest {
+        val chat = store(backgroundScope)
+        chat.polishService = { "Fix the dot." }
+        chat.polish(span = span, model = "m", strength = PolishStrength.moderate, language = "en")
+        settle { chat.polishPhase != PolishPhase.Polishing }
+        chat.draft += " now"
+        assertEquals(PolishPhase.Idle, chat.polishPhase)
+    }
+
+    /** A channel that takes every message, so a send under test ends where a send ends rather than in the refusal path. */
+    private class AcceptingChannel : InertChannel() {
+        override suspend fun request(request: GatewayRequest): JsonElement =
+            if (request.type == "session.send") JSONValue.encode(SendResult(accepted = SendAcceptance.sent)) else JSONValue.emptyObject
+    }
+}
+
 /** Amendment A31 — the version comparison, and the rule built on it. */
 class AppVersionTests {
     /** Versions compare part by part, not as text. */
@@ -145,6 +252,25 @@ class AppVersionTests {
         assertEquals("0.1.0", apps.ios?.minimumVersion)
         assertEquals("1.11.0", apps.macos?.minimumVersion)
         assertEquals("1.11.0", apps.support(InstalledApp.macos)?.minimumVersion)
+    }
+
+    /** The first source to say the build is too old wins, and signing out clears it. */
+    @Test
+    fun connectionRule() = runTest {
+        val directory = scratchDirectory("connection-rule")
+        try {
+            val demanding = demoGateway(resumeDelay = DemoGateway.defaultResumeDelay,
+                                        minimumAppVersion = DemoFixtures.laterAppVersion)
+            val store = ConnectionStore(tasks = backgroundScope, cache = LocalCache(directory), makeAPI = { demanding },
+                                        makeChannel = { demanding })
+            store.enterDemo(api = demanding, channel = demanding)
+            settle { store.updateRequired != null }
+            assertEquals(AppVersion(DemoFixtures.laterAppVersion), store.updateRequired?.minimum)
+            store.signOut()
+            assertNull(store.updateRequired)
+        } finally {
+            directory.deleteRecursively()
+        }
     }
 
     /** Each of the four apps is held to its own entry, and to no other (A46). */

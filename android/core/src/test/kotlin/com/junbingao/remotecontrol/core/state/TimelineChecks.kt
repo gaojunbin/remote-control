@@ -2,22 +2,30 @@ package com.junbingao.remotecontrol.core.state
 
 import com.junbingao.remotecontrol.core.CheckRunner
 import com.junbingao.remotecontrol.core.FixtureSource
+import com.junbingao.remotecontrol.core.demo.DemoFixtures
+import com.junbingao.remotecontrol.core.demo.DemoGateway
+import com.junbingao.remotecontrol.core.demo.demoGateway
+import com.junbingao.remotecontrol.core.protocol.AgentAttach
+import com.junbingao.remotecontrol.core.protocol.AgentCapability
+import com.junbingao.remotecontrol.core.protocol.AgentInfo
 import com.junbingao.remotecontrol.core.protocol.AppFrame
 import com.junbingao.remotecontrol.core.protocol.JSONValue
 import com.junbingao.remotecontrol.core.protocol.QueuedMessage
 import com.junbingao.remotecontrol.core.protocol.Session
+import com.junbingao.remotecontrol.core.protocol.SessionControl
 import com.junbingao.remotecontrol.core.protocol.SessionEvent
 import com.junbingao.remotecontrol.core.protocol.SessionEventBody
+import com.junbingao.remotecontrol.core.protocol.SessionState
+import com.junbingao.remotecontrol.core.protocol.SharedSetting
 import com.junbingao.remotecontrol.core.protocol.ToolStatus
 import com.junbingao.remotecontrol.core.protocol.TurnMarker
 import com.junbingao.remotecontrol.core.protocol.arrayValue
 import com.junbingao.remotecontrol.core.protocol.decode
 import com.junbingao.remotecontrol.core.protocol.get
 import com.junbingao.remotecontrol.core.protocol.jsonOf
+import kotlinx.coroutines.test.runTest
 import java.io.File
 import kotlin.test.Test
-
-// `terminalControl`, A7's composer checks, reads the demo's agents and arrives with the demo.
 
 /** `ios/Verification/TimelineChecks.swift`: the reducer rules from PROTOCOL-FROZEN.md sections 4, 7 and 8. */
 class TimelineChecks {
@@ -30,6 +38,119 @@ class TimelineChecks {
         // Fixture construction failing here would be a bug in the check itself.
         return runCatching { json.decode<SessionEvent>() }.getOrNull()
             ?: SessionEvent(seq = seq, ts = 0, kind = kind, body = SessionEventBody.Unknown(kind = kind, raw = json))
+    }
+
+    /** Amendment A7: `control` decides who may type; `state` only says what is happening. A terminal session runs and goes idle like any other. */
+    @Test
+    fun terminalControl() = runTest {
+        val checks = CheckRunner("timeline")
+        fun store(state: SessionState, control: SessionControl, agent: AgentInfo? = DemoFixtures.claude): ChatStore {
+            val session = Session(sessionID = "s", deviceID = "d", agent = "claude", title = "T", cwd = "/tmp", state = state,
+                                  control = control)
+            val chat = ChatStore(session = session, channel = demoGateway(resumeDelay = DemoGateway.defaultResumeDelay),
+                                 tasks = backgroundScope)
+            chat.agent = agent
+            chat.draft = "hello"
+            return chat
+        }
+
+        val running = store(state = SessionState.running, control = SessionControl.terminal)
+        checks.expect(running.isReadOnly, "a terminal session is read-only while its turn runs")
+        checks.expect(running.isRunning, "a terminal-driven turn still counts as running")
+        checks.expect(!running.canStop, "the app does not stop a turn the terminal owns")
+        checks.expect(!running.canSend, "the composer is disabled while the terminal has control")
+        checks.equal(running.sendBlockReason, "Controlled by the terminal",
+                     "and the field says why, without repeating the clause above it")
+        checks.equal(running.statusLine, "Controlled by the terminal · take over to send",
+                     "the same line while the terminal turn runs")
+
+        val idle = store(state = SessionState.readonly, control = SessionControl.terminal)
+        checks.expect(idle.isReadOnly, "an idle terminal session is still read-only")
+        checks.expect(!idle.isRunning, "readonly means the terminal turn has finished")
+        checks.equal(idle.statusLine, "Controlled by the terminal · take over to send",
+                     "the same line when the terminal session is idle")
+
+        val ours = store(state = SessionState.running, control = SessionControl.remote)
+        checks.expect(!ours.isReadOnly, "a remote-controlled session is writable")
+        checks.expect(ours.canStop, "we may stop a turn we own")
+
+        val resumable = store(state = SessionState.idle, control = SessionControl.none)
+        checks.expect(!resumable.isReadOnly, "a session nobody holds can be resumed from here")
+        checks.expect(resumable.canSend, "and typed into")
+
+        // Amendment A10: takeover is an affordance, not an assumption.
+        val noTakeover = store(state = SessionState.readonly, control = SessionControl.terminal,
+                               agent = AgentInfo(agent = "claude", available = true))
+        checks.expect(!noTakeover.canTakeover, "takeover needs the capability")
+        checks.equal(noTakeover.statusLine, "Controlled by the terminal", "and the status line does not promise one")
+        checks.equal(noTakeover.sendBlockReason, "Controlled by the terminal",
+                     "and the field reads the short sentence, as it does for every agent")
+
+        // Amendment A10: an attached session behaves like a remote one.
+        val attachedIdle = store(state = SessionState.idle, control = SessionControl.shared)
+        checks.expect(!attachedIdle.isReadOnly, "an attached session is never read-only")
+        checks.expect(attachedIdle.isAttached, "and knows it is attached")
+        checks.expect(attachedIdle.canSend, "so the composer is enabled")
+        checks.expect(!attachedIdle.canTakeover, "takeover is never offered while attached")
+        checks.expect(attachedIdle.attachHint == null, "and the terminal hint belongs to terminal sessions")
+        checks.equal(attachedIdle.statusLine, null, "and the composer says nothing the header has already said")
+        // Amendment A40: the shim types `/model` and `/effort` into the terminal it owns, and has no
+        // command for the permission mode.
+        checks.expect(attachedIdle.allowsModelCardChanges, "the model card is typed into the terminal, so it is a control")
+        checks.expect(!attachedIdle.allowsSettingsChanges(SharedSetting.permissionMode),
+                      "and the permission mode stays what the terminal set")
+        checks.expect(!attachedIdle.allowsAttachments, "and attachments cannot be relayed")
+        // Amendment A20: a question is answered where you are. The device raises the block from a
+        // hook beside the CLI's own dialog and takes whichever answer arrives first, so the card
+        // here is live.
+        checks.expect(attachedIdle.allowsAnswers, "and a question the CLI asked is answerable here")
+        checks.expect(!store(state = SessionState.needsInput, control = SessionControl.terminal).allowsAnswers,
+                      "while a session the terminal holds outright takes nothing from this app")
+
+        val attachedRunning = store(state = SessionState.running, control = SessionControl.shared)
+        checks.expect(attachedRunning.isRunning, "an attached turn runs like any other")
+        checks.expect(attachedRunning.canStop, "the pseudo-terminal's Escape stops the turn it rides on (A42)")
+        checks.equal(attachedRunning.statusLine, "Working · your message will be queued",
+                     "and the status says only what becomes of a message typed into it")
+
+        val interruptible = store(state = SessionState.running, control = SessionControl.shared,
+                                  agent = AgentInfo(agent = "codex", available = true,
+                                                    capabilities = listOf(AgentCapability.interrupt),
+                                                    attach = AgentAttach.daemon, attachReady = true, sharedInterrupt = true))
+        checks.expect(interruptible.canStop, "an attachment that can interrupt offers Stop")
+
+        val interruptWithoutCapability = store(state = SessionState.running, control = SessionControl.shared,
+                                               agent = AgentInfo(agent = "codex", available = true, attach = AgentAttach.daemon,
+                                                                 attachReady = true, sharedInterrupt = true))
+        checks.expect(!interruptWithoutCapability.canStop, "and only when the agent lists interrupt as well")
+
+        // Amendment A10: hints on a terminal session the device could attach.
+        val shimMissing = store(state = SessionState.readonly, control = SessionControl.terminal,
+                                agent = DemoFixtures.claudeWithoutShim)
+        checks.equal(shimMissing.attachHint, ChatStore.AttachHint.installShim, "an unprepared Claude device says how to prepare it")
+
+        val shimReady = store(state = SessionState.readonly, control = SessionControl.terminal)
+        checks.equal(shimReady.attachHint, ChatStore.AttachHint.restartSession, "a prepared device blames the running process instead")
+
+        val daemonMissing = store(state = SessionState.readonly, control = SessionControl.terminal,
+                                  agent = AgentInfo(agent = "codex", available = true,
+                                                    capabilities = listOf(AgentCapability.takeover), attach = AgentAttach.daemon))
+        checks.equal(daemonMissing.attachHint, ChatStore.AttachHint.startDaemon, "and Codex names its daemon")
+
+        // Amendment A28: a Grok whose machine leaves the leader off, and the same agent on a machine
+        // that is ready, where the running process is what was started outside it.
+        val leaderOff = store(state = SessionState.readonly, control = SessionControl.terminal,
+                              agent = DemoFixtures.grokWithoutLeader)
+        checks.equal(leaderOff.attachHint, ChatStore.AttachHint.enableLeader,
+                     "a Grok device that is not in the leader says how to put it there")
+
+        val leaderReady = store(state = SessionState.readonly, control = SessionControl.terminal, agent = DemoFixtures.grok)
+        checks.equal(leaderReady.attachHint, ChatStore.AttachHint.restartSession, "and a prepared one blames this `grok` instead")
+
+        val noAttach = store(state = SessionState.readonly, control = SessionControl.terminal,
+                             agent = AgentInfo(agent = "claude", available = true, capabilities = listOf(AgentCapability.takeover)))
+        checks.expect(noAttach.attachHint == null, "an agent that cannot be attached says nothing")
+        checks.assertAll()
     }
 
     /** Amendment A8: a block holds the position of its first appearance, live, on replay and through history. */
