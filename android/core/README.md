@@ -175,3 +175,55 @@ every event re-encodes without losing a field), `TransportChecks`, `SocketChecks
 lines that read a store (`DeviceUpdate`, `PairingClaimLink`, `CommandSection`, `AccountError`,
 `DictationPolish`, …) are `core-state`'s. `OkHttpTransportTests` drives the real transport and both
 sockets against `mockwebserver3`, and `LiveGatewayTests` against a running gateway.
+
+## State
+
+The stores and the rules they read: every file of RCCore's `State/` the first half did not take,
+one Kotlin file per Swift file. Where a Swift file ran long, a part went to a file of its own:
+`ConnectionPhase` (from `ConnectionStore.swift`), `PendingSend`, `PolishPhase` and the composer's
+rules in `ChatStoreRules.kt` (from `ChatStore.swift`), `OptimisticMessage` and `TimelineEntry` (from
+`Timeline.swift`). `StoreSupport.kt` and `Characters.kt` are internal: Swift's `didSet`,
+`Task.isCancelled` and `localizedDescription`, and Swift's `Character`.
+
+**Stores.** Each is a plain class; what a screen reads is snapshot state (`var x by mutableStateOf(…);
+private set`), and a property RCCore observes with `didSet` is an `ObservedValue` that calls back
+after the write. A store that starts work takes the scope it runs in as `tasks` — `ConnectionStore`,
+`ChatStore`, `TerminalSession`, `PreferenceSync` — and RCCore's `Task { … }` is `tasks.launch { … }`;
+the others only suspend. A store's suspend functions rethrow cancellation, so a request cancelled
+with its caller is a request nobody waits for: an app starts what a person asked for (a send, an
+approval) in a scope that outlives the screen, as SwiftUI's unstructured tasks do. In tests the
+stores run on `backgroundScope` of `runTest`.
+
+**Values.** A struct RCCore changes with `mutating` methods is immutable here where a store publishes
+it — `QuestionDraft.toggle` and `setText` answer the new draft, `TimelineEntry.merge` the new entry —
+so the copy a screen holds never changes under it. Two are changed in place and offer `copy()` for
+the value an assignment makes: `TranscriptSegments`, which a recogniser owns, and `Timeline`, which is
+thousands of rows and changes with every streaming delta. A `Timeline` is observable itself: every
+read goes through its `version`, which is snapshot state bumped by every mutation, so whoever reads
+any of it is redrawn when any of it moves. `ControlLatch` keeps `isArmed` as snapshot state for the
+screen that `remember`s one. `[UInt8]` is `ByteArray`, and `TerminalKey.bytes` is a fresh array each
+time.
+
+**Seams and defaults.** `UserDefaults` is the seam for Foundation's (`SharedPreferences` on Android,
+the profile on Windows; `MemoryUserDefaults` for tests), read as Foundation reads it: absent is null,
+false or zero. `ConnectionStore` has no default cache directory or HTTP client, because both need
+the app's own (a directory, a secret store); `makeChannel` defaults to a `GatewaySocket` over the
+client, or over a client with no token, as RCCore's fallback is. `ConnectionStore.offlineDemo` comes
+with the demo gateway.
+
+**Words and clocks.** Every sentence is RCCore's, through `L10n`. Initials, a command draft, a
+transcript's shape and a vendor's plan count characters as Swift does, one extended grapheme
+cluster each (`BreakIterator`). A `Calendar` parameter is a `ZoneId` (the calendar is always the
+Gregorian one) beside the `Locale`. `QuotaWindow` keeps RCCore's fixed patterns; `ResumeText`'s clock
+is the locale's short time, and for another day the locale's medium date with the year taken out in
+front of it, which is what `Date.FormatStyle`'s month-and-day gives without the skeletons Android 29
+lacks. The diagnostic report opens with RCCore's words, "Remote Control for iOS".
+
+**Tests.** Every RCCoreTests suite whose subject is in `State/` is ported under `state/`, case names
+as RCCore's. A suite whose wire half the first half ported keeps that half in `protocol/` and its
+store cases here, under the same class name (`state.AmendmentTests` beside `protocol.AmendmentTests`).
+`ios/Verification`'s `StoreChecks`, `TimelineChecks`, `AlertChecks` and the store lines of
+`AccountChecks`, `PolishChecks` and `ProtocolChecks` are JUnit checks of the same names, with
+`SettingsScreenChecks` for the lines of `VerificationUI` that read core types. `StoreDoubles.kt`
+holds the doubles every suite would otherwise spell out (`StubGateway`, `InertChannel`); a suite's
+own doubles are nested in it. The cases that run on the demo gateway or read its fixtures follow it.

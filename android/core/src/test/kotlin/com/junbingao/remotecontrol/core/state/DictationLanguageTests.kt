@@ -7,8 +7,7 @@ import kotlin.test.assertFalse
 /**
  * Amendment A44: the gateway detects the dictation language, so a language is offered only where
  * the phone's own recogniser listens, and there it is the recogniser's list, Chinese first, with
- * no Automatic. RCCore's suite also holds `settingsDefault`, which reads `SettingsStore`; that case
- * is `core-state`'s to add here.
+ * no Automatic.
  */
 class DictationLanguageTests {
     /** The phone listens wherever the gateway does not transcribe. */
@@ -60,5 +59,21 @@ class DictationLanguageTests {
         assertEquals("Chinese", DictationLanguage.name(of = "zh", language = InterfaceLanguage.en))
         assertEquals("English", DictationLanguage.name(of = "en", language = InterfaceLanguage.en))
         assertEquals("中文", DictationLanguage.name(of = "zh", language = InterfaceLanguage.zhHans))
+    }
+
+    /** A new install listens for Chinese, and a stored auto is read as it without a write. */
+    @Test
+    fun settingsDefault() {
+        val defaults = MemoryUserDefaults()
+        val settings = SettingsStore(defaults = defaults)
+        assertEquals("zh", settings.voiceLanguage)
+        assertEquals("zh-CN", settings.speechLocaleIdentifier)
+
+        defaults.set("auto", forKey = "preference.voiceLanguage")
+        val legacy = SettingsStore(defaults = defaults)
+        assertEquals("auto", legacy.voiceLanguage, "the stored value is left as it was")
+        assertEquals("zh", legacy.dictationLanguage)
+        assertEquals("zh-CN", legacy.speechLocaleIdentifier)
+        assertEquals("auto", defaults.string(forKey = "preference.voiceLanguage"), "and nothing rewrote it")
     }
 }

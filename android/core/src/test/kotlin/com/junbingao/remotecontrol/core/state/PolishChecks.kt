@@ -9,6 +9,10 @@ import com.junbingao.remotecontrol.core.protocol.HelloFrame
 import com.junbingao.remotecontrol.core.protocol.ProtocolFailure
 import com.junbingao.remotecontrol.core.protocol.SessionEvent
 import com.junbingao.remotecontrol.core.protocol.SessionEventBody
+import com.junbingao.remotecontrol.core.protocol.StreamTextPayload
+import com.junbingao.remotecontrol.core.protocol.ToolCallPayload
+import com.junbingao.remotecontrol.core.protocol.ToolKind
+import com.junbingao.remotecontrol.core.protocol.ToolStatus
 import com.junbingao.remotecontrol.core.protocol.TurnStartedPayload
 import com.junbingao.remotecontrol.core.protocol.UserMessagePayload
 import com.junbingao.remotecontrol.core.protocol.decode
@@ -23,12 +27,88 @@ import com.junbingao.remotecontrol.core.transport.PolishStrength
 import kotlin.test.Test
 
 /**
- * `ios/Verification/PolishChecks.swift`, the contract's half: the fixtures A29 froze, A30's
- * sources and A31's comparison. The span, the context, the composer's flow, the Settings
- * preferences and the connection's rule drive `DictationPolish`, `ChatStore`, `SettingsStore` and
- * `ConnectionStore`, and are `core-state`'s to add here.
+ * `ios/Verification/PolishChecks.swift`: the span and the context the model is given, the fixtures
+ * A29 froze, the Settings preferences, A30's sources and A31's comparison. The composer's flow (a
+ * demo session) and the connection's rule (a demo gateway) arrive with the demo gateway.
  */
 class PolishChecks {
+    /** A29, the span and its two drafts. */
+    @Test
+    fun span() {
+        val checks = CheckRunner("polish")
+        val empty = DictationSpan(base = "", dictated = "um the the green blinking thing")
+        checks.equal(empty.dictatedDraft, "um the the green blinking thing", "a dictation into an empty field is the whole draft")
+        checks.equal(empty.polishedDraft("The pulsing status dot."), "The pulsing status dot.",
+                     "and the answer replaces the whole of it")
+
+        val typed = DictationSpan(base = "Two things:", dictated = "um fix the dot")
+        checks.equal(typed.dictatedDraft, "Two things:\num fix the dot", "a dictation after typed words goes on its own line")
+        checks.equal(typed.polishedDraft("fix the dot"), "Two things:\nfix the dot", "and only the dictated half is replaced")
+
+        val spaced = DictationSpan(base = "Two things: ", dictated = "fix the dot")
+        checks.equal(spaced.dictatedDraft, "Two things: fix the dot", "a draft that already ends in whitespace takes no newline")
+
+        // The join is the composer's own, so a span rebuilds exactly the draft dictation produced
+        // rather than something close to it.
+        val target = VoiceDraftTarget(account = "a", deviceID = "d", sessionID = "s")
+        checks.equal(target.inserting("um fix the dot", into = "Two things:", currentTarget = target), typed.dictatedDraft,
+                     "the span's join is the one dictation itself uses")
+
+        checks.equal(DictationPolish.applyPolished(current = typed.dictatedDraft, span = typed, polished = "  fix the dot.  "),
+                     "Two things:\nfix the dot.", "the answer is trimmed and lands in the dictated span")
+        checks.equal(DictationPolish.applyPolished(current = "something else", span = typed, polished = "fix the dot."), null,
+                     "a field that has moved on keeps what the person put in it")
+        checks.equal(DictationPolish.applyPolished(current = typed.dictatedDraft, span = typed, polished = "   "), null,
+                     "an empty answer is no answer")
+        checks.equal(DictationPolish.undoPolished(current = "Two things:\nfix the dot.", span = typed, polished = "fix the dot."),
+                     typed.dictatedDraft, "Undo puts the dictated words back")
+        checks.equal(DictationPolish.undoPolished(current = "edited by hand", span = typed, polished = "fix the dot."), null,
+                     "and puts nothing back once the field holds something else")
+
+        checks.expect(DictationPolish.canPolish("um so"), "words can be polished")
+        checks.expect(!DictationPolish.canPolish("   "), "whitespace cannot")
+        checks.expect(!DictationPolish.canPolish("a".repeat(8193)), "and neither can a dictation past the contract's limit")
+        checks.assertAll()
+    }
+
+    /** A29, what the model is told. */
+    @Test
+    fun context() {
+        val checks = CheckRunner("polish")
+        val timeline = Timeline()
+        var seq = 0
+        fun next(): Int {
+            seq += 1
+            return seq
+        }
+        for (index in 1..25) {
+            timeline.apply(SessionEvent(seq = next(), ts = 0, kind = SessionEvent.userMessageKind, blockID = "u$index",
+                                        body = SessionEventBody.UserMessage(UserMessagePayload(text = "question $index"))))
+            timeline.apply(SessionEvent(seq = next(), ts = 0, kind = SessionEvent.assistantTextKind, blockID = "a$index",
+                                        body = SessionEventBody.AssistantText(StreamTextPayload(text = "answer $index", done = true))))
+        }
+        // A tool call is not conversation, and neither is a turn marker.
+        timeline.apply(SessionEvent(seq = next(), ts = 0, kind = SessionEvent.toolCallKind, blockID = "t1",
+                                    body = SessionEventBody.ToolCall(ToolCallPayload(tool = "Bash", kind = ToolKind.shell,
+                                                                                     title = "make test",
+                                                                                     status = ToolStatus.succeeded))))
+        timeline.addOptimistic(OptimisticMessage(id = "pending", text = "and one just sent"))
+
+        val items = DictationPolish.context(timeline)
+        checks.equal(items.size, 20, "at most twenty messages go with a dictation")
+        checks.equal(items.lastOrNull()?.text, "and one just sent", "the newest of them is the send the device has not echoed yet")
+        checks.equal(items.lastOrNull()?.role, PolishRole.user, "which is the person's own")
+        checks.equal(items.firstOrNull()?.text, "answer 16", "oldest first, counting back from the newest")
+        checks.expect(items.all { it.text.isNotEmpty() }, "and nothing empty is sent")
+
+        val long = Timeline()
+        long.apply(SessionEvent(seq = 1, ts = 0, kind = SessionEvent.userMessageKind, blockID = "u",
+                                body = SessionEventBody.UserMessage(UserMessagePayload(text = "x".repeat(5000)))))
+        checks.equal(DictationPolish.context(long).firstOrNull()?.text?.length, 4000,
+                     "each message is trimmed to what the contract takes")
+        checks.assertAll()
+    }
+
     /** A29, the request the contract fixes. */
     @Test
     fun contract() {
@@ -73,6 +153,34 @@ class PolishChecks {
         checks.expect(runCatching { FixtureSource.json("http/config.response.json").decode<GatewayConfig>() }.getOrNull()
                           ?.polish?.enabled == true,
                       "and so does the frozen config response")
+        checks.assertAll()
+    }
+
+    /** A29, the settings that drive it. */
+    @Test
+    fun settings() {
+        val checks = CheckRunner("polish")
+        val defaults = MemoryUserDefaults()
+        val store = SettingsStore(defaults = defaults)
+        checks.expect(!store.polishEnabled, "polishing is off on a fresh install")
+        checks.equal(store.polishModel, "", "with no model chosen")
+        checks.equal(store.polishStrength, PolishStrength.moderate, "and the gentler of the two strengths")
+
+        store.remember(origin = "https://rc.example.com", username = "ada")
+        store.polishEnabled = true
+        store.polishModel = "gpt-4.1-mini"
+        store.polishStrength = PolishStrength.strong
+
+        val other = SettingsStore(defaults = defaults)
+        other.remember(origin = "https://rc.example.com", username = "bob")
+        checks.expect(!other.polishEnabled, "another account on the same gateway starts off")
+
+        other.adopt(origin = "https://rc.example.com", username = "ada")
+        checks.expect(other.polishEnabled, "and the first account's choices are still theirs")
+        checks.equal(other.polishModel, "gpt-4.1-mini", "including the model")
+        checks.equal(other.polishStrength, PolishStrength.strong, "and the strength")
+        checks.equal(PolishStrength.allCases.map { it.rawValue }, listOf("moderate", "strong"),
+                     "the control offers two strengths, gentler first")
         checks.assertAll()
     }
 
