@@ -228,10 +228,12 @@ class SettingsStore(private val defaults: UserDefaults) {
      * A diagnostic report built from an explicit allowlist.
      *
      * Never serialize a store and redact afterwards: this function names every field it emits, so
-     * nothing new can leak by being added elsewhere.
+     * nothing new can leak by being added elsewhere. The report names the app that wrote it, which
+     * this store does not know, so the caller says which it is.
      */
-    fun diagnosticReport(appVersion: String, platform: String, osVersion: String, phase: ConnectionPhase,
-                         deviceCount: Int, sessionCount: Int, sttEnabled: Boolean, isDemo: Boolean): String {
+    fun diagnosticReport(app: InstalledApp, appVersion: String, platform: String, osVersion: String,
+                         phase: ConnectionPhase, deviceCount: Int, sessionCount: Int, sttEnabled: Boolean,
+                         isDemo: Boolean): String {
         val connection = when (phase) {
             ConnectionPhase.SignedOut -> "signed out"
             ConnectionPhase.Connecting -> "connecting"
@@ -244,7 +246,7 @@ class SettingsStore(private val defaults: UserDefaults) {
             is ConnectionPhase.Incompatible -> "protocol mismatch"
         }
         return """
-            Remote Control for iOS — diagnostic snapshot
+            Remote Control for ${app.platformName} — diagnostic snapshot
             App: $appVersion
             Platform: $platform
             OS: $osVersion
@@ -270,6 +272,15 @@ class SettingsStore(private val defaults: UserDefaults) {
     private companion object {
         fun scope(origin: String, username: String): String =
             if (origin.isEmpty() && username.isEmpty()) "" else "$origin|$username"
+
+        /** The platform an app is written for, as the report's first line names it. */
+        val InstalledApp.platformName: String
+            get() = when (this) {
+                InstalledApp.ios -> "iOS"
+                InstalledApp.macos -> "macOS"
+                InstalledApp.android -> "Android"
+                InstalledApp.windows -> "Windows"
+            }
     }
 }
 

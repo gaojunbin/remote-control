@@ -1,5 +1,8 @@
 package com.junbingao.remotecontrol.core.state
 
+import com.junbingao.remotecontrol.core.demo.DemoFixtures
+import com.junbingao.remotecontrol.core.demo.DemoGateway
+import com.junbingao.remotecontrol.core.demo.demoGateway
 import com.junbingao.remotecontrol.core.protocol.Session
 import com.junbingao.remotecontrol.core.protocol.SessionControl
 import com.junbingao.remotecontrol.core.protocol.SessionEvent
@@ -13,8 +16,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 // The store cases of RCCore's `AmendmentTests.swift`; its wire cases are the first agent's
-// `protocol/AmendmentTests.kt`. `terminalControlLocksTheComposer` needs the demo's Claude agent and
-// arrives with the demo.
+// `protocol/AmendmentTests.kt`.
 
 /** Protocol amendments: the one case of the suite that drives a store. */
 class AmendmentTests {
@@ -50,13 +52,30 @@ class AmendmentTests {
     }
 }
 
-/**
- * Amendments A7 and A8, the store's half: A7's composer and A8's ordering. The channel these
- * conversations are built on is never asked anything, so an inert one stands in for RCCore's demo
- * gateway.
- */
+/** Amendments A7 and A8, the store's half: A7's composer and A8's ordering. */
 class TerminalAndOrderingTests {
     // A7, control decides who may type
+
+    /** A terminal session is read-only whether it is running or idle. */
+    @Test
+    fun terminalControlLocksTheComposer() = runTest {
+        for (state in listOf(SessionState.running, SessionState.readonly, SessionState.needsApproval, SessionState.idle)) {
+            val session = Session(sessionID = "s", deviceID = "d", agent = "claude", title = "T", cwd = "/tmp", state = state,
+                                  control = SessionControl.terminal)
+            val chat = ChatStore(session = session, channel = demoGateway(resumeDelay = DemoGateway.defaultResumeDelay),
+                                 tasks = backgroundScope)
+            // Amendment A10: takeover is offered only when the agent advertises it.
+            chat.agent = DemoFixtures.claude
+            chat.draft = "hello"
+            assertTrue(chat.isReadOnly, "$state")
+            assertFalse(chat.canSend, "$state")
+            assertFalse(chat.canStop, "$state")
+            // The take-over clause is the status line's; the disabled field says the short sentence
+            // whatever the agent is.
+            assertEquals("Controlled by the terminal", chat.sendBlockReason, "$state")
+            assertEquals("Controlled by the terminal · take over to send", chat.statusLine, "$state")
+        }
+    }
 
     /** A terminal-driven turn still reads as running. */
     @Test
@@ -65,8 +84,10 @@ class TerminalAndOrderingTests {
                               state = SessionState.running, control = SessionControl.terminal)
         val idle = Session(sessionID = "s", deviceID = "d", agent = "claude", title = "T", cwd = "/tmp",
                            state = SessionState.readonly, control = SessionControl.terminal)
-        assertTrue(ChatStore(session = running, channel = InertChannel(), tasks = backgroundScope).isRunning)
-        assertFalse(ChatStore(session = idle, channel = InertChannel(), tasks = backgroundScope).isRunning)
+        assertTrue(ChatStore(session = running, channel = demoGateway(resumeDelay = DemoGateway.defaultResumeDelay),
+                             tasks = backgroundScope).isRunning)
+        assertFalse(ChatStore(session = idle, channel = demoGateway(resumeDelay = DemoGateway.defaultResumeDelay),
+                              tasks = backgroundScope).isRunning)
         assertTrue(running.state.isWorking)
         assertFalse(idle.state.isWorking)
     }
@@ -76,7 +97,8 @@ class TerminalAndOrderingTests {
     fun remoteControlStaysWritable() = runTest {
         val session = Session(sessionID = "s", deviceID = "d", agent = "claude", title = "T", cwd = "/tmp",
                               state = SessionState.running, control = SessionControl.remote)
-        val chat = ChatStore(session = session, channel = InertChannel(), tasks = backgroundScope)
+        val chat = ChatStore(session = session, channel = demoGateway(resumeDelay = DemoGateway.defaultResumeDelay),
+                             tasks = backgroundScope)
         chat.draft = "hello"
         assertFalse(chat.isReadOnly)
         assertTrue(chat.canSend)

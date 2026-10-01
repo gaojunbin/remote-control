@@ -6,8 +6,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Amendment A28, the Grok leader: the wire. RCCore's suite of this name also drives `ChatStore`
- * and the demo's Grok session; those cases are `core-state`'s and `core-demo`'s to add here.
+ * Amendment A28, the Grok leader: the wire. RCCore's suite of this name also drives `ChatStore` and
+ * the demo's Grok session; those cases are in `state/GrokLeaderTests.kt` and
+ * `demo/GrokLeaderTests.kt`.
  */
 class GrokLeaderTests {
     /** The leader is an attach mode of its own, and an unknown one still decodes. */

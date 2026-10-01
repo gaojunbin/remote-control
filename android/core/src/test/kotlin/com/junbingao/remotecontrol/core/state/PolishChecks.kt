@@ -2,11 +2,19 @@ package com.junbingao.remotecontrol.core.state
 
 import com.junbingao.remotecontrol.core.CheckRunner
 import com.junbingao.remotecontrol.core.FixtureSource
+import com.junbingao.remotecontrol.core.demo.DemoFixtures
+import com.junbingao.remotecontrol.core.demo.DemoGateway
+import com.junbingao.remotecontrol.core.demo.demoGateway
+import com.junbingao.remotecontrol.core.persistence.LocalCache
 import com.junbingao.remotecontrol.core.protocol.AppSupport
 import com.junbingao.remotecontrol.core.protocol.AppsInfo
 import com.junbingao.remotecontrol.core.protocol.EventSource
+import com.junbingao.remotecontrol.core.protocol.GatewayRequest
 import com.junbingao.remotecontrol.core.protocol.HelloFrame
+import com.junbingao.remotecontrol.core.protocol.JSONValue
 import com.junbingao.remotecontrol.core.protocol.ProtocolFailure
+import com.junbingao.remotecontrol.core.protocol.SendAcceptance
+import com.junbingao.remotecontrol.core.protocol.SendResult
 import com.junbingao.remotecontrol.core.protocol.SessionEvent
 import com.junbingao.remotecontrol.core.protocol.SessionEventBody
 import com.junbingao.remotecontrol.core.protocol.StreamTextPayload
@@ -24,12 +32,19 @@ import com.junbingao.remotecontrol.core.transport.PolishRequest
 import com.junbingao.remotecontrol.core.transport.PolishResponse
 import com.junbingao.remotecontrol.core.transport.PolishRole
 import com.junbingao.remotecontrol.core.transport.PolishStrength
+import com.junbingao.remotecontrol.core.transport.TransportError
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonElement
 import kotlin.test.Test
 
 /**
- * `ios/Verification/PolishChecks.swift`: the span and the context the model is given, the fixtures
- * A29 froze, the Settings preferences, A30's sources and A31's comparison. The composer's flow (a
- * demo session) and the connection's rule (a demo gateway) arrive with the demo gateway.
+ * `ios/Verification/PolishChecks.swift`: amendments A29, A30 and A31 — dictation polish, words
+ * another agent put in the conversation, and the oldest app build a gateway will talk to. All three
+ * are rules rather than screens: the span arithmetic and the context the model is given, the flow
+ * the composer drives, the caption a message nobody typed carries, and the comparison that decides
+ * whether the app may go on at all. The demo's own line of `agentMessages` is in
+ * `demo/PolishChecks.kt`.
  */
 class PolishChecks {
     /** A29, the span and its two drafts. */
@@ -156,6 +171,80 @@ class PolishChecks {
         checks.assertAll()
     }
 
+    /** A29, the flow the composer drives. */
+    @Test
+    fun flow() = runTest {
+        val checks = CheckRunner("polish")
+        fun store(): ChatStore {
+            val chat = ChatStore(session = DemoFixtures.sessions[0], channel = AcceptingChannel(), tasks = backgroundScope)
+            chat.deviceOnline = true
+            return chat
+        }
+        val span = DictationSpan(base = "Two things:", dictated = "um fix the the dot")
+
+        // Success: the dictated span alone is replaced, and the note offers Undo.
+        val success = store()
+        success.draft = span.dictatedDraft
+        success.polishService = { request -> "Fix the dot. (${request.strength.rawValue}, ${request.context.size} messages)" }
+        success.polish(span = span, model = "gpt-4.1-mini", strength = PolishStrength.moderate, language = "en")
+        checks.equal(success.polishPhase, PolishPhase.Polishing, "the request is out")
+        checks.equal(success.statusLine, "Polishing…", "and the status line says so")
+        settle { success.polishPhase != PolishPhase.Polishing }
+        checks.equal(success.draft, "Two things:\nFix the dot. (moderate, 0 messages)",
+                     "the answer lands in the dictated span and nowhere else")
+        checks.expect(success.polishPhase is PolishPhase.Polished, "the note offers Undo")
+        success.undoPolish()
+        checks.equal(success.draft, span.dictatedDraft, "Undo puts the dictated words back")
+        checks.equal(success.polishPhase, PolishPhase.Idle, "and takes the note with them")
+
+        // An edit ends the note; nothing else does.
+        val edited = store()
+        edited.draft = span.dictatedDraft
+        edited.polishService = { "Fix the dot." }
+        edited.polish(span = span, model = "m", strength = PolishStrength.moderate, language = "en")
+        settle { edited.polishPhase != PolishPhase.Polishing }
+        edited.draft += " and the header"
+        checks.equal(edited.polishPhase, PolishPhase.Idle, "typing after a polish ends the note")
+
+        // Failure: the words are left exactly as dictated.
+        val failed = store()
+        failed.draft = span.dictatedDraft
+        failed.polishService = { throw TransportError.NotConnected }
+        failed.polish(span = span, model = "m", strength = PolishStrength.strong, language = "auto")
+        settle { failed.polishPhase != PolishPhase.Polishing }
+        checks.equal(failed.polishPhase, PolishPhase.Failed, "a failure says so")
+        checks.equal(failed.draft, span.dictatedDraft, "and changes not one word")
+        failed.clearPolishNote()
+        checks.equal(failed.polishPhase, PolishPhase.Idle, "the line goes once it has been read")
+
+        // A send while polishing sends the words as dictated and drops the answer.
+        val sending = store()
+        sending.draft = span.dictatedDraft
+        sending.polishService = {
+            delay(200)
+            "Fix the dot."
+        }
+        sending.polish(span = span, model = "m", strength = PolishStrength.moderate, language = "en")
+        sending.send()
+        checks.equal(sending.polishPhase, PolishPhase.Idle, "sending drops the request")
+        checks.equal(sending.draft, "", "and the field is empty behind it")
+        delay(350)
+        checks.equal(sending.draft, "", "a late answer is not pasted into the next message")
+
+        // Nothing runs without a model, and nothing runs without a service.
+        val unconfigured = store()
+        unconfigured.draft = span.dictatedDraft
+        unconfigured.polishService = { "Fix the dot." }
+        unconfigured.polish(span = span, model = "", strength = PolishStrength.moderate, language = "en")
+        checks.equal(unconfigured.polishPhase, PolishPhase.Idle, "no model chosen, no request")
+
+        val unserviced = store()
+        unserviced.draft = span.dictatedDraft
+        unserviced.polish(span = span, model = "m", strength = PolishStrength.moderate, language = "en")
+        checks.equal(unserviced.polishPhase, PolishPhase.Idle, "no polish service, no request")
+        checks.assertAll()
+    }
+
     /** A29, the settings that drive it. */
     @Test
     fun settings() {
@@ -268,5 +357,63 @@ class PolishChecks {
             }
         }
         checks.assertAll()
+    }
+
+    /** A31, the rule the connection applies. */
+    @Test
+    fun minimumVersion() = runTest {
+        val checks = CheckRunner("polish")
+        val directory = scratchDirectory("polish-minimum")
+        try {
+            // The demo asks for exactly this build, so nothing is blocked.
+            val running = ConnectionStore(tasks = backgroundScope, cache = LocalCache(directory),
+                                          makeAPI = { demoGateway(resumeDelay = DemoGateway.defaultResumeDelay) },
+                                          makeChannel = { demoGateway(resumeDelay = DemoGateway.defaultResumeDelay) })
+            val gateway = demoGateway(resumeDelay = DemoGateway.defaultResumeDelay)
+            running.enterDemo(api = gateway, channel = gateway)
+            settle { running.hasSnapshot }
+            checks.equal(running.updateRequired, null, "a gateway this build meets blocks nothing")
+            checks.expect(running.polish.enabled, "and the demo can polish a dictation")
+
+            // A gateway that wants a newer build stops the app wherever it is.
+            val demanding = demoGateway(resumeDelay = DemoGateway.defaultResumeDelay,
+                                        minimumAppVersion = DemoFixtures.laterAppVersion)
+            val blocked = ConnectionStore(tasks = backgroundScope, cache = LocalCache(directory), makeAPI = { demanding },
+                                          makeChannel = { demanding })
+            blocked.enterDemo(api = demanding, channel = demanding)
+            settle { blocked.updateRequired != null }
+            checks.equal(blocked.updateRequired?.minimum, AppVersion(DemoFixtures.laterAppVersion),
+                         "the gateway's minimum is what the screen shows")
+            checks.equal(blocked.updateRequired?.current, AppVersion(AppBuild.version), "beside this build's own version")
+
+            // `/api/health` answers before anyone has signed in, which is the point of it: the
+            // sign-in form is blocked too.
+            val unsigned = ConnectionStore(tasks = backgroundScope, cache = LocalCache(directory), makeAPI = { demanding },
+                                           makeChannel = { demanding })
+            unsigned.registrationOpen(origin = "https://rc.example.com")
+            checks.expect(unsigned.updateRequired != null, "the public health route blocks the app before it has a credential")
+
+            // Amendments A45 and A46: each app's store reads its own entry.
+            for ((app, label) in listOf(InstalledApp.macos to "the Mac app is stopped by its own minimum",
+                                        InstalledApp.android to "and so is the Android app",
+                                        InstalledApp.windows to "and the Windows app")) {
+                val store = ConnectionStore(tasks = backgroundScope, installedApp = app, cache = LocalCache(directory),
+                                            makeAPI = { demanding }, makeChannel = { demanding })
+                store.registrationOpen(origin = "https://rc.example.com")
+                checks.expect(store.updateRequired != null, label)
+            }
+
+            blocked.signOut()
+            checks.equal(blocked.updateRequired, null, "signing out is the way to another gateway, so it clears the screen")
+        } finally {
+            directory.deleteRecursively()
+        }
+        checks.assertAll()
+    }
+
+    /** A channel that takes every message, so a send under test ends where a send ends and not in the refusal path that puts the words back. */
+    private class AcceptingChannel : InertChannel() {
+        override suspend fun request(request: GatewayRequest): JsonElement =
+            if (request.type == "session.send") JSONValue.encode(SendResult(accepted = SendAcceptance.sent)) else JSONValue.emptyObject
     }
 }

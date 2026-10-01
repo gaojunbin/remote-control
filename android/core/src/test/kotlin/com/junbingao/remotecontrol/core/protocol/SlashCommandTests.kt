@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
 /**
  * Slash commands (A27): the object on the wire and the two requests. RCCore's suite of this name
  * also holds what a draft means (`SlashDraft`), what the panel shows (`CommandSection`) and the
- * store's half; those cases are `core-state`'s to add here.
+ * store's half; those cases are in `state/SlashCommandTests.kt` and `demo/SlashCommandTests.kt`.
  */
 class SlashCommandTests {
     /** A command decodes from the protocol's own worked list. */

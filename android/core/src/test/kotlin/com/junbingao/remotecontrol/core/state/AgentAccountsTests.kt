@@ -12,7 +12,7 @@ import kotlin.test.assertEquals
 /**
  * Amendment A33: the words the page writes about how an agent is signed in, and what is left of its
  * quota. The wire half of RCCore's suite of this name is in `protocol/AgentAccountsTests.kt`;
- * `demoShapes`, which reads the demo's machines, arrives with the demo gateway.
+ * `demoShapes`, which reads the demo's machines, is in `demo/AgentAccountsTests.kt`.
  */
 class AgentAccountsTests {
     // The line that says how it is signed in

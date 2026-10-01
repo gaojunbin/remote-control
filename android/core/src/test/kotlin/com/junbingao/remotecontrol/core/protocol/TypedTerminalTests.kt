@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 /**
  * Amendment A40, typing into a Claude terminal: what `shared_settings_keys` says on the wire.
  * RCCore's suite of this name also drives the demo gateway and `ChatStore` through a typed change;
- * those cases are `core-state`'s and `core-demo`'s to add here.
+ * those cases are in `state/TypedTerminalTests.kt` and `demo/TypedTerminalTests.kt`.
  */
 class TypedTerminalTests {
     private fun agentFixture(name: String): AgentInfo = FixtureSource.json("objects/$name").decode()

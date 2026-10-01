@@ -19,7 +19,7 @@ import kotlin.test.assertTrue
  * Amendment A35, paused by the usage limit: the fixtures the amendment added, decoded as the app
  * decodes them, the requests, and the bounds the picker is held to. RCCore's suite of this name
  * also holds the words the phone writes (`ResumeText`, `TurnAlerts`) and what Simple keeps
- * (`Timeline`); those cases are `core-state`'s to add here.
+ * (`Timeline`); those cases are in `state/UsageLimitTests.kt`.
  */
 class UsageLimitTests {
     /** Every fixture A35 added decodes. */

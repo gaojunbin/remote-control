@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
  * Amendment A24: every person on a gateway has their own devices, sessions and settings. These are
  * the parts of that the app decodes. RCCore's suite of this name also holds what each refusal says
  * (`AccountError`), whose preferences are read (`SettingsStore`) and the demo gateway's three
- * answers; those cases are `core-state`'s and `core-demo`'s to add here.
+ * answers; those cases are in `state/AccountsTests.kt` and `demo/AccountsTests.kt`.
  */
 class AccountsTests {
     /** A user is a username and a role. */

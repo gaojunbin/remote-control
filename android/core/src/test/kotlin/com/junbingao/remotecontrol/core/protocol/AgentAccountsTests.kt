@@ -10,8 +10,8 @@ import kotlin.test.assertNull
 /**
  * Amendment A33: what an agent is signed in with, and what is left of its quota — the wire half,
  * from the protocol's four worked examples. RCCore's suite of this name also holds the words the
- * page writes (`AccountLine`, `QuotaWindow`) and the demo's machines; those cases are
- * `core-state`'s and `core-demo`'s to add here.
+ * page writes (`AccountLine`, `QuotaWindow`) and the demo's machines; those cases are in
+ * `state/AgentAccountsTests.kt` and `demo/AgentAccountsTests.kt`.
  */
 class AgentAccountsTests {
     private fun agentFixture(name: String): AgentInfo = FixtureSource.json("objects/$name").decode()

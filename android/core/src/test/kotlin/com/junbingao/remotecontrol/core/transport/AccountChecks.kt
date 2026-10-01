@@ -27,7 +27,7 @@ import kotlin.test.Test
  * `ios/Verification/AccountChecks.swift`: accounts (amendment A24), end to end through the real
  * HTTP client. Every body the app sends is compared with the fixture in `protocol/fixtures` rather
  * than with a copy written here, and every answer it reads is decoded from one. What each refusal
- * says is `AccountError`'s, a store's, and is `core-state`'s to add here.
+ * says is `AccountError`'s, a store's, and is checked in `state/AccountChecks.kt`.
  */
 class AccountChecks {
     // What the gateway answers

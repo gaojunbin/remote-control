@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 
 /**
  * Protocol amendments. RCCore's suite of this name also holds `snapshotOrdering`, which drives
- * `Timeline`, a store's; that case is `core-state`'s to add here.
+ * `Timeline`, a store's; that case is in `state/AmendmentTests.kt`.
  */
 class AmendmentTests {
     // A4, WebSocket close codes
@@ -91,7 +91,7 @@ class AmendmentTests {
 
 /**
  * Amendments A7 and A8. RCCore's suite also drives `ChatStore` and `Timeline` (A7's composer, A8's
- * ordering); those cases are `core-state`'s to add here.
+ * ordering); those cases are in `state/AmendmentTests.kt`.
  */
 class TerminalAndOrderingTests {
     private fun streaming(seq: Int, block: String, firstSeq: Int?, text: String): SessionEvent {

@@ -7,7 +7,7 @@ import kotlin.test.assertNull
 /**
  * Amendment A20, answering a question: decoding. RCCore's suite of this name also drives the card
  * and the composer (`QuestionDraft`, `ChatStore`) and the demo's attached session; those cases are
- * `core-state`'s and `core-demo`'s to add here.
+ * in `state/QuestionAnswerTests.kt` and `demo/QuestionAnswerTests.kt`.
  */
 class QuestionAnswerTests {
     /** A resolved question says who answered it, and an older one says nothing. */

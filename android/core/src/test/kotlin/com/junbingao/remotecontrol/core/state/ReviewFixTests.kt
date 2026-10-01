@@ -1,17 +1,22 @@
 package com.junbingao.remotecontrol.core.state
 
+import com.junbingao.remotecontrol.core.demo.DemoGateway
+import com.junbingao.remotecontrol.core.demo.demoGateway
+import com.junbingao.remotecontrol.core.protocol.Session
+import com.junbingao.remotecontrol.core.protocol.SessionControl
 import com.junbingao.remotecontrol.core.protocol.SessionEvent
 import com.junbingao.remotecontrol.core.protocol.decode
 import com.junbingao.remotecontrol.core.protocol.jsonObjectOf
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 // The wire cases of RCCore's suite of this name are in `protocol/ReviewFixTests.kt`.
-// `sendBlockReasons`, which drives a store through the demo gateway, arrives with it.
 
-/** Review fixes: the transcript's gap repair, its cursor and its child index. */
+/** Review fixes: the transcript's gap repair, its cursor and its child index, and why a send cannot go. */
 class ReviewFixTests {
     private fun event(seq: Int, kind: String, vararg fields: Pair<String, Any?>): SessionEvent {
         val members = mutableListOf<Pair<String, Any?>>("seq" to seq, "ts" to seq, "kind" to kind)
@@ -74,5 +79,31 @@ class ReviewFixTests {
         // A history page rebuilds the index without losing a child.
         timeline.prependHistory(listOf(event(0, "user_message", "block_id" to "u", "text" to "go")), hasMore = false)
         assertEquals(3, timeline.children(of = "task").size)
+    }
+
+    /** A send that cannot succeed says why, before the draft is cleared. */
+    @Test
+    fun sendBlockReasons() = runTest {
+        val session = Session(sessionID = "s", deviceID = "d", agent = "claude", title = "T", cwd = "/tmp")
+        val chat = ChatStore(session = session, channel = demoGateway(resumeDelay = DemoGateway.defaultResumeDelay),
+                             tasks = backgroundScope)
+        chat.draft = "hello"
+        assertNull(chat.sendBlockReason)
+        assertTrue(chat.canSend)
+
+        chat.canReachGateway = false
+        assertEquals("Offline · your draft is saved", chat.sendBlockReason)
+        assertFalse(chat.canSend)
+        chat.canReachGateway = true
+
+        chat.deviceOnline = false
+        assertEquals("That device is offline", chat.sendBlockReason)
+        chat.deviceOnline = true
+
+        val terminal = session.copy(control = SessionControl.terminal)
+        val locked = ChatStore(session = terminal, channel = demoGateway(resumeDelay = DemoGateway.defaultResumeDelay),
+                               tasks = backgroundScope)
+        locked.draft = "hello"
+        assertEquals("Controlled by the terminal", locked.sendBlockReason)
     }
 }

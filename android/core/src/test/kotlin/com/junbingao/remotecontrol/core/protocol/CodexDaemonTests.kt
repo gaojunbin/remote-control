@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 /**
  * Amendment A11, the shared Codex daemon: the two booleans on the wire and the `elsewhere`
  * decision. RCCore's suite of this name also drives `ChatStore` and the demo gateway through a
- * shared thread; those cases are `core-state`'s and `core-demo`'s to add here.
+ * shared thread; those cases are in `state/CodexDaemonTests.kt` and `demo/CodexDaemonTests.kt`.
  */
 class CodexDaemonTests {
     // The two booleans

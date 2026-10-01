@@ -6,16 +6,21 @@ import com.junbingao.remotecontrol.core.protocol.GatewayErrorCode
 import com.junbingao.remotecontrol.core.protocol.RemoteProtocol
 import com.junbingao.remotecontrol.core.protocol.UserIdentity
 import com.junbingao.remotecontrol.core.protocol.UserRole
+import kotlin.test.AfterTest
 import kotlin.test.Test
 
 /**
  * The lines of `ios/VerificationUI/main.swift` that read the core's own types rather than a screen:
  * § "The Settings screen" (`docs/DESIGN.md`, owner's ruling, 2026-09-18) — the initials, the host,
- * the dot and its word, the header's own line and the versions — and what the directory picker says
+ * the dot and its word, the header's own line and the versions — what the directory picker says
  * when a device refuses a folder (A37), here from the refusals themselves rather than from the demo
- * gateway's.
+ * gateway's, and from § "Accounts (A24)" the preferences that belong to the person rather than the
+ * phone.
  */
 class SettingsScreenChecks {
+    @AfterTest
+    fun backToEnglish() = L10n.use(InterfaceLanguage.en)
+
     @Test
     fun header() {
         val checks = CheckRunner("settings")
@@ -67,6 +72,34 @@ class SettingsScreenChecks {
         val badName = GatewayErrorBody(code = GatewayErrorCode.badRequest, message = "A folder name cannot start with a dot.")
         checks.equal(DirectoryError.makeFolder(badName), badName.message,
                      "and any other refusal is the device's own sentence")
+        checks.assertAll()
+    }
+
+    /** The app's own settings belong to the person, not to the phone. */
+    @Test
+    fun preferencesBelongToThePerson() {
+        val checks = CheckRunner("settings")
+        val shared = MemoryUserDefaults()
+        val mine = SettingsStore(defaults = shared)
+        mine.remember(origin = "https://rc.example.com", username = "alice")
+        mine.language = InterfaceLanguage.zhHans
+        mine.timelineDetail = TimelineDetail.detailed
+        mine.notificationsEnabled = true
+        val yours = SettingsStore(defaults = shared)
+        yours.remember(origin = "https://rc.example.com", username = "bob")
+        checks.equal(yours.language, InterfaceLanguage.en, "signing in as someone else does not inherit their language")
+        checks.equal(yours.timelineDetail, TimelineDetail.simple, "nor their reading level")
+        checks.expect(!yours.notificationsEnabled, "nor their notification choice")
+        yours.remember(origin = "https://rc.example.com", username = "alice")
+        checks.equal(yours.language, InterfaceLanguage.zhHans, "and coming back finds their own choices again")
+        checks.equal(SettingsStore(defaults = shared).lastUsername, "alice",
+                     "while the gateway and the account used there prefill the form on the next launch")
+        yours.remember(origin = "https://other.example.com", username = "bob")
+        checks.equal(yours.username("https://rc.example.com"), "alice", "and each gateway keeps the username that signed in on it")
+        val cleared = SettingsStore(defaults = shared)
+        cleared.reset()
+        cleared.remember(origin = "https://rc.example.com", username = "alice")
+        checks.equal(cleared.language, InterfaceLanguage.en, "a reset forgets every account's preferences, not only the last one's")
         checks.assertAll()
     }
 }

@@ -10,8 +10,8 @@ import kotlin.test.assertNull
 /**
  * Amendment A36, a device keeps itself current: the config, the device record and the request.
  * RCCore's suite of this name also holds what a row says and offers (`DeviceUpdate`) and the demo's
- * update; those cases, and the A23 pairing suite in the same file (`PairingClaimLink`), are
- * `core-state`'s and `core-demo`'s to add here.
+ * update; those cases, and the A23 pairing suite in the same file (`PairingClaimLink`), are in
+ * `state/DeviceUpdateTests.kt` and `demo/DeviceUpdateTests.kt`.
  */
 class DeviceUpdateTests {
     private val served = "a".repeat(64)

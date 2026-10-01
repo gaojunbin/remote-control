@@ -208,8 +208,8 @@ time.
 the profile on Windows; `MemoryUserDefaults` for tests), read as Foundation reads it: absent is null,
 false or zero. `ConnectionStore` has no default cache directory or HTTP client, because both need
 the app's own (a directory, a secret store); `makeChannel` defaults to a `GatewaySocket` over the
-client, or over a client with no token, as RCCore's fallback is. `ConnectionStore.offlineDemo` comes
-with the demo gateway.
+client, or over a client with no token, as RCCore's fallback is. `ConnectionStore.offlineDemo(tasks,
+cache, installedApp, registrationOpen)` is RCCore's, with the two the app always hands in.
 
 **Words and clocks.** Every sentence is RCCore's, through `L10n`. Initials, a command draft, a
 transcript's shape and a vendor's plan count characters as Swift does, one extended grapheme
@@ -217,16 +217,22 @@ cluster each (`BreakIterator`). A `Calendar` parameter is a `ZoneId` (the calend
 Gregorian one) beside the `Locale`. `QuotaWindow` keeps RCCore's fixed patterns; `ResumeText`'s clock
 is the locale's short time, and for another day the locale's medium date with the year taken out in
 front of it, which is what `Date.FormatStyle`'s month-and-day gives without the skeletons Android 29
-lacks. The diagnostic report opens with RCCore's words, "Remote Control for iOS".
+lacks. The diagnostic report names the app that wrote it — RCCore's says iOS for the iPhone and the
+Mac alike — so `diagnosticReport(app, …)` takes the installed app (round 56's ruling).
 
 **Tests.** Every RCCoreTests suite whose subject is in `State/` is ported under `state/`, case names
 as RCCore's. A suite whose wire half the first half ported keeps that half in `protocol/` and its
 store cases here, under the same class name (`state.AmendmentTests` beside `protocol.AmendmentTests`).
 `ios/Verification`'s `StoreChecks`, `TimelineChecks`, `AlertChecks` and the store lines of
 `AccountChecks`, `PolishChecks` and `ProtocolChecks` are JUnit checks of the same names, with
-`SettingsScreenChecks` for the lines of `VerificationUI` that read core types. `StoreDoubles.kt`
-holds the doubles every suite would otherwise spell out (`StubGateway`, `InertChannel`); a suite's
-own doubles are nested in it. The cases that run on the demo gateway or read its fixtures follow it.
+`SettingsScreenChecks` and `OfflineDemoChecks` for the lines of `VerificationUI` that read core
+types, and `DiagnosticReportTests` for the report's app. `StoreDoubles.kt` holds the doubles every
+suite would otherwise spell out (`StubGateway`, `InertChannel`) and RCCore's polling `settle`, on the
+test's clock; a suite's own doubles are nested in it. A case RCCore runs on the demo gateway runs on
+`demoGateway(…)` with the same arguments, on virtual time: RCCore's `DemoGateway()` is
+`demoGateway(resumeDelay = DemoGateway.defaultResumeDelay)`, since the test helper defaults to
+RCCore's `resumeDelay: nil`. The demo's own cases of a suite are in `demo/` under the same name, the
+wire's in `protocol/`.
 
 ## Demo
 
@@ -267,14 +273,16 @@ What the contract did not settle was decided as follows.
   for RCCore's tuple. `queue_ts` is read as RCCore's `JSONValue.integer`: a whole number written as
   one, never `1.5`, `"12"` or `true`.
 
-**Tests.** `DemoQueueTests` is ported whole but for `editRoundTrip`, which drives `ChatStore` and
-is `core-state`'s; the same round trip at the gateway is `DemoTurnTests.queuedEditGoesBackToItsPlace`.
+**Tests.** `DemoQueueTests` is ported whole; `editRoundTrip`, which drives `ChatStore`, lives in
+`state/DemoQueueTests.kt`, and the same round trip at the gateway is
+`DemoTurnTests.queuedEditGoesBackToItsPlace`.
 The demo's own cases of RCCore's other suites are in this package under the suites' names
 (`AgentsTests`, `AccountsTests`, `AgentAccountsTests`, `CodexDaemonTests`, `DeviceUpdateTests`,
 `GrokLeaderTests`, `QuestionAnswerTests`, `AgentMessageTests`, `SharedControlTests`,
 `TypedTerminalTests`, `SlashCommandTests`), with `PolishChecks.agentMessages` for the demo's line
-of `ios/Verification`; their cases that drive a store are `core-state`'s, and so is the
-`DeviceUpdate.notice` line of `demoRetry`. `DemoGatewayTests` drives the gateway as a store does —
+of `ios/Verification`; their cases that drive a store are in the `state` package under the same
+names, the `DeviceUpdate.notice` line of `demoRetry` among them. `DemoGatewayTests` drives the
+gateway as a store does —
 sign in, `hello`, subscribe, send, the scripted turns to their ends — and, with `DemoTurnTests` and
 `DemoMachineTests`, pins what it does with queues, attached terminals, commands, resumes, shells,
 folders, quotas and pairing. `DemoTestSupport.kt` builds a gateway on the test's clock and reads
