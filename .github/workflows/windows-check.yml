@@ -1,0 +1,82 @@
+name: Windows checks
+
+on:
+  push:
+    # Branches only: a tag push ignores `paths` and would run the same commit twice.
+    branches:
+      - master
+    paths:
+      - 'win/**'
+      - 'android/core/**'
+      - 'android/gradle/libs.versions.toml'
+      - 'macos/Sources/RCMac/Resources/Highlight/**'
+      - 'protocol/**'
+      - '.github/workflows/windows-check.yml'
+  pull_request:
+    paths:
+      - 'win/**'
+      - 'android/core/**'
+      - 'android/gradle/libs.versions.toml'
+      - 'macos/Sources/RCMac/Resources/Highlight/**'
+      - 'protocol/**'
+      - '.github/workflows/windows-check.yml'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A prefix distinct from callers, so a reusable call cannot cancel its caller.
+  group: windows-check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-check:
+    name: Windows app tests, every preview, the installer and a launch
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: win
+        # Git Bash, so the steps read as the other checks' do; the launch is PowerShell's.
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      - name: Tests, every preview in both languages, the installer
+        run: |
+          out="$(pwd -W)/build/CI/previews"
+          ./gradlew --no-daemon :app:test
+          ./gradlew --no-daemon :preview:run --args="--demo --all --out $out/en"
+          ./gradlew --no-daemon :preview:run --args="--demo --all --language zh-Hans --out $out/zh-Hans"
+          ./gradlew --no-daemon :app:packageMsi :app:createDistributable
+
+      - name: Launch the app and photograph its window
+        shell: pwsh
+        run: ./scripts/ci-launch.ps1 -OutDir build/CI
+
+      - name: Upload previews, the launch picture and the installer
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-check-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            win/build/CI/
+            win/app/build/reports/tests/
+            win/app/build/compose/binaries/main/msi/
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 6

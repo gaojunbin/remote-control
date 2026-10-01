@@ -1,0 +1,218 @@
+name: Release
+
+# Every version tag's GitHub release carries the apps a person installs themselves: the Mac app as a
+# disk image, the Windows app as an installer and the Android app as an APK, each built here from
+# the tagged commit rather than on anyone's machine, each with its SHA-256. The packing tools come
+# from this workflow's own revision and the apps from the tag, so a tag pushed before this workflow
+# existed is given its files by running it by hand:
+# `gh workflow run release.yml --ref master -f tag=vX.Y.Z`.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The version tag to build and attach the apps to, for example v1.12.0'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  mac:
+    name: Mac app disk image
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      # The SDK the checks build with (macos-check.yml).
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - name: Check out the packing tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: tools
+          persist-credentials: false
+
+      - name: Check out the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          path: source
+          persist-credentials: false
+
+      - name: Build the app, signed to run locally
+        working-directory: source/macos
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate
+          xcodebuild -project RemoteControl.xcodeproj -scheme RemoteControl -configuration Release \
+            -derivedDataPath build/DerivedData build
+
+      - name: Pack the disk image
+        run: |
+          version="${TAG#v}"
+          app="source/macos/build/DerivedData/Build/Products/Release/Remote Control.app"
+          built="$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")"
+          # A tag whose Mac app was not bumped would ship under the wrong name.
+          [[ "$built" == "$version" ]] || { echo "::error::the Mac app is $built, the tag is $TAG"; exit 1; }
+          bash tools/macos/scripts/make-dmg.sh "$app" "release/Remote-Control-$version.dmg"
+
+      - name: Hand the image to the release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-mac
+          path: release/
+          retention-days: 1
+
+  windows:
+    name: Windows app installer
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      - name: Build the installer
+        working-directory: win
+        run: |
+          version="${TAG#v}"
+          built="$(sed -n 's/^ *packageVersion = "\(.*\)"$/\1/p' app/build.gradle.kts)"
+          [[ "$built" == "$version" ]] || { echo "::error::the Windows app is $built, the tag is $TAG"; exit 1; }
+          ./gradlew --no-daemon :app:packageMsi
+          mkdir -p ../release
+          cp app/build/compose/binaries/main/msi/*.msi "../release/Remote-Control-$version.msi"
+          (cd ../release && sha256sum "Remote-Control-$version.msi" > "Remote-Control-$version.msi.sha256")
+
+      - name: Hand the installer to the release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-windows
+          path: release/
+          retention-days: 1
+
+  android:
+    name: Android app APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      - name: Build the release APK
+        working-directory: android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          version="${TAG#v}"
+          built="$(sed -n 's/^ *versionName = "\(.*\)"$/\1/p' app/build.gradle.kts)"
+          [[ "$built" == "$version" ]] || { echo "::error::the Android app is $built, the tag is $TAG"; exit 1; }
+          store="$RUNNER_TEMP/release.jks"
+          if [[ -n "$KEYSTORE_BASE64" ]]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$store"
+          else
+            # No release key on the repository yet: a key made for this build alone. The APK installs,
+            # but a later one signed with another key cannot replace it without uninstalling first.
+            echo "::warning::ANDROID_KEYSTORE_BASE64 is not set; the APK is signed with a one-off key"
+            KEYSTORE_PASSWORD="$(openssl rand -hex 16)"; KEY_PASSWORD="$KEYSTORE_PASSWORD"; KEY_ALIAS=release
+            keytool -genkeypair -keystore "$store" -storepass "$KEYSTORE_PASSWORD" -keypass "$KEY_PASSWORD" \
+              -alias "$KEY_ALIAS" -keyalg RSA -keysize 3072 -validity 10000 -dname "CN=Remote Control" >/dev/null
+          fi
+          ./gradlew --no-daemon :app:assembleRelease \
+            -Pandroid.injected.signing.store.file="$store" \
+            -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+          rm -f "$store"
+          mkdir -p ../release
+          cp app/build/outputs/apk/release/app-release.apk "../release/Remote-Control-$version.apk"
+          (cd ../release && sha256sum "Remote-Control-$version.apk" > "Remote-Control-$version.apk.sha256")
+
+      - name: Hand the APK to the release
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-android
+          path: release/
+          retention-days: 1
+
+  publish:
+    name: Attach the apps to the release
+    needs: [mac, windows, android]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the install notes
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Collect the apps
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${TAG#v}"
+          files=(release/*)
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            # The annotated tag's own message, then how to install each app.
+            sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq 'select(.object.type == "tag") | .object.sha')"
+            if [[ -n "$sha" ]]; then
+              gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .message > notes.md
+            else
+              echo "$TAG" > notes.md
+            fi
+            for note in macos/scripts/dmg-install-notes.md win/scripts/msi-install-notes.md \
+                        android/scripts/apk-install-notes.md; do
+              printf '\n' >> notes.md
+              sed "s/<version>/$version/g" "$note" >> notes.md
+            done
+            gh release create "$TAG" "${files[@]}" --verify-tag --title "$TAG" --notes-file notes.md \
+              --repo "$GITHUB_REPOSITORY"
+          fi
