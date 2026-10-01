@@ -2,12 +2,7 @@ package com.junbingao.remotecontrol.android.terminal
 
 import android.os.Handler
 import android.os.Looper
-
-/**
- * How many columns and rows the emulator holds. The iPhone reports RCCore's `TerminalSize`; the
- * screen builds that from this, so the view needs nothing from the core.
- */
-data class TerminalGrid(val cols: Int, val rows: Int)
+import com.junbingao.remotecontrol.core.state.TerminalSize
 
 /**
  * The one handle the terminal screen holds on the emulator: bytes go in, and nothing comes back
@@ -21,7 +16,7 @@ class TerminalFeed {
     internal var writer: ((ByteArray) -> Unit)? = null
 
     /** What the emulator was last laid out at, which is what a fresh `open` asks the device for. */
-    var size: TerminalGrid? = null
+    var size: TerminalSize? = null
         internal set
 
     private val main = Handler(Looper.getMainLooper())

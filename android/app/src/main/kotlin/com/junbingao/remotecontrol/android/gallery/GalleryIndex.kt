@@ -8,7 +8,6 @@ import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
 import com.junbingao.remotecontrol.android.navigation.LocalNavigator
 import com.junbingao.remotecontrol.android.navigation.NavigationScreen
-import com.junbingao.remotecontrol.android.shell.GalleryPageRoute
 import com.junbingao.remotecontrol.android.system.InsetGroupedList
 
 /**

@@ -104,7 +104,7 @@ object Sf {
     /** The app mark's symbol: the app icon's three nodes and the bars that join them. */
     val point3ConnectedTrianglepathDotted = SfSymbol(
         "point.3.connected.trianglepath.dotted",
-        listOf(fill(Glyphs.appMarkBars, alpha = 0.6f), fill(Glyphs.appMarkNodes)),
+        listOf(stroke(Glyphs.markRings, weight = 0.943f), fill(Glyphs.markDots)),
     )
     val qrcodeViewfinder = SfSymbol("qrcode.viewfinder", listOf(stroke(Lucide.scanQrCode)))
     val questionmarkCircle = SfSymbol("questionmark.circle", listOf(stroke(Lucide.circleQuestionMark)))

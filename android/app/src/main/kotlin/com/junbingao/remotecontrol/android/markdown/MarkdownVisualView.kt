@@ -35,14 +35,16 @@ import com.junbingao.remotecontrol.android.strings.L10n
  * beyond the one status message (`MarkdownSurface`).
  *
  * The body text size follows the phone's font size as `@ScaledMetric(relativeTo: .body)` follows
- * Dynamic Type, times [textScale], the chat's own text scale.
+ * Dynamic Type, times [textScale], the chat's own text scale. A paragraph with inline formulas is
+ * cut into its pieces by [MarkdownVisualParts], with [inlineRuns] reading the emphasis of the text
+ * between them.
  */
 @Composable
 fun MarkdownVisualView(
     kind: MarkdownVisualKind,
     source: String,
     modifier: Modifier = Modifier,
-    parts: List<MarkdownInlinePart> = emptyList(),
+    inlineRuns: (String) -> List<MarkdownInlinePart.Run> = MarkdownVisualParts::plain,
     maximumHeight: Dp = 720.dp,
     textScale: Float = 1f,
     onLink: ((Uri) -> Unit)? = null,
@@ -59,6 +61,9 @@ fun MarkdownVisualView(
     var height by remember { mutableStateOf(72.dp) }
     var error by remember { mutableStateOf<String?>(null) }
     val open = onLink ?: { url: Uri -> openOutside(context, url) }
+    val parts = remember(kind, source) {
+        if (kind == MarkdownVisualKind.inlineMath) MarkdownVisualParts.of(source, inlineRuns) else emptyList()
+    }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         AndroidView(
             factory = { MarkdownSurface(it) },

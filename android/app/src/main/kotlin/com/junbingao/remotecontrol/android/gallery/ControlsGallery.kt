@@ -26,6 +26,7 @@ import com.junbingao.remotecontrol.android.design.ValueRow
 import com.junbingao.remotecontrol.android.design.WorkingCircle
 import com.junbingao.remotecontrol.android.icons.Sf
 import com.junbingao.remotecontrol.android.strings.L10n
+import com.junbingao.remotecontrol.core.state.DotTone
 
 /** Every control of `Controls.swift`, `ValueRow.swift` and `WorkingCircle.swift`, drawn as screens draw them. */
 @Composable
@@ -33,28 +34,24 @@ internal fun ControlsGallery() {
     GalleryScaffold(GalleryPages.controls.title) {
         Specimen("Status dots: working, for you (breathing), live, error, off; device online, offline, updating") {
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                StatusDot(Theme.running, pulses = false)
-                StatusDot(Theme.attention, pulses = true)
-                StatusDot(Theme.attention, pulses = false)
-                StatusDot(Theme.danger, pulses = false)
-                StatusDot(Theme.resting, pulses = false)
+                for (tone in listOf(DotTone.working, DotTone.waiting, DotTone.live, DotTone.failed, DotTone.off)) StatusDot(tone)
                 OnlineDot(online = true)
                 OnlineDot(online = false)
                 OnlineDot(online = false, updating = true)
             }
-            StatusLabel(Theme.attention, pulses = true, text = L10n.string("needs approval"), textColor = Theme.attention)
-            SessionOriginLabel(Theme.running, pulses = false, origin = L10n.string("Remote Control"))
-            SessionOriginLabel(Theme.attention, pulses = false, origin = L10n.string("Terminal"))
+            StatusLabel(DotTone.waiting, L10n.string("needs approval"))
+            SessionOriginLabel(DotTone.working, L10n.string("Remote Control"))
+            SessionOriginLabel(DotTone.live, L10n.string("Terminal"))
         }
         Specimen("Agent chips") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AgentChip("claude", "Claude Code")
-                AgentChip("codex", "Codex")
+                AgentChip("claude")
+                AgentChip("codex")
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AgentChip("grok", "Grok Build")
-                AgentChip("pi", "pi")
-                AgentChip("aider", "aider")
+                AgentChip("grok")
+                AgentChip("pi")
+                AgentChip("aider")
             }
         }
         Specimen("Field label, code text, value rows") {

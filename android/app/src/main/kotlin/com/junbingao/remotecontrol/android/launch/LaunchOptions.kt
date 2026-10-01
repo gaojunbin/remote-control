@@ -1,7 +1,8 @@
 package com.junbingao.remotecontrol.android.launch
 
 import android.content.Intent
-import com.junbingao.remotecontrol.android.navigation.SessionLink
+import com.junbingao.remotecontrol.core.transport.SessionLink
+import java.net.URI
 
 /**
  * The iPhone's launch arguments, as `adb shell am start -n com.junbingao.remotecontrol/.android.MainActivity
@@ -49,7 +50,15 @@ class LaunchOptions(val arguments: List<String>, private val debug: Boolean) {
             return LaunchOptions(list.map { it.trim() }, debug)
         }
 
-        /** The conversation a launch or a new intent asks for, from its data URI. */
-        fun link(intent: Intent?): SessionLink? = SessionLink.parse(intent?.data)
+        /**
+         * The conversation a launch or a new intent asks for: its data, read by the core's
+         * `SessionLink`, which is how a notification's tap, `adb shell am start -d` and a browser
+         * all reach `remotecontrol://session?device=<id>&id=<session_id>`.
+         */
+        fun link(intent: Intent?): SessionLink? {
+            val data = intent?.dataString ?: return null
+            val url = runCatching { URI(data) }.getOrNull() ?: return null
+            return SessionLink(url = url)
+        }
     }
 }

@@ -34,6 +34,7 @@ import com.junbingao.remotecontrol.android.design.weight
 import com.junbingao.remotecontrol.android.icons.Icon
 import com.junbingao.remotecontrol.android.icons.Sf
 import com.junbingao.remotecontrol.android.navigation.NavigationScreen
+import com.junbingao.remotecontrol.android.navigation.TitleDisplayMode
 import com.junbingao.remotecontrol.android.strings.L10n
 import com.junbingao.remotecontrol.android.system.ActionRole
 import com.junbingao.remotecontrol.android.system.Alert
@@ -47,14 +48,13 @@ import com.junbingao.remotecontrol.android.system.RowStyle
 import com.junbingao.remotecontrol.android.system.Sheet
 import com.junbingao.remotecontrol.android.system.SwipeAction
 import com.junbingao.remotecontrol.android.system.Toggle
-import com.junbingao.remotecontrol.android.navigation.TitleDisplayMode
 import kotlin.math.roundToInt
 
 /**
  * Screens of the iPhone's reference set redrawn from the design system's primitives, with the
  * demo's own words and values, so the system pieces — bars, lists, switches, alerts, sheets,
  * swipes — can be laid beside the iPhone's pictures and measured. They are not the app's screens,
- * which stage 3 builds; they stand in for them only as far as the pieces need.
+ * which the feature ports build; they stand in for them only as far as the pieces need.
  */
 private val sessionRow = PaddingValues(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 14.dp)
 private val settingsRow = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 12.dp)

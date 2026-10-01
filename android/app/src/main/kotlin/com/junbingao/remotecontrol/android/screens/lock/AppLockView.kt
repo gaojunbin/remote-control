@@ -1,9 +1,8 @@
-package com.junbingao.remotecontrol.android.security
+package com.junbingao.remotecontrol.android.screens.lock
 
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,6 +32,7 @@ import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
 import com.junbingao.remotecontrol.android.design.weight
 import com.junbingao.remotecontrol.android.icons.Sf
+import com.junbingao.remotecontrol.android.security.BiometricLock
 import com.junbingao.remotecontrol.android.strings.L10n
 import com.junbingao.remotecontrol.android.system.ActivityIndicator
 import kotlinx.coroutines.launch
@@ -40,6 +40,8 @@ import kotlinx.coroutines.launch
 /**
  * The phone's biometric unlock or its screen lock before the transcript is shown — the iPhone's
  * `AppLockView`, with Android's words for what unlocks it (`docs/DESIGN.md` § "The Android app").
+ *
+ * The foundation's port, which `android-settings` owns from here; [AppLockWindow] draws it.
  */
 @Composable
 fun AppLockView(onUnlock: () -> Unit) {
@@ -89,18 +91,6 @@ fun AppLockView(onUnlock: () -> Unit) {
                 if (authenticating) ActivityIndicator()
                 Label(L10n.string("Unlock"), Sf.lockOpen)
             }
-        }
-    }
-}
-
-/** What the recents screen shows instead of a transcript: the mark and the product's name. */
-@Composable
-fun AppPrivacyCover() {
-    Box(Modifier.fillMaxSize().background(Theme.canvas), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            AppMark(64.dp)
-            // The product's own name, never translated.
-            Text("Remote Control", style = SystemFont.title2.weight(FontWeight.Medium), color = Theme.ink)
         }
     }
 }

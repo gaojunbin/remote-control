@@ -5,14 +5,14 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.media.ExifInterface
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import java.io.ByteArrayOutputStream
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.GraphicsMode
-import java.io.ByteArrayOutputStream
-import java.io.File
 
 /** `PhotoPreparation.jpeg` on images made here, decoded by the real graphics stack. */
 @RunWith(AndroidJUnit4::class)

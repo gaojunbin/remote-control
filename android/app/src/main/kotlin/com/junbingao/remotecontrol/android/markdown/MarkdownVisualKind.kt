@@ -13,7 +13,7 @@ enum class MarkdownVisualKind(val rawValue: String) {
 
 /**
  * One piece of an `inlineMath` paragraph, as the iPhone hands them to the renderer: a formula, or
- * a run of text with its emphasis. Stage 3 builds them from the core's `MarkdownMath.spans`.
+ * a run of text with its emphasis ([MarkdownVisualParts] cuts a paragraph into them).
  */
 sealed interface MarkdownInlinePart {
     data class Math(val source: String, val display: Boolean) : MarkdownInlinePart

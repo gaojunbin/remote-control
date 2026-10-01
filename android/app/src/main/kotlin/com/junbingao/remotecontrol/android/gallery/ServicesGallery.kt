@@ -31,10 +31,9 @@ internal fun ServicesGallery() {
             TerminalHost(
                 feed,
                 fontSize = 12.0,
-                onSize = { _, _ -> },
+                onSize = {},
                 onInput = {},
                 onFontSize = {},
-                scaledFontSize = { base, scale -> (base * scale).coerceIn(8.0, 24.0) },
                 modifier = Modifier.fillMaxWidth().height(160.dp),
             )
         }

@@ -112,10 +112,12 @@ abstract class GenerateStringCatalog : DefaultTask() {
                 ?: throw GradleException("\"$key\" has no zh-Hans translation in the catalogue")
         }
         val catalogued = english.keys.toSet()
+        val overlaid = sortedSetOf<String>()
         for ((key, words) in entries(overlay.get().asFile)) {
             if (key !in catalogued) throw GradleException("overlay \"$key\" is not a catalogue key")
             english[key] = words.first
             chinese[key] = words.second
+            overlaid.add(key)
         }
         for ((key, words) in entries(system.get().asFile)) {
             if (key in catalogued) throw GradleException("system word \"$key\" is already a catalogue key")
@@ -133,6 +135,9 @@ abstract class GenerateStringCatalog : DefaultTask() {
             appendLine("internal object Catalog {")
             appendTable("en", english)
             appendTable("zhHans", chinese)
+            appendLine("    val overlaid: Set<String> = hashSetOf(")
+            for (key in overlaid) appendLine("        ${literal(key)},")
+            appendLine("    )")
             appendLine("}")
         })
     }

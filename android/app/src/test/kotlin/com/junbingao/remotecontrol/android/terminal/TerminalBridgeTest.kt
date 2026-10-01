@@ -8,6 +8,7 @@ import android.view.View.MeasureSpec
 import android.view.inputmethod.EditorInfo
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.junbingao.remotecontrol.core.state.TerminalSize
 import com.termux.terminal.TextStyle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -15,7 +16,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
-import kotlin.math.roundToInt
 
 /**
  * The terminal view and its remote session, driven the way the terminal screen drives them:
@@ -27,16 +27,14 @@ import kotlin.math.roundToInt
 class TerminalBridgeTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val feed = TerminalFeed()
-    private val sizes = mutableListOf<TerminalGrid>()
+    private val sizes = mutableListOf<TerminalSize>()
     private val typed = mutableListOf<ByteArray>()
     private val pinchedTo = mutableListOf<Double>()
 
-    // The core's `TerminalTypeSize.scaled`, which stage 2 passes in: rounded, and 8 to 24 points.
     private val bridge = TerminalBridge(context, feed, 12.0).apply {
-        onSize = { cols, rows -> sizes += TerminalGrid(cols, rows) }
+        onSize = { size -> sizes += size }
         onInput = { bytes -> typed += bytes }
         onFontSize = { points -> pinchedTo += points }
-        scaledFontSize = { base, scale -> (base * scale).roundToInt().toDouble().coerceIn(8.0, 24.0) }
     }
 
     private fun layOut(width: Int = 1206, height: Int = 2000) {

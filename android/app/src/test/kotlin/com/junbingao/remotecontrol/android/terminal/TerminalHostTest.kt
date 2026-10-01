@@ -4,7 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -12,6 +12,10 @@ import com.github.takahirom.roborazzi.captureRoboImage
 import com.junbingao.remotecontrol.android.design.Appearance
 import com.junbingao.remotecontrol.android.design.ProvideAppearance
 import com.junbingao.remotecontrol.android.design.Theme
+import com.junbingao.remotecontrol.android.harness.Variant
+import com.junbingao.remotecontrol.android.harness.picturePath
+import com.junbingao.remotecontrol.android.strings.L10n
+import com.junbingao.remotecontrol.core.state.TerminalSize
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
@@ -31,17 +35,16 @@ class TerminalHostTest {
     @Test
     fun theHostReportsItsGridAndDrawsTheShellInTheAppsInk() {
         val feed = TerminalFeed()
-        val sizes = mutableListOf<TerminalGrid>()
+        val sizes = mutableListOf<TerminalSize>()
         compose.setContent {
             ProvideAppearance(Appearance(isDark = false)) {
                 Box(Modifier.fillMaxSize().background(Theme.surface)) {
                     TerminalHost(
                         feed = feed,
                         fontSize = 12.0,
-                        onSize = { cols, rows -> sizes += TerminalGrid(cols, rows) },
+                        onSize = { size -> sizes += size },
                         onInput = {},
                         onFontSize = {},
-                        scaledFontSize = { base, _ -> base },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -60,6 +63,6 @@ class TerminalHostTest {
             assertEquals("one layout, one report", 1, sizes.size)
             assertNotNull(feed.size)
         }
-        compose.onRoot().captureRoboImage("src/test/screenshots/terminal/terminal-host.png")
+        compose.onRoot().captureRoboImage(picturePath("terminal", "terminal-host", Variant(L10n.english, dark = false)))
     }
 }

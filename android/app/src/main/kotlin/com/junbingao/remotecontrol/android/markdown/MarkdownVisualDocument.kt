@@ -1,9 +1,9 @@
 package com.junbingao.remotecontrol.android.markdown
 
 import android.util.Base64
+import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.Locale
 
 /**
  * The page one diagram or formula is drawn on — the document `MarkdownWebSurface.documentHTML()`

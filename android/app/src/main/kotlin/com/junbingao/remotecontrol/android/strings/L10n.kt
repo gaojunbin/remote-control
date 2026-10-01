@@ -1,6 +1,7 @@
 package com.junbingao.remotecontrol.android.strings
 
 import androidx.compose.runtime.mutableStateOf
+import com.junbingao.remotecontrol.core.state.L10n as CoreL10n
 
 /**
  * The app's own words, in the language the reader chose rather than the one the phone is set to.
@@ -52,6 +53,16 @@ object L10n {
 
     /** Whether the catalogue has this key at all, for the checks that hold screens to it. */
     fun knows(key: String): Boolean = Catalog.en.containsKey(key)
+
+    /**
+     * A sentence the core built, in Android's words: the core speaks RCCore's, which name the
+     * keychain and the iPhone where `src/main/strings/overlay.json` names Android's counterparts.
+     * A sentence that is the core's rendering of an overlaid key, in the language both tables
+     * follow, comes back as this table's; any other comes back as it is. For what a screen shows
+     * from the core — an error message, a backend's title.
+     */
+    fun platform(sentence: String): String =
+        Catalog.overlaid.firstOrNull { CoreL10n.string(it) == sentence }?.let(::string) ?: sentence
 
     internal fun table(language: String): Map<String, String> =
         if (language == chinese) Catalog.zhHans else Catalog.en

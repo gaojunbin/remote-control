@@ -73,18 +73,22 @@ internal object Glyphs {
     val leftHalf = listOf("M12 2a10 10 0 0 0 0 20z")
 
     /**
-     * `point.3.connected.trianglepath.dotted`, which the iPhone's `AppMark` draws: the app icon's
-     * three nodes and the bars between them, each bar stopping short of its nodes in a concave cut
-     * (ios/App/Assets.xcassets/AppIcon.appiconset, scaled onto the grid).
+     * `point.3.connected.trianglepath.dotted`, which the iPhone's `AppMark` draws: three ringed
+     * nodes, the two above joined by three dots and each joined to the one below by two. Measured
+     * on the iPhone 17's sign-in form, where the mark is 52 points and the symbol half of it.
      */
-    val appMarkNodes = listOf(
-        "M1.5 5.677a2.376 2.376 0 1 0 4.752 0a2.376 2.376 0 1 0 -4.752 0z",
-        "M17.748 5.677a2.376 2.376 0 1 0 4.752 0a2.376 2.376 0 1 0 -4.752 0z",
-        "M9.624 18.323a2.376 2.376 0 1 0 4.752 0a2.376 2.376 0 1 0 -4.752 0z",
+    val markRings = listOf(
+        "M1.516 6.555a2.59 2.59 0 1 0 5.18 0a2.59 2.59 0 1 0 -5.18 0z",
+        "M17.165 6.555a2.59 2.59 0 1 0 5.18 0a2.59 2.59 0 1 0 -5.18 0z",
+        "M9.410 17.980a2.59 2.59 0 1 0 5.18 0a2.59 2.59 0 1 0 -5.18 0z",
     )
-    val appMarkBars = listOf(
-        "M7.341 6.328L16.659 6.328A3.526 3.526 0 0 1 16.659 5.026L7.341 5.026A3.526 3.526 0 0 1 7.341 6.328z",
-        "M5.201 8.944L9.579 15.76A3.526 3.526 0 0 1 10.675 15.056L6.297 8.24A3.526 3.526 0 0 1 5.201 8.944z",
-        "M17.703 8.24L13.325 15.056A3.526 3.526 0 0 1 14.421 15.76L18.799 8.944A3.526 3.526 0 0 1 17.703 8.24z",
+    val markDots = listOf(
+        "M8.370 6.420a0.91 0.91 0 1 0 1.82 0a0.91 0.91 0 1 0 -1.82 0z",
+        "M10.950 6.420a0.91 0.91 0 1 0 1.82 0a0.91 0.91 0 1 0 -1.82 0z",
+        "M13.680 6.420a0.91 0.91 0 1 0 1.82 0a0.91 0.91 0 1 0 -1.82 0z",
+        "M5.920 11.180a0.91 0.91 0 1 0 1.82 0a0.91 0.91 0 1 0 -1.82 0z",
+        "M7.820 13.360a0.91 0.91 0 1 0 1.82 0a0.91 0.91 0 1 0 -1.82 0z",
+        "M16.130 11.320a0.91 0.91 0 1 0 1.82 0a0.91 0.91 0 1 0 -1.82 0z",
+        "M14.220 13.360a0.91 0.91 0 1 0 1.82 0a0.91 0.91 0 1 0 -1.82 0z",
     )
 }

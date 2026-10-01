@@ -7,7 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -22,15 +22,13 @@ class ScreenAwakeTest {
     @get:Rule
     val compose = createAndroidComposeRule<ComponentActivity>()
 
-    private val rule = { chatOnScreen: Boolean, sceneActive: Boolean -> chatOnScreen && sceneActive }
-
     private fun keptOn(): Boolean =
         compose.activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
 
     @Test
     fun aConversationOnScreenHoldsItOnAndLeavingLetsItGo() {
         var showing by mutableStateOf(true)
-        compose.setContent { if (showing) Box(Modifier.keepsScreenAwake(rule)) }
+        compose.setContent { if (showing) Box(Modifier.keepsScreenAwake()) }
         compose.waitForIdle()
         assertTrue(keptOn())
         showing = false
@@ -42,8 +40,8 @@ class ScreenAwakeTest {
     fun aSecondConversationLaidOverTheFirstKeepsItOnWhenOneLeaves() {
         var first by mutableStateOf(true)
         compose.setContent {
-            if (first) Box(Modifier.keepsScreenAwake(rule))
-            Box(Modifier.keepsScreenAwake(rule))
+            if (first) Box(Modifier.keepsScreenAwake())
+            Box(Modifier.keepsScreenAwake())
         }
         compose.waitForIdle()
         first = false

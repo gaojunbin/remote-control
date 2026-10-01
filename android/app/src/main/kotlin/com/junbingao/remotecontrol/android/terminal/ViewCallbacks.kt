@@ -33,8 +33,8 @@ internal class ViewCallbacks(
     override fun onSingleTapUp(e: MotionEvent?) {
         val terminal = view() ?: return
         terminal.requestFocus()
-        terminal.context.getSystemService(InputMethodManager::class.java)
-            ?.showSoftInput(terminal, InputMethodManager.SHOW_IMPLICIT)
+        // A tap is the person asking for the keyboard, so no flag hedges the request.
+        terminal.context.getSystemService(InputMethodManager::class.java)?.showSoftInput(terminal, 0)
     }
 
     override fun shouldBackButtonBeMappedToEscape(): Boolean = false

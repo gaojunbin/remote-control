@@ -24,7 +24,7 @@ import kotlin.concurrent.thread
  * for a recogniser, with the gain control a call would add left off where the phone allows it, as
  * the iPhone records in its measurement mode.
  */
-class MicrophoneCapture(private val context: Context) {
+class MicrophoneCapture(private val context: Context) : AudioCapture {
     @Volatile private var running = false
     private var worker: Thread? = null
     private var record: AudioRecord? = null
@@ -40,7 +40,7 @@ class MicrophoneCapture(private val context: Context) {
      * [SpeechInputFailure.Recording] when the microphone cannot be opened.
      */
     @SuppressLint("MissingPermission") // Checked on the line above the recorder is built.
-    fun start(onChunk: (pcm: ByteArray, level: Double) -> Unit, onFailure: (SpeechInputFailure) -> Unit) {
+    override fun start(onChunk: (pcm: ByteArray, level: Double) -> Unit, onFailure: (SpeechInputFailure) -> Unit) {
         stop()
         if (!isPermissionGranted(context, Manifest.permission.RECORD_AUDIO)) throw SpeechInputFailure.MicrophonePermission
         val minimum = AudioRecord.getMinBufferSize(sampleRate, CHANNEL, ENCODING)
@@ -70,7 +70,7 @@ class MicrophoneCapture(private val context: Context) {
     }
 
     /** Stop capturing and let the microphone go. No chunk is delivered after this returns. */
-    fun stop() {
+    override fun stop() {
         running = false
         // Stopping from inside a chunk or a failure report is stopping from the capture thread,
         // which cannot wait for itself.

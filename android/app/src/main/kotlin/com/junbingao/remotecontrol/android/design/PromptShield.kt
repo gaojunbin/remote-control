@@ -6,10 +6,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import com.junbingao.remotecontrol.android.icons.Icon
+import com.junbingao.remotecontrol.android.icons.LayerPaint
 import com.junbingao.remotecontrol.android.icons.Lucide
 import com.junbingao.remotecontrol.android.icons.SfSymbol
 import com.junbingao.remotecontrol.android.icons.SymbolLayer
-import com.junbingao.remotecontrol.android.icons.LayerPaint
 
 /**
  * Amendment A44: the permission mode's glyph on the phone, a shield with a prompt, `>_`, inside
