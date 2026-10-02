@@ -546,11 +546,12 @@ tool output ever appears in a push.**
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `rc.v` | `1` | yes | Payload version |
-| `rc.kind` | `needs_approval` \| `needs_input` \| `turn_completed` \| `error` \| `limit_reached` \| `resumed` \| `resume_dropped` | yes | Why the user is being notified. The last three (A35) follow the `resume` events of 5.15 |
+| `rc.kind` | `needs_approval` \| `needs_input` \| `turn_completed` \| `error` \| `limit_reached` \| `resumed` \| `resume_dropped` \| `badge` | yes | Why the user is being notified. `limit_reached`, `resumed` and `resume_dropped` (A35) follow the `resume` events of 5.15; `badge` (A47) changes the count and shows nothing |
 | `rc.device_id` | uuid | yes | Deep-link target |
 | `rc.session_id` | string | yes | Deep-link target |
 | `rc.device_name` | string | yes | Shown in the notification text |
-| `rc.title` | string | yes | The generic notification text |
+| `rc.title` | string | yes | The generic notification text; empty for `badge` |
+| `rc.badge` | integer ≥ 0 | no | How many of the account's unarchived sessions carry `unseen` (4.4) once this push's own change is made — the app icon's badge (A47). APNs payloads set `aps.badge` to it |
 
 Three kinds follow what a device does about a session the usage limit stopped (amendment A35, 7.2):
 `limit_reached` when it schedules the resume (`resume {status: "scheduled"}`), `resumed` when the
@@ -570,6 +571,30 @@ has the session's `resume`.
     "session_id": "6d1f3c58-8b2e-4d67-9a4f-2e7c1b0d5a93",
     "device_name": "mac-studio-office",
     "title": "mac-studio-office: paused by the usage limit"
+  }
+}
+```
+
+**The count travels with the push (A47).** Every push carries `rc.badge`, and an APNs push sets
+`aps.badge` from it, so the iPhone's home-screen badge holds while the app is closed. When the
+account's count changes without a push — a mark cleared by `session.seen` or by the session working
+again, or set while an app watches the session and the push is suppressed — the gateway sends each
+of the account's APNs registrations a badge-only notification once the count has been still for
+3 seconds: `aps.badge` and `rc` with `kind: "badge"`, the session whose mark changed and an empty
+`title`, no alert and no sound. Web Push gets none: a browser shows every push it receives.
+
+`fixtures/http/push.payload.badge.json`
+
+```json
+{
+  "rc": {
+    "v": 1,
+    "kind": "badge",
+    "device_id": "c5efb1ec-2912-4619-90f7-93b5172fd712",
+    "session_id": "ad2c9abb-4a1e-470a-835c-228778fc17f0",
+    "device_name": "mac-studio-office",
+    "title": "",
+    "badge": 0
   }
 }
 ```
@@ -897,6 +922,19 @@ worked examples of A25 and A26.
 | `usage` | `Usage` \| null | yes | |
 | `queued` | integer | yes | Number of queued remote messages |
 | `resume` | `SessionResume` \| null | no | The resume the device has scheduled for this session after a usage limit (7.2), or null or absent when there is none (A35) |
+| `unseen` | boolean | no | True while the session waits for the person and nobody on the account has opened it since it stopped working (A47, below); the gateway's alone — a device never sends it — and absent is false |
+
+#### `unseen` (A47)
+
+A session **works** while its `state` is `starting` or `running`, and **waits for the person** while
+its `state` is `needs_approval` or `needs_input`, or `idle` or `readonly` with a `control` other
+than `none`: the status dot's green and amber. The gateway sets `unseen` on the account's session
+when the device moves it from working to waiting — a turn ended, or it asks for an approval or an
+answer — and clears it when an app of the account sends `session.seen` (6.2), when the session works
+again (someone carried on, from a terminal or another app), or when it is archived or removed. The
+mark survives a gateway restart; every change reaches the account's apps as `session.updated`. The
+transition is read from the states alone: a turn that ended while the device was offline still
+marks the session when the device reports it.
 
 #### `control` values
 
@@ -2268,6 +2306,7 @@ The device, session and option arrays are shortened here; the fixture holds the 
 | --- | --- | --- |
 | `session.subscribe` | `id`, `session_id`, `since_seq?` | `{session, events, resync, queue?}` |
 | `session.unsubscribe` | `session_id` | none |
+| `session.seen` | `id`, `session_id` | `{}` |
 | `pong` | – | none |
 
 `events` are the buffered events with `seq > since_seq`. Omitting `since_seq` returns an empty array,
@@ -2287,6 +2326,22 @@ queued to. An app applies it exactly as it would apply a live `queue` event.
   "id": "21a35285-bdfa-41c4-baed-7d6f847f6a22",
   "session_id": "ad2c9abb-4a1e-470a-835c-228778fc17f0",
   "since_seq": 30
+}
+```
+
+`session.seen` (A47) says the person has the conversation in front of them: an app sends it when it
+opens a conversation in a window or screen the person is using, when such a window comes to the
+front, and when `session.updated` marks the session that is already on screen. The gateway clears
+`unseen` (4.4), answers `{}`, and, if the mark was set, sends `session.updated` to every socket of
+the account. It is idempotent; another account's session is `not_found`.
+
+`fixtures/app/session.seen.json`
+
+```json
+{
+  "type": "session.seen",
+  "id": "5b0e7d63-0a4f-4c1e-9d1b-7f3e8a2c6b44",
+  "session_id": "ad2c9abb-4a1e-470a-835c-228778fc17f0"
 }
 ```
 
@@ -3591,6 +3646,12 @@ one app connection that asked. The gateway relays bytes and never reads them.
     is working the app asks first ("Close this session?"); an idle one closes on the tap. A row a
     terminal holds offers nothing, a row already in the Archive offers nothing, and writing to a
     closed session brings it back as before (A15).
+22. **A session that stopped working and waits for you is marked until someone looks.** A session
+    whose `unseen` is true (4.4) carries a red dot on its row in every list that draws the row, and
+    the number of such sessions among the unarchived ones is the app's icon badge where the platform
+    has one, none at zero. An app sends `session.seen` (6.2) for the conversation the person has in
+    front of them, so a session already on screen when its turn ends never keeps a dot; signing out
+    clears the badge (A47).
 
 ## 9. Conformance checklist
 
@@ -3659,6 +3720,11 @@ one app connection that asked. The gateway relays bytes and never reads them.
       `apps.android` and `apps.windows` in `GET /api/health`, `GET /api/config` and `hello`, each
       with its `update_url` when configured, and raises an app's minimum in the same release that
       stops supporting its older builds (A31, A45, A46).
+- [ ] Sets `unseen` when a session moves from working to waiting and clears it on `session.seen`,
+      on working again, and on archive or removal, keeps it across restarts, sends every change as
+      `session.updated`, carries `rc.badge` (and `aps.badge`) in every push, and sends APNs
+      registrations a badge-only notification when the count changes without one, 3 s after it
+      settles (A47).
 
 - [ ] Stores `preferences` per account, answers `GET` and `PATCH /api/preferences` for the caller's
       account only, carries the object in `hello`, sends `preferences.updated` to the account's app
@@ -3880,6 +3946,10 @@ one app connection that asked. The gateway relays bytes and never reads them.
       iPhone app's entry (A45).
 - [ ] (Android) Does the same with `apps.android.minimum_version`, and (Windows) with
       `apps.windows.minimum_version`; each reads its own entry and no other (A46).
+- [ ] Draws the red dot on every row of a session whose `unseen` is true, sends `session.seen` for
+      the conversation the person has in front of them (on opening it, on its window coming to the
+      front, and on a mark arriving while it is on screen), keeps the app icon's badge at the count
+      of unarchived unseen sessions where the platform has a badge, and clears it on sign-out (A47).
 - [ ] Offers the dictation polish switch, model and strength only when `polish.enabled` is true
       (disabled with a note otherwise), polishes only the dictated span, keeps the dictated words one
       undo away, sends the words as dictated when the user sends first, and never sends a polished
@@ -4415,3 +4485,14 @@ as the iPhone and Mac apps can, so `apps` gains `android` and `windows`, the sam
 with the "Update required" screen of 8.16 below it. The four minimums move separately. Absent, as
 on every gateway older than this amendment, an entry states no requirement. Nothing else changes
 on the wire. See 3, 6 and 9.
+
+**2026-10-03 A47 — a session that stopped working and waits for you is marked until someone looks.**
+The owner asked for a red dot on a session whose dot went from green to amber, and for the apps'
+icons to count those sessions. The mark is the gateway's, because only the gateway sees every
+transition while every app may be closed, and because opening the session on one app should clear
+it on all of them: `Session.unseen` is set when the device moves a session from working to waiting
+and cleared by `session.seen`, by the session working again, or by its archiving or removal. Every
+push carries the count as `rc.badge` (APNs `aps.badge`), and a badge-only APNs notification follows
+a change no push carried. Additive: an app that predates it ignores the field, sends no
+`session.seen` and shows no dot; a gateway that predates it sends no field, which reads as false.
+See 3.7, 4.4, 6.2, 8 and 9.

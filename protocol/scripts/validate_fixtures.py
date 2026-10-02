@@ -67,6 +67,7 @@ APP_FRAME_TYPES = (
     "reply",
     "session.subscribe",
     "session.unsubscribe",
+    "session.seen",
     "session.create",
     "session.send",
     "session.stop",
@@ -212,6 +213,7 @@ HTTP_DEFS = {
     "push.apns.unregister.request": "ApnsUnregisterRequest",
     "push.payload": "PushPayload",
     "push.payload.limit": "PushPayload",
+    "push.payload.badge": "PushPayload",
 }
 
 # fixture directory -> (schema file, definition or None for the file's root)

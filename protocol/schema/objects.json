@@ -764,6 +764,10 @@
             "null"
           ],
           "description": "The speed tier the session runs at, one of AgentInfo.speeds, or null for the standard speed (A21)."
+        },
+        "unseen": {
+          "type": "boolean",
+          "description": "True while the session waits for the person and nobody on the account has opened it since it stopped working (A47). The gateway's alone; absent is false."
         }
       },
       "required": [

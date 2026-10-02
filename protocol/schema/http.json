@@ -414,11 +414,12 @@
           "type": "object",
           "properties": {
             "v": { "const": 1 },
-            "kind": { "enum": ["needs_approval", "needs_input", "turn_completed", "error", "limit_reached", "resumed", "resume_dropped"] },
+            "kind": { "enum": ["needs_approval", "needs_input", "turn_completed", "error", "limit_reached", "resumed", "resume_dropped", "badge"] },
             "device_id": { "$ref": "objects.json#/$defs/Uuid" },
             "session_id": { "$ref": "objects.json#/$defs/Id" },
             "device_name": { "type": "string", "minLength": 1 },
-            "title": { "type": "string" }
+            "title": { "type": "string" },
+            "badge": { "type": "integer", "minimum": 0 }
           },
           "required": ["v", "kind", "device_id", "session_id", "device_name", "title"]
         }

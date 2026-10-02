@@ -53,6 +53,9 @@
           "$ref": "#/$defs/SessionUnsubscribe"
         },
         {
+          "$ref": "#/$defs/SessionSeen"
+        },
+        {
           "$ref": "#/$defs/SessionCreate"
         },
         {
@@ -1958,6 +1961,28 @@
         "terminal_id",
         "device_id",
         "code"
+      ]
+    },
+    "SessionSeen": {
+      "description": "App -> gateway, handled by the gateway (A47): the person has this conversation in front of them. Reply {}.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/RequestBase"
+        }
+      ],
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "session.seen"
+        },
+        "session_id": {
+          "$ref": "objects.json#/$defs/Id"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "session_id"
       ]
     }
   }

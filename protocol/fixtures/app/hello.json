@@ -267,7 +267,8 @@
         "context_window": 200000,
         "cost_usd": 0.42
       },
-      "queued": 0
+      "queued": 0,
+      "unseen": true
     },
     {
       "session_id": "9cabb33b-a6e2-4faf-a905-865f89dcfa8e",
