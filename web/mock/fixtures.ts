@@ -547,6 +547,9 @@ export const sessions: Session[] = [
     state_detail: 'Waiting on a shell command',
     updated_at: minutes(12),
     git: { branch: 'feat/vite', dirty: true, ahead: 2, behind: 0, worktree: false },
+    // A47: its turn stopped to ask while nobody was looking, so the red dot is
+    // on its row from the first sign-in until someone opens it.
+    unseen: true,
   }),
   session({
     session_id: 'ses-push',

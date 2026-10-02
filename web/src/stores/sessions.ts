@@ -37,9 +37,20 @@ interface SessionsState {
    */
   close: (session: Session) => Promise<void>;
   takeover: (session: Session) => Promise<Session>;
+  /**
+   * A47: the person has this conversation in front of them. `session.seen`
+   * goes only while this tab's copy says `unseen`, and once at a time; the
+   * gateway's `session.updated` is what clears the copy. A failure says
+   * nothing: the request is idempotent, and the next time the conversation
+   * comes to the front it goes again.
+   */
+  markSeen: (deviceId: string, sessionId: string) => void;
   /** Sign-out: nothing of the previous account stays in the tab (`signOut`). */
   reset: () => void;
 }
+
+/** A47: the `session.seen` requests on their way, by session key. */
+const seenInFlight = new Set<SessionKey>();
 
 export const useSessions = create<SessionsState>((set, get) => ({
   sessions: {},
@@ -70,7 +81,10 @@ export const useSessions = create<SessionsState>((set, get) => ({
       return { sessions: next };
     }),
 
-  reset: () => set({ sessions: {}, loaded: false, agentFilter: null }),
+  reset: () => {
+    seenInFlight.clear();
+    set({ sessions: {}, loaded: false, agentFilter: null });
+  },
 
   create: async (params) => {
     const { session } = await rpc('session.create', params);
@@ -91,6 +105,15 @@ export const useSessions = create<SessionsState>((set, get) => ({
     get().upsert(result.session);
     return result.session;
   },
+
+  markSeen: (deviceId, sessionId) => {
+    const key = sessionKey(deviceId, sessionId);
+    if (get().sessions[key]?.unseen !== true || seenInFlight.has(key)) return;
+    seenInFlight.add(key);
+    void rpc('session.seen', { session_id: sessionId })
+      .catch(() => undefined)
+      .finally(() => seenInFlight.delete(key));
+  },
 }));
 
 /** Every session the user has not archived, newest activity first. */
@@ -105,6 +128,19 @@ const BUSY_STATES = new Set(['running', 'starting']);
 
 export function countWaiting(sessions: Session[]): number {
   return sessions.filter((s) => ATTENTION_STATES.has(s.state)).length;
+}
+
+/**
+ * A47: the number on the app's icon — the unarchived sessions with a red dot.
+ * The conversation in front of the person draws none, so it is not counted.
+ */
+export function countUnseen(
+  sessions: Record<SessionKey, Session>,
+  front: SessionKey | null = null,
+): number {
+  return Object.values(sessions).filter(
+    (s) => s.unseen === true && !s.archived && keyOf(s) !== front,
+  ).length;
 }
 
 /**

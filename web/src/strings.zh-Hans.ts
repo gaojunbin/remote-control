@@ -220,6 +220,7 @@ export const zhHans: StringTable = {
     closeTitle: '关闭此会话？',
     closeBody: '代理仍在工作，未完成的部分会丢失。',
     open: '打开会话',
+    unseen: '未查看',
     untitled: '未命名会话',
     legend: '圆点含义',
     legendWorking: '运行中',

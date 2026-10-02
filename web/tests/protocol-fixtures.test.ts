@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { PROTOCOL_VERSION } from '../src/protocol/types';
 import { readPreferences, unsetKeys } from '../src/stores/preferenceFields';
+import { countUnseen, keyOf } from '../src/stores/sessions';
 import type {
   AgentInfo,
   Command,
@@ -67,7 +68,10 @@ const EVENT_KINDS = new Set([
 /** A35 (5.15): the five steps a `resume` event reports. */
 const RESUME_STATUSES = new Set(['scheduled', 'rescheduled', 'fired', 'cancelled', 'dropped']);
 
-/** §3.7, with the three A35 kinds the service worker also renders. */
+/**
+ * §3.7, with the three A35 kinds the service worker also renders, and A47's
+ * `badge`, which changes the app icon's count and shows nothing.
+ */
 const PUSH_KINDS = new Set([
   'needs_approval',
   'needs_input',
@@ -76,6 +80,7 @@ const PUSH_KINDS = new Set([
   'limit_reached',
   'resumed',
   'resume_dropped',
+  'badge',
 ]);
 
 const TOOL_KINDS = new Set([
@@ -199,6 +204,8 @@ function assertSession(session: Session): void {
     expect(typeof session.resume.estimated).toBe('boolean');
     expect(session.resume.attempts).toBeGreaterThanOrEqual(0);
   }
+  // A47: the gateway's mark, a boolean when present; absent is false.
+  expect(session.unseen === undefined || typeof session.unseen === 'boolean').toBe(true);
 }
 
 function assertEvent(event: SessionEvent): void {
@@ -604,6 +611,35 @@ describe.runIf(fixturesAvailable())('protocol fixtures', () => {
     expect(PUSH_KINDS).toContain(payload.rc.kind);
     expect(typeof payload.rc.device_id).toBe('string');
     expect(typeof payload.rc.session_id).toBe('string');
+  });
+
+  /**
+   * A47 — the mark on `Session`, the request that clears it, and the count
+   * every push carries for the app's icon, decoded the way the app reads them.
+   */
+  it('decodes the mark, session.seen and the count of A47', () => {
+    const hello = readFixture<HelloFrame>('app/hello.json');
+    const marked = hello.sessions.filter((session) => session.unseen === true);
+    expect(marked).toHaveLength(1);
+    expect(countUnseen(Object.fromEntries(hello.sessions.map((s) => [keyOf(s), s])))).toBe(1);
+
+    const seen = readFixture<RequestParams<'session.seen'> & { type: string; id: string }>(
+      'app/session.seen.json',
+    );
+    expect(seen.type).toBe('session.seen');
+    expect(typeof seen.id).toBe('string');
+    expect(Object.keys(seen).sort()).toEqual(['id', 'session_id', 'type']);
+
+    const push = readFixture<{ rc: { kind: string; badge?: number } }>('http/push.payload.json');
+    expect(Number.isInteger(push.rc.badge)).toBe(true);
+
+    const badge = readFixture<{ rc: { kind: string; title: string; badge?: number } }>(
+      'http/push.payload.badge.json',
+    );
+    expect(badge.rc.kind).toBe('badge');
+    // It shows nothing, so it says nothing.
+    expect(badge.rc.title).toBe('');
+    expect(badge.rc.badge).toBeGreaterThanOrEqual(0);
   });
 
   /**

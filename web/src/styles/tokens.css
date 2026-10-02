@@ -56,6 +56,10 @@
   --danger: #d23f31;
   --danger-soft: #fdeceb;
   --accent: #111111;
+  /* A status dot, and the red dot of a session that stopped and waits for you
+     (A47), which is a step larger so it reads apart from the status beside it. */
+  --status-dot: 7px;
+  --unseen-dot: 8px;
 
   /* diff */
   --diff-add: #1f7a4d;
