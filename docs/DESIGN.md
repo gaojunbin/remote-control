@@ -988,8 +988,9 @@ that waits for a tap.
 ### A red dot for a session that stopped and waits for you
 
 **A session whose dot went from green to amber since anyone on the account last looked carries a red
-dot.** Green to amber is Working to For you: a turn ended, or the session asks for an approval or an
-answer. The red dot — 8 px, the Danger red — sits in the row's leading gutter, centred on the
+dot.** Green to amber is a running turn becoming For you: the turn ended, or the session asks for an
+approval or an answer. A session that only started (`starting` is green too) has done nothing to
+look at and never brings one. The red dot — 8 px, the Danger red — sits in the row's leading gutter, centred on the
 title's line, on every row that draws the session (Sessions, the chat page's session list), so it
 moves nothing when it comes or goes; a screen reader hears "not yet opened". It is the gateway's
 (A47), so every app of the account shows the same dots and opening the session on any of them clears
