@@ -10,12 +10,14 @@
  * This is the one place that knows the list. Every store that holds something
  * of an account's has a `reset()`; adding a store means adding it here.
  */
+import { clearAppBadge } from '../push/appBadge';
 import { useAnswers } from './answers';
 import { useChat } from './chat';
 import { useCommands } from './commands';
 import { useConnection } from './connection';
 import { useDevices } from './devices';
 import { useDrafts } from './drafts';
+import { useFront } from './front';
 import { useOutbox } from './outbox';
 import { usePreferences } from './preferences';
 import { useSessions } from './sessions';
@@ -31,10 +33,13 @@ export function signOut(): void {
   useAnswers.getState().reset();
   useCommands.getState().reset();
   useSessions.getState().reset();
+  useFront.getState().reset();
   useDevices.getState().reset();
   useUsers.getState().reset();
   usePreferences.getState().reset();
   // A38: the ids of this account's detached shells, so the next person in the
   // browser attaches to none of them.
   resetTerminals();
+  // A47: the app's icon counted this account's sessions.
+  clearAppBadge();
 }

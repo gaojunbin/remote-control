@@ -74,6 +74,7 @@ import { filesField, heldTs, hold, readQueueTs } from './queue';
 import { dirEntries, makeDir } from './dirs';
 import { emptyPreferences, patchPreferences } from './preferences';
 import { FakeShell } from './shell';
+import { clearMark, moveState } from './unseen';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const PASSWORD = process.env.RC_PASSWORD ?? 'dev';
@@ -268,7 +269,9 @@ function applyToSummary(sessionId: string, event: SessionEvent): void {
   if (!session) return;
   session.updated_at = event.ts;
   if (event.kind === 'status') {
-    session.state = event.state;
+    // A47: a turn that ends, or stops to ask, marks the session; working
+    // again clears it. The broadcast below carries the mark either way.
+    moveState(session, event.state);
     session.state_detail = event.detail ?? null;
   }
   if (event.kind === 'todos') {
@@ -335,7 +338,9 @@ function closeSession(session: Session, done: () => void): void {
     session.turn = null;
     session.archived = true;
     session.control = 'none';
-    session.state = 'stopped';
+    moveState(session, 'stopped');
+    // A47: an archived session waits for nobody.
+    clearMark(session);
     session.state_detail = null;
     session.updated_at = Date.now();
     broadcast({ type: 'session.updated', session });
@@ -1135,6 +1140,18 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       conn.subscriptions.delete(sessionId);
       return;
 
+    // A47 §6.2: the person has the conversation in front of them. Handled
+    // here, never by a device; idempotent, and every socket of the account
+    // hears of it only when there was a mark to clear.
+    case 'session.seen': {
+      const session = findSession(sessionId);
+      if (!session) return replyError(conn, id, 'not_found', 'no such session');
+      const cleared = clearMark(session);
+      reply(conn, id, {});
+      if (cleared) broadcast({ type: 'session.updated', session });
+      return;
+    }
+
     case 'session.history': {
       const all = state.events.get(sessionId) ?? [];
       const beforeSeq = typeof frame.before_seq === 'number' ? frame.before_seq : Infinity;
@@ -1484,7 +1501,8 @@ function handleAppFrame(conn: AppConn, frame: Record<string, unknown>): void {
       // A10 §6.3: there is nothing to take over — the device is already attached.
       if (session.control === 'shared') return replyError(conn, id, 'conflict', 'already attached');
       session.control = 'remote';
-      session.state = 'idle';
+      // A47: a terminal turn the takeover ended is a turn that ended.
+      moveState(session, 'idle');
       broadcast({ type: 'session.updated', session });
       // A10 §6.5: apps learn a new owner from `meta.control`; `status` follows
       // only because taking over also moves the session to `idle`.

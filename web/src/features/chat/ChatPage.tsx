@@ -22,6 +22,7 @@ import { Sidebar } from './Sidebar';
 import { applyOptions, type SessionOptions } from './sessionOptions';
 import { StatusLine } from './StatusLine';
 import { Timeline } from './Timeline';
+import { useFrontConversation } from './useFrontConversation';
 import type { AttachmentDraft } from './attachments';
 import './chat.css';
 
@@ -80,6 +81,9 @@ export function ChatPage() {
     openChat(deviceId, sessionId);
     return () => closeChat(deviceId, sessionId);
   }, [deviceId, sessionId, socketStatus, openChat, closeChat]);
+
+  // A47: an open conversation is a seen one only while the page is in front.
+  useFrontConversation(deviceId, sessionId);
 
   // A27: the list is fetched when the conversation opens, so the panel is on
   // screen the moment `/` is typed. An agent without the capability is never

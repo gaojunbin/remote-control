@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppSocket, RequestError, type AppSocketOptions, type SocketLike } from '../src/lib/ws';
 import type { PushFrame } from '../src/protocol/frames';
+import { fixturesAvailable, readFixture } from './fixtures';
 
 class FakeSocket implements SocketLike {
   static instances: FakeSocket[] = [];
@@ -103,6 +104,27 @@ describe('AppSocket', () => {
 
     latest().receive({ type: 'reply', id: 'req-1', ok: true, result: { done: true } });
     await expect(promise).resolves.toEqual({ done: true });
+    socket.stop();
+  });
+
+  // A47 §6.2: the one request the gateway answers itself for the red dot.
+  it.runIf(fixturesAvailable())('sends session.seen exactly as the fixture spells it', async () => {
+    const fixture = readFixture<{ type: string; id: string; session_id: string }>(
+      'app/session.seen.json',
+    );
+    const { socket } = makeSocket();
+    socket.start();
+    latest().open();
+
+    const promise = socket.request(
+      'session.seen',
+      { session_id: fixture.session_id },
+      { id: fixture.id },
+    );
+    expect(latest().frames()).toEqual([fixture]);
+
+    latest().receive({ type: 'reply', id: fixture.id, ok: true, result: {} });
+    await expect(promise).resolves.toEqual({});
     socket.stop();
   });
 

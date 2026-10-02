@@ -99,11 +99,15 @@
   background: transparent;
   text-align: left;
   min-width: 0;
+  /* A47: the red dot is centred in the padding before the lines. */
+  --unseen-reach: calc(var(--sp-5) / 2);
 }
 
 /* A line of the row: what it starts with at the leading edge, what it ends
-   with at the trailing edge, and the leading part is what gives way. */
+   with at the trailing edge, and the leading part is what gives way. The
+   title's line is also where a red dot is placed from. */
 .session-line {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -463,6 +467,7 @@
 
   .session-open {
     padding: 0 var(--sp-4);
+    --unseen-reach: calc(var(--sp-4) / 2);
   }
 
   .session-close {

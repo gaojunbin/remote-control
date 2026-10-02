@@ -3,14 +3,13 @@ import { Link, useNavigate } from 'react-router';
 import { Plus, Search } from 'lucide-react';
 import { Mark } from '../../layout/Mark';
 import { ArchiveGroupHeader, DeviceGroupHeader } from '../../components/GroupHeader';
-import { StatusDot } from '../../components/StatusDot';
-import { cx } from '../../lib/cx';
-import { baseName, relativeTime } from '../../lib/format';
-import { sessionTitle, strings } from '../../strings';
+import { strings } from '../../strings';
 import { useDevices } from '../../stores/devices';
+import { useFront } from '../../stores/front';
 import { countWaiting, selectSessionLayout, selectSessionList, useSessions } from '../../stores/sessions';
 import { useSettings } from '../../stores/settings';
 import type { Session } from '../../protocol/types';
+import { SidebarItem } from './SidebarItem';
 
 interface Props {
   activeKey: string;
@@ -25,6 +24,7 @@ export function Sidebar({ activeKey, onNewSession }: Props) {
   const archiveExpanded = useSettings((s) => s.archiveExpanded);
   const toggleDeviceCollapsed = useSettings((s) => s.toggleDeviceCollapsed);
   const toggleArchiveExpanded = useSettings((s) => s.toggleArchiveExpanded);
+  const front = useFront((s) => s.key);
   const [query, setQuery] = useState('');
   const navigate = useNavigate();
 
@@ -48,24 +48,16 @@ export function Sidebar({ activeKey, onNewSession }: Props) {
   const item = (session: Session, online: boolean) => {
     const key = `${session.device_id}/${session.session_id}`;
     return (
-      <li key={key}>
-        <button
-          type="button"
-          className={cx('sidebar-item', key === activeKey && 'active')}
-          onClick={() => navigate(`/sessions/${key}`)}
-        >
-          <StatusDot state={session.state} control={session.control} online={online} />
-          <span className="sidebar-item-text">
-            <span className="sidebar-title">{sessionTitle(session)}</span>
-            {/* The folder and the time, whatever the session is doing: the dot
-                beside them carries the state (docs/DESIGN.md § "The session row
-                says where it came from"). */}
-            <span className="sidebar-sub">
-              {`${baseName(session.cwd)} · ${relativeTime(session.updated_at)}`}
-            </span>
-          </span>
-        </button>
-      </li>
+      <SidebarItem
+        key={key}
+        session={session}
+        online={online}
+        active={key === activeKey}
+        // A47: the conversation in front of the person is being looked at, so
+        // its row never shows the dot the `session.seen` on its way clears.
+        unseen={session.unseen === true && key !== front}
+        onOpen={() => navigate(`/sessions/${key}`)}
+      />
     );
   };
 
