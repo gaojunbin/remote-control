@@ -1,7 +1,7 @@
 /**
  * A47 §4.4 — the mark as the mock gateway keeps it, so what `npm run dev:mock`
- * shows is what a gateway would: set when a session moves from working
- * (`starting`, `running`) to waiting for the person (`needs_approval`,
+ * shows is what a gateway would: set when a session moves from a running turn
+ * to waiting for the person (`needs_approval`,
  * `needs_input`, or `idle` / `readonly` with a control), read from the states
  * alone; cleared when it works again, by `session.seen` and by an archive; and
  * carried only while it is true.
@@ -44,8 +44,8 @@ function after(
 }
 
 describe('working and waiting', () => {
-  it('reads working from the state alone: green', () => {
-    expect(STATES.filter(isWorking)).toEqual(['starting', 'running']);
+  it('reads working from the state alone: a running turn, not a start', () => {
+    expect(STATES.filter(isWorking)).toEqual(['running']);
   });
 
   it('reads waiting from the state and the control: amber', () => {
@@ -61,14 +61,18 @@ describe('working and waiting', () => {
 });
 
 describe('setting the mark', () => {
-  it('marks a session that moves from working to every kind of waiting', () => {
-    for (const from of ['starting', 'running'] as const) {
-      expect(after(from, 'needs_approval')).toBe(true);
-      expect(after(from, 'needs_input')).toBe(true);
-      expect(after(from, 'idle')).toBe(true);
-      expect(after(from, 'idle', 'shared')).toBe(true);
-      expect(after(from, 'readonly', 'terminal')).toBe(true);
-    }
+  it('marks a session that moves from a running turn to every kind of waiting', () => {
+    expect(after('running', 'needs_approval')).toBe(true);
+    expect(after('running', 'needs_input')).toBe(true);
+    expect(after('running', 'idle')).toBe(true);
+    expect(after('running', 'idle', 'shared')).toBe(true);
+    expect(after('running', 'readonly', 'terminal')).toBe(true);
+  });
+
+  it('does not mark a session that only started', () => {
+    expect(after('starting', 'idle')).toBe(false);
+    expect(after('starting', 'needs_approval')).toBe(false);
+    expect(after('starting', 'readonly', 'terminal')).toBe(false);
   });
 
   it('does not mark a CLI that exited, an error or a stop', () => {
@@ -98,7 +102,6 @@ describe('clearing the mark', () => {
   it('clears it when the session works again', () => {
     for (const from of STATES) {
       expect(after(from, 'running', 'remote', true)).toBe(false);
-      expect(after(from, 'starting', 'shared', true)).toBe(false);
     }
   });
 

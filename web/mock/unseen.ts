@@ -3,9 +3,10 @@
  * person (PROTOCOL §4.4), kept the way the gateway keeps it, so what
  * `npm run dev:mock` shows is what a gateway would.
  *
- * A session works while its state is `starting` or `running`, and waits for the
- * person while it is `needs_approval` or `needs_input`, or `idle` or `readonly`
- * with a control other than `none`: the status dot's green and amber. The mark
+ * A session works while its state is `running` — a turn is under way; one that
+ * only started has done nothing to look at — and waits for the person while it
+ * is `needs_approval` or `needs_input`, or `idle` or `readonly` with a control
+ * other than `none`: the status dot's amber. The mark
  * is set when a session moves from the one to the other, read from the states
  * alone, and cleared when it works again, when an app says the person has
  * looked (`session.seen`) and when it is archived. Pure, so the rule can be read
@@ -13,8 +14,7 @@
  */
 import type { ControlOwner, Session, SessionState } from '../src/protocol/types';
 
-export const isWorking = (state: SessionState): boolean =>
-  state === 'starting' || state === 'running';
+export const isWorking = (state: SessionState): boolean => state === 'running';
 
 export const isWaiting = (state: SessionState, control: ControlOwner): boolean =>
   state === 'needs_approval' ||
