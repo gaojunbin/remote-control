@@ -985,6 +985,38 @@ of A is touched — its draft stays with A, and a dictation running in A ends wi
 draft — and B is open the moment it is on screen, streaming and with its composer, never a spinner
 that waits for a tap.
 
+### A red dot for a session that stopped and waits for you
+
+**A session whose dot went from green to amber since anyone on the account last looked carries a red
+dot.** Green to amber is Working to For you: a turn ended, or the session asks for an approval or an
+answer. The red dot — 8 px, the Danger red — sits in the row's leading gutter, centred on the
+title's line, on every row that draws the session (Sessions, the chat page's session list), so it
+moves nothing when it comes or goes; a screen reader hears "not yet opened". It is the gateway's
+(A47), so every app of the account shows the same dots and opening the session on any of them clears
+it on all: a phone clears it when the conversation is on screen with the app in front, a computer
+when the conversation is open in the window that has focus (and when that window comes to the
+front). The session working again clears it too — someone carried on from the terminal or another
+app — and so do archiving and closing it. A session already on screen when its turn ends never gets
+one. Grey and red dots never bring a red dot: a CLI that exited and a session that errored are not
+waiting for you.
+
+**The app's icon counts them.** The number of unarchived sessions with a red dot is the badge on the
+app's icon, none at zero, cleared on sign-out:
+- **iPhone** — the home-screen badge, set by the app while it runs and by the gateway's pushes while
+  it does not (every push carries the count, and a silent badge-only push follows a change no push
+  carried), so it holds with the app closed. iOS shows a badge only where the person allows
+  notifications with badges; turning Notify me on asks for alerts, sounds and badges together.
+- **Mac** — the Dock icon's badge, while the app runs (closing the window keeps it running).
+- **Windows** — the taskbar button's badge, a red disc with the number over the icon, and the same on
+  the notification-area icon while the window is closed.
+- **Android** — Android draws a launcher badge from an app's notifications, so while any session has
+  a red dot the app keeps one quiet notification ("2 sessions are waiting for you", no sound, no
+  heads-up) whose number is the count; launchers that show numbers show it, the others a dot. A tap
+  opens Sessions. It needs the notification permission Notify me asks for, and without a push channel
+  it changes only while the app runs.
+- **Web** — an installed web app's badge where the browser offers one (`navigator.setAppBadge`), from
+  the page while it is open and from a push while it is not.
+
 ### Paused by the usage limit
 
 Claude Code and Codex stop when the account's five-hour or weekly window is used up, and say when
