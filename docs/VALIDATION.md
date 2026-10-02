@@ -2894,6 +2894,13 @@ lets the echo of a new account's first upload overwrite a change made before it 
 the same rule); on Windows, lines that land on a half point in a long scrolled transcript and some
 Chinese sizes sit 1 px off the Mac's; Android sets Roboto where the iPhone sets SF.
 
+GitHub on 332a41b: "iOS checks", "macOS checks", "Android checks" and "Windows checks" all passed,
+and the tag's "Release" run (36923171523) attached `Remote-Control-1.12.0.dmg` (9.9 MB),
+`Remote-Control-1.12.0.msi` (70.6 MB) and `Remote-Control-1.12.0.apk` (57.4 MB), each with its
+`.sha256`. Downloaded back: the three checksums match; the APK is `com.junbingao.remotecontrol`
+1.12.0 (versionCode 1, targetSdk 36), signed with the run's one-off key (`CN=Remote Control`), as no
+release key is set on the repository yet; the image is UDZO.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
