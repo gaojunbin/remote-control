@@ -202,9 +202,11 @@ async def test_the_index_filters_and_removes(tmp_path: Path) -> None:
     assert len(await index.list_sessions()) == 2
     assert len(await index.list_sessions(device_id="d1")) == 1
     assert len(await index.list_sessions(archived=True)) == 1
-    assert await index.remove("s1") == "d1"
+    removed = await index.remove("s1")
+    assert removed is not None
+    assert removed.device_id == "d1"
     assert await index.remove("s1") is None
-    assert await index.remove_for_device("d2") == ["s2"]
+    assert [item.session_id for item in await index.remove_for_device("d2")] == ["s2"]
     assert await index.list_sessions() == []
 
 

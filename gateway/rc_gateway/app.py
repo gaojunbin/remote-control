@@ -103,6 +103,7 @@ def build_state(
     state.push = PushService(
         state.push_store,
         device_name=state.device_name,
+        badge_count=state.badge_count,
         vapid_private_key=str(config.vapid_private_pem) if config.web_push_enabled else "",
         vapid_contact=config.web_push_contact,
         web_sender=web_sender,
@@ -113,6 +114,7 @@ def build_state(
         state.devices,
         on_session_transition=state.push.on_session_transition,
         on_session_resume=state.push.on_session_resume,
+        on_badge_change=state.push.on_badge_change,
         # A36: the hub asks every device for the wheel this gateway serves, so it has to be able
         # to read which one that is at any moment, not only at startup.
         served_build=state.served_build,

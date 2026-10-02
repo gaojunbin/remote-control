@@ -32,8 +32,8 @@ Four SQLite files, each created 0600 in a directory created 0700, alongside the 
 | --- | --- |
 | `auth.sqlite3` | issued logins (`jti`, username, expiry, revocation), so a restart does not sign everyone out |
 | `devices.sqlite3` | enrolled devices and pairing codes, as hashes only |
-| `sessions.sqlite3` | the last known summary of every agent session |
-| `push.sqlite3` | Web Push subscriptions, APNs tokens and the delivery journal |
+| `sessions.sqlite3` | the last known summary of every agent session, and the gateway's own `unseen` mark on it (A47) |
+| `push.sqlite3` | Web Push subscriptions, APNs tokens and the delivery journal, badge-only deliveries included |
 
 Schema changes are applied in place when a store opens: `rc_gateway/migrations.py` compares each
 table against the columns added since its first release and issues the missing `ALTER TABLE`
@@ -65,12 +65,14 @@ never reach the network: the STT backend, Web Push and APNs senders are injected
 | `rc_gateway/auth_store.py`, `session_registry.py` | issued logins, durable in `auth.sqlite3` |
 | `rc_gateway/devices.py` | pairing codes and device tokens (hashed, single use) |
 | `rc_gateway/index.py` | SQLite session index |
+| `rc_gateway/unseen.py` | when a session carries the A47 mark: set on working to waiting, and what clears it |
 | `rc_gateway/migrations.py` | additive column migrations applied when a store opens |
 | `rc_gateway/hub.py`, `connections.py`, `replay.py` | WebSocket routing core |
 | `rc_gateway/routes/` | HTTP endpoints |
 | `rc_gateway/ws/` | `/ws/device`, `/ws/app`, `/ws/stt` |
 | `rc_gateway/uploads.py` | authenticates and bounds an upload before its body is read |
 | `rc_gateway/push*.py`, `apns.py` | Web Push and APNs |
+| `rc_gateway/badge.py` | the A47 badge-only APNs push, sent once an account's count has been still for 3 s |
 | `rc_gateway/stt.py` | OpenAI-compatible transcription client |
 
 ## Docker

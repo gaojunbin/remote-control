@@ -39,6 +39,7 @@ from .conftest import (
     device_hello,
     drain_until,
     enroll_device,
+    no_unseen,
     session_summary,
 )
 
@@ -502,8 +503,10 @@ def test_the_limit_push_payload_matches_the_fixture() -> None:
             "session_id": expected["rc"]["session_id"],
         },
         expected["rc"]["device_name"],
+        0,
     )
-    assert payload == expected
+    # The fixture predates A47, after which every push also carries the account's count.
+    assert payload == {"rc": {**expected["rc"], "badge": 0}}
 
 
 def _subscribe(client: TestClient, auth: dict[str, str]) -> None:
@@ -618,6 +621,7 @@ async def test_a_resume_notice_reaches_web_push_and_apns(tmp_path: Path) -> None
     service = PushService(
         store,
         device_name=_device_name,
+        badge_count=no_unseen,
         # Web delivery is off without a VAPID pair, and this test wants both transports.
         vapid_private_key="key",
         vapid_contact="mailto:admin@example.com",
@@ -667,6 +671,7 @@ async def test_no_resume_push_while_an_app_is_watching(tmp_path: Path) -> None:
     service = PushService(
         store,
         device_name=_device_name,
+        badge_count=no_unseen,
         vapid_private_key="key",
         vapid_contact="mailto:admin@example.com",
         web_sender=web,

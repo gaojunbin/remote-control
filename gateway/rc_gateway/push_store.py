@@ -24,6 +24,9 @@ from .migrations import Migration, apply_migrations
 MIGRATIONS: tuple[Migration, ...] = (
     ("web_push", "username", f"TEXT NOT NULL DEFAULT '{ADMIN_USERNAME}'"),
     ("apns_tokens", "username", f"TEXT NOT NULL DEFAULT '{ADMIN_USERNAME}'"),
+    # A47: a delivery that only changes the badge goes out at a lower priority, and a newer one
+    # replaces it while it waits.
+    ("apns_deliveries", "badge_only", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 
@@ -58,6 +61,8 @@ class ApnsDelivery:
     payload: str
     attempts: int
     due_at: float
+    #: A47: the notification shows nothing and only sets the app icon's badge.
+    badge_only: bool
 
 
 class PushStore:
@@ -113,6 +118,7 @@ class PushStore:
                     environment TEXT NOT NULL,
                     payload TEXT NOT NULL,
                     attempts INTEGER NOT NULL DEFAULT 0,
+                    badge_only INTEGER NOT NULL DEFAULT 0,
                     due_at REAL NOT NULL,
                     created_at REAL NOT NULL
                 )
@@ -315,17 +321,24 @@ class PushStore:
 
     # ---- delivery journal ----
 
-    async def enqueue(self, device_token: str, environment: str, payload: str) -> None:
-        await asyncio.to_thread(self._enqueue, device_token, environment, payload)
+    async def enqueue(
+        self, device_token: str, environment: str, payload: str, *, badge_only: bool = False
+    ) -> None:
+        await asyncio.to_thread(self._enqueue, device_token, environment, payload, badge_only)
 
-    def _enqueue(self, device_token: str, environment: str, payload: str) -> None:
+    def _enqueue(self, device_token: str, environment: str, payload: str, badge_only: bool) -> None:
         now = time.time()
         with self._connect() as connection:
+            # A47: every push carries the account's newest count, so a badge-only delivery still
+            # waiting for this phone could only set an older one after it.
+            connection.execute(
+                "DELETE FROM apns_deliveries WHERE device_token=? AND badge_only=1", (device_token,)
+            )
             connection.execute(
                 "INSERT INTO apns_deliveries("
-                "device_token, environment, payload, due_at, created_at"
-                ") VALUES (?, ?, ?, ?, ?)",
-                (device_token, environment, payload, now, now),
+                "device_token, environment, payload, badge_only, due_at, created_at"
+                ") VALUES (?, ?, ?, ?, ?, ?)",
+                (device_token, environment, payload, 1 if badge_only else 0, now, now),
             )
 
     async def claim_due(self, limit: int = 32) -> list[ApnsDelivery]:
@@ -337,8 +350,8 @@ class PushStore:
         try:
             connection.execute("BEGIN IMMEDIATE")
             rows = connection.execute(
-                "SELECT delivery_id, device_token, environment, payload, attempts, due_at "
-                "FROM apns_deliveries WHERE due_at<=? ORDER BY due_at LIMIT ?",
+                "SELECT delivery_id, device_token, environment, payload, attempts, due_at, "
+                "badge_only FROM apns_deliveries WHERE due_at<=? ORDER BY due_at LIMIT ?",
                 (now, limit),
             ).fetchall()
             for row in rows:
@@ -357,6 +370,7 @@ class PushStore:
                 payload=str(row["payload"]),
                 attempts=int(row["attempts"]),
                 due_at=float(row["due_at"]),
+                badge_only=bool(row["badge_only"]),
             )
             for row in rows
         ]

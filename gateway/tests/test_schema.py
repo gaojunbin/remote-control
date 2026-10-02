@@ -9,6 +9,7 @@ verification run.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -16,11 +17,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rc_gateway.app import build_state, create_app
+from rc_gateway.badge import BadgeChange
+from rc_gateway.push import PushService
+from rc_gateway.push_store import ApnsRegistration, PushStore
 from rc_gateway.state import GatewayState
 
 from .conftest import (
     FIXTURE_DIR,
+    ApnsRecorder,
     FakePolisher,
+    FakeWebPushSender,
+    apns_provider,
     device_hello,
     drain_until,
     enroll_device,
@@ -288,6 +295,114 @@ def test_terminal_frames_match_the_schema(client: TestClient, auth: dict[str, st
             device.send_json(
                 {"type": "reply", "id": detach["id"], "from": "gateway", "ok": True, "result": {}}
             )
+
+
+def test_a_marked_session_and_session_seen_match_the_schema(
+    client: TestClient, auth: dict[str, str], web_sender: FakeWebPushSender
+) -> None:
+    """A47: the marked session wherever an app receives it, `session.seen` and its answer, and
+    the push that carries the count."""
+    enrolled = enroll_device(client, auth)
+    subscribed = client.post(
+        "/api/push/web/subscribe",
+        json={
+            "subscription": {
+                "endpoint": "https://push.example.com/subscription/schema",
+                "keys": {"p256dh": "A" * 32, "auth": "A" * 32},
+            }
+        },
+        headers=auth,
+    )
+    assert subscribed.status_code == 200, subscribed.text
+    device_id = enrolled["device_id"]
+    headers = {"Authorization": f"Bearer {enrolled['device_token']}"}
+    with client.websocket_connect("/ws/device", headers=headers) as device:
+        running = session_summary(SESSION_ID, device_id, state="running")
+        device.send_json(device_hello(sessions=[running]))
+        device.receive_json()
+        with client.websocket_connect("/ws/app", headers=auth) as app:
+            drain_until(app, "hello")
+            idle = session_summary(SESSION_ID, device_id, state="idle")
+            device.send_json({"type": "session.updated", "session": idle})
+            marked = drain_until(app, "session.updated")
+            assert marked["session"]["unseen"] is True
+            check(marked, "app_frames.json", "SessionUpdated")
+            check(
+                client.get("/api/sessions", headers=auth).json(), "http.json", "SessionListResponse"
+            )
+            with client.websocket_connect("/ws/app", headers=auth) as other:
+                check(drain_until(other, "hello"), "app_frames.json", "Hello")
+
+            app.send_json({"type": "session.subscribe", "id": _uuid(1), "session_id": SESSION_ID})
+            check(drain_until(app, "reply"), "app_frames.json", "ReplySessionSubscribe")
+            app.send_json({"type": "session.takeover", "id": _uuid(2), "session_id": SESSION_ID})
+            forwarded = drain_until(device, "session.takeover")
+            device.send_json(
+                {
+                    "type": "reply",
+                    "id": forwarded["id"],
+                    "from": forwarded["from"],
+                    "ok": True,
+                    "result": {"session": idle},
+                }
+            )
+            taken = drain_until(app, "reply")
+            assert taken["result"]["session"]["unseen"] is True
+            check(taken, "app_frames.json", "ReplySessionTakeover")
+
+            seen = {"type": "session.seen", "id": _uuid(3), "session_id": SESSION_ID}
+            check(seen, "app_frames.json", "SessionSeen")
+            app.send_json(seen)
+            check(drain_until(app, "reply"), "app_frames.json", "Reply")
+            cleared = drain_until(app, "session.updated")
+            assert "unseen" not in cleared["session"]
+            check(cleared, "app_frames.json", "SessionUpdated")
+    deadline = time.monotonic() + 2.0
+    while not web_sender.sent and time.monotonic() < deadline:
+        time.sleep(0.005)
+    (_, payload), *_ = web_sender.sent
+    assert payload["rc"]["badge"] == 1
+    check(payload, "http.json", "PushPayload")
+
+
+async def test_apns_bodies_match_the_schema(tmp_path: Path) -> None:
+    """A47: the alert with its count, and the badge-only notification, as APNs receives them."""
+    recorder = ApnsRecorder()
+    store = PushStore(tmp_path / "push.sqlite3")
+    await store.upsert_apns(
+        ApnsRegistration(
+            device_token="ab" * 32,
+            environment="sandbox",
+            bundle_id="com.example.app",
+            session_jti="j" * 20,
+            username="admin",
+            expires_at=9_999_999_999,
+        )
+    )
+    counts = {"admin": 1}
+
+    async def count(username: str) -> int:
+        return counts[username]
+
+    async def name(device_id: str) -> str:
+        return "mac-studio-office"
+
+    device_id = "c5efb1ec-2912-4619-90f7-93b5172fd712"
+    service = PushService(store, device_name=name, badge_count=count, apns=apns_provider(recorder))
+    await service.notify(
+        "needs_approval", {"device_id": device_id, "session_id": SESSION_ID}, "mac", "admin"
+    )
+    counts["admin"] = 0
+    await service.push_badge(BadgeChange(owner="admin", device_id=device_id, session_id=SESSION_ID))
+    await service.stop()
+    assert [body["rc"]["kind"] for body in recorder.bodies] == ["needs_approval", "badge"]
+    for body in recorder.bodies:
+        check(body, "http.json", "PushPayload")
+
+
+def _uuid(number: int) -> str:
+    """A request id, which the schema types as a UUID."""
+    return f"00000000-0000-4000-8000-{number:012d}"
 
 
 def test_pairing_progress_matches_the_schema(client: TestClient, auth: dict[str, str]) -> None:

@@ -177,8 +177,10 @@ def test_subscribe_reply_matches_the_fixture_shape(
     assert set(reply["result"]["session"]) == set(expected["result"]["session"])
 
 
-def test_push_payload_matches_the_fixture(client: TestClient, auth: dict[str, str]) -> None:
-    expected = fixture("http", "push.payload.json")
+@pytest.mark.parametrize("name", ["push.payload.json", "push.payload.badge.json"])
+def test_push_payload_matches_the_fixture(name: str) -> None:
+    """A47: the alert and the badge-only payload, each with the count it carries."""
+    expected = fixture("http", name)
     payload = build_payload(
         expected["rc"]["kind"],
         {
@@ -186,6 +188,7 @@ def test_push_payload_matches_the_fixture(client: TestClient, auth: dict[str, st
             "session_id": expected["rc"]["session_id"],
         },
         expected["rc"]["device_name"],
+        expected["rc"]["badge"],
     )
     assert payload == expected
 

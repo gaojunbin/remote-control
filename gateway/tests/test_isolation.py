@@ -33,7 +33,11 @@ def test_a_device_cannot_take_over_another_devices_session(
     with client.websocket_connect("/ws/device", headers=_headers(victim)) as owner:
         owner.send_json(device_hello(sessions=[session_summary(SESSION_B, victim["device_id"])]))
         owner.receive_json()
-        with client.websocket_connect("/ws/device", headers=_headers(attacker)) as intruder:
+        with (
+            client.websocket_connect("/ws/app", headers=auth) as app,
+            client.websocket_connect("/ws/device", headers=_headers(attacker)) as intruder,
+        ):
+            drain_until(app, "hello")
             intruder.send_json(device_hello())
             intruder.receive_json()
             intruder.send_json(
@@ -43,15 +47,14 @@ def test_a_device_cannot_take_over_another_devices_session(
                 }
             )
             # A frame the gateway ignores produces no observable effect, so settle on a frame it
-            # does act on before asserting.
+            # does act on before asserting: leaving the socket cancels whatever it has not read.
             intruder.send_json(
                 {
                     "type": "session.updated",
                     "session": session_summary(SESSION_A, attacker["device_id"]),
                 }
             )
-            with client.websocket_connect("/ws/app", headers=auth) as app:
-                drain_until(app, "hello")
+            assert drain_until(app, "session.updated")["session"]["session_id"] == SESSION_A
     listed = client.get("/api/sessions", headers=auth).json()["sessions"]
     owners = {item["session_id"]: item["device_id"] for item in listed}
     assert owners[SESSION_B] == victim["device_id"]
