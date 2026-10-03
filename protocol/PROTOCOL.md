@@ -1000,12 +1000,14 @@ scan that cannot be completed changes nothing. Apps need no Codex-specific logic
 Not every thread the daemon's history lists is a session. Codex keeps one history for the whole
 machine, and the desktop app's chats and scheduled automations, an IDE extension's threads and the
 subagents a thread spawned all land in it beside the terminal's. The device publishes a Codex
-thread only when it is the device's to show (amendment A18): its `source` is a plain string — a
+thread only when it is the device's to show (amendments A18 and A48): its `source` is a plain string — a
 subagent's `source` is an object naming its parent, and a subagent is never a session of its own —
-and either the thread's `originator` is the name the device itself connects to Codex under, or its
-`source` is `cli` or `exec`, which is a terminal on that machine running its own Codex. Any other
-thread belongs to the application, or the parent thread, that started
-it: the device never publishes it, never mirrors its rollout, and sends `session.removed` for any
+and either the thread's `originator` is the name the device itself connects to Codex under, its
+`source` is `cli` or `exec`, or its `originator` is `codex-tui` and its `source` is `vscode`.
+The last combination is a terminal TUI using an app-server, as observed in Codex 0.160.0;
+`vscode` alone does not identify a terminal, and any other application's `vscode` threads stay
+foreign. Any other thread belongs to the application, or the parent thread, that started it:
+the device never publishes it, never mirrors its rollout, and sends `session.removed` for any
 it published before this rule, repeating the frame on the next link as A16 does. The apps need
 nothing for this; a session they never receive is a row they never draw.
 
@@ -3848,8 +3850,9 @@ one app connection that asked. The gateway relays bytes and never reads them.
 - [ ] Reports `model`, `permission_mode` and `effort` for a mirrored Claude session from its
       transcript and publishes each change as `meta` (A17).
 - [ ] Publishes a Codex thread only when its `source` is a string and either its `originator` is
-      the device's own or its `source` is `cli` or `exec`, and removes with `session.removed` any
-      other thread it published before (A18).
+      the device's own, its `source` is `cli` or `exec`, or its `originator` is `codex-tui` and its
+      `source` is `vscode`; other applications' `vscode` threads and every subagent stay foreign.
+      Removes with `session.removed` any other thread it published before (A18, A48).
 
 - [ ] Ends a turn the usage limit stopped with `stop_reason: "error"` and `limit`, read from the
       agent's own signal — Claude's 429 result, Codex's `usageLimitExceeded` — never from words,
@@ -4503,3 +4506,11 @@ front of the person draws no dot and is not counted while its `session.seen` is 
 Additive: an app that predates it ignores the field, sends no
 `session.seen` and shows no dot; a gateway that predates it sends no field, which reads as false.
 See 3.7, 4.4, 6.2, 8 and 9.
+
+**2026-10-03 A48 — terminal Codex threads can come from an app-server.** Codex 0.160.0 reports
+terminal TUI threads with `originator: "codex-tui"` and `source: "vscode"`, so A18's provenance
+filter rejected them before the device could publish a session. The device now accepts that exact
+pair alongside its own originators and the existing `cli` and `exec` sources, both in the daemon's
+index and in rollout discovery. `vscode` by itself remains foreign, and a non-string `source`
+still excludes every subagent, including one whose parent is a terminal TUI. Nothing changes on
+the wire: the existing session summaries and events reach every app unchanged. See 4.4 and 9.2.
