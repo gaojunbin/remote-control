@@ -281,10 +281,12 @@ describe('dictation in the composer', () => {
     const user = userEvent.setup();
     const { field } = setup();
     const el = measured(field() as HTMLTextAreaElement, 600);
+    const typed = 'typed draft';
 
     await user.click(el);
-    await user.keyboard(LONG_TRANSCRIPT);
+    await user.keyboard(typed);
 
+    expect(el).toHaveValue(typed);
     expect(el.style.height).toBe('220px');
     expect(el.scrollTop).toBe(0);
   });
