@@ -41,7 +41,7 @@ object AppBuild {
      * Everything with no app to ask reads it: the tests, and the demo gateway, whose served
      * client is this app's own version because a round ships all components together.
      */
-    const val shipped = "1.13.1"
+    const val shipped = "1.13.2"
 
     /** The running app's version: [shipped] until the app states its own at startup. */
     @Volatile

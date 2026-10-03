@@ -129,7 +129,7 @@ that means another device says so in its own words. `Character.isNumber`, `Chara
 and the like are re-implemented in `FoundationText.kt`; `String.trimmed` (`Trimming.swift`) should
 use `trimmingWhitespacesAndNewlines()`.
 
-**This build's version (A46).** `AppBuild.shipped = "1.13.1"`, which the release bump moves;
+**This build's version (A46).** `AppBuild.shipped = "1.13.2"`, which the release bump moves;
 `AppBuild.version` is `@Volatile var`, `shipped` until the app sets it once at startup
 (`BuildConfig.VERSION_NAME` on Android, the packaged version on Windows). That keeps
 `AppUpdateRequirement.of(apps, app = InstalledApp.ios, current = AppBuild.version)` as RCCore's; the
