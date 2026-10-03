@@ -2958,6 +2958,18 @@ and sounds but were never asked for badges. The Mac's Dock label as drawn (readi
 ask for accessibility access). Windows' taskbar overlay and notification-area badge on Windows
 itself. A launcher on a physical Android phone. VoiceOver and TalkBack by ear.
 
+After the bump every component's checks ran again on the 1.13.0 tree, with the same counts and the
+client's 1234 tests (3 skipped); the full client and web suites each failed a test or two while the
+Swift and Gradle builds ran beside them (the client's three-second version probe, the web's jsdom
+timeouts) and passed whole once those builds were done. GitHub on 88506a0: "iOS checks", "macOS
+checks", "Android checks" and "Windows checks" all passed, and the tag's "Release" run
+(37099412020) attached `Remote-Control-1.13.0.dmg` (9.9 MB), `Remote-Control-1.13.0.msi` (70.6 MB)
+and `Remote-Control-1.13.0.apk` (57.4 MB), each with its `.sha256`. Downloaded back: the three
+checksums match; the APK is `com.junbingao.remotecontrol` 1.13.0 (versionCode 2, targetSdk 36),
+signed again with the run's one-off key (`CN=Remote Control`) because no release key is set on the
+repository, so a phone with the 1.12.0 APK has to uninstall it before installing this one; the
+image is UDZO.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
