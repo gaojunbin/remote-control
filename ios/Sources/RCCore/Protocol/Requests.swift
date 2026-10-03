@@ -120,6 +120,13 @@ extension GatewayRequest {
         GatewayRequest(type: "session.unsubscribe", body: ["session_id": .string(sessionID)], expectsReply: false)
     }
 
+    /// Amendment A47: the person has this conversation in front of them, so
+    /// the gateway clears its mark on every app of the account. Answered by the
+    /// gateway itself with `{}`, and idempotent.
+    public static func seen(sessionID: String) -> GatewayRequest {
+        GatewayRequest(type: "session.seen", body: ["session_id": .string(sessionID)])
+    }
+
     public static func createSession(deviceID: String, agent: String, cwd: String,
                                      model: String? = nil, permissionMode: String? = nil,
                                      effort: String? = nil, speed: SpeedChange? = nil,

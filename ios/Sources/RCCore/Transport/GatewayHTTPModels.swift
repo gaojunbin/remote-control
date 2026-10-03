@@ -244,19 +244,24 @@ public struct PushRoute: Codable, Sendable, Hashable {
     public let sessionID: String
     public let deviceName: String
     public let title: String
+    /// Amendment A47: the account's unarchived sessions with a red dot once
+    /// this push's own change is made — what APNs puts on the app icon from
+    /// `aps.badge`. Absent from a gateway that predates the amendment.
+    public let badge: Int?
 
     public init(version: Int = 1, kind: PushKind, deviceID: String,
-                sessionID: String, deviceName: String, title: String) {
+                sessionID: String, deviceName: String, title: String, badge: Int? = nil) {
         self.version = version
         self.kind = kind
         self.deviceID = deviceID
         self.sessionID = sessionID
         self.deviceName = deviceName
         self.title = title
+        self.badge = badge
     }
 
     enum CodingKeys: String, CodingKey {
-        case kind, title
+        case kind, title, badge
         case version = "v"
         case deviceID = "device_id"
         case sessionID = "session_id"
@@ -271,6 +276,7 @@ public struct PushRoute: Codable, Sendable, Hashable {
         sessionID = try values.decode(String.self, forKey: .sessionID)
         deviceName = try values.decodeIfPresent(String.self, forKey: .deviceName) ?? ""
         title = try values.decodeIfPresent(String.self, forKey: .title) ?? ""
+        badge = try values.decodeIfPresent(Int.self, forKey: .badge)
     }
 
     /// Parse an APNs `userInfo` dictionary that was serialized before crossing

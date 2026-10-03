@@ -319,6 +319,9 @@ struct SessionRow: View {
                     .font(Theme.Text.title)
                     .foregroundStyle(Theme.ink)
                     .lineLimit(1)
+                    .overlay(alignment: .leading) {
+                        if session.unseen { UnseenDot(gutter: Theme.Space.medium) }
+                    }
                 Spacer(minLength: 0)
                 Text(RelativeTime.short(since: session.updatedAt))
                     .font(Theme.Text.caption)
@@ -355,7 +358,9 @@ struct SessionRow: View {
 
     private var label: String {
         let title = session.title.isEmpty ? "Untitled session" : session.title
-        var parts = [title, session.agentLabel, session.originLabel]
+        var parts = [title]
+        if session.unseen { parts.append(UnseenDot.label) }
+        parts += [session.agentLabel, session.originLabel]
         if session.archived { parts.append("archived") }
         parts.append(session.cwd)
         return parts.joined(separator: ", ")
