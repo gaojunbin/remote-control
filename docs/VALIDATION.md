@@ -2999,6 +2999,12 @@ did not crash.
 
 **Not verified.** A number drawn by a real Samsung, Xiaomi, Huawei or Honor launcher.
 
+After the bump every component's checks ran again on the 1.13.1 tree with the same counts. GitHub on
+2fd9d40: "iOS checks", "macOS checks", "Android checks" and "Windows checks" all passed, and the
+tag's "Release" run (37117946623) attached the disk image, the installer and the APK of 1.13.1,
+each with its `.sha256`; downloaded back, the three checksums match and the APK is 1.13.1
+(versionCode 3), signed again with the run's one-off key.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
