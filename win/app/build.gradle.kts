@@ -57,7 +57,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "Remote Control"
-            packageVersion = "1.12.0"
+            packageVersion = "1.13.0"
             vendor = "Junbin Gao"
             windows {
                 menuGroup = "Remote Control"

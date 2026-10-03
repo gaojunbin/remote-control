@@ -16,8 +16,8 @@ android {
         applicationId = "com.junbingao.remotecontrol"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.12.0"
+        versionCode = 2
+        versionName = "1.13.0"
     }
 
     buildTypes {
