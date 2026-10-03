@@ -33,6 +33,7 @@ from .conftest import (
     device_hello,
     drain_until,
     enroll_device,
+    no_unseen,
     session_summary,
 )
 
@@ -233,7 +234,7 @@ async def test_apns_journal_retries_then_gives_up(tmp_path: Path) -> None:
         environment="sandbox",
         sender=sender,
     )
-    service = PushService(store, device_name=_name, apns=provider)
+    service = PushService(store, device_name=_name, badge_count=no_unseen, apns=provider)
     await service.notify(KIND_NEEDS_APPROVAL, {"device_id": "d", "session_id": "s"}, "mac", "admin")
     assert await store.pending_count() == 1
     body = json.loads(sent[0])
@@ -270,7 +271,7 @@ async def test_a_dead_apns_token_is_deleted(tmp_path: Path) -> None:
         environment="sandbox",
         sender=sender,
     )
-    service = PushService(store, device_name=_name, apns=provider)
+    service = PushService(store, device_name=_name, badge_count=no_unseen, apns=provider)
     await service.notify(KIND_ERROR, {"device_id": "d", "session_id": "s"}, "mac", "admin")
     assert await store.list_apns("admin") == []
     assert await store.pending_count() == 0
@@ -381,6 +382,7 @@ async def test_web_push_runs_on_its_own_threads_with_a_timeout(
     service = PushService(
         PushStore(tmp_path / "push.sqlite3"),
         device_name=_name,
+        badge_count=no_unseen,
         vapid_private_key="key",
         vapid_contact="mailto:admin@example.com",
     )
@@ -413,6 +415,7 @@ async def test_a_hanging_web_push_does_not_block_a_database_call(
     service = PushService(
         store,
         device_name=_name,
+        badge_count=no_unseen,
         vapid_private_key="key",
         vapid_contact="mailto:admin@example.com",
     )

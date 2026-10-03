@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
+from rc_gateway.apns import ApnsProvider, ApnsResponse
 from rc_gateway.app import build_state, create_app
 from rc_gateway.auto_update import UPDATE_RETRY_SECONDS
+from rc_gateway.badge import BadgeHook
 from rc_gateway.config import ApnsConfig, Config, PolishConfig, SttConfig
 from rc_gateway.connections import AppConnection, Connection, DeviceConnection
 from rc_gateway.devices import DeviceStore
@@ -105,6 +108,77 @@ class FakeWebPushSender:
         return self.status
 
 
+async def no_unseen(username: str) -> int:
+    """The A47 count for a push test that is not about it: nothing is marked."""
+    return 0
+
+
+@dataclass
+class ApnsRecorder:
+    """Stands in for Apple: records every request and answers as told."""
+
+    requests: list[tuple[dict[str, str], dict[str, Any]]] = field(default_factory=list)
+    statuses: list[int] = field(default_factory=list)
+
+    async def __call__(self, url: str, headers: dict[str, str], payload: bytes) -> ApnsResponse:
+        self.requests.append((headers, json.loads(payload)))
+        return ApnsResponse(self.statuses.pop(0) if self.statuses else 200)
+
+    @property
+    def bodies(self) -> list[dict[str, Any]]:
+        return [body for _, body in self.requests]
+
+
+def apns_provider(recorder: ApnsRecorder) -> ApnsProvider:
+    """A provider with a throwaway P-256 key that sends to ``recorder`` instead of Apple."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    pem = ec.generate_private_key(ec.SECP256R1()).private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    return ApnsProvider(
+        "ABCDE12345", "FGHIJ67890", "com.example.app", pem, environment="sandbox", sender=recorder
+    )
+
+
+class VirtualClock:
+    """``asyncio.sleep`` on a clock the test moves, so a quiet period never costs real time."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self._sleepers: list[tuple[float, asyncio.Future[None]]] = []
+
+    async def sleep(self, seconds: float) -> None:
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self._sleepers.append((self.now + seconds, future))
+        await future
+
+    async def advance(self, seconds: float) -> None:
+        """Move the clock, wake every sleeper whose time has come, and let them run.
+
+        A task created just before the call has not reached its sleep yet, so it is given the
+        loop first: the time passes after it started waiting, as it would on a real clock.
+        """
+        await self._run_ready()
+        self.now += seconds
+        # Within a nanosecond, so that steps such as 2.9 and then 0.1 add up to the 3.0 they mean.
+        reached = self.now + 1e-9
+        due = [future for deadline, future in self._sleepers if deadline <= reached]
+        self._sleepers = [item for item in self._sleepers if item[0] > reached]
+        for future in due:
+            if not future.done():
+                future.set_result(None)
+        await self._run_ready()
+
+    @staticmethod
+    async def _run_ready() -> None:
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+
 def make_config(tmp_path: Path, **overrides: Any) -> Config:
     values: dict[str, Any] = {
         "public_origin": ORIGIN,
@@ -171,6 +245,7 @@ def state(
         built.devices,
         on_session_transition=built.push.on_session_transition,
         on_session_resume=built.push.on_session_resume,
+        on_badge_change=built.push.on_badge_change,
         request_timeout=0.4,
         # Short enough to drive the A13 grace period in a test, and well inside the request
         # timeout above so a parked request is still answered `device_offline` rather than
@@ -384,6 +459,7 @@ async def hub_rig(
     *,
     on_session_transition: TransitionHook | None = None,
     on_session_resume: ResumeHook | None = None,
+    on_badge_change: BadgeHook | None = None,
     request_timeout: float = REQUEST_TIMEOUT_SECONDS,
     offline_grace: float = OFFLINE_GRACE_SECONDS,
     update_timeout: float = UPDATE_TIMEOUT_SECONDS,
@@ -412,6 +488,7 @@ async def hub_rig(
         devices,
         on_session_transition=on_session_transition,
         on_session_resume=on_session_resume,
+        on_badge_change=on_badge_change,
         request_timeout=request_timeout,
         offline_grace=offline_grace,
         update_timeout=update_timeout,

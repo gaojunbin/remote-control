@@ -25,6 +25,7 @@ from .auto_update import (
     AutoUpdate,
     DeviceUpdates,
 )
+from .badge import BadgeChange, BadgeHook
 from .budget import ByteBudget
 from .connections import AppConnection, DeviceConnection, SlowClientError, encode
 from .devices import UPDATE_FAILED, UPDATE_RUNNING, DeviceStore, normalize_pairing_code
@@ -50,6 +51,7 @@ from .frames import (
     PING_INTERVAL_SECONDS,
     PROTOCOL_VERSION,
     REQUEST_TIMEOUT_SECONDS,
+    SESSION_RESULT_TYPES,
     SILENT_TIMEOUT_SECONDS,
     TERMINAL_ATTACH,
     TERMINAL_CLOSE,
@@ -71,6 +73,7 @@ from .index import IndexedSession, SessionIndex
 from .logging import logger
 from .replay import ReplayBuffer
 from .terminals import TerminalRoutes
+from .unseen import next_unseen, with_mark
 from .users import UserRecord
 from .views import device_view, has_available_agent, user_view
 
@@ -234,6 +237,7 @@ class Hub:
         *,
         on_session_transition: TransitionHook | None = None,
         on_session_resume: ResumeHook | None = None,
+        on_badge_change: BadgeHook | None = None,
         request_timeout: float = REQUEST_TIMEOUT_SECONDS,
         offline_grace: float = OFFLINE_GRACE_SECONDS,
         update_timeout: float = UPDATE_TIMEOUT_SECONDS,
@@ -247,6 +251,7 @@ class Hub:
         self.update_timeout = update_timeout
         self._on_session_transition = on_session_transition
         self._on_session_resume = on_session_resume
+        self._on_badge_change = on_badge_change
         self._devices: dict[str, DeviceConnection] = {}
         self._apps: dict[str, AppConnection] = {}
         self._buffers: dict[str, ReplayBuffer] = {}
@@ -853,6 +858,9 @@ class Hub:
         if kind == "session.unsubscribe":
             connection.unsubscribe(text_field(frame, "session_id"))
             return
+        if kind == "session.seen":
+            await self._handle_seen(connection, frame)
+            return
         if kind in FORWARDED_TYPES:
             await self._forward(connection, frame)
             return
@@ -1129,6 +1137,8 @@ class Hub:
                 self._detach_terminal(device, held)
             return
         reply = {key_: value for key_, value in frame.items() if key_ != "from"}
+        if pending.kind in SESSION_RESULT_TYPES:
+            reply = await self._reply_with_mark(device.device_id, reply)
         await self._send_app(connection, reply)
 
     async def _fail_pending_for_device(self, device_id: str, code: str) -> None:
@@ -1335,6 +1345,8 @@ class Hub:
             return
         owner = await self.device_owner(device_id)
         await self.broadcast_user(owner, {"type": "session.updated", "session": indexed.summary})
+        if indexed.unseen != (previous is not None and previous.unseen):
+            self._badge_changed(owner, indexed)
         # A36: an automatic update a busy device refused is asked again the moment it goes quiet.
         await self._auto_update.on_session_change(device_id)
         # A session the gateway has never seen has no transition to report: an index that was
@@ -1415,14 +1427,24 @@ class Hub:
     async def _forget_session(self, device_id: str, session_id: str) -> None:
         if not await self._claim_session(device_id, session_id):
             return
-        await self.index.remove(session_id)
-        await self._drop_session(device_id, session_id, await self.device_owner(device_id))
-
-    async def forget_device_sessions(self, device_id: str) -> None:
-        """Drop every session of a deleted device from the index and from the apps."""
+        removed = await self.index.remove(session_id)
         owner = await self.device_owner(device_id)
-        for session_id in await self.index.remove_for_device(device_id):
-            await self._drop_session(device_id, session_id, owner)
+        await self._drop_session(device_id, session_id, owner)
+        if removed is not None and removed.unseen:
+            self._badge_changed(owner, removed)
+
+    async def forget_device_sessions(self, device_id: str, owner: str) -> None:
+        """Drop every session of a deleted device from the index and from the apps.
+
+        The caller names the owner: the device's record is already gone by now, so a lookup here
+        would find nobody to tell.
+        """
+        removed = await self.index.remove_for_device(device_id)
+        for indexed in removed:
+            await self._drop_session(device_id, indexed.session_id, owner)
+        marked = [indexed for indexed in removed if indexed.unseen]
+        if marked:
+            self._badge_changed(owner, marked[-1])
         self._terminals.release_device(device_id)
         self._device_owners.pop(device_id, None)
 
@@ -1447,6 +1469,68 @@ class Hub:
             connection.subscribed(session_id) and connection.idle_for() <= ACTIVE_APP_WINDOW_SECONDS
             for connection in self._apps.values()
         )
+
+    # ---- the A47 mark ----
+
+    async def _handle_seen(self, connection: AppConnection, frame: Frame) -> None:
+        """The person has this conversation in front of them, so its mark goes (A47, §6.2).
+
+        The gateway's to answer, and idempotent: a session without the mark is answered `{}` and
+        nobody else hears of it. Another account's session is `not_found`, as one that does not
+        exist would be (A24).
+        """
+        identifier = request_id(frame)
+        session_id = text_field(frame, "session_id")
+        if not identifier or not session_id:
+            if identifier:
+                await self._send_app(
+                    connection, error_reply(identifier, ERROR_BAD_REQUEST, "session_id is required")
+                )
+            return
+        owner = await self._owner_of(session_id)
+        if owner is None or not await self._reaches(connection, owner):
+            await self._send_app(
+                connection, error_reply(identifier, ERROR_NOT_FOUND, "unknown session")
+            )
+            return
+        cleared = await self.index.clear_unseen(session_id)
+        await self._send_app(connection, ok_reply(identifier, {}))
+        if cleared is None:
+            return
+        await self.broadcast_user(
+            connection.username, {"type": "session.updated", "session": cleared.summary}
+        )
+        self._badge_changed(connection.username, cleared)
+
+    def _badge_changed(self, owner: str, indexed: IndexedSession) -> None:
+        """One of the account's sessions gained or lost its mark, so the account's count moved."""
+        if self._on_badge_change is None or not owner:
+            return
+        self._on_badge_change(
+            BadgeChange(owner=owner, device_id=indexed.device_id, session_id=indexed.session_id)
+        )
+
+    async def _reply_with_mark(self, device_id: str, reply: Frame) -> Frame:
+        """Mark the session a device's reply carries as the gateway has it (A47).
+
+        A device never sends the mark, and an app may draw the reply's session in place of the
+        copy it holds, so a marked row would otherwise lose its dot until the next update. The
+        reply never adds a mark the index does not hold; it drops one the summary itself ends,
+        as archiving or the session working again does, so that row and list agree once the
+        device publishes the same summary.
+        """
+        result = object_field(reply, "result")
+        session = object_field(result, "session") if result is not None else None
+        if result is None or session is None:
+            return reply
+        stored = await self.index.get(text_field(session, "session_id"))
+        unseen = (
+            stored is not None
+            and stored.device_id == device_id
+            and stored.unseen
+            and next_unseen(stored.state, True, session)
+        )
+        return {**reply, "result": {**result, "session": with_mark(dict(session), unseen)}}
 
     # ---- helpers ----
 

@@ -90,7 +90,7 @@ async def remove_device(state: GatewayState, device_id: str, username: str) -> b
     if not await state.devices.revoke(device_id, username):
         return False
     await state.hub.disconnect_device(device_id, reason="device revoked")
-    await state.hub.forget_device_sessions(device_id)
+    await state.hub.forget_device_sessions(device_id, username)
     await state.hub.broadcast_user(username, {"type": "device.removed", "device_id": device_id})
     log.info("device revoked", device_id=device_id)
     return True
