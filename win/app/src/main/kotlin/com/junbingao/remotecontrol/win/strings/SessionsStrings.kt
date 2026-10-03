@@ -29,6 +29,11 @@ class SessionsStrings(
     val closeTitle: String,
     val closeBody: String,
     val open: String,
+    /**
+     * A47: what a screen reader hears for the red dot of a session that
+     * stopped working and that nobody on the account has opened since.
+     */
+    val unseen: String,
     val untitled: String,
     /**
      * The dot legend, drawn once above the list (`docs/DESIGN.md` § "A legend,
@@ -59,6 +64,7 @@ class SessionsStrings(
             closeTitle = "Close this session?",
             closeBody = "The agent is still working; what it has not finished is lost.",
             open = "Open session",
+            unseen = "not yet opened",
             untitled = "Untitled session",
             legend = "What the dots mean",
             legendWorking = "Working",
@@ -83,6 +89,7 @@ class SessionsStrings(
             closeTitle = "关闭此会话？",
             closeBody = "代理仍在工作，未完成的部分会丢失。",
             open = "打开会话",
+            unseen = "未查看",
             untitled = "未命名会话",
             legend = "圆点含义",
             legendWorking = "运行中",

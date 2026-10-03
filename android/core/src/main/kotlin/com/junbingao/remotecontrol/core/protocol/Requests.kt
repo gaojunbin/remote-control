@@ -91,6 +91,14 @@ data class GatewayRequest(
             GatewayRequest(type = "session.unsubscribe", body = jsonObjectOf("session_id" to sessionID),
                            expectsReply = false)
 
+        /**
+         * Amendment A47: the person has this conversation in front of them. The gateway clears the
+         * session's `unseen` for every app of the account and answers `{}`; asking twice is not an
+         * error.
+         */
+        fun seen(sessionID: String): GatewayRequest =
+            GatewayRequest(type = "session.seen", body = jsonObjectOf("session_id" to sessionID))
+
         fun createSession(deviceID: String, agent: String, cwd: String,
                           model: String? = null, permissionMode: String? = null,
                           effort: String? = null, speed: SpeedChange? = null,

@@ -9,7 +9,10 @@ import androidx.compose.ui.Modifier
 import com.junbingao.remotecontrol.core.protocol.AppFrame
 import com.junbingao.remotecontrol.core.protocol.Device
 import com.junbingao.remotecontrol.core.protocol.DeviceUpdateState
+import com.junbingao.remotecontrol.core.protocol.GatewayRequest
 import com.junbingao.remotecontrol.core.protocol.PairingStep
+import com.junbingao.remotecontrol.core.protocol.Session
+import com.junbingao.remotecontrol.core.protocol.SessionControl
 import com.junbingao.remotecontrol.core.protocol.SessionState
 import com.junbingao.remotecontrol.core.state.DeviceGroup
 import com.junbingao.remotecontrol.core.state.InterfaceLanguage
@@ -125,7 +128,25 @@ object ListsScenarios {
             PreviewScenario("sessions-filter-device", route = Route.Sessions, stage = "sessions.filter.device"),
             PreviewScenario("sessions-filtered", route = Route.Sessions, setup = { context -> context.model.sessions.agentFilter = "codex" }),
             PreviewScenario("sessions-close", route = Route.Sessions, stage = "sessions.close"),
+            // A47: a turn that ended with nobody looking leaves its red dot beside the one the
+            // gateway already had.
+            PreviewScenario("sessions-unseen", route = Route.Sessions, settle = 600.milliseconds,
+                            prepare = { context -> endTurnUnwatched(context) }),
         )
+
+    /** Send to a quiet session the device drives and wait for its turn to end while nothing has it open, which is what marks it (A47). */
+    private suspend fun endTurnUnwatched(context: PreviewContext) {
+        val connection = context.model.connection
+        val quiet = connection.sessions.firstOrNull {
+            it.control == SessionControl.remote && it.state == SessionState.idle && !it.archived && !it.unseen
+        } ?: return
+        val channel = connection.channel ?: return
+        val send = runCatching { GatewayRequest.send(sessionID = quiet.sessionID, text = "Run the parser tests again.") }.getOrNull() ?: return
+        runCatching { channel.request(send) }
+        context.wait(timeout = 10.seconds) {
+            connection.session(deviceID = quiet.deviceID, sessionID = quiet.sessionID)?.unseen == true
+        }
+    }
 
     /** Fold or open groups the way a reader would, on the groups the gateway lists. */
     private fun fold(context: PreviewContext, change: (List<DeviceGroup>) -> Unit) {
@@ -144,17 +165,39 @@ object ListsScenarios {
             PreviewScenario("new-session-folder-clash", route = Route.Sessions, stage = "sessions.new.folder.clash", settle = 2400.milliseconds),
         )
 
-    /** The sidebar alone, as the conversation page places it, on the session the render finds waiting for an approval. */
+    /**
+     * The sidebar alone, as the conversation page places it, on the session the render finds
+     * waiting for an approval; and the whole conversation page with a red dot in its sidebar (A47).
+     */
     private val sidebar: List<PreviewScenario>
-        get() = listOf(sidebarScenario("sidebar"), sidebarScenario("sidebar-zh", language = InterfaceLanguage.zhHans))
+        get() = listOf(
+            sidebarScenario("sidebar"),
+            sidebarScenario("sidebar-zh", language = InterfaceLanguage.zhHans),
+            // The running session is open in front of the person, so its turn ends without a dot;
+            // the one that stopped to ask keeps its own.
+            PreviewScenario("chat-sidebar-unseen", settle = 2500.milliseconds, setup = setup@{ context ->
+                val sessions = context.model.connection.sessions
+                val open = sessions.firstOrNull { it.state == SessionState.running && !it.unseen } ?: sessions.firstOrNull() ?: return@setup
+                context.model.router.replace(Route.Chat(deviceId = open.deviceID, sessionId = open.sessionID))
+            }),
+        )
 
+    // The page the sidebar belongs to is the open conversation's, in front of the person, so its own
+    // row is drawn as the app draws it there.
     private fun sidebarScenario(name: String, language: InterfaceLanguage? = null): PreviewScenario =
-        PreviewScenario(name, route = Route.Sessions, language = language, content = { context ->
-            val sessions = context.model.connection.sessions
-            val open = sessions.firstOrNull { it.state == SessionState.needsApproval } ?: sessions.firstOrNull()
+        PreviewScenario(name, route = Route.Sessions, language = language, setup = setup@{ context ->
+            val open = sidebarSession(context) ?: return@setup
+            context.model.router.replace(Route.Chat(deviceId = open.deviceID, sessionId = open.sessionID))
+        }, content = { context ->
+            val open = sidebarSession(context)
             Row(Modifier.fillMaxSize()) {
                 SessionSidebar(deviceId = open?.deviceID ?: "", sessionId = open?.sessionID ?: "")
                 Box(Modifier.weight(1f).fillMaxHeight().background(Palette.surface))
             }
         })
+
+    private fun sidebarSession(context: PreviewContext): Session? {
+        val sessions = context.model.connection.sessions
+        return sessions.firstOrNull { it.state == SessionState.needsApproval } ?: sessions.firstOrNull()
+    }
 }

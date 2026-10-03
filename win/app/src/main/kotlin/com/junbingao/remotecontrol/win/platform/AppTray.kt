@@ -48,6 +48,11 @@ class AppTray private constructor(private val tray: SystemTray) {
         quit.label = S.win.trayQuit
     }
 
+    /** A47: the red disc with `label` over the icon, or the plain icon for null. */
+    fun badge(label: String?) {
+        icon.image = if (label == null) AppIcon.trayImage else AppIcon.trayImage(label)
+    }
+
     fun remove() {
         tray.remove(icon)
     }

@@ -1,6 +1,7 @@
 package com.junbingao.remotecontrol.win.preview
 
 import androidx.compose.runtime.CompositionLocalProvider
+import com.junbingao.remotecontrol.win.app.FrontmostWindow
 import com.junbingao.remotecontrol.win.app.LaunchOptions
 import com.junbingao.remotecontrol.win.app.RootView
 import com.junbingao.remotecontrol.win.app.WinAppModel
@@ -37,6 +38,7 @@ class PreviewRenderer(private val arguments: PreviewArguments, private val conte
             val width = scenario.width ?: arguments.width
             val height = scenario.height ?: arguments.height
             val scene = PreviewScene(width, height, arguments.scale, context) {
+                FrontmostWindow(model)
                 CompositionLocalProvider(LocalPreviewStage provides scenario.stage, LocalShowsCaret provides false) {
                     WithAppModel(model) {
                         val draw = scenario.content

@@ -88,7 +88,7 @@ for the history, Escape for the newest overlay.
 
 Every Swift file of `macos/Sources/RCMac` has its Kotlin twin under the same name, and every
 `macos/Tests/RCMacTests` case its JUnit twin; the renderer draws every scenario of `RCMacPreview`
-under the same name and size. On a Mac, the 201 scenarios compare with the Mac renderer's own
+under the same name and size. On a Mac, the 203 scenarios compare with the Mac renderer's own
 pictures at a median mean difference of about half a level of 255 (the numbers of each round are in
 `docs/VALIDATION-APPS.md`). What it takes is in `win/README.md` § "Matching the Mac's pictures": SF
 as CoreText sets it (optical sizes, CoreText's weights and tracking), SwiftUI's fractional stack
@@ -113,6 +113,24 @@ with the Mac's theme and font, and Windows Terminal's keys: Ctrl+Shift+C, or Ctr
 copies; Ctrl+Shift+V pastes; a right click copies a selection or pastes; Ctrl+L, Ctrl+F and
 Ctrl+Up/Down reach the shell.
 
+## The red dot and the taskbar badge (A47)
+
+As the Mac's, and through it the web's (`docs/DESIGN.md` § "A red dot for a session that stopped and
+waits for you"): a session whose `unseen` is set carries an 8 px dot of the Danger red centred in its
+row's leading gutter and on the title's line — the Sessions page's 20 px padding (16 px below 640),
+and the chat sidebar's, whose rows all keep a 20 px leading padding so the dot moves nothing — and the
+row's accessible value says "not yet opened". The core's `SeenReporter` sends `session.seen` for the
+conversation open in the window that has focus (`conversationInFront`): when it opens there, when
+the window gains focus, and when a mark arrives for it; that conversation's own row draws no dot and
+is not counted while the request travels, as on the web.
+
+The badge is the number of unarchived sessions with a dot, drawn as a red disc with white figures
+("99+" past two): over the taskbar button through `Taskbar.setWindowIconBadge` (Windows' overlay
+icon), and over the notification-area icon while the window is closed, when there is no taskbar
+button to carry it. Nothing at zero, and nothing once the account signs out. The renderer draws its
+scene as the window in front (`FrontmostWindow`, as the Mac renderer's window is), so a conversation
+it draws counts as read; `sessions-unseen` and `chat-sidebar-unseen` are the dot's scenarios.
+
 ## Update required (A46)
 
 Below `apps.windows.minimum_version` the app shows the Mac's blocking screen — its version, the
@@ -121,5 +139,5 @@ gateway's minimum, a button to `update_url` when there is one, and Sign out — 
 ## Not verified
 
 Everything that needs Windows itself and is not in CI's run: the DPAPI round trip on a real account,
-a toast and a click on one, the notification-area icon, the microphone, JediTerm's keys in a real
-window, an upgrade from one installer to the next.
+a toast and a click on one, the notification-area icon and its badge, the taskbar button's badge,
+the microphone, JediTerm's keys in a real window, an upgrade from one installer to the next.

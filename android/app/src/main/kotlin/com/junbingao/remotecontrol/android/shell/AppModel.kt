@@ -10,6 +10,8 @@ import com.junbingao.remotecontrol.android.navigation.Navigator
 import com.junbingao.remotecontrol.android.scanner.CodeScanning
 import com.junbingao.remotecontrol.android.scanner.StaticCodeScanner
 import com.junbingao.remotecontrol.android.scanner.SystemCodeScanner
+import com.junbingao.remotecontrol.android.screens.alerts.AppBadge
+import com.junbingao.remotecontrol.android.screens.alerts.BadgePlatform
 import com.junbingao.remotecontrol.android.screens.alerts.PushController
 import com.junbingao.remotecontrol.android.screens.alerts.TurnNotifier
 import com.junbingao.remotecontrol.android.screens.devices.DeviceRoute
@@ -33,9 +35,11 @@ import com.junbingao.remotecontrol.core.state.PairingFlow
 import com.junbingao.remotecontrol.core.state.PreferenceSync
 import com.junbingao.remotecontrol.core.state.PreferencesStore
 import com.junbingao.remotecontrol.core.state.QueuedEdit
+import com.junbingao.remotecontrol.core.state.SeenReporter
 import com.junbingao.remotecontrol.core.state.SessionStore
 import com.junbingao.remotecontrol.core.state.SettingsStore
 import com.junbingao.remotecontrol.core.state.TurnAlerts
+import com.junbingao.remotecontrol.core.state.UnseenMark
 import com.junbingao.remotecontrol.core.state.VoiceBackend
 import com.junbingao.remotecontrol.core.state.inEffect
 import com.junbingao.remotecontrol.core.state.request
@@ -68,6 +72,8 @@ class AppModel(
     val push: PushController,
     /** Raises the app's own notification when a turn ends. */
     val turns: TurnNotifier,
+    /** Amendment A47: where the icon's badge is put. */
+    private val badgePlatform: BadgePlatform,
     private val drafts: DraftStore,
     /**
      * What the launch asked for. The model applies the arguments that are its own; a piece that
@@ -179,6 +185,13 @@ class AppModel(
     /** The demo, when the launch asked for one. [restoreOrPrompt] waits on it rather than racing it. */
     private var launch: Job? = null
 
+    /**
+     * Amendment A47: what keeps the icon's badge at the count, and what tells the gateway the
+     * conversation on screen has been seen.
+     */
+    private val badge = AppBadge(badgePlatform, tasks) { badgeCount }
+    private val seenReporter = SeenReporter(connection, tasks) { conversationInFront }
+
     private val sessionsStack: Navigator get() = navigation.navigator(Tab.sessions)
 
     init {
@@ -211,7 +224,33 @@ class AppModel(
                 if (entersDemo) enterDemo()
             }
         }
+        followRedDots()
     }
+
+    /**
+     * Amendment A47, for the life of the app: the conversation on screen is reported seen whenever
+     * it carries a red dot, and the icon's badge follows the number of dots.
+     */
+    private fun followRedDots() {
+        seenReporter.start()
+        badge.start()
+    }
+
+    /** The conversation the person has in front of them: open on screen, with the app active and not behind its lock. */
+    private val conversationInFront: String?
+        get() = if (!isSceneActive || isLocked) null else chat?.key
+
+    /**
+     * The icon's badge: the sessions with a red dot, less the one being looked at, while someone is
+     * signed in and Notify me is on. Android has no push channel, so with the switch off nothing keeps
+     * a number true once the app closes, and the app leaves none behind.
+     */
+    private val badgeCount: Int
+        get() = if (!connection.isSignedIn || !settings.notificationsEnabled) {
+            0
+        } else {
+            UnseenMark.count(connection.sessions, excluding = conversationInFront)
+        }
 
     val isDemo: Boolean get() = connection.isDemo
     val isSignedIn: Boolean get() = connection.isSignedIn
@@ -311,6 +350,8 @@ class AppModel(
         // is torn down, not after: signing out empties the user, so `account` would name nobody.
         drafts.clear(account = connection.account)
         connection.signOut()
+        // Amendment A47: the dots were the account's, and so is their count.
+        badge.reassert()
     }
 
     /**
@@ -441,11 +482,26 @@ class AppModel(
         handle(link)
     }
 
-    /** The foreground, which both the awake screen and the app's own notifications are conditioned on. */
+    /**
+     * Amendment A47: the badge's notification opens the list of sessions, whatever conversation was
+     * open. Like a link, it is a destination, so it settles the landing rule too.
+     */
+    fun showSessions() {
+        hasChosenLandingTab = true
+        tab = Tab.sessions
+        path = emptyList()
+    }
+
+    /**
+     * The foreground, which both the awake screen and the app's own notifications are conditioned
+     * on — and the icon's badge (A47): coming back is when a badge the person swiped away, or one
+     * Android refused before notifications were allowed, is put back.
+     */
     // The JVM name of [isSceneActive]'s own setter is this one's, so this one is renamed for the JVM alone.
     @JvmName("applySceneActive")
     fun setSceneActive(active: Boolean) {
         isSceneActive = active
+        if (active) badge.reassert()
     }
 
     /**

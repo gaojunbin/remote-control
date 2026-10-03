@@ -40,7 +40,7 @@ confirmation dialogs, menus and swipe actions are this module's own composables.
 | `…/android/security/`, `persistence/`, `attachments/`, `voice/`, `push/`, `markdown/`, `scanner/`, `terminal/`, `awake/`, `haptics/`, `permissions/` | the platform services, each behind a small API of its own; the core's seams are filled here |
 | `…/android/gallery/` | the primitives' gallery, a debug build's Settings → Diagnostics row |
 | `app/src/main/java/com/termux/` | Termux's `terminal-emulator` and `terminal-view`, vendored (Apache 2.0, `LICENSE` and `NOTICE` beside them; `NOTICE` lists what was changed) |
-| `app/src/main/strings/` | `overlay.json` (Android's words for the iPhone's Apple names) and `system.json` (the words UIKit supplies) |
+| `app/src/main/strings/` | `overlay.json` (Android's words for the iPhone's Apple names), `system.json` (the words UIKit supplies) and `android.json` (the words only Android shows) |
 | `app/src/main/res/` | the theme behind the system bars, the adaptive icon, the notification icon, the network, file-provider and backup configuration |
 | `app/src/test/kotlin/…/android/` | JUnit and Robolectric tests, in the package of what they test: `harness/` draws pictures and drives the demo, `screens/<feature>/` holds each feature's ported UI tests, its pictures and its driver, `gallery/` and `compare/` picture the system pieces, `demo/` runs the demo end to end |
 
@@ -61,10 +61,10 @@ none is kept in the repository, and nothing compares a run against an earlier on
 `testDebugUnitTest` draws none.
 
 **Generated at build time.** `generateStringCatalog` reads `../ios/App/Localizable.xcstrings`,
-lays `app/src/main/strings/overlay.json` over it and adds `system.json`, and writes
-`Catalog.kt` into the build directory: the Android app follows the iPhone's words as they change,
-and the build fails if a catalogue key lacks its Chinese, an overlay key is not a catalogue key, or
-a system word is one. `copyMarkdownAssets` serves `../ios/Sources/RCUI/Resources/Markdown` (the
+lays `app/src/main/strings/overlay.json` over it and adds `system.json` and `android.json`, and
+writes `Catalog.kt` into the build directory: the Android app follows the iPhone's words as they
+change, and the build fails if a catalogue key lacks its Chinese, an overlay key is not a catalogue
+key, or a system word or an Android word is one. `copyMarkdownAssets` serves `../ios/Sources/RCUI/Resources/Markdown` (the
 renderer, KaTeX, Mermaid, their licences) to the app's assets under `markdown/`, so both apps draw
 a diagram with the same files.
 
@@ -361,7 +361,8 @@ every open screen at once without restarting anything. Look a word up where it i
 keep it. `L10n.platform(sentence)` says a sentence the core built in Android's words (the
 Keystore where RCCore says the keychain). Android's own words for the iPhone's Apple names are in
 `app/src/main/strings/overlay.json`; a word UIKit supplies on the iPhone (Back, Search, OK) is in
-`system.json`.
+`system.json`; a word only Android shows (the launcher badge's notification, A47) is in
+`android.json`, so the iPhone's catalogue keeps only the iPhone's words.
 
 ### The platform services
 

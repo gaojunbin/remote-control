@@ -71,6 +71,12 @@ data class Session(
      * (7.2), or null when there is none. It is what the notice above the transcript is drawn from.
      */
     val resume: SessionResume? = null,
+    /**
+     * Amendment A47: the session stopped working and waits for the person, and nobody on the
+     * account has opened it since. The gateway's alone — a device never sends it — so a gateway
+     * that predates it sends nothing, which reads as false. It is what the red dot is drawn from.
+     */
+    val unseen: Boolean = false,
 ) {
     /** Unique across devices, unlike `sessionID`. */
     val id: String get() = "$deviceID/$sessionID"

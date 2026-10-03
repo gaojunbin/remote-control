@@ -78,7 +78,7 @@ fun Dot(style: DotStyle, pulses: Boolean = false, modifier: Modifier = Modifier)
         1f
     }
     val fill = style.fill
-    Canvas(modifier.size(7.dp).alpha(opacity)) {
+    Canvas(modifier.size(DotSize.statusDot).alpha(opacity)) {
         if (fill != null) {
             drawCircle(fill)
         } else {

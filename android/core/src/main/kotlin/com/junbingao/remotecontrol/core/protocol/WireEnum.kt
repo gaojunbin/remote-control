@@ -409,6 +409,12 @@ value class PushKind(override val rawValue: String) : WireEnum {
         val limitReached = PushKind("limit_reached")
         val resumed = PushKind("resumed")
         val resumeDropped = PushKind("resume_dropped")
+
+        /**
+         * Amendment A47: the account's count of red dots changed and no other push carried it. It
+         * sets the app icon's badge and shows nothing.
+         */
+        val badge = PushKind("badge")
     }
 
     object Serializer : WireEnumSerializer<PushKind>("PushKind", ::PushKind)

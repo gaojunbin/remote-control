@@ -20,7 +20,8 @@ import com.junbingao.remotecontrol.android.system.Presenter
  * The one activity, as the iPhone app has one scene: edge to edge with the page colour behind the
  * system bars, and a link into a conversation — at launch or while running, from a notification or
  * `remotecontrol://` — handed to the model, which opens it in place once there is an account to
- * open it in. It handles its own configuration changes; the model lives in the process.
+ * open it in; the badge's notification opens Sessions (A47). It handles its own configuration
+ * changes; the model lives in the process.
  */
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,6 +32,7 @@ class MainActivity : FragmentActivity() {
         FieldScrollProbe.enable(options.fieldScrollProbe)
         val model = (application as RemoteControlApplication).model(options)
         LaunchOptions.link(intent)?.let(model::handle)
+        if (LaunchOptions.opensSessions(intent)) model.showSessions()
         setContent {
             val presenter = remember { Presenter() }
             if (options.gallery) {
@@ -46,5 +48,6 @@ class MainActivity : FragmentActivity() {
         setIntent(intent)
         val model = (application as RemoteControlApplication).model(LaunchOptions.from(intent, BuildConfig.DEBUG))
         LaunchOptions.link(intent)?.let(model::handle)
+        if (LaunchOptions.opensSessions(intent)) model.showSessions()
     }
 }

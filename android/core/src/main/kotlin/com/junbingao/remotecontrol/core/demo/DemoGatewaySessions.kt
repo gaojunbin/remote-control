@@ -35,9 +35,9 @@ import kotlinx.serialization.json.JsonElement
 import java.time.Instant
 import kotlin.time.Duration.Companion.milliseconds
 
-// The demo gateway's requests about a session's lifecycle: opening it, its history, resuming
-// after a usage limit (A35), its settings, takeover, archive and create. Every function here runs
-// on the gateway's isolation.
+// The demo gateway's requests about a session's lifecycle: opening it, looking at it (A47), its
+// history, resuming after a usage limit (A35), its settings, takeover, archive and create. Every
+// function here runs on the gateway's isolation.
 
 /** How long the device takes to type a command and read the answer back out of the transcript before it replies. */
 private val typingDelay = 1_500.milliseconds
@@ -57,6 +57,19 @@ internal fun DemoGateway.subscribe(request: GatewayRequest): JsonElement {
     // its queue rather than a snapshot later.
     val held = queues[id]?.let { if (it.isEmpty) null else QueuePayload(pending = it.pending) }
     return JSONValue.encode(SubscribeResult(session = session, events = events, resync = false, queue = held))
+}
+
+/**
+ * Amendment A47: the person has the conversation in front of them. The gateway answers this itself,
+ * takes the mark off and publishes the session only when there was a mark to take off. The device
+ * reported nothing, so the session's own `updated_at` stays where it was.
+ */
+internal fun DemoGateway.markSeen(request: GatewayRequest): JsonElement {
+    val id = requireSessionID(request)
+    if (!session(id).unseen) return JSONValue.emptyObject
+    sessionList = sessionList.map { if (it.sessionID == id) it.copy(unseen = false) else it }
+    continuation.trySend(GatewayEvent.Frame(AppFrame.SessionUpdated(session(id))))
+    return JSONValue.emptyObject
 }
 
 internal fun DemoGateway.history(request: GatewayRequest): JsonElement {

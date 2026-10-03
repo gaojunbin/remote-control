@@ -1,7 +1,9 @@
 package com.junbingao.remotecontrol.android.shell
 
 import android.content.Context
+import androidx.compose.runtime.snapshots.Snapshot
 import com.junbingao.remotecontrol.android.launch.LaunchOptions
+import com.junbingao.remotecontrol.android.screens.alerts.FakeBadgePlatform
 import com.junbingao.remotecontrol.android.screens.alerts.PushController
 import com.junbingao.remotecontrol.android.screens.alerts.TurnNotifier
 import com.junbingao.remotecontrol.core.persistence.DraftStore
@@ -28,6 +30,9 @@ import kotlin.time.Duration.Companion.seconds
 internal class AppModelHarness(private val context: Context, private val root: File) {
     val drafts = DraftStore(root.resolve("drafts"))
 
+    /** The icon's badge the models put up (A47), with no notification manager behind it. */
+    val badges = FakeBadgePlatform()
+
     fun model(scope: TestScope, arguments: List<String> = emptyList(), defaults: UserDefaults = MemoryUserDefaults()): AppModel {
         val connection = ConnectionStore(
             scope.backgroundScope, InstalledApp.android, LocalCache(root.resolve("cache")),
@@ -40,6 +45,7 @@ internal class AppModelHarness(private val context: Context, private val root: F
             sessions = SessionStore(defaults),
             push = PushController(context),
             turns = TurnNotifier(context),
+            badgePlatform = badges,
             drafts = drafts,
             options = LaunchOptions(arguments, debug = true),
             demoIsolation = StandardTestDispatcher(scope.testScheduler),
@@ -50,15 +56,18 @@ internal class AppModelHarness(private val context: Context, private val root: F
 /**
  * Let the test's clock run until [condition] holds or [timeout] of it has passed — the iPhone's
  * checks' `settle`, on virtual time, so a scripted delay costs nothing. The drafts and the cache
- * write files on threads of their own, so real time is given too, a few milliseconds a step.
+ * write files on threads of their own, so real time is given too, a few milliseconds a step. Each
+ * step tells snapshot observers what changed, as the app's frame clock does.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 internal fun TestScope.settle(timeout: Duration = 10.seconds, condition: () -> Boolean) {
     val end = testScheduler.currentTime + timeout.inWholeMilliseconds
     val realEnd = System.nanoTime() + REAL_BUDGET_NANOS
+    Snapshot.sendApplyNotifications()
     runCurrent()
     while (!condition() && (testScheduler.currentTime < end || System.nanoTime() < realEnd)) {
         if (testScheduler.currentTime < end) advanceTimeBy(50)
+        Snapshot.sendApplyNotifications()
         runCurrent()
         Thread.sleep(2)
     }
@@ -69,6 +78,7 @@ internal fun TestScope.settle(timeout: Duration = 10.seconds, condition: () -> B
 internal fun TestScope.drain() {
     repeat(100) {
         advanceTimeBy(10)
+        Snapshot.sendApplyNotifications()
         runCurrent()
         Thread.sleep(2)
     }

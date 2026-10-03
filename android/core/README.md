@@ -194,6 +194,14 @@ with its caller is a request nobody waits for: an app starts what a person asked
 approval) in a scope that outlives the screen, as SwiftUI's unstructured tasks do. In tests the
 stores run on `backgroundScope` of `runTest`.
 
+**Observers.** Where RCCore follows a value with `withObservationTracking`, the port reads it inside
+a `snapshotFlow` in the scope it is handed: `SeenReporter` (A47) watches the conversation an app says
+is in front and its mark, and the apps' badge keepers follow the count the same way. A snapshot
+written with an equal value reports nothing, where an observed Swift property reports every
+assignment, so `SeenReporter` reads the connection being up as a moment of its own (a `hello` that
+changes nothing still brings the socket back). Something has to tell snapshot observers what changed:
+the apps' frame clocks do, and a test calls `Snapshot.sendApplyNotifications()` as it waits.
+
 **Values.** A struct RCCore changes with `mutating` methods is immutable here where a store publishes
 it — `QuestionDraft.toggle` and `setText` answer the new draft, `TimelineEntry.merge` the new entry —
 so the copy a screen holds never changes under it. Two are changed in place and offer `copy()` for
@@ -226,7 +234,8 @@ store cases here, under the same class name (`state.AmendmentTests` beside `prot
 `ios/Verification`'s `StoreChecks`, `TimelineChecks`, `AlertChecks` and the store lines of
 `AccountChecks`, `PolishChecks` and `ProtocolChecks` are JUnit checks of the same names, with
 `SettingsScreenChecks` and `OfflineDemoChecks` for the lines of `VerificationUI` that read core
-types, and `DiagnosticReportTests` for the report's app. `StoreDoubles.kt` holds the doubles every
+types, `UnseenChecks` for A47's (with RCCore's `UnseenMarkTests` split across `protocol/`, `state/`
+and `demo/`), and `DiagnosticReportTests` for the report's app. `StoreDoubles.kt` holds the doubles every
 suite would otherwise spell out (`StubGateway`, `InertChannel`) and RCCore's polling `settle`, on the
 test's clock; a suite's own doubles are nested in it. A case RCCore runs on the demo gateway runs on
 `demoGateway(…)` with the same arguments, on virtual time: RCCore's `DemoGateway()` is

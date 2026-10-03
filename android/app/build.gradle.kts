@@ -79,6 +79,9 @@ roborazzi {
  * `src/main/strings/system.json` holds the words UIKit supplies on the iPhone for the pieces this
  * app draws itself (a back button's name, a search field's placeholder), which the iPhone's
  * catalogue therefore never needed; none of them may be a catalogue key.
+ * `src/main/strings/android.json` holds the words only the Android app shows (the launcher badge's
+ * notification, A47); none of them may be a catalogue key either, so the iPhone's catalogue keeps
+ * only the iPhone's words.
  */
 abstract class GenerateStringCatalog : DefaultTask() {
     @get:InputFile
@@ -92,6 +95,10 @@ abstract class GenerateStringCatalog : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val system: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val androidWords: RegularFileProperty
 
     @get:OutputDirectory
     abstract val outputDir: DirectoryProperty
@@ -124,11 +131,16 @@ abstract class GenerateStringCatalog : DefaultTask() {
             english[key] = words.first
             chinese[key] = words.second
         }
+        for ((key, words) in entries(androidWords.get().asFile)) {
+            if (key in catalogued) throw GradleException("Android word \"$key\" is already a catalogue key")
+            english[key] = words.first
+            chinese[key] = words.second
+        }
         val file = outputDir.get().asFile
             .resolve("com/junbingao/remotecontrol/android/strings/Catalog.kt")
         file.parentFile.mkdirs()
         file.writeText(buildString {
-            appendLine("// Generated from ios/App/Localizable.xcstrings and app/src/main/strings/{overlay,system}.json")
+            appendLine("// Generated from ios/App/Localizable.xcstrings and app/src/main/strings/{overlay,system,android}.json")
             appendLine("// by the generateStringCatalog task. Edit those files, never this one.")
             appendLine("package com.junbingao.remotecontrol.android.strings")
             appendLine()
@@ -205,6 +217,7 @@ val generateStringCatalog = tasks.register<GenerateStringCatalog>("generateStrin
     catalog.set(rootProject.layout.projectDirectory.file("../ios/App/Localizable.xcstrings"))
     overlay.set(layout.projectDirectory.file("src/main/strings/overlay.json"))
     system.set(layout.projectDirectory.file("src/main/strings/system.json"))
+    androidWords.set(layout.projectDirectory.file("src/main/strings/android.json"))
     outputDir.set(layout.buildDirectory.dir("generated/source/stringCatalog"))
 }
 

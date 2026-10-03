@@ -1418,7 +1418,7 @@ class StoreChecks {
     }
 
     /** A channel that serves one hello, records every request, and closes or emits frames on command. */
-    private class ScriptedChannel : GatewayChannel {
+    internal class ScriptedChannel : GatewayChannel {
         private val stream = Channel<GatewayEvent>(capacity = 64, onBufferOverflow = BufferOverflow.DROP_LATEST)
         override val events: Flow<GatewayEvent> = stream.receiveAsFlow()
         private val recorded = mutableListOf<GatewayRequest>()

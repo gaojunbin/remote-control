@@ -81,12 +81,14 @@ sealed interface DemoSessionFixtures {
                     todos = TodoCounts(total = 4, done = 1),
                     usage = SessionUsage(inputTokens = 32_000, outputTokens = 16_200, totalTokens = 48_200,
                                          contextUsed = 61_000, contextWindow = 200_000, costUSD = 0.42)),
+            // Amendment A47: it stopped to ask for an approval while nobody was looking, so it opens
+            // with the red dot that opening it clears.
             Session(sessionID = approvalSessionID, deviceID = macDeviceID, agent = "codex",
                     title = "Migrate web to Vite 6", cwd = "/Users/me/dev/remote-control/web",
                     git = GitInfo(branch = "vite-6", dirty = true),
                     state = SessionState.needsApproval, origin = EventSource.terminal, control = SessionControl.remote,
                     model = "gpt-5.4-codex", permissionMode = "on-request",
-                    createdAt = now - 1_800_000, updatedAt = now - 60_000, lastSeq = 0),
+                    createdAt = now - 1_800_000, updatedAt = now - 60_000, lastSeq = 0, unseen = true),
             // Amendment A7: a terminal session reports `running` while its turn runs and
             // `readonly` only when idle. Both are locked to the app. Amendment A17: the device read
             // all three settings out of the transcript, so the composer can show what this

@@ -1,0 +1,11 @@
+{
+  "//": "The words only the Android app shows; a key here must not be in ios/App/Localizable.xcstrings. The launcher badge's notification (A47) is Android's alone: the iPhone's badge is a number the system draws.",
+  "1 session is waiting for you": {
+    "en": "1 session is waiting for you",
+    "zh-Hans": "有 1 个会话在等你处理"
+  },
+  "%lld sessions are waiting for you": {
+    "en": "%lld sessions are waiting for you",
+    "zh-Hans": "有 %lld 个会话在等你处理"
+  }
+}

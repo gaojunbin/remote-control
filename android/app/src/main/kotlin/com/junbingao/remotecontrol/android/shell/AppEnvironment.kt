@@ -5,6 +5,7 @@ import com.junbingao.remotecontrol.android.launch.LaunchOptions
 import com.junbingao.remotecontrol.android.persistence.AppDirectories
 import com.junbingao.remotecontrol.android.persistence.SharedPreferencesDefaults
 import com.junbingao.remotecontrol.android.screens.alerts.PushController
+import com.junbingao.remotecontrol.android.screens.alerts.SystemBadge
 import com.junbingao.remotecontrol.android.screens.alerts.TurnNotifier
 import com.junbingao.remotecontrol.android.security.KeystoreSecretStore
 import com.junbingao.remotecontrol.core.persistence.DraftStore
@@ -32,6 +33,7 @@ object AppEnvironment {
             sessions = SessionStore(defaults),
             push = PushController(app),
             turns = TurnNotifier(app),
+            badgePlatform = SystemBadge(app),
             drafts = DraftStore(AppDirectories.drafts(app)),
             options = options,
         )
