@@ -31,9 +31,12 @@ final class SystemNotificationPlatform: NotificationPlatform {
         }
     }
 
+    /// Alerts, sounds and the badge in one question: the Dock icon's count of
+    /// sessions waiting for the person (A47) is drawn where the person allows
+    /// this app badges.
     func requestPermission() async -> NotificationPermission {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in
                 continuation.resume()
             }
         }

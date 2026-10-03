@@ -32,8 +32,7 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 10), "the live demo session is listed")
         row.tap()
 
-        let composer = app.textViews["composer.prompt"].firstMatch
-        let composerField = composer.exists ? composer : app.textFields["composer.prompt"].firstMatch
+        let composerField = promptField()
         XCTAssertTrue(composerField.waitForExistence(timeout: 15), "the composer is on screen")
         XCTAssertTrue(app.buttons["composer.send"].exists, "the send button is a separate control")
 
@@ -478,10 +477,15 @@ final class RemoteControlUITests: XCTestCase {
     }
 
     /// SwiftUI renders a growing field as a text view once it wraps, so the
-    /// identifier is looked up in both collections.
+    /// identifier is looked for in both kinds of element by one query. The
+    /// query is resolved each time it is used: which of the two is on screen
+    /// cannot be known before the conversation is, and an answer settled on
+    /// right after a tap waited for the wrong one on a loaded Mac (round 57).
     private func promptField() -> XCUIElement {
-        let view = app.textViews["composer.prompt"].firstMatch
-        return view.exists ? view : app.textFields["composer.prompt"].firstMatch
+        app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier == %@ AND (elementType == %lu OR elementType == %lu)", "composer.prompt",
+            XCUIElement.ElementType.textView.rawValue, XCUIElement.ElementType.textField.rawValue))
+            .firstMatch
     }
 
     /// Where the message field is scrolled, as "<offset>/<end>" in points.
@@ -829,8 +833,7 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 20), "the shared Codex thread is listed")
         row.tap()
 
-        let composer = app.textViews["composer.prompt"].firstMatch
-        let composerField = composer.exists ? composer : app.textFields["composer.prompt"].firstMatch
+        let composerField = promptField()
         XCTAssertTrue(composerField.waitForExistence(timeout: 15), "the composer is enabled")
 
         XCTAssertFalse(app.descendants(matching: .any)["composer.terminalNote"].exists,
@@ -1415,9 +1418,7 @@ final class RemoteControlUITests: XCTestCase {
         XCTAssertTrue(scrollDown(to: row), "the Grok session on the leader is listed")
         row.tap()
 
-        let composer = app.textViews["composer.prompt"].firstMatch
-        let composerField = composer.exists ? composer : app.textFields["composer.prompt"].firstMatch
-        XCTAssertTrue(composerField.waitForExistence(timeout: 15),
+        XCTAssertTrue(promptField().waitForExistence(timeout: 15),
                       "the composer takes what is typed into a session the leader shares")
 
         XCTAssertTrue(app.buttons["chat.stop"].exists,
@@ -3054,6 +3055,99 @@ final class RemoteControlUITests: XCTestCase {
                       "and the protocol both ends speak")
         XCTAssertTrue(app.buttons["settings.diagnostics"].exists, "with Diagnostics beside it")
         attach(name: "ios-round43-settings-2")
+    }
+
+    // MARK: - A47, a red dot for a session that stopped and waits for you
+
+    /// `docs/DESIGN.md` § "A red dot for a session that stopped and waits for
+    /// you": a turn that ends while nobody has its conversation open leaves a
+    /// red dot in the row's leading gutter, opening the conversation takes it
+    /// off, and a conversation on screen when its turn ends never keeps one.
+    /// The row says it in words for a screen reader, which is what is read
+    /// here; the gutter's pixels say the dot is drawn where the ruling puts it.
+    func testARedDotAppearsWhenATurnEndsUnwatchedAndGoesWhenTheConversationOpens() {
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 20))
+        let unseen = "not yet opened"
+
+        let waiting = app.buttons["session.demo-session-vite"]
+        XCTAssertTrue(waiting.waitForExistence(timeout: 10), "the session that stopped to ask is listed")
+        XCTAssertTrue(waiting.label.contains(unseen),
+                      "and the demo opens with its dot, nobody having looked — \(waiting.label)")
+
+        let row = app.buttons["session.demo-session-parser"]
+        XCTAssertTrue(scrollDown(to: row), "the pi session is listed")
+        XCTAssertFalse(row.label.contains(unseen), "a quiet session carries no dot — \(row.label)")
+        XCTAssertLessThan(redness(beside: row), 0.2, "and nothing red stands in its gutter")
+
+        // A turn starts, and the list is back on screen before it ends: the
+        // scripted device takes three seconds over its echo under --ui-testing.
+        row.tap()
+        sendFromTheComposer("check the parser once more")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 15), "the list is back")
+        XCTAssertTrue(scrollDown(to: row), "with the pi session on it")
+        XCTAssertTrue(waitFor(timeout: 20) { row.label.contains(unseen) },
+                      "the turn ended with nobody looking, so the row says so — \(row.label)")
+        XCTAssertTrue(waitFor { redness(beside: row) > 0.4 },
+                      "and the red dot stands in the leading gutter, beside the title")
+        attach(name: "47-red-dot")
+
+        row.tap()
+        XCTAssertTrue(promptField().waitForExistence(timeout: 15), "the conversation opens")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(scrollDown(to: row), "the list is back")
+        XCTAssertTrue(waitFor(timeout: 10) { !row.label.contains(unseen) },
+                      "opening the conversation took the dot off — \(row.label)")
+        XCTAssertLessThan(redness(beside: row), 0.2, "from the gutter too")
+        attach(name: "47-red-dot-gone")
+
+        // On screen when the turn ends: the dot never stays.
+        row.tap()
+        sendFromTheComposer("and once more")
+        let stop = app.buttons["chat.stop"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 10), "the turn runs")
+        XCTAssertTrue(stop.waitForNonExistence(timeout: 20), "and ends while the conversation is on screen")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(scrollDown(to: row), "the list is back")
+        XCTAssertFalse(row.label.contains(unseen),
+                       "a conversation on screen when its turn ended keeps no dot — \(row.label)")
+    }
+
+    /// Type a message into the open conversation and send it.
+    private func sendFromTheComposer(_ message: String) {
+        let field = promptField()
+        XCTAssertTrue(field.waitForExistence(timeout: 15), "the composer is on screen")
+        field.tap()
+        field.typeText(message)
+        let send = app.buttons["composer.send"]
+        XCTAssertTrue(waitFor { send.isEnabled }, "the draft reached the composer")
+        send.tap()
+    }
+
+    /// How red the reddest pixel is in the leading gutter of a session row, on
+    /// the title's line: 0 for ink, white and grey, about 0.6 for the Danger
+    /// red. The band reaches from the screen's edge of the row's surface to the
+    /// title, so it holds the gutter however the cell reports its frame.
+    private func redness(beside row: XCUIElement) -> CGFloat {
+        let frame = row.frame
+        let band = CGRect(x: max(0, frame.minX - 16), y: frame.minY, width: 32, height: 36)
+        guard let screen = XCUIScreen.main.screenshot().image.cgImage, app.frame.width > 0 else { return 0 }
+        let scale = CGFloat(screen.width) / app.frame.width
+        let box = CGRect(x: band.minX * scale, y: band.minY * scale,
+                         width: band.width * scale, height: band.height * scale)
+        guard let crop = screen.cropping(to: box), crop.width > 0, crop.height > 0 else { return 0 }
+        var pixels = [UInt8](repeating: 0, count: crop.width * crop.height * 4)
+        guard let context = CGContext(data: &pixels, width: crop.width, height: crop.height,
+                                      bitsPerComponent: 8, bytesPerRow: crop.width * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return 0 }
+        context.draw(crop, in: CGRect(x: 0, y: 0, width: crop.width, height: crop.height))
+        return stride(from: 0, to: pixels.count, by: 4).reduce(CGFloat(0)) { reddest, index in
+            let red = CGFloat(pixels[index]) - CGFloat(max(pixels[index + 1], pixels[index + 2]))
+            return max(reddest, red / 255)
+        }
     }
 
     /// Settings, Voice group: turn dictation polish on and come back to the

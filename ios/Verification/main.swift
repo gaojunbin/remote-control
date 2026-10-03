@@ -15,7 +15,8 @@ let results = [
     await AccountChecks.run(),
     await StoreChecks.run(),
     await AlertChecks.run(),
-    await PolishChecks.run()
+    await PolishChecks.run(),
+    await UnseenChecks.run()
 ]
 
 var total = 0

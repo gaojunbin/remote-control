@@ -69,10 +69,12 @@ public final class SystemNotifications: NotificationPlatform {
         #endif
     }
 
+    /// Alerts, sounds and the badge, in one question: the badge is how the
+    /// home screen counts the sessions waiting for the person (A47).
     public func requestAuthorization() async throws -> Bool {
         #if os(iOS)
         return try await withCheckedThrowingContinuation { continuation in
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
                 if let error { continuation.resume(throwing: error) }
                 else { continuation.resume(returning: granted) }
             }

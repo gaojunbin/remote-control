@@ -20,6 +20,7 @@ unless DESIGN says otherwise.
 | `Sources/RCMac/Chat/`, `Chat/Composer/`, `Voice/` | the conversation page, its composer, dictation |
 | `Sources/RCMac/Devices/`, `Sessions/` | the device and session lists, a device's page, Add device, the New session drawer, the session sidebar |
 | `Sources/RCMac/Settings/`, `Users/`, `Terminal/`, `Notifications/` | Settings, the accounts screen, the terminal, Notify me |
+| `Sources/RCMac/Unseen/` | the red dot, `session.seen` for the conversation in front, the Dock badge (A47) |
 | `Sources/RCMac/Resources/` | `Assets.xcassets`, and `Highlight/` for the timeline's code highlighter |
 | `Sources/RCMacPreview/` | the renderer: scenarios drawn offscreen and written as PNG |
 | `Tests/RCMacTests/` | swift-testing suites, including the web's own test cases for everything ported |
@@ -193,6 +194,39 @@ on is the only thing that asks macOS for permission. A resume that fires or is d
 by an event only a subscribed connection receives, so it is announced only while that conversation
 is open; a pause shows on every session through its `resume` field.
 
+## The red dot and the Dock badge (A47)
+
+A session whose turn ended, or that stopped to ask, while nobody on the account had its
+conversation open carries the gateway's mark, `Session.unseen` (`docs/DESIGN.md` § "A red dot for a
+session that stopped and waits for you"). The Mac draws it as the web does and counts it on the
+Dock, all in `Sources/RCMac/Unseen/`:
+
+- **The dot** (`UnseenDot`, the web's `.unseen-dot`): 8 pt of `Palette.danger`, drawn over the title
+  and centred in the row's leading gutter and on the title's line, so it moves nothing. On the
+  Sessions rows the gutter is the 20 pt padding the lines start after (16 pt below 640); the chat
+  sidebar's rows now keep a 20 pt leading padding on every row, as the web's `.sidebar-item` does,
+  so the dot has a gutter of its own before the status dot. The row's button carries "not yet
+  opened" (未查看, `S.sessions.unseen`) as its accessibility value, the Mac's nearest to the web's
+  `aria-describedby`.
+- **Seen.** The conversation in front of the person is the route's `.chat` while the window has
+  focus (`MacAppModel.conversationInFront`, read from `isWindowActive`). RCCore's `SeenReporter`
+  watches it and the session's mark together and sends `session.seen` through
+  `ConnectionStore.markSeen` — when the conversation opens in the focused window, when the window
+  becomes key with it open, and when a `session.updated` or a `hello` marks it while it is there —
+  once per mark, silently on a failure. Its row never draws the dot meanwhile, and the Dock does not
+  count it (`showsUnseenDot`, `UnseenMark.count(in:excluding:)`): the web's `useFront` rule, so
+  nothing flickers on the row that is open.
+- **The Dock badge** (`DockBadgeKeeper`): `NSApp.dockTile.badgeLabel` is the count while the app
+  runs — closing the window keeps it — nil at zero, and nil once nobody is signed in. The app sets
+  it whatever Notify me says, since it lives and goes with the running app; macOS draws it where
+  the person allows this app badges, so Notify me's one question now asks for alerts, sounds and
+  badges together. A process that is not the app bundle (the renderer, the test runner) gets
+  `InertDockBadge`, as it gets the inert notification platform.
+
+`Tests/RCMacTests/UnseenTests.swift` covers the rule for the conversation in front, a conversation
+opened behind another window and seen when it comes forward, a turn that ends unwatched and one on
+screen, the badge's numbers and sign-out, and the renderer's window.
+
 ## The terminal
 
 SwiftTerm 1.11.2's macOS view, fed by RCCore's terminal session with the web's open, reconnect and
@@ -221,9 +255,13 @@ Each scenario gets a fresh ephemeral model and the real root view in an offscree
 through RCCore, taken to its route and prepared, and is written as a PNG rendered through
 `CARenderer` — the compositor the window server runs — so shadows, blurs, text and scroll content
 come out as a live window draws them. Traffic lights, hover states and the caret are the only things
-it cannot show. Every feature keeps a scenario per state it draws; comparing with the web means the
-web app and its mock on ports of your own, a playwright-core screenshot at the same size and scale,
-and the same screen rendered with `--gateway`. Chrome falls back to Menlo for `ui-monospace`, so mono
+it cannot show. The offscreen window is never key, but a picture of it is a picture of the window
+the person is looking at, so it adopts `FrontmostWindow` and counts as focused: a conversation drawn
+in it is seen, as in the app (A47). `sessions-unseen` (a turn that ended with nobody looking, beside
+the demo's own mark) and `chat-sidebar-unseen` (the conversation page with a marked row in its
+sidebar) draw the red dot. Every feature keeps a scenario per state it draws; comparing with the web
+means the web app and its mock on ports of your own, a playwright-core screenshot at the same size
+and scale, and the same screen rendered with `--gateway`. Chrome falls back to Menlo for `ui-monospace`, so mono
 text is wider in a Chrome screenshot than in Safari or this app.
 
 ## Differences from the web that remain
@@ -255,6 +293,10 @@ text is wider in a Chrome screenshot than in Safari or this app.
   permission prompt, posting, clicking one) and real Pinyin typing in the composer: automated runs
   never raise a system prompt, so these are the person's first use.
 - The Keychain: every automated run was `--ephemeral`.
+- The Dock badge as the Dock draws it (A47): the tests counted into `InertDockBadge`; a run of the
+  built app in the background could not read its label back (`lsappinfo` on this macOS shows none,
+  and the Dock's accessibility tree needs a permission no automated run asks for), and whether macOS
+  shows `badgeLabel` to an app the person has not allowed badges is not known here.
 - VoiceOver, and keyboard navigation beyond the menu shortcuts.
 - A Mac whose scroll bars are set to always show.
 - Distribution: the release's disk image is signed to run locally, not notarized, and there is no

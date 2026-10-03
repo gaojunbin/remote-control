@@ -2234,6 +2234,10 @@ func run() async -> (passed: Int, failures: [String]) {
         expect(false, "the check can read project.yml")
     }
 
+    let unseen = await unseenChecks()
+    passed += unseen.passed
+    failures += unseen.failures
+
     return (passed, failures)
 }
 

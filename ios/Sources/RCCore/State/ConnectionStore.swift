@@ -83,6 +83,11 @@ public final class ConnectionStore {
     @ObservationIgnored private var confirmation: Task<Void, Never>?
     @ObservationIgnored private var configuration: Task<Void, Never>?
     @ObservationIgnored private var frameHandlers: [String: @MainActor (AppFrame) -> Void] = [:]
+    /// Amendment A47: the sessions, by `Session.id`, a `session.seen` has gone
+    /// out for while their copy still carries the mark — in flight, or answered
+    /// and waiting for the gateway's `session.updated` to catch the copy up. One
+    /// request per mark, however often the conversation is found in front.
+    @ObservationIgnored private var seenSent: Set<String> = []
     /// Called with both versions whenever a session the app already knew is
     /// replaced by a newer one. A session arriving for the first time — the
     /// `hello` list, or one the device just created — is not a transition and
@@ -124,6 +129,7 @@ public final class ConnectionStore {
         confirmation = nil
         configuration?.cancel()
         configuration = nil
+        seenSent.removeAll()
         return scope
     }
 
@@ -148,6 +154,11 @@ public final class ConnectionStore {
     }
 
     public var onlineDevices: [Device] { devices.filter(\.online) }
+
+    /// Amendment A47: the unarchived sessions with a red dot. The app icon's
+    /// badge is this less the conversation in front of the person
+    /// (`UnseenMark.count(in:excluding:)`).
+    public var unseenCount: Int { UnseenMark.count(in: sessions) }
 
     /// "2 devices · 1 waiting" for the sessions footer.
     public var inventorySummary: String {
@@ -521,8 +532,39 @@ public final class ConnectionStore {
             // gateway sent one (amendment A5).
             sessions.removeAll { $0.sessionID == sessionID && (deviceID == nil || $0.deviceID == deviceID) }
         default:
-            break
+            return
         }
+        forgetAnsweredSeen()
+    }
+
+    // MARK: - The red dot (A47)
+
+    /// Tell the gateway the person has this conversation in front of them, so
+    /// its red dot goes on every app of the account. Sent only while this copy
+    /// carries the mark, and once for it; the gateway's `session.updated` is
+    /// what takes the dot away. A failure says nothing: the request is
+    /// idempotent, and the next time the conversation is found in front with
+    /// the mark still on, it goes again.
+    public func markSeen(deviceID: String, sessionID: String) async {
+        guard let session = session(deviceID: deviceID, sessionID: sessionID), session.unseen,
+              !seenSent.contains(session.id), let channel else { return }
+        let scope = self.scope
+        seenSent.insert(session.id)
+        do {
+            _ = try await channel.request(.seen(sessionID: sessionID))
+        } catch {
+            guard isCurrent(scope) else { return }
+            seenSent.remove(session.id)
+        }
+    }
+
+    /// A copy that no longer carries the mark — the gateway cleared it, or the
+    /// session is gone — needs no request remembered for it; the next mark on
+    /// that session is a new one.
+    private func forgetAnsweredSeen() {
+        guard !seenSent.isEmpty else { return }
+        let marked = Set(sessions.lazy.filter(\.unseen).map(\.id))
+        seenSent.formIntersection(marked)
     }
 
     /// Close a session from the list: the device interrupts its turn, ends what

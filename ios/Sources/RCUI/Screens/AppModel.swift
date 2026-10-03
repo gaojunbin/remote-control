@@ -52,6 +52,12 @@ public final class AppModel {
     public private(set) var deviceUpdateErrors: [String: String] = [:]
 
     @ObservationIgnored private let drafts: DraftStore
+    /// Amendment A47: where the home-screen badge is put, and what keeps it
+    /// at the count; and what tells the gateway the conversation on screen
+    /// has been seen.
+    @ObservationIgnored private let badgePlatform: any BadgePlatform
+    @ObservationIgnored private var badge: AppBadge?
+    @ObservationIgnored private var seenReporter: SeenReporter?
     @ObservationIgnored private let isUITesting: Bool
     /// Amendment A41: whether the demo's other device changes a preference
     /// while Settings is open. Every run but a UI test's, and the one UI test
@@ -85,9 +91,11 @@ public final class AppModel {
                 settings: SettingsStore = SettingsStore(),
                 push: PushController? = nil,
                 turns: TurnNotifier? = nil,
+                badge: (any BadgePlatform)? = nil,
                 drafts: DraftStore = DraftStore(),
                 arguments: [String] = ProcessInfo.processInfo.arguments) {
         self.drafts = drafts
+        badgePlatform = badge ?? SystemBadge()
         // `--demo-account` puts the offline gateway behind the sign-in form
         // instead of around it, which is how the account screens are driven
         // with no gateway to reach.
@@ -138,6 +146,35 @@ public final class AppModel {
                 if entersDemo { await self.enterDemo() }
             }
         }
+        followRedDots()
+    }
+
+    /// Amendment A47, for the life of the app: the conversation on screen is
+    /// reported seen whenever it carries a red dot, and the home-screen badge
+    /// follows the number of dots.
+    private func followRedDots() {
+        let seenReporter = SeenReporter(connection: connection) { [weak self] in self?.conversationInFront }
+        seenReporter.start()
+        self.seenReporter = seenReporter
+        let badge = AppBadge(platform: badgePlatform) { [weak self] in self?.badgeCount ?? 0 }
+        badge.start()
+        self.badge = badge
+    }
+
+    /// The conversation the person has in front of them: open on screen, with
+    /// the app active and not behind its lock.
+    private var conversationInFront: String? {
+        guard isSceneActive, !isLocked else { return nil }
+        return chat?.key
+    }
+
+    /// The home-screen badge: the sessions with a red dot, less the one being
+    /// looked at, while someone is signed in and Notify me is on. With the
+    /// switch off nothing is pushed to this phone, so a badge the app left
+    /// behind could never be kept true once it closed.
+    private var badgeCount: Int {
+        guard connection.isSignedIn, settings.notificationsEnabled else { return 0 }
+        return UnseenMark.count(in: connection.sessions, excluding: conversationInFront)
     }
 
     public var isDemo: Bool { connection.isDemo }
@@ -250,6 +287,8 @@ public final class AppModel {
         // `user` and drops the endpoint, so `account` would name nobody.
         await drafts.clear(account: connection.account)
         await connection.signOut()
+        // Amendment A47: the dots were the account's, and so is their count.
+        badge?.reassert()
     }
 
     /// A `hello` snapshot is the whole list of what this account has, so a
@@ -391,6 +430,9 @@ public final class AppModel {
     public func setSceneActive(_ active: Bool) {
         isSceneActive = active
         syncRemoteBanners()
+        // A push may have put another number on the icon while the app was
+        // away, or one may never have arrived.
+        if active { badge?.reassert() }
     }
 
     /// A push for a transition this app has already announced is not shown a

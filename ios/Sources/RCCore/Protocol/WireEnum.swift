@@ -249,6 +249,9 @@ public struct PushKind: WireEnum {
     public static let limitReached = PushKind(rawValue: "limit_reached")
     public static let resumed = PushKind(rawValue: "resumed")
     public static let resumeDropped = PushKind(rawValue: "resume_dropped")
+    /// Amendment A47: the account's count of red dots changed and no other
+    /// push carried it. It sets the app icon's badge and shows nothing.
+    public static let badge = PushKind(rawValue: "badge")
 }
 
 extension ToolKind {

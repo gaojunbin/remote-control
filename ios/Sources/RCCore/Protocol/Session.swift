@@ -125,6 +125,11 @@ public struct Session: Codable, Sendable, Hashable, Identifiable {
     /// after a usage limit (7.2), or nil when there is none. It is what the
     /// notice above the transcript is drawn from.
     public var resume: SessionResume?
+    /// Amendment A47: the session stopped working and waits for the person,
+    /// and nobody on the account has opened it since. The gateway's alone; a
+    /// gateway that predates the amendment never sends it, which reads as
+    /// false.
+    public var unseen: Bool
 
     /// Unique across devices, unlike `sessionID`.
     public var id: String { "\(deviceID)/\(sessionID)" }
@@ -151,7 +156,7 @@ public struct Session: Codable, Sendable, Hashable, Identifiable {
                 speed: String? = nil, createdAt: Int64 = 0, updatedAt: Int64 = 0,
                 lastSeq: Int = 0, archived: Bool = false,
                 turn: TurnMarker? = nil, todos: TodoCounts? = nil, usage: SessionUsage? = nil,
-                queued: Int = 0, resume: SessionResume? = nil) {
+                queued: Int = 0, resume: SessionResume? = nil, unseen: Bool = false) {
         self.sessionID = sessionID
         self.deviceID = deviceID
         self.agent = agent
@@ -175,11 +180,12 @@ public struct Session: Codable, Sendable, Hashable, Identifiable {
         self.usage = usage
         self.queued = queued
         self.resume = resume
+        self.unseen = unseen
     }
 
     enum CodingKeys: String, CodingKey {
         case agent, title, cwd, git, state, origin, control, model, effort, speed, archived, turn
-        case todos, usage, queued, resume
+        case todos, usage, queued, resume, unseen
         case sessionID = "session_id"
         case deviceID = "device_id"
         case stateDetail = "state_detail"
@@ -214,5 +220,6 @@ public struct Session: Codable, Sendable, Hashable, Identifiable {
         usage = try values.decodeIfPresent(SessionUsage.self, forKey: .usage)
         queued = try values.decodeIfPresent(Int.self, forKey: .queued) ?? 0
         resume = try values.decodeIfPresent(SessionResume.self, forKey: .resume)
+        unseen = try values.decodeIfPresent(Bool.self, forKey: .unseen) ?? false
     }
 }

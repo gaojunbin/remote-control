@@ -5,7 +5,9 @@ import SwiftUI
 /// A window of the app's own shape — full-size content under a transparent
 /// title bar, the traffic lights in its corner — that is never on a screen: it
 /// sits far outside every display, and AppKit is not allowed to pull it back.
-final class OffscreenWindow: NSWindow {
+/// It is the window the person is looking at all the same, so what it draws
+/// is drawn as the app draws its focused window.
+final class OffscreenWindow: NSWindow, FrontmostWindow {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 

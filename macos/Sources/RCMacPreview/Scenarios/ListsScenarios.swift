@@ -110,8 +110,28 @@ enum ListsScenarios {
             PreviewScenario(name: "sessions-filtered", route: .sessions, setup: { context in
                 context.model.sessions.agentFilter = "codex"
             }),
-            PreviewScenario(name: "sessions-close", route: .sessions, stage: "sessions.close")
+            PreviewScenario(name: "sessions-close", route: .sessions, stage: "sessions.close"),
+            // A47: a turn that ended with nobody looking leaves its red dot
+            // beside the one the gateway already had.
+            PreviewScenario(name: "sessions-unseen", route: .sessions, settle: .milliseconds(600),
+                            prepare: { context in await endTurnUnwatched(context) })
         ]
+    }
+
+    /// Send to a quiet session the device drives and wait for its turn to end
+    /// while nothing has it open, which is what marks it (A47).
+    @MainActor
+    private static func endTurnUnwatched(_ context: PreviewContext) async {
+        let connection = context.model.connection
+        guard let quiet = connection.sessions.first(where: {
+            $0.control == .remote && $0.state == .idle && !$0.archived && !$0.unseen
+        }), let channel = connection.channel,
+              let send = try? GatewayRequest.send(sessionID: quiet.sessionID, text: "Run the parser tests again.")
+        else { return }
+        _ = try? await channel.request(send)
+        await context.wait(timeout: .seconds(10)) {
+            connection.session(deviceID: quiet.deviceID, sessionID: quiet.sessionID)?.unseen == true
+        }
     }
 
     /// Fold or open groups the way a reader would, on the groups the gateway lists.
@@ -140,23 +160,42 @@ enum ListsScenarios {
     }
 
     /// The sidebar alone, as the conversation page places it, on the session
-    /// the render finds waiting for an approval.
+    /// the render finds waiting for an approval; and the whole conversation
+    /// page with a red dot in its sidebar (A47).
     private static var sidebar: [PreviewScenario] {
         [
             sidebarScenario("sidebar"),
-            sidebarScenario("sidebar-zh", language: .zhHans)
+            sidebarScenario("sidebar-zh", language: .zhHans),
+            // The running session is open in front of the person, so its turn
+            // ends without a dot; the one that stopped to ask keeps its own.
+            PreviewScenario(name: "chat-sidebar-unseen", settle: .milliseconds(2500), setup: { context in
+                let sessions = context.model.connection.sessions
+                guard let open = sessions.first(where: { $0.state == .running && !$0.unseen }) ?? sessions.first
+                else { return }
+                context.model.router.replace(.chat(deviceId: open.deviceID, sessionId: open.sessionID))
+            })
         ]
     }
 
     private static func sidebarScenario(_ name: String, language: InterfaceLanguage? = nil) -> PreviewScenario {
-        PreviewScenario(name: name, route: .sessions, language: language, content: { context in
-            let sessions = context.model.connection.sessions
-            let open = sessions.first { $0.state == .needsApproval } ?? sessions.first
+        // The page the sidebar belongs to is the open conversation's, in front
+        // of the person, so its own row is drawn as the app draws it there.
+        PreviewScenario(name: name, route: .sessions, language: language, setup: { context in
+            guard let open = sidebarSession(context) else { return }
+            context.model.router.replace(.chat(deviceId: open.deviceID, sessionId: open.sessionID))
+        }, content: { context in
+            let open = sidebarSession(context)
             return AnyView(HStack(spacing: 0) {
                 SessionSidebar(deviceId: open?.deviceID ?? "", sessionId: open?.sessionID ?? "")
                 Palette.surface
             })
         })
+    }
+
+    @MainActor
+    private static func sidebarSession(_ context: PreviewContext) -> Session? {
+        let sessions = context.model.connection.sessions
+        return sessions.first { $0.state == .needsApproval } ?? sessions.first
     }
 }
 

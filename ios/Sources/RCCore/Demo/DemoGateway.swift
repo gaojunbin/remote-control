@@ -206,6 +206,8 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         switch request.type {
         case "session.subscribe":
             return try subscribe(request)
+        case "session.seen":
+            return try markSeen(request)
         case "session.history":
             return try history(request)
         case "session.send":
@@ -592,6 +594,21 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         let held = queues[id].flatMap { $0.isEmpty ? nil : QueuePayload(pending: $0.pending) }
         return try JSONValue.encode(SubscribeResult(session: session, events: events, resync: false,
                                                     queue: held))
+    }
+
+    /// Amendment A47: the person has the conversation in front of them. The
+    /// gateway answers this itself, takes the mark off and publishes the
+    /// session only when there was a mark to take off. The device reported
+    /// nothing, so the session's own `updated_at` stays where it was.
+    private func markSeen(_ request: GatewayRequest) throws -> JSONValue {
+        let id = try requireSessionID(request)
+        guard let index = sessionList.firstIndex(where: { $0.sessionID == id }) else {
+            throw GatewayErrorBody(code: .notFound, message: "No such session")
+        }
+        guard sessionList[index].unseen else { return .object([:]) }
+        sessionList[index].unseen = false
+        continuation.yield(.frame(.sessionUpdated(sessionList[index])))
+        return .object([:])
     }
 
     private func history(_ request: GatewayRequest) throws -> JSONValue {
@@ -1541,9 +1558,14 @@ public actor DemoGateway: GatewayChannel, GatewayAPI {
         continuation.yield(.frame(.deviceUpdated(devices[index])))
     }
 
+    /// Every change the device publishes for a session passes here, so the
+    /// mark of amendment A47 is kept where the gateway keeps it: on the move
+    /// from working to waiting, and off when it works again or is archived.
     private func update(sessionID: String, _ mutate: (inout Session) -> Void) {
         guard let index = sessionList.firstIndex(where: { $0.sessionID == sessionID }) else { return }
+        let previous = sessionList[index]
         mutate(&sessionList[index])
+        sessionList[index].unseen = UnseenMark.next(previous: previous, current: sessionList[index])
         sessionList[index].updatedAt = DemoFixtures.now
         continuation.yield(.frame(.sessionUpdated(sessionList[index])))
     }

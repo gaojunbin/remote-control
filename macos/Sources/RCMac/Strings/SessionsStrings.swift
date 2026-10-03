@@ -27,6 +27,9 @@ public struct SessionsStrings: Sendable {
     public let closeBody: String
     public let open: String
     public let untitled: String
+    /// A47: what a screen reader hears on a row carrying the red dot of a
+    /// session that stopped working and waits for the person.
+    public let unseen: String
     /// The dot legend, drawn once above the list (`docs/DESIGN.md` § "A legend,
     /// once, and quiet"). Four entries, not five: the pulsing amber and the
     /// solid amber are one colour to the eye, and "For you" covers both a
@@ -56,6 +59,7 @@ extension SessionsStrings {
         closeBody: "The agent is still working; what it has not finished is lost.",
         open: "Open session",
         untitled: "Untitled session",
+        unseen: "not yet opened",
         legend: "What the dots mean",
         legendWorking: "Working",
         legendAttention: "For you",
@@ -80,6 +84,7 @@ extension SessionsStrings {
         closeBody: "代理仍在工作，未完成的部分会丢失。",
         open: "打开会话",
         untitled: "未命名会话",
+        unseen: "未查看",
         legend: "圆点含义",
         legendWorking: "运行中",
         legendAttention: "等你处理",
