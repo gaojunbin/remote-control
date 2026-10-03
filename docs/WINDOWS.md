@@ -90,7 +90,7 @@ Every Swift file of `macos/Sources/RCMac` has its Kotlin twin under the same nam
 `macos/Tests/RCMacTests` case its JUnit twin; the renderer draws every scenario of `RCMacPreview`
 under the same name and size. On a Mac, the 203 scenarios compare with the Mac renderer's own
 pictures at a median mean difference of about half a level of 255 (the numbers of each round are in
-`docs/VALIDATION-APPS.md`). What it takes is in `win/README.md` § "Matching the Mac's pictures": SF
+`docs/VALIDATION.md`). What it takes is in `win/README.md` § "Matching the Mac's pictures": SF
 as CoreText sets it (optical sizes, CoreText's weights and tracking), SwiftUI's fractional stack
 layout, the browser's line box with each line on its primary face's baseline, and SwiftUI's
 two-line break rule. On Windows the same layout is set in Segoe UI Variable, with Microsoft YaHei UI

@@ -99,4 +99,4 @@ On the JVM only the pure parts of these run; they need a phone: the Keystore rou
 biometric prompt, the camera and the scanner, the speech recogniser and the microphone, posting a
 notification, how a launcher draws the badge's notification (a number or a dot), the Markdown web
 view's JavaScript, haptics. The badge's notification is checked on Robolectric's notification
-manager. The emulator run of each round is recorded in `docs/VALIDATION-APPS.md`.
+manager. The emulator run of each round is recorded in `docs/VALIDATION.md`.

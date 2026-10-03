@@ -2901,6 +2901,63 @@ and the tag's "Release" run (36923171523) attached `Remote-Control-1.12.0.dmg` (
 1.12.0 (versionCode 1, targetSdk 36), signed with the run's one-off key (`CN=Remote Control`), as no
 release key is set on the repository yet; the image is UDZO.
 
+## 57. A red dot for a session that stopped and waits for you, and the app icon's badge (A47) (2026-10-03, 1.13.0)
+
+The owner asked for a red dot on a session whose status dot goes from green (working) to amber
+(waiting for you), and for the phone and computer apps to count those sessions on their icons. A47
+makes the mark the gateway's: `Session.unseen` is set when a device moves a session from `running`
+to waiting, read from the states alone, and cleared by an app's `session.seen`, by the session
+running again and by archiving, closing or removal; it is persisted, every change reaches the
+account's sockets as `session.updated`, every push carries the count (`rc.badge`, APNs
+`aps.badge`), and a badge-only APNs notification (priority 5, nothing shown) follows a count no push
+carried once it has been still for three seconds. Two rulings the same day, before any release:
+only a `running` turn brings the mark — a session that only started (`starting`) has done nothing
+to look at (ada4181) — and the conversation in front of the person draws no dot and is left out of
+the count while its `session.seen` is on its way (295d1ce). The badges, per DESIGN: the iPhone's
+home screen (set by the app and by pushes; none while Notify me is off), the Mac's Dock label, the
+Windows taskbar overlay and notification-area icon ("99+" above 99), Android's one quiet
+notification whose number the launcher draws, the web's `navigator.setAppBadge`. Android's two
+words for that notification live in `android/app/src/main/strings/android.json`, beside the
+iPhone's catalog and never a key of it.
+
+**Checks.** Protocol validator: 205 fixtures, 39 negative cases, 0 problems (new: `session.seen`,
+`push.payload.badge`). Gateway: 596 tests, among them the rule's table, the hub's transitions
+(a new session that only started is not marked; a marked session that starts again keeps its mark
+until it runs), persistence over a restart, the settle-and-coalesce badge push and the APNs
+headers. Web: 888 tests in 70 files; its mock gateway marks and clears as the gateway does. Kotlin
+core: 640 tests (2 skipped: the live gateway's). Android: 459 tests, lint without errors, the debug
+build. Windows: 504 tests (2 skipped), every scenario in both languages (203 each, two new:
+`sessions-unseen`, `chat-sidebar-unseen`). iOS: RCVerify 1588, RCUIVerify 644, swift test 480, and
+the whole `RemoteControlUITests` target on an iPhone 17 simulator — 75 passed, 0 failed, 4 skipped
+(the real gateway's); on the way the UI tests' composer lookup was made to resolve on every use, as
+it chose between a text field and a text view too early and failed two tests under load. Mac:
+swift test 434, 203 renderer scenarios, the Release build.
+
+**Pictures.** The dot sits in each row's leading gutter on the title's line and moves nothing:
+Sessions rows on the iPhone, Android, the Mac and Windows, and the chat sidebar on the Mac and
+Windows, whose rows now all carry a 20 px leading gutter (the web's change) so a dot coming or going
+shifts nothing. The conversation in front draws none.
+
+**On an emulator** (the scratch API 35 image, against the web's mock gateway at
+`http://10.0.2.2:8787`). Signed in, the mock's marked session showed the dot and its row read
+"…, not yet opened, …" to a screen reader. With Notify me off there was no badge notification;
+with it on (the permission granted to the scratch image beforehand, so no prompt) the app posted
+one notification on its own "Sessions" channel, low importance, `number=1`, "1 session is waiting
+for you". Opening that conversation cleared the dot and removed the notification. Approving a tool
+moved a session from `needs_approval` to `idle` — waiting to waiting — and brought no mark, as
+ruled; a turn that reached `needs_input` while its conversation was still on screen left no dot.
+With the app on Sessions, a second app socket answered a question so that a turn ran and ended
+elsewhere: within five seconds the row carried the dot and the badge notification came back with
+`number=1`. The image's AOSP launcher drew a dot on the app's icon once it was allowed to read
+notifications, which this image does not grant by default; whether a launcher draws a number or a
+dot is the launcher's.
+
+**Not verified.** The iPhone's home-screen badge on a phone: `setBadgeCount`, `aps.badge` and the
+badge-only push through real APNs; phones that turned Notify me on before this build granted alerts
+and sounds but were never asked for badges. The Mac's Dock label as drawn (reading the Dock would
+ask for accessibility access). Windows' taskbar overlay and notification-area badge on Windows
+itself. A launcher on a physical Android phone. VoiceOver and TalkBack by ear.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
