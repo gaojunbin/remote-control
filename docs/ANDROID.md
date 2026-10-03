@@ -93,10 +93,28 @@ while the app runs, so the app leaves none behind that nothing could keep true. 
 front puts it up again, for a notification swiped away or a permission granted since. The offline
 demo marks a session as the gateway does, and opens with one marked (the approval).
 
+**Where the icon shows the number.** A launcher that shows numbers adds up the number of every
+notification it may badge, each at least 1, so only the badge's channel counts on the icon: every
+news channel (`rc.<kind>`, a finished turn, an approval, …) is created with its badge off, or a
+"Turn finished" beside the badge would make one session two. A channel's badge setting is fixed when
+the channel is first created, and every build installed so far was signed with a one-off key and has
+to be uninstalled before the next, so no install carries an old channel over. Samsung's launcher
+shows the number with One UI's "Show with number", and Xiaomi's (MIUI 12 and later, HyperOS) once
+the app's "Show app icon badge" is turned on, which is off by default for most apps. Huawei's and
+Honor's launchers take the number only through their own badge interface, so `HuaweiBadge` hands it
+on as well: `change_badge` on `content://com.huawei.android.launcher.settings/badge/` and on
+`content://com.hihonor.android.launcher.settings/badge/`, with `package`, `class` (the launcher
+activity) and `badgenumber` — the number the notification shows, 0 wherever none is posted — under
+each launcher's `CHANGE_BADGE` permission and with both providers in the manifest's `<queries>`;
+every failure there says nothing. Pixel's and stock Android's launchers draw a dot, and OPPO's,
+OnePlus's, realme's and vivo's take numbers only from apps they list, which this app is not.
+
 ## Not verified
 
 On the JVM only the pure parts of these run; they need a phone: the Keystore round trip, the
 biometric prompt, the camera and the scanner, the speech recogniser and the microphone, posting a
-notification, how a launcher draws the badge's notification (a number or a dot), the Markdown web
-view's JavaScript, haptics. The badge's notification is checked on Robolectric's notification
-manager. The emulator run of each round is recorded in `docs/VALIDATION.md`.
+notification, how a launcher draws the badge's notification (a number or a dot), Huawei's and
+Honor's badge interfaces on their own launchers, the Markdown web view's JavaScript, haptics. The
+badge's notification is checked on Robolectric's notification manager, and the call to those two
+interfaces against stand-ins for their providers. The emulator run of each round is recorded in
+`docs/VALIDATION.md`.
