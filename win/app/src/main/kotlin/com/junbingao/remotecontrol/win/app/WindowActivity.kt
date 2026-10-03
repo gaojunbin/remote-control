@@ -44,3 +44,17 @@ internal fun FrameWindowScope.WindowActivity(model: WinAppModel) {
         }
     }
 }
+
+/**
+ * A scene that stands for the window the person is looking at, whatever else is true of it. The
+ * renderer's scene is never on a screen, so Windows never gives it the keyboard, and a picture of it
+ * is a picture of the window in front: a conversation drawn there counts as read, as it would in the
+ * app (A47). The Mac's `FrontmostWindow`.
+ */
+@Composable
+fun FrontmostWindow(model: WinAppModel) {
+    DisposableEffect(model) {
+        model.isWindowActive = true
+        onDispose { model.isWindowActive = false }
+    }
+}

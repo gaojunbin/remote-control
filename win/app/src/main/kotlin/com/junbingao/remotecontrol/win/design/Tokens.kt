@@ -66,6 +66,15 @@ object Palette {
     val diffDelBg = Color.hex(0xFDEEEC)
 }
 
+/**
+ * `--status-dot` and `--unseen-dot`: a status dot, and the red dot of a session that stopped and
+ * waits for you (A47), which is a step larger so it reads apart from the status beside it.
+ */
+object DotSize {
+    val statusDot = 7.dp
+    val unseenDot = 8.dp
+}
+
 /** `--fs-*`: the type scale, in CSS px. */
 object FontSize {
     const val fs11 = 11f

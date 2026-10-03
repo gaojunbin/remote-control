@@ -22,6 +22,7 @@ import com.junbingao.remotecontrol.win.design.Button
 import com.junbingao.remotecontrol.win.design.ButtonConfiguration
 import com.junbingao.remotecontrol.win.design.ButtonStyle
 import com.junbingao.remotecontrol.win.design.DeviceGroupHeader
+import com.junbingao.remotecontrol.win.design.DotSize
 import com.junbingao.remotecontrol.win.design.FontSize
 import com.junbingao.remotecontrol.win.design.HStack
 import com.junbingao.remotecontrol.win.design.LocalReduceMotion
@@ -35,6 +36,9 @@ import com.junbingao.remotecontrol.win.design.css
 import com.junbingao.remotecontrol.win.devices.ExactFrame
 import com.junbingao.remotecontrol.win.shared.Format
 import com.junbingao.remotecontrol.win.strings.S
+import com.junbingao.remotecontrol.win.unseen.showsUnseenDot
+import com.junbingao.remotecontrol.win.unseen.unseenTitle
+import com.junbingao.remotecontrol.win.unseen.unseenValue
 
 /**
  * One device's group in the chat sidebar: the same header as the Sessions page, raised 8 px into
@@ -71,7 +75,7 @@ internal fun SidebarGroup(group: DeviceGroup, activeKey: String) {
 @Composable
 private fun Item(session: Session, online: Boolean, activeKey: String) {
     val model = LocalAppModel.current
-    SidebarItem(session, online, active = session.id == activeKey) {
+    SidebarItem(session, online, active = session.id == activeKey, unseen = model.showsUnseenDot(session)) {
         model.router.go(Route.Chat(deviceId = session.deviceID, sessionId = session.sessionID))
     }
 }
@@ -79,15 +83,22 @@ private fun Item(session: Session, online: Boolean, activeKey: String) {
 /**
  * `.sidebar-item`: the status dot, the title, and under it the folder and the time, whatever the
  * session is doing — the dot carries the state (`docs/DESIGN.md` § "The session row says where it
- * came from"). The row the conversation shows is one step further into the ink.
+ * came from"). The row the conversation shows is one step further into the ink. The leading padding
+ * is the gutter a red dot sits in (A47), kept by every row so the dot moves nothing when it comes
+ * or goes; [unseen] is whether this row draws one.
  */
 @Composable
-internal fun SidebarItem(session: Session, online: Boolean, active: Boolean, action: () -> Unit) {
-    Button(action, Modifier.fillMaxWidth(), style = SidebarItemStyle(active)) {
-        HStack(Modifier.padding(horizontal = Space.sp2), spacing = Space.sp2) {
+internal fun SidebarItem(session: Session, online: Boolean, active: Boolean, unseen: Boolean, action: () -> Unit) {
+    Button(action, Modifier.fillMaxWidth().unseenValue(unseen), style = SidebarItemStyle(active)) {
+        HStack(Modifier.padding(start = SidebarGutter, end = Space.sp2), spacing = Space.sp2) {
             StatusDot(session.state, session.control, online = online)
             VStack(Modifier.weight(1f), spacing = 1.dp, alignment = Alignment.Start) {
-                Text(S.sessionTitle(session), css(FontSize.fs14, weight = FontWeight.SemiBold, lineHeight = 1.4f, tracking = -0.01f), lineLimit = 1)
+                Text(
+                    S.sessionTitle(session),
+                    css(FontSize.fs14, weight = FontWeight.SemiBold, lineHeight = 1.4f, tracking = -0.01f),
+                    Modifier.unseenTitle(unseen, reach = TitleReach, gutter = SidebarGutter),
+                    lineLimit = 1,
+                )
                 Text(
                     "${Format.baseName(session.cwd)} · ${Format.relativeTime(session.updatedAt)}",
                     css(FontSize.fs12, lineHeight = 1.45f),
@@ -98,6 +109,12 @@ internal fun SidebarItem(session: Session, online: Boolean, active: Boolean, act
         }
     }
 }
+
+/** `.sidebar-item`'s leading padding: the gutter the red dot is centred in (A47). */
+private val SidebarGutter = Space.sp5
+
+/** From the row's edge to the title: its padding, the status dot and the gap after it. */
+private val TitleReach = SidebarGutter + DotSize.statusDot + Space.sp2
 
 private class SidebarItemStyle(private val active: Boolean) : ButtonStyle {
     @Composable

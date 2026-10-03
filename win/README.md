@@ -24,7 +24,7 @@ Users, the terminal and the notifications.
 | `…/win/design/` | `tokens.css` as Kotlin, the web's type and its line box, SwiftUI's stacks, every primitive of the Mac's `Design/`; `icons/` (lucide) and `overlay/` (the overlay layer, popovers, modals, the drawer, Escape) |
 | `…/win/strings/` | every group of the Mac's `Strings/`, one file per group, with `S`, Windows' own words (`WinStrings`) and the composer's and Settings' Windows-only words |
 | `…/win/layout/` | the topbar and its tabs, the page head, the page shell, the landing rule, the window strip |
-| `…/win/platform/` | the services: the token vault, notifications and the tray, the microphone, the terminal emulator and its keys, the Markdown engine, Windows' settings |
+| `…/win/platform/` | the services: the token vault, notifications and the tray, the icon's badge (`BadgeSurface`, `BadgeImage`), the microphone, the terminal emulator and its keys, the Markdown engine, Windows' settings |
 | `…/win/login/`, `…/win/update/` | the sign-in page and its errors; Update required (A46) |
 | `…/win/shared/` | the web helpers two or more features read: `Format`, `Identity`, `ErrorText`, `AccountErrors`, `SessionOptions`, `LabelPair`, `Attach`, `AttachmentLimits`, `Answering`, `SlashCommands` |
 | `…/win/chat/` | the conversation: `ChatPage` (over the whole window) and `ChatFeature`; `page/` the panes, banners and `ChatHost`, which opens and closes a conversation; `header/` the chat header with Todos and usage; `timeline/` the transcript, its exact layout (`TranscriptExact`), the follow rule and the status line; `blocks/` every block — messages, thinking, tools, diffs, output, JSON, approval and question cards, notices; `markdown/` the hast drawn as views, with highlighted, copyable code; `resume/` the usage-limit notice and its form; `support/` the chat's text (`ChatText`: selectable, inline images, each line on the browser's baselines) and its borders, boxes and button styles |
@@ -35,6 +35,7 @@ Users, the terminal and the notifications.
 | `…/win/settings/`, `…/win/users/` | Settings — the identity header, the four groups, change password, sign out, the versions line; the accounts screen with registration and the add, reset and delete dialogs (A24) |
 | `…/win/terminal/` | the terminal page (A38): `TerminalScreen` (the web's open, resize, reconnect and exit rules on the core's `TerminalSession`), the head and status line, and `TerminalStandIn`, what a render draws in the emulator's place |
 | `…/win/notifications/` | `SettingsFeature` and the notifier: Notify me's two halves and the moments it posts at |
+| `…/win/unseen/` | A47, the Mac's `Unseen/`: `UnseenFeature` (the core's `SeenReporter` on `conversationInFront`, and the badge's keeper), `UnseenDot` (the red dot beside a row's title), `TaskbarBadge` (the keeper, the stand-in, and Windows' own over the taskbar button and the notification area) |
 | `…/win/gallery/` | the gallery pages the window and the renderer draw |
 | `app/src/test/` | JUnit 5, one directory per package; `resources/markdown/corpus.json` and `resources/text/linebreaks.json` are the Mac's own results the tests compare with |
 | `preview/` | the renderer: scenarios drawn offscreen and written as PNG; `scenarios/` holds the foundation's and one file per feature |
@@ -121,8 +122,8 @@ runs, in order, before the connection goes, and empties what its feature holds o
 `web/src/stores/signOut.ts` does — and `onSessionTransition { previous, current -> }`, both
 multicast; `connection.addFrameHandler(token) { frame -> }` is multicast, keyed by a token of your
 own. Each feature's launch hook is the `install(on)` of its `…Feature` object (`ChatFeature`,
-`ComposerFeature`, `ListsFeature`, `SettingsFeature`), which `Features` calls once as the model is
-built. The shell reads its part of the model as `ShellState` through `LocalShellState`;
+`ComposerFeature`, `ListsFeature`, `SettingsFeature`, `UnseenFeature`), which `Features` calls once
+as the model is built. The shell reads its part of the model as `ShellState` through `LocalShellState`;
 `WithAppModel(model) { }` provides both.
 
 **Work a person asked for runs on `model.tasks`.** The core's stores take the scope their work runs
@@ -272,13 +273,15 @@ dialog, a paste or a drop, slash commands, the controls row (Up next, the model 
 effort, permissions), the primary button that sends, queues, answers and interrupts, A43's queued
 edit, and the gateway's dictation with polish on the core's `STTSocket`.
 
-**The lists** (`devices/`, `sessions/`; `ListsScenarios`, 47). Device rows with their menus, rename
+**The lists** (`devices/`, `sessions/`; `ListsScenarios`, 49). Device rows with their menus, rename
 and revoke and the update states; Add device with the one-liner, the code and its countdown — the
 gateway's clock, read again on every tick — and the live handshake, the request leaving as the
 modal shows, as the Mac's does; a device's page with its agent cards and quotas; Sessions grouped by
 device with folds, archives, search, the agent and device filters, the legend and Close; the New
-session drawer with its directory picker and New folder; and the conversation's session sidebar,
-whose head shows the wordmark the Mac's traffic lights leave no room for.
+session drawer with its directory picker and New folder; the conversation's session sidebar, whose
+head shows the wordmark the Mac's traffic lights leave no room for; and the red dot (A47), on a
+Sessions row whose turn ended unwatched and in the sidebar beside an open conversation that keeps
+none.
 
 **Settings, Users, the terminal and notifications** (`settings/`, `users/`, `terminal/`,
 `notifications/`; `SettingsScenarios`, 35). The identity header, the four groups and their states,

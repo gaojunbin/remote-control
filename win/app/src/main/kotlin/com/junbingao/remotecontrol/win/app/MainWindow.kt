@@ -30,8 +30,11 @@ import com.junbingao.remotecontrol.win.platform.AppIcon
 import com.junbingao.remotecontrol.win.platform.AppTray
 import com.junbingao.remotecontrol.win.platform.TrayToasts
 import com.junbingao.remotecontrol.win.platform.ReduceMotion
+import com.junbingao.remotecontrol.win.platform.WindowsBadgeSurface
 import com.junbingao.remotecontrol.win.strings.InterfaceLanguageSource
 import com.junbingao.remotecontrol.win.strings.S
+import com.junbingao.remotecontrol.win.unseen.SystemTaskbarBadge
+import com.junbingao.remotecontrol.win.unseen.UnseenFeature
 import java.awt.Dimension
 
 /**
@@ -41,7 +44,9 @@ import java.awt.Dimension
  * connected in the notification area, whose icon opens it again and offers Quit; where there is no
  * notification area, closing it quits, and quitting takes an ephemeral run's files with it.
  * Escape closes the newest overlay, and the rest of the keyboard map is `AppCommands`, with the
- * mouse's back and forward buttons.
+ * mouse's back and forward buttons. The app's icon carries the number of sessions with a red dot
+ * (A47): on the taskbar button while the window is open, in the notification area while it is
+ * closed.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -51,6 +56,10 @@ fun ApplicationScope.MainWindow(model: WinAppModel) {
     // Nothing but the form, or the Update required screen, is reachable without an account the gateway accepts.
     val commands = remember { AppCommands(model.router, canNavigate = { model.isSignedIn && model.connection.updateRequired == null }) }
     val tray = remember { AppTray.install() }
+    // A47: the number on the app's icon, drawn by Windows once there is a window to lay it over.
+    val badgeSurface = remember(tray) { WindowsBadgeSurface(tray) }
+    val taskbar = remember(badgeSurface) { SystemTaskbarBadge(badgeSurface) }
+    var frame by remember { mutableStateOf<java.awt.Window?>(null) }
     val quit = {
         model.discardEphemeralState()
         exitApplication()
@@ -66,6 +75,13 @@ fun ApplicationScope.MainWindow(model: WinAppModel) {
     }
     LaunchedEffect(tray) {
         snapshotFlow { InterfaceLanguageSource.current }.collect { tray?.relabel() }
+    }
+    LaunchedEffect(taskbar) {
+        UnseenFeature.state(of = model).badge.platform = taskbar
+        snapshotFlow { visible to frame }.collect { (shown, window) ->
+            badgeSurface.window = window
+            taskbar.windowShown(shown && window != null)
+        }
     }
     LaunchedEffect(model) { model.restoreOrPrompt() }
     Window(
@@ -86,6 +102,7 @@ fun ApplicationScope.MainWindow(model: WinAppModel) {
                 window.toFront()
                 window.requestFocus()
             }
+            frame = window
         }
         WindowActivity(model)
         CompositionLocalProvider(LocalReduceMotion provides ReduceMotion.current) {
