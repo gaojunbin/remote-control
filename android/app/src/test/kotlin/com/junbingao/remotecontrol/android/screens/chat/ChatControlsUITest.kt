@@ -51,6 +51,7 @@ class ChatControlsUITest {
         node("composer.effort").performTouchInput { click(Offset(width * 0.97f, height * 0.5f)) }
         await("the slider snaps to the agent's own levels") { value("composer.effort") == "High" }
         await("and the word in the first row follows the thumb", 10_000) { labelled("High").isNotEmpty() }
+        await("the effort change finishes before changing speed") { isEnabled("composer.speed") }
         tap("composer.speed")
         await("one tap raises the tier the agent named, drawn before the device answers") { value("composer.speed") == "Fast" }
         attach("45-model-card-fast")
@@ -58,6 +59,7 @@ class ChatControlsUITest {
         // whatever the level and the tier.
         assertEquals("the gauge keeps its width through a level and a tier change", chipWidth, frame("composer.modelCard").width, 0.5f)
         await("and says the level and the tier the needle and the bolt draw") { value("composer.modelCard") == "GPT-5.4 Codex, effort High, Fast" }
+        await("the speed change finishes before using the model card again") { isEnabled("composer.speed") }
     }
 
     /** An agent that lists no tier draws no speed control at all, rather than a disabled one with a caption explaining itself. */
