@@ -25,6 +25,7 @@ import com.junbingao.remotecontrol.core.protocol.stringValue
 import com.junbingao.remotecontrol.core.state.AppBuild
 import com.junbingao.remotecontrol.core.state.GatewayAPI
 import com.junbingao.remotecontrol.core.state.GatewayChannel
+import com.junbingao.remotecontrol.core.state.UnseenMark
 import com.junbingao.remotecontrol.core.transport.APNSRegistration
 import com.junbingao.remotecontrol.core.transport.ConnectionState
 import com.junbingao.remotecontrol.core.transport.GatewayConfig
@@ -328,6 +329,7 @@ class DemoGateway(
     override suspend fun request(request: GatewayRequest): JsonElement = withContext(isolation) {
         when (request.type) {
             "session.subscribe" -> subscribe(request)
+            "session.seen" -> markSeen(request)
             "session.history" -> history(request)
             "session.send" -> send(request)
             "session.approve" -> resolveApproval(request)
@@ -626,12 +628,20 @@ class DemoGateway(
         continuation.trySend(GatewayEvent.Frame(AppFrame.DeviceUpdated(devices[index])))
     }
 
+    /**
+     * Every change the device makes to a session passes here, so the mark of amendment A47 is kept
+     * where the gateway keeps it: on the move from working to waiting, and off when it works again or
+     * is archived.
+     */
     @JvmName("updateSession")
     internal fun update(sessionID: String, mutate: (Session) -> Session) {
         val index = sessionList.indexOfFirst { it.sessionID == sessionID }
         if (index < 0) return
         sessionList = sessionList.toMutableList().also {
-            it[index] = mutate(it[index]).copy(updatedAt = DemoFixtures.now)
+            val previous = it[index]
+            val current = mutate(previous)
+            it[index] = current.copy(unseen = UnseenMark.next(previous = previous, current = current),
+                                     updatedAt = DemoFixtures.now)
         }
         continuation.trySend(GatewayEvent.Frame(AppFrame.SessionUpdated(sessionList[index])))
     }

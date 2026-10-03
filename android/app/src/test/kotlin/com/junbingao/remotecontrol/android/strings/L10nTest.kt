@@ -100,7 +100,18 @@ class L10nTest {
         val catalogue = catalogueKeys()
         assertTrue(overlay().keys.all { it in catalogue })
         assertTrue(system().keys.none { it in catalogue })
-        assertEquals(catalogue + system().keys, Catalog.en.keys)
+        assertEquals(catalogue + system().keys + android().keys, Catalog.en.keys)
+    }
+
+    /** The words only Android shows are laid in beside the iPhone's, never over them, in both languages (A47's badge). */
+    @Test
+    fun androidsOwnWordsAreNoneOfTheIPhones() {
+        val own = android()
+        assertTrue(own.isNotEmpty())
+        assertTrue("Android's words that are the iPhone's keys: ${own.keys.filter { it in catalogueKeys() }}", own.keys.none { it in catalogueKeys() })
+        assertEquals("1 session is waiting for you", L10n.string("1 session is waiting for you"))
+        L10n.use(L10n.chinese)
+        assertEquals("有 3 个会话在等你处理", L10n.string("%lld sessions are waiting for you", 3L))
     }
 
     @Test
@@ -129,6 +140,8 @@ class L10nTest {
     private fun overlay(): Map<String, String> = entries(File("src/main/strings/overlay.json"))
 
     private fun system(): Map<String, String> = entries(File("src/main/strings/system.json"))
+
+    private fun android(): Map<String, String> = entries(File("src/main/strings/android.json"))
 
     /** A `{"key": {"en": …, "zh-Hans": …}}` file's English words; a key starting with "//" is its note. */
     private fun entries(file: File): Map<String, String> {

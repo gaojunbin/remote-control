@@ -19,6 +19,7 @@ import com.junbingao.remotecontrol.android.design.FolderGlyph
 import com.junbingao.remotecontrol.android.design.SessionOriginLabel
 import com.junbingao.remotecontrol.android.design.Text
 import com.junbingao.remotecontrol.android.design.Theme
+import com.junbingao.remotecontrol.android.design.unseenDot
 import com.junbingao.remotecontrol.android.strings.L10n
 import com.junbingao.remotecontrol.android.system.RowStyle
 import com.junbingao.remotecontrol.core.protocol.EventSource
@@ -47,7 +48,8 @@ fun SessionRow(session: Session, online: Boolean) {
         Row(horizontalArrangement = Arrangement.spacedBy(Theme.Space.small)) {
             Text(
                 session.title.ifEmpty { L10n.string("Untitled session") },
-                Modifier.weight(1f).alignByBaseline(),
+                // Amendment A47: in the gutter `sessionRowLayout` leaves, on the title's line.
+                Modifier.weight(1f).alignByBaseline().unseenDot(session.unseen, gutter = SessionRowGutter),
                 style = Theme.Text.title,
                 color = Theme.ink,
                 lineLimit = 1,
@@ -72,10 +74,12 @@ fun SessionRow(session: Session, online: Boolean) {
     }
 }
 
-/** What a screen reader hears for the row, as one sentence. */
+/** What a screen reader hears for the row, as one sentence; the red dot is said after the title it sits beside (A47). */
 private fun label(session: Session): String {
     val title = session.title.ifEmpty { "Untitled session" }
-    val parts = mutableListOf(title, session.agentLabel, session.originLabel)
+    val parts = mutableListOf(title)
+    if (session.unseen) parts.add(L10n.string("not yet opened"))
+    parts.addAll(listOf(session.agentLabel, session.originLabel))
     if (session.archived) parts.add("archived")
     parts.add(session.cwd)
     return parts.joinToString(", ")
@@ -96,6 +100,9 @@ val Session.originLabel: String
  */
 val RowStyle.Companion.sessionRowLayout: RowStyle
     get() = RowStyle(
-        insets = PaddingValues(start = Theme.Space.medium, top = 14.dp, end = Theme.Space.medium, bottom = 14.dp),
+        insets = PaddingValues(start = SessionRowGutter, top = 14.dp, end = Theme.Space.medium, bottom = 14.dp),
         separator = false,
     )
+
+/** The row's leading inset, which is also the gutter the red dot sits in (A47). */
+private val SessionRowGutter = Theme.Space.medium

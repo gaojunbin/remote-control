@@ -127,6 +127,12 @@ data class PushRoute(
     val sessionID: String,
     val deviceName: String,
     val title: String,
+    /**
+     * Amendment A47: the account's unarchived sessions with a red dot once this push's own change is
+     * made — what APNs puts on the app icon from `aps.badge`. Absent from a gateway that predates the
+     * amendment.
+     */
+    val badge: Int? = null,
 ) {
     /** `remotecontrol://session?device=<id>&id=<session_id>` */
     val deepLink: URI? get() = SessionLink(deviceID = deviceID, sessionID = sessionID).url
@@ -140,6 +146,7 @@ data class PushRoute(
         @SerialName("session_id") val sessionID: String,
         @SerialName("device_name") val deviceName: String = "",
         val title: String = "",
+        val badge: Int? = null,
     )
 
     object Serializer : KSerializer<PushRoute> {
@@ -149,11 +156,13 @@ data class PushRoute(
         override fun deserialize(decoder: Decoder): PushRoute {
             val route = decoder.decodeSerializableValue(wire)
             return PushRoute(version = route.version, kind = route.kind, deviceID = route.deviceID,
-                             sessionID = route.sessionID, deviceName = route.deviceName, title = route.title)
+                             sessionID = route.sessionID, deviceName = route.deviceName, title = route.title,
+                             badge = route.badge)
         }
 
         override fun serialize(encoder: Encoder, value: PushRoute) = encoder.encodeSerializableValue(
-            wire, Wire(value.version, value.kind, value.deviceID, value.sessionID, value.deviceName, value.title))
+            wire, Wire(value.version, value.kind, value.deviceID, value.sessionID, value.deviceName, value.title,
+                       value.badge))
     }
 
     companion object {

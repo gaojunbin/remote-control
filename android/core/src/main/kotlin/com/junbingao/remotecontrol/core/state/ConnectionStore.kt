@@ -120,6 +120,13 @@ class ConnectionStore(
     private val frameHandlers = LinkedHashMap<String, (AppFrame) -> Unit>()
 
     /**
+     * Amendment A47: the sessions, by `Session.id`, a `session.seen` has gone out for while their copy
+     * still carries the mark — in flight, or answered and waiting for the gateway's `session.updated`
+     * to catch the copy up. One request per mark, however often the conversation is found in front.
+     */
+    private val seenSent = mutableSetOf<String>()
+
+    /**
      * Called with both versions whenever a session the app already knew is replaced by a newer one. A
      * session arriving for the first time — the `hello` list, or one the device just created — is not
      * a transition and never reaches this. Nothing in the store reads it; the app announces finished
@@ -139,6 +146,7 @@ class ConnectionStore(
         confirmation = null
         configuration?.cancel()
         configuration = null
+        seenSent.clear()
         return scope
     }
 
@@ -171,6 +179,9 @@ class ConnectionStore(
             val devices = L10n.string(if (count == 1) "%lld device" else "%lld devices", count)
             return if (waiting == 0) devices else L10n.string("%@ · %lld waiting", devices, waiting)
         }
+
+    /** Amendment A47: the app icon's badge — the unarchived sessions with a red dot. */
+    val unseenCount: Int get() = UnseenMark.count(sessions)
 
     // Authentication
 
@@ -549,8 +560,9 @@ class ConnectionStore(
                     it.sessionID == frame.sessionID && (frame.deviceID == null || it.deviceID == frame.deviceID)
                 }
             }
-            else -> Unit
+            else -> return
         }
+        forgetAnsweredSeen()
     }
 
     /**
@@ -573,6 +585,39 @@ class ConnectionStore(
             if (!isCurrent(scope)) return
             errorMessage = message(error)
         }
+    }
+
+    // The red dot (A47)
+
+    /**
+     * Tell the gateway the person has this conversation in front of them, so its red dot goes on
+     * every app of the account. Sent only while this copy carries the mark, and once for it; the
+     * gateway's `session.updated` is what takes the dot away. A failure says nothing: the request is
+     * idempotent, and the next time the conversation is found in front with the mark still on, it
+     * goes again.
+     */
+    suspend fun markSeen(deviceID: String, sessionID: String) {
+        val session = session(deviceID = deviceID, sessionID = sessionID) ?: return
+        val channel = channel ?: return
+        if (!session.unseen || session.id in seenSent) return
+        val scope = this.scope
+        seenSent += session.id
+        try {
+            channel.request(GatewayRequest.seen(sessionID = sessionID))
+        } catch (error: Exception) {
+            if (isCurrent(scope)) seenSent -= session.id
+            if (error is CancellationException) throw error
+        }
+    }
+
+    /**
+     * A copy that no longer carries the mark — the gateway cleared it, or the session is gone — needs
+     * no request remembered for it; the next mark on that session is a new one.
+     */
+    private fun forgetAnsweredSeen() {
+        if (seenSent.isEmpty()) return
+        val marked = sessions.filter { it.unseen }.map { it.id }.toSet()
+        seenSent.retainAll(marked)
     }
 
     fun message(error: Throwable): String = GatewayMessage.text(error)

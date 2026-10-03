@@ -43,6 +43,9 @@ class LaunchOptions(val arguments: List<String>, private val debug: Boolean) {
         /** The extra the arguments ride in. */
         const val EXTRA = "args"
 
+        /** Amendment A47: the badge's notification asks for Sessions, not for one conversation. */
+        const val OPENS_SESSIONS = "opens.sessions"
+
         fun from(intent: Intent?, debug: Boolean): LaunchOptions {
             val list = intent?.getStringArrayExtra(EXTRA)?.toList()
                 ?: intent?.getStringExtra(EXTRA)?.split(' ', ',')?.filter { it.isNotBlank() }
@@ -60,5 +63,8 @@ class LaunchOptions(val arguments: List<String>, private val debug: Boolean) {
             val url = runCatching { URI(data) }.getOrNull() ?: return null
             return SessionLink(url = url)
         }
+
+        /** Whether a launch or a new intent came from the badge's notification, which opens Sessions. */
+        fun opensSessions(intent: Intent?): Boolean = intent?.getBooleanExtra(OPENS_SESSIONS, false) == true
     }
 }
