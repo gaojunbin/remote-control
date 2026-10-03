@@ -1648,6 +1648,31 @@ were taken from the same simulator on the demo data and handed to the review.
   accessibility tree shows, but nothing was driven with the screen reader on.
 - **A long device list or a long Archive.** The demo carries three devices and one archived session.
 
+## 10. Codex discovery release checks (2026-10-03, 1.13.2)
+
+The A48 change is in the device client's Codex provenance predicate. The apps consume the same
+session fields and capabilities; their production changes in this round are the unified version
+declarations. The Android model-card test also waits for each pending setting to finish before
+the next interaction, without changing product behavior or test deadlines.
+
+| Component | Local checks | Scope |
+| --- | --- | --- |
+| Web | 70 test files, 888 tests; TypeScript, lint and production build passed | jsdom and mock data; the typed-draft scroll fixture uses shorter input with the same measured overflow and an added value assertion |
+| iOS | RCVerify 1588 checks with 205 fixtures, RCUIVerify 644 checks, Swift tests 480 in 50 suites, Simulator build passed; full UI target: 75 passed, 4 real-gateway smoke tests skipped, 0 failures | Independent temporary iPhone 17 Pro / iOS 27 simulator, English / en_US; built bundle 1.13.2 (33); real-gateway smoke tests need opt-in credentials |
+| Mac | Swift build, 434 tests in 66 suites, 203 preview scenarios and universal Release app build passed | Preview fixtures; English/Chinese login and Settings inspected; built bundle 1.13.2 (7) |
+| Android | Core 640 tests (2 skipped), app 463 tests, lint and Debug build passed; full Roborazzi recording passed with 374 fresh PNGs | PNG signatures and dimensions checked; Settings and the model-card High / Fast state inspected; no golden files committed |
+| Windows | 504 tests in 81 suites (2 skipped), no failures; all 203 preview scenarios passed | JVM tests and desktop fixture previews on this Mac; Settings inspected and reports 1.13.2; Windows installer/startup checks belong to CI |
+
+All 780 newly generated Mac, Android and Windows PNGs passed signature, nonzero-dimension and
+chunk-CRC checks. Screens named above were inspected visually; the file checks do not establish
+visual acceptance for every rendered scenario.
+The temporary iOS simulator was shut down and deleted after the full UI run.
+
+**Not verified.** No gateway deployment, installed device-client update, physical device acceptance
+or real-terminal session UI interaction was performed, in accordance with the owner's
+source-and-release-only scope. The read-only Codex 0.160.0 provenance and source discovery probes
+are recorded in section 59 of `VALIDATION.md`. CI and release artifacts are still pending.
+
 ## Smoke procedure
 
 About ten minutes, four short agent turns.

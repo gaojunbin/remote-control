@@ -3034,16 +3034,60 @@ wait completing with `control: "none"`, idle state and no runner; adoption subse
 `shared`, running state and an attached runner. The test now waits for the entry, `shared` control
 and running state. The production state flow was not changed.
 
+The Web typed-draft scroll test supplies a fixed `scrollHeight` of 600 px, independently of the
+draft's length. Its 410 individually scheduled keystrokes hit the existing 5 s deadline during
+concurrent native builds. It now types an 11-character draft and asserts that input value as well
+as the same 220 px height and unchanged scroll position. Long dictation coverage remains in the
+adjacent tests. The two synchronous timeline row-cap tests also initially exceeded their deadline
+under machine contention; both passed with a single foreground worker, without test or production
+changes. No Web timeout was increased.
+
+The Android model-card test waited for the optimistic effort label before tapping Speed. That
+label can render while the effort request is still pending and Speed remains disabled, so the
+tap can be ignored. The test now waits for Speed to become enabled before the tap and after the
+speed request finishes; the effort, speed, card width and accessibility value assertions remain.
+The production pending-setting flow and the test's deadlines were not changed.
+
 **Checks.** Protocol validator: 205 fixtures, 39 negative cases, 0 problems. Client: Ruff check
 passed, format check passed (209 files), mypy passed (207 source files), pytest 1253 passed and
 3 skipped in 148.30 s. The focused discovery coverage accepts `codex-tui` / `vscode` through
 daemon indexing, `thread/read`, `thread/started` and rollout discovery while retaining the
 Desktop, unknown provenance, subagent and ephemeral boundaries.
 
+The version-bumped client repeated all static checks and the full pytest suite: 1253 passed,
+3 skipped in 250.81 s. Gateway Ruff check/format, mypy and pytest passed (596 tests in 126.54 s).
+Web's full suite passed with one foreground worker: 70 files, 888 tests in 553.02 s; its type check
+and lint also passed, and its production build completed in 11.36 s. The targeted Web row-cap and
+typed-draft checks passed together before that full run. Mac Swift build, 434 tests in 66 suites,
+all 203 preview scenarios and the universal Release application build passed; its built bundle
+reports 1.13.2, build 7.
+Android's corrected full gate passed in 13 min 28 s: 640 core tests (2 skipped), 463 application
+tests, lint and the Debug APK build. The corrected model-card test also passed individually.
+`recordRoborazziDebug` passed in 10 min 44 s, with all 463 application tests passing again. Its
+374 freshly generated PNGs were moved to `/tmp`, checked for PNG signatures and nonzero dimensions,
+and the Settings and model-card Fast screenshots were inspected. Prior renders were moved aside
+before recording, and no golden files were committed.
+Windows JVM checks passed: 504 tests in 81 suites (2 skipped), followed by all 203 preview
+scenarios in 9 min 49 s. Its Settings preview reports 1.13.2. All 780 new Mac, Android and Windows
+PNGs passed signature, nonzero-dimension and chunk-CRC checks. The screens listed in
+`VALIDATION-APPS.md` were inspected visually; the PNG checks cover file integrity.
+
+iOS RCVerify passed 1588 checks with 205 fixtures, RCUIVerify passed 644 checks, and Swift tests
+passed 480 tests in 50 suites. The Simulator build and the whole `RemoteControlUITests` target
+passed on an independent temporary iPhone 17 Pro / iOS 27 simulator: 75 UI tests passed,
+4 real-gateway smoke tests skipped for missing opt-in credentials, 0 failures in 2819.223 s.
+The built bundle reports 1.13.2, build 33. The temporary simulator was shut down and deleted after
+the run; the original booted simulator was not modified.
+The existing iOS model-card Effort / Speed test passed without changes. Local Swift gates used
+`/Applications/Xcode-beta.app/Contents/Developer`; Gradle gates used JDK 21 and one worker.
+The only all-seven production changes outside the client fix are the 1.13.2 declarations;
+application minimum versions remain unchanged because A48 adds no wire fields or incompatibility.
+
 **Not verified.** Post-fix discovery by the installed device client, the real terminal session's
 row in an app, and interaction with that session on Codex 0.160.0. The service has not been updated
-to this source. Unified version bumps, the other components' closing checks, CI and release checks
-have not yet run. No post-fix UI or installed-service acceptance is claimed by the read-only probes.
+to this source, in accordance with the owner's source-and-release-only scope. All seven version
+declarations have been bumped to 1.13.2 and their local closing checks passed; CI/release checks
+are still pending. No post-fix UI or installed-service acceptance is claimed by the read-only probes.
 
 ## Smoke procedure
 
