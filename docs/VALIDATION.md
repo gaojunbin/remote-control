@@ -2970,6 +2970,35 @@ signed again with the run's one-off key (`CN=Remote Control`) because no release
 repository, so a phone with the 1.12.0 APK has to uninstall it before installing this one; the
 image is UDZO.
 
+## 58. The number on the Android icon (2026-10-03, not released)
+
+The owner asked for a number on the Android app's icon where it can be had at modest cost, a dot
+where it cannot. Launchers that draw a number add up every badge-able notification of the app, each
+counting at least one, so beside the badge notification a "Turn finished" made two for one session.
+Now every news channel is created with `setShowBadge(false)` and only `rc.badge` (`setNumber`)
+counts; Huawei's and Honor's launchers, which take their number from their own badge interface,
+are given the same number through `change_badge` on their settings providers (permissions and
+`<queries>` in the manifest, every failure silent). Xiaomi (MIUI 12 and HyperOS read
+`Notification.number`, once the person allows the app's icon badge), Samsung ("Show with number")
+and Pixel or stock Android (dots) need nothing more; OPPO's and vivo's launchers take numbers only
+from apps they list. A channel's badge setting is fixed when the channel is created, and every
+install so far was a one-off-key APK that has to be removed before the next, so no channel is
+migrated. No version was bumped: the owner asked to leave releasing aside for now.
+
+**Checks.** Kotlin core 640 (2 skipped), Android 463 tests (four new: the channels' badge settings
+and the Huawei and Honor calls against stand-in providers — the number shown, 0 at zero or when
+nothing was posted, nothing thrown without a provider), lint without errors, the debug build.
+
+**On the emulator** (a fresh install, so fresh channels, against the web's mock gateway): the
+seven news channels report `mShowBadge=false` and `rc.badge` true; with two sessions marked, the
+badge notification carried `number=2` beside a "Waiting for your answer" whose record says
+`mShowBadge=false`, and the launcher drew its dot; with both conversations opened the badge
+notification went, the news notification stayed, and the dot went with the badge notification. The
+Huawei and Honor calls ran on every change against a launcher that has neither provider, and the app
+did not crash.
+
+**Not verified.** A number drawn by a real Samsung, Xiaomi, Huawei or Honor launcher.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.
