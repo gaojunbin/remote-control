@@ -3083,11 +3083,41 @@ The existing iOS model-card Effort / Speed test passed without changes. Local Sw
 The only all-seven production changes outside the client fix are the 1.13.2 declarations;
 application minimum versions remain unchanged because A48 adds no wire fields or incompatibility.
 
+**Cloud checks and release.** The release commit is `7f03cbb30bba3d06f0141f451a3be9fbc45818b4`,
+tagged `v1.13.2`. Its [iOS check (37132958746)](https://github.com/gaojunbin/remote-control/actions/runs/37132958746),
+[Mac check (37132958778)](https://github.com/gaojunbin/remote-control/actions/runs/37132958778),
+[Android check (37132958804)](https://github.com/gaojunbin/remote-control/actions/runs/37132958804)
+and [Windows check (37132958811)](https://github.com/gaojunbin/remote-control/actions/runs/37132958811)
+all passed. Windows CI also packaged the installer and launched the application on Windows.
+These checks are separate from the local full iOS UI target; CI does not run that target.
+
+The tag's [Release run (37132958709)](https://github.com/gaojunbin/remote-control/actions/runs/37132958709)
+completed successfully, including the Mac, Android, Windows and publish jobs. The public
+[v1.13.2 release](https://github.com/gaojunbin/remote-control/releases/tag/v1.13.2) was published
+at 2026-10-03 15:27:03 UTC, with the DMG, MSI, APK and their three `.sha256` files. All six
+downloaded files matched GitHub's reported sizes and SHA256 digests; each installation package
+also matched its checksum sidecar:
+
+| Package | SHA256 |
+| --- | --- |
+| `Remote-Control-1.13.2.apk` | `eeb262e3d878f32eaa33735563da4ef4f65e75c54fcd7e5880697128cc51dfa6` |
+| `Remote-Control-1.13.2.dmg` | `4cf34bb10dccd67e275b52d2aa53da5ec352f9ad397b232dbf1e72bd7330f644` |
+| `Remote-Control-1.13.2.msi` | `edb74fdb1a53a778174f64ec6adae665021b5a7b040a18b76dd9ef6874683c7e` |
+
+The downloaded DMG's bundle reports 1.13.2, build 7, and passes deep strict code-signature
+verification. It was mounted read-only and detached after inspection. The APK manifest reports
+1.13.2, versionCode 4, and its v2 signature verifies. The Windows release job's version guard and
+`packageMsi` passed and produced `Remote Control-1.13.2.msi`; the MSI's internal ProductVersion
+was not read on this Mac and the package was not installed. Release logs explicitly report that
+`ANDROID_KEYSTORE_BASE64` is unset and the APK uses a one-off key. An existing installation with
+a different signing key cannot be upgraded in place; this remains an existing release limitation.
+
 **Not verified.** Post-fix discovery by the installed device client, the real terminal session's
 row in an app, and interaction with that session on Codex 0.160.0. The service has not been updated
 to this source, in accordance with the owner's source-and-release-only scope. All seven version
-declarations have been bumped to 1.13.2 and their local closing checks passed; CI/release checks
-are still pending. No post-fix UI or installed-service acceptance is claimed by the read-only probes.
+declarations have been bumped to 1.13.2; their local closing checks, all four application CI checks
+and the release checks passed. No post-fix UI or installed-service acceptance is claimed by the
+read-only probes.
 
 ## Smoke procedure
 

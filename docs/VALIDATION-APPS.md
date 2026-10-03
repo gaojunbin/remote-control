@@ -1668,10 +1668,23 @@ chunk-CRC checks. Screens named above were inspected visually; the file checks d
 visual acceptance for every rendered scenario.
 The temporary iOS simulator was shut down and deleted after the full UI run.
 
+**Published artifacts.** The [v1.13.2 Release run (37132958709)](https://github.com/gaojunbin/remote-control/actions/runs/37132958709)
+passed all four jobs and published the DMG, MSI, APK and their checksum sidecars. All six files
+were downloaded and matched GitHub's sizes and SHA256 digests; the three package checksums also
+matched their sidecars. The DMG bundle reports 1.13.2 (7) and passes deep strict code-signature
+verification; the APK manifest reports 1.13.2 (versionCode 4) and its v2 signature verifies.
+The MSI passed the release job's version guard and packaging, but its internal ProductVersion
+was not read on this Mac. No package was installed or launched locally; the DMG was mounted
+read-only and detached. Android's release logs confirm a one-off signing key because the stable
+keystore secret is unset; installations with a different signing key cannot upgrade in place.
+The iOS, Mac, Android and Windows CI checks for the tagged commit all passed. Windows CI also
+packaged the installer and launched the application on Windows.
+Run links and checksums are recorded in section 59 of `VALIDATION.md`.
+
 **Not verified.** No gateway deployment, installed device-client update, physical device acceptance
 or real-terminal session UI interaction was performed, in accordance with the owner's
 source-and-release-only scope. The read-only Codex 0.160.0 provenance and source discovery probes
-are recorded in section 59 of `VALIDATION.md`. CI and release artifacts are still pending.
+are recorded in section 59 of `VALIDATION.md`.
 
 ## Smoke procedure
 
