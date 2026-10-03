@@ -7889,6 +7889,23 @@
         }
       }
     },
+    "not yet opened": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not yet opened"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未查看"
+          }
+        }
+      }
+    },
     "now": {
       "extractionState": "manual",
       "localizations": {
