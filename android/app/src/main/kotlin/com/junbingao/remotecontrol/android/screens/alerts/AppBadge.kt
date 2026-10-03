@@ -2,6 +2,7 @@ package com.junbingao.remotecontrol.android.screens.alerts
 
 import android.content.Context
 import androidx.compose.runtime.snapshotFlow
+import com.junbingao.remotecontrol.android.push.HuaweiBadge
 import com.junbingao.remotecontrol.android.push.LauncherBadge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -16,13 +17,16 @@ interface BadgePlatform {
  * The launcher's own badge, which Android draws from the app's notifications: one quiet
  * notification carries the number while it is above zero ([LauncherBadge]), and none at zero.
  * Setting it asks nothing of the person: it is posted only where notifications are allowed, which
- * Notify me asks for.
+ * Notify me asks for. Huawei's and Honor's launchers are told the same number through their own
+ * interface ([HuaweiBadge]) — exactly what the notification shows, so 0 wherever none was posted.
  */
 class SystemBadge(context: Context) : BadgePlatform {
     private val context = context.applicationContext
 
     override fun setBadge(count: Int) {
-        if (count > 0) LauncherBadge.post(context, count) else LauncherBadge.remove(context)
+        val posted = count > 0 && LauncherBadge.post(context, count)
+        if (!posted) LauncherBadge.remove(context)
+        HuaweiBadge.set(context, if (posted) count else 0)
     }
 }
 
