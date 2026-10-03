@@ -1316,8 +1316,10 @@ under `prefers-reduced-motion`.
 Every user-visible string lives in one catalog per app — `web/src/strings.ts`,
 `ios/App/Localizable.xcstrings`, `macos/Sources/RCMac/Strings/` (the web's tables, one file per
 group, both languages side by side) and its Windows twin under `win/`, and for the Android app the
-iPhone's own catalog with `android/app/src/main/strings/overlay.json` laid over it at build time —
-so a second language never means touching a component.
+iPhone's own catalog with `android/app/src/main/strings/overlay.json` laid over it at build time
+(the iPhone's words that name Apple's places, re-worded) and `android.json` beside it (the few
+words only the Android app shows, such as the launcher badge's notification; never a key the
+iPhone's catalog has) — so a second language never means touching a component.
 
 ## Deliberately not in v1
 
