@@ -19,7 +19,7 @@ DESIGN says otherwise.
 | `…/android/design/`, `system/`, `navigation/`, `icons/`, `strings/` | RCUI's `Design/`; the iPhone's system pieces in its own shapes (bars, lists, switch, segmented control, sheets, alerts, menus, swipe actions); a navigation stack per tab; every SF Symbol as a lucide glyph; `L10n` |
 | `…/android/security/`, `persistence/`, `attachments/`, `voice/`, `push/`, `markdown/`, `scanner/`, `terminal/`, `awake/`, `haptics/` | the platform services: the Keystore secret store, biometric lock and privacy shield, photo picker and camera, the speech recogniser and 16 kHz capture, notifications, the Markdown web view, the QR scanner (CameraX and ML Kit), the Termux terminal view, keep-awake, haptics |
 | `app/src/main/java/com/termux/` | Termux's terminal emulator and view, vendored under Apache 2.0 |
-| `app/src/main/strings/` | Android's words laid over the iPhone's catalog |
+| `app/src/main/strings/` | Android's words laid over the iPhone's catalog (`overlay.json`), UIKit's words the app draws itself (`system.json`), and the words only Android shows (`android.json`) |
 | `app/src/test/` | JUnit and Robolectric: the iPhone's UI tests ported as Compose tests, the harness that drives the demo and draws pictures |
 
 Application id `com.junbingao.remotecontrol`, app name "Remote Control".
@@ -28,7 +28,10 @@ Application id `com.junbingao.remotecontrol`, app name "Remote Control".
 `ios/App/Localizable.xcstrings` with `app/src/main/strings/overlay.json` laid over it (the words that
 name Apple's places), and serves `ios/Sources/RCUI/Resources/Markdown` (the renderer, KaTeX,
 Mermaid) as the app's assets, so the Android app follows the iPhone's words and diagrams as they
-change.
+change. The words only Android shows — the launcher badge's notification (A47) — are in
+`app/src/main/strings/android.json`, laid in beside the catalogue rather than over it, so the
+iPhone's catalogue keeps only the iPhone's words: the build fails when one of its keys is also a
+catalogue key, as it fails when an overlay key is not one.
 
 ## Building, checking and running
 
@@ -70,9 +73,30 @@ recognisers — Android's speech recogniser and the gateway's; notifications are
 posted from its live connection, because Android has no push channel yet (DESIGN); below
 `apps.android.minimum_version` (A46) only the blocking Update required screen shows.
 
+## The red dot and the launcher badge (A47)
+
+As the iPhone's (`docs/DESIGN.md` § "A red dot for a session that stopped and waits for you"): a
+session whose `unseen` is set carries an 8 pt dot of the Danger red in its row's 16 pt leading
+gutter, centred on the title's line and drawn rather than laid out, so it moves nothing; the row's
+spoken label says "not yet opened" after the title. The core's `SeenReporter` sends `session.seen`
+for the conversation in front of the person — open on screen, the app resumed and not behind its
+lock — when it opens, when the app comes back to it, and when a mark arrives for it; the store asks
+only while its copy says `unseen`, once per mark.
+
+Android draws a launcher badge from an app's notifications, so the badge is one quiet notification:
+its own channel ("Sessions", low importance — no sound, no heads-up, a badge), `setNumber(count)`,
+"1 session is waiting for you" / "%lld sessions are waiting for you", and a tap that opens Sessions.
+It is posted while the count of unarchived sessions with a dot is above zero, replaced as it changes,
+and removed at zero and on sign-out. Like the iPhone's it counts only while Notify me is on, and it
+needs the notification permission Notify me asks for: with no push channel the number changes only
+while the app runs, so the app leaves none behind that nothing could keep true. Coming back to the
+front puts it up again, for a notification swiped away or a permission granted since. The offline
+demo marks a session as the gateway does, and opens with one marked (the approval).
+
 ## Not verified
 
 On the JVM only the pure parts of these run; they need a phone: the Keystore round trip, the
 biometric prompt, the camera and the scanner, the speech recogniser and the microphone, posting a
-notification, the Markdown web view's JavaScript, haptics. The emulator run of each round is
-recorded in `docs/VALIDATION-APPS.md`.
+notification, how a launcher draws the badge's notification (a number or a dot), the Markdown web
+view's JavaScript, haptics. The badge's notification is checked on Robolectric's notification
+manager. The emulator run of each round is recorded in `docs/VALIDATION-APPS.md`.
