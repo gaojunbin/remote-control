@@ -395,9 +395,11 @@ The core declares its seams and the app fills them in `AppEnvironment`:
   `InputLevel.from(rms)`. `microphone` is the screen's `rememberPermissionRequest(RECORD_AUDIO)`.
 - **Notifications**: `LocalNotifications.post(context, kind, identifier, title, body, thread,
   deepLink)` and `removeAll`, on `NotificationChannels` (one channel per kind, the gateway's
-  words); a tap opens the session link, which `MainActivity` hands to `model.handle(link)`.
-  `NotificationAuthorization.status(context)`, `openSettings(context)` and
-  `rememberNotificationPermissionRequest()`; `ForegroundBanner.shows`.
+  words, none of them counting on the icon); a tap opens the session link, which `MainActivity`
+  hands to `model.handle(link)`. `NotificationAuthorization.status(context)`, `openSettings(context)`
+  and `rememberNotificationPermissionRequest()`; `ForegroundBanner.shows`. The icon's badge (A47):
+  `LauncherBadge.post(context, count)` and `remove(context)`, its own quiet channel, and
+  `HuaweiBadge.set(context, number)` for Huawei's and Honor's launchers, which `SystemBadge` drives.
 - **Pairing**: `SystemCodeScanner.make()`, a `CodeScanning` with `requestAccess()` and
   `Viewfinder(onCode)` (CameraX and ML Kit, on the phone); `StaticCodeScanner(payload)` for tests
   and the demo, its one button the app's accent as the iPhone's `.borderedProminent` is —

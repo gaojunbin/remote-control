@@ -13,6 +13,10 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- The icon's number on Huawei's and Honor's launchers, which take it through their own
+         badge interface rather than from the notification that carries it elsewhere (A47). -->
+    <uses-permission android:name="com.huawei.android.launcher.permission.CHANGE_BADGE" />
+    <uses-permission android:name="com.hihonor.android.launcher.permission.CHANGE_BADGE" />
 
     <!-- A phone without a camera or a microphone still installs the app; the features that
          need one are offered only where there is one, as on the iPhone. -->
@@ -32,6 +36,9 @@
         <intent>
             <action android:name="android.media.action.IMAGE_CAPTURE" />
         </intent>
+        <!-- Huawei's and Honor's launcher settings, which take the icon's number (A47). -->
+        <provider android:authorities="com.huawei.android.launcher.settings" />
+        <provider android:authorities="com.hihonor.android.launcher.settings" />
     </queries>
 
     <application

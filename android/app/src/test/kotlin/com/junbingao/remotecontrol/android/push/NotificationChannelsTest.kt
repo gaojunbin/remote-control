@@ -55,6 +55,20 @@ class NotificationChannelsTest {
         assertEquals(7, manager.notificationChannels.count { it.id.startsWith("rc.") })
     }
 
+    /**
+     * A launcher that shows numbers adds up every notification it may badge, so only the badge's
+     * own channel counts on the icon (A47): a "Turn finished" beside it must not make one session two.
+     */
+    @Test
+    fun theNewsNeverCountsOnTheIcon() {
+        NotificationChannels.ensure(context)
+        for (kind in NotificationChannels.kinds) {
+            assertFalse(kind.rawValue, manager.getNotificationChannel(NotificationChannels.channelId(kind.rawValue)).canShowBadge())
+        }
+        LauncherBadge.ensureChannel(context)
+        assertTrue("the badge's own channel is the one that does", manager.getNotificationChannel(LauncherBadge.channelId).canShowBadge())
+    }
+
     @Test
     fun nothingIsPostedWhileNotificationsAreNotAllowed() {
         shadowOf(context as Application).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)

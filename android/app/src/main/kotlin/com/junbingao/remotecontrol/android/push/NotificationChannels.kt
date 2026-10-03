@@ -12,7 +12,10 @@ import com.junbingao.remotecontrol.android.strings.L10n
  *
  * Each channel is named with the iPhone's alert word for its kind (`PushKind.alertWord` in
  * `TurnNotifier.swift`), in the interface language, and renamed when the language changes. Every
- * kind interrupts with a banner and a sound, as each one does on the iPhone.
+ * kind interrupts with a banner and a sound, as each one does on the iPhone. None of them counts on
+ * the app's icon: a launcher that shows numbers adds up every notification it may badge, so a "Turn
+ * finished" beside the badge's own notification would count one session twice. The icon's number is
+ * [LauncherBadge]'s alone (A47).
  */
 object NotificationChannels {
     /** A `PushKind` raw value and the catalogue key of its word. */
@@ -51,5 +54,6 @@ object NotificationChannels {
     private fun channel(kind: String, name: String) =
         NotificationChannelCompat.Builder(channelId(kind), NotificationManagerCompat.IMPORTANCE_HIGH)
             .setName(name)
+            .setShowBadge(false)
             .build()
 }
