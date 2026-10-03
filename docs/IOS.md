@@ -77,7 +77,11 @@ xcrun simctl shutdown <udid> && xcrun simctl boot <udid>
 The interface-language tests pass the app its own `-AppleLanguages`, so they do not need the
 simulator to be Chinese. Separately, XCUITest's `typeText` has been seen to re-send letters when
 the composer's layout changes under it — the slash-command panel appearing on the first `/` — so
-the command tests type the slash first and the name once the panel is up.
+the command tests type the slash first and the name once the panel is up. The composer is a text
+field or a text view depending on its text, so `promptField()` is one query for either kind,
+resolved each time it is used. It used to choose the kind once, and a test that asked right after
+opening a conversation, before the composer was on screen, waited for a text field while a text view
+appeared — which a loaded Mac made happen to two tests in round 57.
 
 ## Running against a gateway
 
@@ -119,6 +123,10 @@ dictation of about a minute, delivered in four partials, which is what the field
 is proved against; anything else is the short sentence. `--field-scroll-probe` puts the message
 field's scroll position beside it as `composer.prompt.scroll`, for the same test. Both are read only
 where the scripted platform is, so a release build honours neither.
+
+The demo keeps A47's mark as the gateway does: "Migrate web to Vite 6" opens with a red dot, a
+scripted turn that ends while its conversation is not open leaves one, and `session.seen` takes it
+off ("The red dot and the badge (A47)" below).
 
 `--demo-queue` opens the live session with three messages held behind a turn that runs on, the last
 of them carrying two files, so the Up next list can be edited and emptied without racing the turn
@@ -376,6 +384,59 @@ once.
 
 `Tests/RCCoreTests/SessionGroupingTests.swift` covers the rule on hand-built sessions;
 `Verification/StoreChecks.swift` covers it against the demo fixtures.
+
+## The red dot and the badge (A47)
+
+A session whose turn ended, or that stopped to ask for an approval or an answer, while nobody on the
+account had its conversation open carries a red dot until someone opens it, and the home screen
+counts those sessions (`docs/DESIGN.md` § "A red dot for a session that stopped and waits for you").
+The mark is the gateway's — `Session.unseen`, absent and so false from a gateway that predates it,
+kept in the cache with the rest of the row — so the app draws it, counts it and says when the person
+has looked, and decides nothing else.
+
+- **The dot.** `UnseenDot` (`Design/UnseenDot.swift`): 8 pt of `Theme.danger`, an overlay on the
+  row's title offset into the row's 16 pt leading inset, centred in it and on the title's line, so it
+  moves nothing when it comes or goes. The row's accessibility label reads "not yet opened" (未查看)
+  after the title; the dot itself is hidden from VoiceOver.
+- **Seen.** `SeenReporter` (RCCore, `State/SeenReporter.swift`) watches what the model calls the
+  conversation in front — `chat`, while the scene is active and the app lock is not up — together
+  with that session's mark, under observation, and calls `ConnectionStore.markSeen(deviceID:sessionID:)`
+  whenever both hold: the conversation opened from the list, a link or a notification with the app
+  in front; the app coming back to the foreground, or the lock lifting, with it open; a
+  `session.updated` or a `hello` that marks it while it is on screen, which is why a session already
+  on screen when its turn ends never keeps a dot. `markSeen` sends `session.seen` only while the
+  copy says `unseen`, and once per mark: the request is remembered until the gateway's
+  `session.updated` clears the copy, forgotten on a failure — which says nothing, since the request
+  is idempotent and the next occasion sends it again — and on leaving the connection. The dot goes
+  when the gateway says so, never before.
+- **The badge.** `AppBadge` (`Push/AppBadge.swift`) follows the number of red dots —
+  `UnseenMark.count(in:excluding:)`, the unarchived sessions with the mark less the conversation in
+  front, which is being looked at, as the web and the Mac count it — and hands it to
+  `UNUserNotificationCenter.setBadgeCount` through `SystemBadge` whenever it changes, again when the
+  scene becomes active (a push may have set another number while the app was away), and as 0 on
+  sign-out. While Notify me is off it holds 0: nothing is pushed to the phone then, so a number the
+  app left on the icon could never be kept true once the app closed. While the app is closed the
+  gateway's pushes keep the badge with `aps.badge`, a badge-only one included; one that arrives while
+  the app is open is presented without `.badge`, so it never overrides the count the app keeps.
+  Notify me's one question now asks for alerts, sounds and badges together.
+- **The demo** keeps the mark by the gateway's rule, read from the states alone (`UnseenMark.next`,
+  applied in `DemoGateway.update(sessionID:)`, the one path every change of the device takes):
+  a running turn becoming waiting (`needs_approval`, `needs_input`, or `idle` or `readonly` with a
+  `control` other than `none`) sets it — a session that only started (`starting`) never does —
+  a turn running again and archiving clear it, and
+  `session.seen` takes it off — `not_found` for a session it does not have — and publishes the
+  session only when there was a mark, without touching `updated_at`. "Migrate web to Vite 6" opens
+  with it, so the list opens with one red dot.
+
+`Tests/RCCoreTests/UnseenMarkTests.swift` covers the fixtures, the rule over the state table, the
+count, the cache, `markSeen`'s one request per mark and its silent failure, the reporter's moments
+and the demo; `Verification/UnseenChecks.swift` repeats the core of it in `RCVerify`.
+`VerificationUI/UnseenChecks.swift` drives the model through `FakeBadgePlatform`: a conversation
+opened while the app is away or behind the lock and seen when it comes forward, one on screen when
+its turn ends, the badge with Notify me off and on, and sign-out. The UI test
+`testARedDotAppearsWhenATurnEndsUnwatchedAndGoesWhenTheConversationOpens` ends a turn with the list
+on screen, reads the row's words and the red in its gutter, opens the conversation and finds both
+gone, then ends a turn with the conversation open and finds no dot.
 
 The list ends the way the Devices list ends: one primary button in the bottom bar, **New session**
 (`sessions.new`), drawn exactly as `DevicesView` draws **Add device** — the same
@@ -1953,6 +2014,15 @@ German, French or Spanish, and the six locales were checked as `SFSpeechRecogniz
 on the simulator (§ "Voice"), not as a recognition in each. The icons were looked at in the light
 theme, at the default text size and at the largest accessibility size, in simulator screenshots;
 what VoiceOver reads was checked through the accessibility tree the UI tests query, not by ear.
+
+Round 57 (A47): the red dot ran against the demo, in the simulator, in the light theme at the
+default text size. The home-screen badge was driven through `FakeBadgePlatform` only:
+`setBadgeCount` on a phone, `aps.badge` from the gateway's pushes and the badge-only push have not
+been seen, and neither has a phone that answered Notify me before this build — it was asked for
+alerts and sounds alone, iOS does not ask a second time, and whether its Badges switch in iOS
+Settings starts on is not known. That a push presented without `.badge` in the foreground leaves
+the icon alone is read from Apple's documentation, not observed. What VoiceOver reads for the dot was
+checked through the accessibility tree the UI test queries, not by ear.
 
 The selection haptic on the effort slider cannot be asserted from a UI test — nothing in XCTest
 observes `UIFeedbackGenerator` — so the test taps the last stop and asserts the word that follows
