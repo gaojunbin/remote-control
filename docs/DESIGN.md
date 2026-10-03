@@ -1015,9 +1015,13 @@ app's icon, none at zero, cleared on sign-out:
   99, as Windows' own badges), and the same on the notification-area icon while the window is closed.
 - **Android** — Android draws a launcher badge from an app's notifications, so while any session has
   a red dot the app keeps one quiet notification ("2 sessions are waiting for you", no sound, no
-  heads-up) whose number is the count; launchers that show numbers show it, the others a dot. A tap
-  opens Sessions. As the iPhone's, it counts only while Notify me is on and needs the notification
-  permission that asks for; without a push channel it changes only while the app runs.
+  heads-up) whose number is the count, and its other notifications never count on the icon.
+  Launchers that show numbers show it — Samsung's with "Show with number", Xiaomi's once the app's
+  icon badge is allowed — and Huawei's and Honor's are given the same number through their own badge
+  interface; Pixel's and stock Android's draw a dot, and OPPO's and vivo's take numbers only from
+  apps they list. A tap opens Sessions. As the iPhone's, it counts only while Notify me is on and
+  needs the notification permission that asks for; without a push channel it changes only while the
+  app runs.
 - **Web** — an installed web app's badge where the browser offers one (`navigator.setAppBadge`), from
   the page while it is open and from a push while it is not.
 
