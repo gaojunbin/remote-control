@@ -1001,20 +1001,23 @@ app — and so do archiving and closing it. A session already on screen when its
 one. Grey and red dots never bring a red dot: a CLI that exited and a session that errored are not
 waiting for you.
 
-**The app's icon counts them.** The number of unarchived sessions with a red dot is the badge on the
+**The app's icon counts them.** The number of unarchived sessions with a red dot — less the
+conversation in front of the person, whose dot is already on its way out — is the badge on the
 app's icon, none at zero, cleared on sign-out:
 - **iPhone** — the home-screen badge, set by the app while it runs and by the gateway's pushes while
   it does not (every push carries the count, and a silent badge-only push follows a change no push
   carried), so it holds with the app closed. iOS shows a badge only where the person allows
-  notifications with badges; turning Notify me on asks for alerts, sounds and badges together.
+  notifications with badges; turning Notify me on asks for alerts, sounds and badges together. With
+  Notify me off the app sets none: nothing is pushed then, so a number left on the icon could not
+  stay true once the app is closed.
 - **Mac** — the Dock icon's badge, while the app runs (closing the window keeps it running).
-- **Windows** — the taskbar button's badge, a red disc with the number over the icon, and the same on
-  the notification-area icon while the window is closed.
+- **Windows** — the taskbar button's badge, a red disc with the number over the icon ("99+" above
+  99, as Windows' own badges), and the same on the notification-area icon while the window is closed.
 - **Android** — Android draws a launcher badge from an app's notifications, so while any session has
   a red dot the app keeps one quiet notification ("2 sessions are waiting for you", no sound, no
   heads-up) whose number is the count; launchers that show numbers show it, the others a dot. A tap
-  opens Sessions. It needs the notification permission Notify me asks for, and without a push channel
-  it changes only while the app runs.
+  opens Sessions. As the iPhone's, it counts only while Notify me is on and needs the notification
+  permission that asks for; without a push channel it changes only while the app runs.
 - **Web** — an installed web app's badge where the browser offers one (`navigator.setAppBadge`), from
   the page while it is open and from a push while it is not.
 
