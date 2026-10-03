@@ -3651,8 +3651,9 @@ one app connection that asked. The gateway relays bytes and never reads them.
     whose `unseen` is true (4.4) carries a red dot on its row in every list that draws the row, and
     the number of such sessions among the unarchived ones is the app's icon badge where the platform
     has one, none at zero. An app sends `session.seen` (6.2) for the conversation the person has in
-    front of them, so a session already on screen when its turn ends never keeps a dot; signing out
-    clears the badge (A47).
+    front of them, so a session already on screen when its turn ends never keeps a dot: that
+    conversation draws none and is left out of the count while its `session.seen` is on its way, so
+    nothing flickers during the round trip. Signing out clears the badge (A47).
 
 ## 9. Conformance checklist
 
@@ -3950,7 +3951,8 @@ one app connection that asked. The gateway relays bytes and never reads them.
 - [ ] Draws the red dot on every row of a session whose `unseen` is true, sends `session.seen` for
       the conversation the person has in front of them (on opening it, on its window coming to the
       front, and on a mark arriving while it is on screen), keeps the app icon's badge at the count
-      of unarchived unseen sessions where the platform has a badge, and clears it on sign-out (A47).
+      of unarchived unseen sessions where the platform has a badge, and clears it on sign-out; the
+      conversation in front draws no dot and is not counted (A47).
 - [ ] Offers the dictation polish switch, model and strength only when `polish.enabled` is true
       (disabled with a note otherwise), polishes only the dictated span, keeps the dictated words one
       undo away, sends the words as dictated when the user sends first, and never sends a polished
@@ -4495,6 +4497,9 @@ it on all of them: `Session.unseen` is set when the device moves a session from 
 waiting
 and cleared by `session.seen`, by the session working again, or by its archiving or removal. Every
 push carries the count as `rc.badge` (APNs `aps.badge`), and a badge-only APNs notification follows
-a change no push carried. Additive: an app that predates it ignores the field, sends no
+a change no push carried. Two rulings the same day, before any release: only a `running` turn
+brings the mark (a session that only started has done nothing to look at), and the conversation in
+front of the person draws no dot and is not counted while its `session.seen` is on its way.
+Additive: an app that predates it ignores the field, sends no
 `session.seen` and shows no dot; a gateway that predates it sends no field, which reads as false.
 See 3.7, 4.4, 6.2, 8 and 9.
