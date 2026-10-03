@@ -37,7 +37,8 @@ struct SidebarGroup: View {
     }
 
     private func item(_ session: Session) -> some View {
-        SidebarItem(session: session, online: group.online, active: session.id == activeKey) {
+        SidebarItem(session: session, online: group.online, active: session.id == activeKey,
+                    unseen: model.showsUnseenDot(session)) {
             model.router.go(.chat(deviceId: session.deviceID, sessionId: session.sessionID))
         }
     }
@@ -46,14 +47,22 @@ struct SidebarGroup: View {
 /// `.sidebar-item`: the status dot, the title, and under it the folder and the
 /// time, whatever the session is doing — the dot carries the state
 /// (`docs/DESIGN.md` § "The session row says where it came from"). The row the
-/// conversation shows is one step further into the ink.
+/// conversation shows is one step further into the ink. Its leading padding is
+/// the gutter a red dot sits in (A47), kept by every row so the dot moves
+/// nothing when it comes or goes.
 struct SidebarItem: View {
     let session: Session
     let online: Bool
     let active: Bool
+    /// A47: whether the row draws the red dot.
+    let unseen: Bool
     let action: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
+
+    /// From the row's edge to the title: the gutter, the status dot and the
+    /// gap after it.
+    private static let titleReach = Space.sp5 + 7 + Space.sp2
 
     var body: some View {
         Button(action: action) {
@@ -64,6 +73,7 @@ struct SidebarItem: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .css(FontSize.fs14, weight: .semibold, lineHeight: 1.4, tracking: -0.01)
+                        .unseenTitle(unseen, reach: Self.titleReach, gutter: Space.sp5)
                     Text("\(Format.baseName(session.cwd)) · \(Format.relativeTime(session.updatedAt))")
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -71,7 +81,8 @@ struct SidebarItem: View {
                         .foregroundStyle(Palette.inkSecondary)
                 }
             }
-            .padding(.horizontal, Space.sp2)
+            .padding(.leading, Space.sp5)
+            .padding(.trailing, Space.sp2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 48)
             .background(RoundedRectangle(cornerRadius: 10, style: .circular).fill(fill))
@@ -79,6 +90,7 @@ struct SidebarItem: View {
         }
         .buttonStyle(.plain)
         .pointerStyle(.link)
+        .accessibilityValue(unseen ? S.sessions.unseen : "")
         .onHover { isHovered = $0 }
         .animation(Motion.ease(Motion.durFast, reduceMotion: reduceMotion), value: isHovered)
     }

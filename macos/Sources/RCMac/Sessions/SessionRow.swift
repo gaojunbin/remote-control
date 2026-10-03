@@ -34,6 +34,7 @@ struct SessionRow: View {
         .buttonStyle(.plain)
         .pointerStyle(.link)
         .accessibilityLabel(S.sessions.open)
+        .accessibilityValue(model.showsUnseenDot(session) ? S.sessions.unseen : "")
         .padding(.trailing, 40)
         .frame(height: RowHeight.rowHThree)
         .overlay(alignment: .trailing) {
@@ -56,12 +57,15 @@ struct SessionRow: View {
         .onHover { isHovered = $0 }
     }
 
+    /// The red dot (A47) is centred in the padding the lines start after.
     private var titleLine: some View {
-        HStack(spacing: Space.sp3) {
+        let gutter = layout.maxWidth640 ? Space.sp4 : Space.sp5
+        return HStack(spacing: Space.sp3) {
             Text(S.sessionTitle(session))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .css(FontSize.fs15, weight: .semibold, lineHeight: 1.4, tracking: -0.01)
+                .unseenTitle(model.showsUnseenDot(session), reach: gutter, gutter: gutter)
             Spacer(minLength: 0)
             Text(Format.relativeTime(session.updatedAt))
                 .lineLimit(1)

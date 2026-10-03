@@ -89,6 +89,10 @@ final class WindowChrome {
     /// Whether a conversation shown in this window is in front of the person.
     private func noteActivity(closing: Bool = false) {
         guard let window, let model else { return }
+        if window is FrontmostWindow {
+            model.isWindowActive = !closing
+            return
+        }
         model.isWindowActive = !closing && NSApp.isActive && window.isKeyWindow && window.isVisible
             && !window.isMiniaturized && window.occlusionState.contains(.visible)
     }
@@ -130,6 +134,12 @@ final class WindowChrome {
         }
     }
 }
+
+/// A window that stands for the one the person is looking at, whatever AppKit
+/// says of it. The renderer's window is never on a screen, so AppKit never
+/// makes it key, and a picture of it is a picture of the window in front: a
+/// conversation drawn there counts as read, as it would in the app (A47).
+public protocol FrontmostWindow: NSWindow {}
 
 /// Hands the window a view is in to `found`, once it is in one.
 struct WindowAccessor: NSViewRepresentable {
