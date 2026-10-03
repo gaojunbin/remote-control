@@ -618,7 +618,7 @@ the device and the reason and nothing else:
 
 ```json
 {"rc": {"v": 1, "kind": "needs_approval", "device_id": "…", "session_id": "…",
-        "device_name": "mac-studio-office", "title": "…"}}
+        "device_name": "mac-studio-office", "title": "…", "badge": 2}}
 ```
 
 A notification fires on an observed *transition* between two states, and only when no app is
@@ -633,6 +633,19 @@ frame from that device behind a third party's response time. Whether an app is w
 at the transition, not when the call goes out, so running late cannot change the outcome. A
 shutdown gives the calls already in flight five seconds to finish before cancelling them.
 
+Every payload also carries the account's count of sessions marked `unseen` (A47) — `rc.badge`, and
+`aps.badge` on APNs — so an iPhone's home-screen badge is right after any notification it shows.
+The count also moves when nothing is pushed: a mark cleared by `session.seen` or by the session
+running again, a marked session archived or removed, a mark set while an app watched the session.
+For those the gateway sends the account's phones one badge-only APNs notification (`kind: "badge"`,
+an empty title, no alert or sound, `apns-priority` 5) once the count has been still for three
+seconds, and only when it differs from the last count it sent; waiting for it to settle is what
+keeps a turn that ends on screen, and is opened a moment later, from costing a push at all. Web Push
+never carries one, because a browser shows every push it receives. Two consequences are accepted:
+APNs keeps only the newest notification for a phone that is offline, so a badge-only push can
+replace an alert not yet delivered (as a second alert would), and an alert the journal retries
+carries the count it was built with until the next push corrects it.
+
 Web Push is a blocking library call, so it runs on threads of its own with an explicit ten-second
 timeout. Both matter: `pywebpush` passes its `timeout` argument through even when it is `None`, so
 its own default never applies and the call would wait until the operating system gave up, and the
@@ -644,7 +657,8 @@ The Mac, Windows and Android apps have no push channel of their own — the gate
 the iPhone app's, and an Android app would need Firebase Cloud Messaging and a sender on the
 gateway — so their notifications are local: the running app posts a system notification at the same
 moments with the same words, from the frames it already receives, and nothing on the wire or in the
-gateway changes.
+gateway changes. Their icon badges — the Dock's label, the taskbar's overlay, the Android
+notification's number — are the app's own count, from the session list it already holds.
 
 A registration is bound to the account that made it and never changes hands. Both tables are keyed
 by the subscriber's own identifier — a push endpoint URL, an APNs device token — which is not a
@@ -657,7 +671,7 @@ sessions delivered to that person's phone.
 
 | Where | What |
 | --- | --- |
-| Gateway `DATA_DIR` | `auth.sqlite3` (issued login sessions), `devices.sqlite3` (devices, pairing codes — both hashed), `sessions.sqlite3` (the latest summary per session), `push.sqlite3` (Web Push subscriptions, APNs tokens, a delivery journal), `users.sqlite3` (the accounts and their hashed passwords), `preferences.sqlite3` (one row of preferences per account, A35, A41), `session_secret` and `vapid_private.pem`. The databases and both secrets are created at 0600 |
+| Gateway `DATA_DIR` | `auth.sqlite3` (issued login sessions), `devices.sqlite3` (devices, pairing codes — both hashed), `sessions.sqlite3` (the latest summary per session, with its `unseen` mark in a column of its own, A47), `push.sqlite3` (Web Push subscriptions, APNs tokens, a delivery journal), `users.sqlite3` (the accounts and their hashed passwords), `preferences.sqlite3` (one row of preferences per account, A35, A41), `session_secret` and `vapid_private.pem`. The databases and both secrets are created at 0600 |
 | Gateway memory | Live connections, the per-session replay buffer, and a cache in front of the login-session store that also holds the event which closes a socket the moment its session is signed out |
 | Device `~/.rc-client` | `config.toml` at 0600 (gateway origin, device id, device token, name), `state/rc-client.sqlite3` (sessions, events, a key-value table, and request ids for `session.send` idempotency), `state/attachments/`, `state/channel.sock` and `state/claude-mcp.json` for the attachment, `bin/claude` when the shim is installed, `logs/` |
 | iOS | The bearer token in the Keychain, device-only and never synchronised; a session list and per-session draft cache in Application Support, versioned separately from the wire protocol |

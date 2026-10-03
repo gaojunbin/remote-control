@@ -57,6 +57,10 @@ PERMANENT_REASONS = frozenset(
 )
 TOKEN_TTL_SECONDS = 50 * 60
 MAX_PAYLOAD_BYTES = 4096
+#: `apns-priority`. 10 delivers at once, which a notification someone reads needs; 5 lets the
+#: phone's power budget decide, which is enough for one that only changes the badge (A47).
+PRIORITY_IMMEDIATE = 10
+PRIORITY_POWER_AWARE = 5
 
 _APNS_HTTP: ContextVar[bool] = ContextVar("rc_gateway_apns_http", default=False)
 
@@ -185,7 +189,12 @@ class ApnsProvider:
         return self._jwt
 
     async def send(
-        self, device_token: str, payload: bytes, *, environment: str | None = None
+        self,
+        device_token: str,
+        payload: bytes,
+        *,
+        environment: str | None = None,
+        priority: int = PRIORITY_IMMEDIATE,
     ) -> ApnsResponse:
         target = environment or self.environment
         if not valid_device_token(device_token) or target not in HOSTS:
@@ -197,7 +206,7 @@ class ApnsProvider:
             "authorization": "bearer " + self._provider_token(),
             "apns-topic": self.topic,
             "apns-push-type": "alert",
-            "apns-priority": "10",
+            "apns-priority": str(priority),
             "apns-id": notification_id,
             "apns-collapse-id": notification_id,
             "apns-expiration": str(int(time.time()) + 3600),

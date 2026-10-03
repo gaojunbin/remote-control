@@ -5,6 +5,10 @@ about a session the vendor's usage limit stopped (A35), and never on the content
 payload carries identifiers and one generic sentence, so a notification on a lock screen tells the
 user which device wants attention and nothing about the code being written. Either cue is
 delivered to the registrations of the account that owns the device and to nobody else (A24).
+
+Every payload also carries the account's count of sessions marked `unseen` (A47), which an iPhone
+shows as its app icon's badge, and a change to that count no push carried reaches the account's
+phones as a badge-only notification once the count settles (see `badge.py`).
 """
 
 from __future__ import annotations
@@ -17,7 +21,8 @@ from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol
 
-from .apns import ApnsProvider, ApnsResponse
+from .apns import PRIORITY_IMMEDIATE, PRIORITY_POWER_AWARE, ApnsProvider, ApnsResponse
+from .badge import BadgeChange, BadgeSettler, Sleep
 from .hub import SessionResumeNotice, SessionTransition
 from .logging import logger
 from .push_store import PushStore, WebPushSubscription
@@ -32,6 +37,8 @@ KIND_ERROR = "error"
 KIND_LIMIT_REACHED = "limit_reached"
 KIND_RESUMED = "resumed"
 KIND_RESUME_DROPPED = "resume_dropped"
+#: A47: changes the app icon's count and shows nothing.
+KIND_BADGE = "badge"
 
 ACTIVE_STATES = frozenset({"running", "needs_approval", "needs_input"})
 _TEXTS = {
@@ -64,6 +71,8 @@ WEB_PUSH_TIMEOUT_SECONDS = 10.0
 PUSH_THREADS = 4
 
 DeviceNameLookup = Callable[[str], Awaitable[str]]
+#: A47: an account's unarchived sessions carrying `unseen`, read when a push is built.
+BadgeCount = Callable[[str], Awaitable[int]]
 
 
 class WebPushSender(Protocol):
@@ -90,8 +99,13 @@ def resume_kind(status: str) -> str | None:
     return _RESUME_KINDS.get(status)
 
 
-def build_payload(kind: str, session: dict[str, Any], device_name: str) -> dict[str, Any]:
-    """Protocol §2 payload: identifiers plus one generic sentence, never turn content."""
+def build_payload(
+    kind: str, session: dict[str, Any], device_name: str, badge: int
+) -> dict[str, Any]:
+    """Protocol §3.7 payload: identifiers, one generic sentence and the count, never turn content.
+
+    ``badge`` is the owner's count once the change behind this push is made (A47).
+    """
     return {
         "rc": {
             "v": 1,
@@ -99,7 +113,9 @@ def build_payload(kind: str, session: dict[str, Any], device_name: str) -> dict[
             "device_id": str(session.get("device_id") or ""),
             "session_id": str(session.get("session_id") or ""),
             "device_name": device_name,
-            "title": f"{device_name}: {_TEXTS.get(kind, 'update')}",
+            # A badge-only push shows nothing, so it has nothing to say.
+            "title": "" if kind == KIND_BADGE else f"{device_name}: {_TEXTS.get(kind, 'update')}",
+            "badge": badge,
         }
     }
 
@@ -110,19 +126,27 @@ class PushService:
         store: PushStore,
         *,
         device_name: DeviceNameLookup,
+        badge_count: BadgeCount,
         vapid_private_key: str = "",
         vapid_contact: str = "",
         web_sender: WebPushSender | None = None,
         apns: ApnsProvider | None = None,
+        sleep: Sleep = asyncio.sleep,
     ) -> None:
         self.store = store
         self.apns = apns
         self._device_name = device_name
+        self._badge_count = badge_count
         self._vapid_private_key = vapid_private_key
         self._vapid_contact = vapid_contact
         self._web_sender = web_sender or self._send_with_pywebpush
         self._worker: asyncio.Task[None] | None = None
         self._threads: ThreadPoolExecutor | None = None
+        # A47. `sleep` waits out each account's quiet period; a test passes a clock it moves.
+        self._badges = BadgeSettler(self.push_badge, sleep=sleep)
+        #: The count each account's phones were last sent, so a count that settles where the last
+        #: push left it costs nothing. Memory only: after a restart the next one is sent anyway.
+        self._badges_sent: dict[str, int] = {}
 
     @property
     def web_enabled(self) -> bool:
@@ -137,6 +161,9 @@ class PushService:
             self._worker = asyncio.create_task(self._retry_loop())
 
     async def stop(self) -> None:
+        # First, while the APNs client is still open: a count that was still settling goes out
+        # now rather than leaving a phone's badge behind the restart.
+        await self._badges.stop()
         if self._worker is not None:
             self._worker.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -179,16 +206,39 @@ class PushService:
         session = {"session_id": notice.session_id, "device_id": notice.device_id}
         await self.notify(kind, session, await self._device_name(notice.device_id), notice.owner)
 
+    def on_badge_change(self, change: BadgeChange) -> None:
+        """A47: an account's count moved; its phones hear it once it has settled."""
+        if self.apns is None or not change.owner:
+            return
+        self._badges.changed(change)
+
     async def notify(
         self, kind: str, session: dict[str, Any], device_name: str, owner: str
     ) -> None:
-        payload = build_payload(kind, session, device_name)
+        # Counted now, after the hub stored the change that cued this push (A47).
+        badge = await self._badge_count(owner)
+        payload = build_payload(kind, session, device_name, badge)
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         await asyncio.gather(
             self._deliver_web(body, owner),
             self._enqueue_apns(payload, owner),
             return_exceptions=True,
         )
+
+    async def push_badge(self, change: BadgeChange) -> None:
+        """Tell the account's phones its count, unless the last push already did (A47, §3.7).
+
+        APNs only: a browser shows every push it receives, so Web Push gets the count only inside
+        the notifications it shows anyway.
+        """
+        badge = await self._badge_count(change.owner)
+        if self._badges_sent.get(change.owner) == badge:
+            return
+        session = {"device_id": change.device_id, "session_id": change.session_id}
+        payload = build_payload(
+            KIND_BADGE, session, await self._device_name(change.device_id), badge
+        )
+        await self._enqueue_apns(payload, change.owner)
 
     # ---- web push ----
 
@@ -251,9 +301,16 @@ class PushService:
         registrations = await self.store.list_apns(owner)
         if not registrations:
             return
+        rc = payload["rc"]
         body = json.dumps(_apns_payload(payload), ensure_ascii=False, separators=(",", ":"))
         for registration in registrations:
-            await self.store.enqueue(registration.device_token, registration.environment, body)
+            await self.store.enqueue(
+                registration.device_token,
+                registration.environment,
+                body,
+                badge_only=rc["kind"] == KIND_BADGE,
+            )
+        self._badges_sent[owner] = rc["badge"]
         await self.flush_apns()
 
     async def flush_apns(self) -> None:
@@ -266,6 +323,7 @@ class PushService:
                     delivery.device_token,
                     delivery.payload.encode("utf-8"),
                     environment=delivery.environment,
+                    priority=PRIORITY_POWER_AWARE if delivery.badge_only else PRIORITY_IMMEDIATE,
                 )
             except ValueError:
                 await self.store.finish(delivery.delivery_id)
@@ -304,13 +362,17 @@ class PushService:
 
 
 def _apns_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    rc = payload.get("rc", {})
-    title = rc.get("title", "") if isinstance(rc, dict) else ""
+    rc = payload["rc"]
+    # A47: the home-screen badge holds while the app is closed only because APNs sets it.
+    if rc["kind"] == KIND_BADGE:
+        # The count and nothing else: no alert, no sound (§3.7).
+        return {"aps": {"badge": rc["badge"]}, **payload}
     return {
         "aps": {
-            "alert": {"title": "Remote Control", "body": title},
+            "alert": {"title": "Remote Control", "body": rc["title"]},
             "sound": "default",
             "interruption-level": "active",
+            "badge": rc["badge"],
         },
         **payload,
     }

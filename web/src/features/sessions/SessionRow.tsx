@@ -1,6 +1,8 @@
+import { useId } from 'react';
 import { Folder } from 'lucide-react';
 import { AgentLogo } from '../../components/AgentLogo';
 import { StatusDot } from '../../components/StatusDot';
+import { UnseenDot } from '../../components/UnseenDot';
 import { relativeTime, tildePath } from '../../lib/format';
 import { agentLabel, sessionOriginLabel, sessionTitle, strings } from '../../strings';
 import type { Session } from '../../protocol/types';
@@ -22,14 +24,23 @@ export function SessionRow({ session, online, onOpen }: Props) {
   // A hand-archived row says so before its origin.
   const origin = sessionOriginLabel(session);
   const word = session.archived ? `${strings.sessions.archived} · ${origin}` : origin;
+  const unseenId = useId();
+  const unseen = session.unseen === true;
 
   return (
     <li className="session-row">
       {/* Three lines (docs/DESIGN.md § "The session row"): title and time,
           agent and origin, then the working directory alone after a folder,
           so the path has the whole width and no line says three things. */}
-      <button type="button" className="session-open" onClick={onOpen} aria-label={strings.sessions.open}>
+      <button
+        type="button"
+        className="session-open"
+        onClick={onOpen}
+        aria-label={strings.sessions.open}
+        aria-describedby={unseen ? unseenId : undefined}
+      >
         <span className="session-line">
+          {unseen ? <UnseenDot id={unseenId} /> : null}
           <span className="session-title">{sessionTitle(session)}</span>
           <span className="session-time">{relativeTime(session.updated_at)}</span>
         </span>

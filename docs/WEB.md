@@ -82,7 +82,9 @@ carrying `queue_ts` held under it, anything else at the end, an `attachments` co
 sent with files, `bad_request` for a malformed `queue_ts`, and `not_found` from
 `session.queue_remove` for an id the mock no longer holds. `ses-vite`, which waits on an approval
 and so queues every send, starts with three queued messages, the middle one with two files, so the
-Up next chip, its list and an edit can be tried at once.
+Up next chip, its list and an edit can be tried at once. It also starts with the red dot of A47
+(`unseen: true`, the only session that does), and every scripted turn marks the session it plays in
+when it stops to ask or ends, the way the gateway does (`mock/unseen.ts`, below).
 It knows two accounts (A24), `admin` / `dev` and the member `alice` / `devdevdev`, with the
 registration switch closed and the account routes of 3.9 behind the admin's role, so the sign-in
 form, registration, the Users screen and a member's Settings can all be driven with no gateway. The
@@ -340,6 +342,77 @@ viewer's zone, the clock face of the interface language, the date added when it 
 field never shows a UTC minute. All of it is pure and takes the clock as an argument, so
 `tests/resume.test.ts` reads a fixed afternoon rather than whatever time the suite runs at.
 
+## A red dot and the app icon badge (A47)
+
+The ruling is `docs/DESIGN.md` § "A red dot for a session that stopped and waits for you"; the wire
+is `Session.unseen`, `session.seen` and `rc.badge` (PROTOCOL §4.4, §6.2, §3.7). The mark is the
+gateway's. The app never sets or clears it: it draws what the last `hello`, `session.updated` or
+subscribe reply said, and it tells the gateway when the person has looked.
+
+**The dot.** `src/components/UnseenDot.tsx` draws it on the row of every session whose `unseen` is
+true — `SessionRow` on the Sessions page and `SidebarItem` in the chat sidebar, which became a
+component of its own because each row needs its own id. It is the `.unseen-dot` primitive in
+`ui.css`: 8 px (`--unseen-dot`), `--danger`, and absolutely positioned inside the title's line, so it
+is centred on that line and moves nothing when it comes or goes. Each list says where its gutter's
+centre is with `--unseen-reach`, the distance back from where the title's line starts: half the
+Sessions row's leading padding (20 px, 16 px at 640 px and below), and in the sidebar half of a new
+20 px leading padding plus the status dot (`--status-dot`, 7 px) and the gap after it. The sidebar's
+rows keep that gutter whether or not a dot is in it, so their status dot and text sit 12 px further
+in than before A47 and the dot touches neither the row's edge nor its status dot. The dot itself is
+`aria-hidden`; the row's button names a hidden sentence beside it with `aria-describedby`, so a
+screen reader hears the row and then "not yet opened" / "未查看" (`strings.sessions.unseen`), never
+the words in the middle of the row's name.
+
+**Telling the gateway.** `src/features/chat/useFrontConversation.ts`, which `ChatPage` calls, knows
+when the conversation on screen is in front of the person: `src/lib/useInFront.ts` is true while
+`document.visibilityState` is `visible` and `document.hasFocus()`, read again on `visibilitychange`,
+`focus` and `blur`. While it is, the hook calls the sessions store's `markSeen`, which holds the
+protocol's rule: `session.seen {session_id}` goes only while this tab's copy says `unseen`, once per
+session at a time (a module-level set that `reset()` empties), and a failure is swallowed. The hook
+asks on every occasion the ruling names — the conversation opening on a page in front, the page
+coming to the front with it open, a `session.updated` marking it while it is on screen — and when the
+socket comes back, since a `hello` may bring the mark. Nothing clears the copy but the gateway's own
+`session.updated`, so a request that failed goes again the next time one of those moments comes;
+there is no retry timer.
+
+**The conversation in front draws no dot.** `src/stores/front.ts` holds the key of the conversation
+in front, or null: `useFrontConversation` sets it while the page is in front and takes it back when
+the page leaves the front or closes. The sidebar leaves that row's dot out and the badge does not
+count it, so a turn that ends while the person watches never draws a dot or moves the icon's number,
+not even for the round trip of its `session.seen` — which is what "a session already on screen when
+its turn ends never gets one" asks of the screen. With the window behind another, the same row shows
+the dot until the window comes back. This is the one place the web draws less than the copy says;
+the copy itself stays the gateway's.
+
+**The badge.** `src/push/appBadge.ts` is the one place that calls the Badging API: `showAppBadge(n)`
+is `navigator.setAppBadge(n)`, or `clearAppBadge()` at zero, and nothing at all where the browser
+offers neither; a refusal — a page that is not installed, badges switched off — is swallowed.
+`src/push/useAppBadge.ts`, called from `App`, keeps the badge at `countUnseen(sessions, front)`, the
+unarchived sessions with the mark less the conversation in front, from the moment the sessions store
+is `loaded`, so a badge the service worker set from a push stands until the page has the account's
+list. `signOut()` clears it, and the service worker sets it from every push's `rc.badge` (§ "Push and
+the service worker").
+
+**The mock** behaves as the gateway. `mock/unseen.ts` holds the rule — working is `starting` or
+`running`; waiting is `needs_approval` or `needs_input`, or `idle` or `readonly` with a control other
+than `none` — and `moveState` is the only way `server.ts` changes a session's state, so every
+scripted `status`, the takeover and the close go through it: working to waiting marks, working again
+clears, any other move leaves the mark as it was. `clearMark` serves `session.seen` and the close,
+which archives. The field travels only while it is true, as the protocol's own fixtures carry it.
+`session.seen` answers `{}` and then, when there was a mark, sends `session.updated` to every socket
+of the account; another account's session and an unknown one are `not_found`. `ses-vite` starts
+marked, so the dot and a badge of 1 are there on the first sign-in.
+
+Tests: `tests/unseen-dot.test.tsx` (the dot on both lists, its line, its description in both
+languages, the conversation in front, the CSS that places it), `tests/session-seen.test.tsx` (when
+`session.seen` is sent and when not: opening, focus, visibility, a mark arriving on screen, the
+socket coming back, one at a time, a silent failure and the next occasion, the front store),
+`tests/app-badge.test.tsx` (the count, the Badging API through a fake `navigator`, the hook, the
+conversation in front, sign-out), `tests/service-worker.test.ts` (the badge from a push, the `badge`
+kind), `tests/mock-unseen.test.ts` (the mock's rule over the whole state table),
+`tests/ws.test.ts` (the request's frame against its fixture), `tests/signout.test.tsx` (the
+conversation in front forgotten) and `tests/protocol-fixtures.test.ts` (the A47 fixtures).
+
 ## Push and the service worker
 
 `public/sw.js` is registered in production builds only. It is network-first for navigations,
@@ -355,6 +428,13 @@ has never seen still says a device needs attention and still deep-links to its s
 left open across a gateway upgrade keeps working. `tests/service-worker.test.ts` evaluates `sw.js`
 against a stand-in `self` and drives both handlers, because the file is plain JavaScript the browser
 loads on its own and nothing else in the suite would reach it.
+
+Every push also carries `rc.badge` (A47), how many of the account's unarchived sessions have the red
+dot, and the worker sets the installed app's icon from it (`self.navigator.setAppBadge`, cleared at
+zero) beside the notification, which is how the number holds while no page of the app is open. A
+payload without a whole, non-negative count leaves the badge alone, a browser without the API shows
+the notification as before, and a refusal never stops it. A push of kind `badge` changes the count
+and shows nothing; the gateway sends that kind to APNs only, but it means the same here.
 
 ## Accounts
 
@@ -394,8 +474,9 @@ preference — replaces the sentence and disables the control rather than adding
 the list: it closes the socket, puts the connection store back to what no `hello` has confirmed
 (`stt`, `polish`, the gateway version and the protocol number included, so the composer never
 offers a capability this account has not been told about), and calls `reset()` on every store that
-holds something of an account's — chat, drafts, outbox, answers, commands, sessions, devices,
-users. `App` calls it both for the Sign out button and for a `4401`/`4403` close. Before this, all
+holds something of an account's — chat, drafts, outbox, answers, commands, sessions, the
+conversation in front (A47), devices, users — and clears the app icon's badge, which counted that
+account's sessions (A47). `App` calls it both for the Sign out button and for a `4401`/`4403` close. Before this, all
 of it stayed in memory until the page was reloaded, including the value typed into a question field
 whose own placeholder says it is not stored; on a shared browser the next person had it. The
 device and session lists go with the rest, so the landing rule waits for the new account's `hello`
@@ -947,8 +1028,10 @@ edge, the `StatusDot` with the session's **origin** — `sessionOriginLabel` in 
 in the secondary ink whatever the state (`docs/DESIGN.md` § "The session row says where it came
 from"). The state is the dot's colour alone; "running", "idle", "terminal · attached" and "device
 offline" are gone from the row, and a hand-archived row reads "Archived · <origin>". The chat
-sidebar's rows follow the same rule: `Sidebar.tsx` prints `basename · time` under every title and
-leaves the state to the dot. Above the list, `SessionLegend.tsx` draws the legend once — under the
+sidebar's rows follow the same rule: `SidebarItem.tsx` prints `basename · time` under every title
+and leaves the state to the dot. On both lists a session the gateway marked carries the red dot of
+A47 in the leading padding of its first line (§ "A red dot and the app icon badge (A47)"). Above the
+list, `SessionLegend.tsx` draws the legend once — under the
 toolbar, `.session-legend`, `role="list"`, the four dots at the rows' size with `legendEntries()`
 from `legend.ts`: Working (green), For you (still amber; the pulsing amber is the same colour),
 Not running (grey), Error (red) — caption type, secondary ink, no box, no border, and not when the
@@ -1140,10 +1223,28 @@ trailing edge and its sentence, in English and in 中文, and the page does not 
 400 px. The mock always transcribes, so the no-service sentence is covered by the vitest suite
 only. Screenshots are not checked into the repository.
 
+The A47 red dot and badge were driven in headless Chrome against the mock gateway, in English and
+in 中文, at 1280 px, 900 px and 400 px, with the page's `navigator.setAppBadge` and
+`clearAppBadge` replaced by recorders. The dot on `ses-vite` measured 8 px in the Danger red,
+centred 10 px into the Sessions row (8 px at 400 px) and 10 px into the sidebar row, on the title's
+line to the pixel, with the title still at 20 px; the badge read 1. Opening the session sent one
+`session.seen`, took the dot off both lists and cleared the badge. A message sent into `ses-shared`
+on screen ran a turn that stopped for an approval: `session.seen` left in the same millisecond as
+the mark arrived, its row never drew a dot (watched with a mutation observer) and the badge never
+read 1. Neither 400 px page scrolled sideways. The mock was checked over its own socket as well, with
+two sockets of one account and one of another: the mark in `hello`, `GET /api/sessions` and the
+subscribe reply; `session.seen` answering `{}` before the `session.updated` that reaches both of the
+account's sockets and not the other's, nothing sent the second time, `not_found` for a foreign or
+unknown session; a turn marking on `needs_approval`, clearing when it worked again and marking on
+`idle`; the close clearing it; a takeover of a running terminal turn marking it. A real installed
+app's icon was not looked at: a headless browser has no dock, and nothing was installed. Screenshots
+are not checked into the repository.
+
 ## Not verified
 
 Real Web Push delivery, speech to text (the gateway ran with `STT_PROVIDER=none`, so the mic is
-hidden by design), and attachments. Two corners of the approval card are untried: the session-scoped
+hidden by design), and attachments. The A47 badge on an installed web app's real icon, from the page
+or from the service worker, and `session.seen` against the real gateway (the mock stood in for it). Two corners of the approval card are untried: the session-scoped
 middle option, and an approval for a command rather than an edit — both cards answered here were
 `Write`. `session.delete` and renaming a session exist in the protocol and the device implements
 both, but the web UI has no entry point for either.

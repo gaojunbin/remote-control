@@ -346,6 +346,12 @@ export interface Session {
   queued: number;
   /** A35: the resume the device has scheduled after a usage limit, if any. */
   resume?: SessionResume | null;
+  /**
+   * A47 (4.4): the session stopped working and waits for the person, and
+   * nobody on the account has opened it since. The gateway's alone — a device
+   * never sends it — and absent is false, which is all an older gateway says.
+   */
+  unseen?: boolean;
 }
 
 /* ---------------------------------------------------------------- events */

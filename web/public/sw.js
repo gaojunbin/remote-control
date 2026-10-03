@@ -1,7 +1,8 @@
 /**
  * remote-control service worker.
- * Network-first for navigations, cache-first for hashed build assets, and a
- * generic notification for every push (payloads never carry message content).
+ * Network-first for navigations, cache-first for hashed build assets, and for
+ * a push the app icon's count and a generic notification (payloads never carry
+ * message content).
  */
 const CACHE = 'rc-shell-v1';
 const SHELL = ['/', '/manifest.webmanifest', '/icon.svg', '/icon-192.png'];
@@ -88,6 +89,18 @@ const TITLES = {
   resume_dropped: 'not resumed',
 };
 
+// A47: every push carries how many of the account's sessions have a red dot,
+// which the installed app's icon shows while no page of it is open to keep it.
+// A browser without a badge, or a payload without the count, changes nothing.
+function setBadge(count) {
+  const nav = self.navigator;
+  if (!Number.isInteger(count) || count < 0) return Promise.resolve();
+  if (!nav || typeof nav.setAppBadge !== 'function' || typeof nav.clearAppBadge !== 'function') {
+    return Promise.resolve();
+  }
+  return Promise.resolve(count > 0 ? nav.setAppBadge(count) : nav.clearAppBadge()).catch(() => {});
+}
+
 self.addEventListener('push', (event) => {
   let payload = {};
   try {
@@ -96,20 +109,30 @@ self.addEventListener('push', (event) => {
     payload = {};
   }
   const rc = payload.rc || {};
+  const badge = setBadge(rc.badge);
+  // `badge` changes the count and shows nothing. The gateway sends it to APNs
+  // alone, so it is not expected here, but what it means does not change.
+  if (rc.kind === 'badge') {
+    event.waitUntil(badge);
+    return;
+  }
   const device = rc.device_name || 'A device';
   // The gateway writes the whole line in `rc.title`; a kind this build knows is
   // the fallback, and one it does not still says a device needs attention and
   // still opens its session.
   const body = rc.title || `${device}: ${TITLES[rc.kind] || 'needs your attention'}`;
   event.waitUntil(
-    self.registration.showNotification('Remote Control', {
-      body,
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
-      tag: rc.session_id ? `rc-${rc.session_id}` : 'rc',
-      renotify: true,
-      data: { rc },
-    }),
+    Promise.all([
+      badge,
+      self.registration.showNotification('Remote Control', {
+        body,
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
+        tag: rc.session_id ? `rc-${rc.session_id}` : 'rc',
+        renotify: true,
+        data: { rc },
+      }),
+    ]),
   );
 });
 

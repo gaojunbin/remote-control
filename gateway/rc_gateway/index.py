@@ -9,6 +9,10 @@ Sequence numbers arrive on the hot path between a device and the apps watching i
 recorded in memory and written to SQLite by a background task. Reads overlay whatever is still
 unwritten, which makes the recorded value visible immediately: an app can never read a summary
 older than an event it has already received live.
+
+The A47 mark is the gateway's own and lives in a column beside the summary, never inside it. It is
+worked out from the stored row in the same step that replaces the summary, so a `session.seen` that
+lands while a device's summary is on its way in is never undone by that summary.
 """
 
 from __future__ import annotations
@@ -25,11 +29,18 @@ from typing import Any
 
 from .logging import logger
 from .migrations import Migration, apply_migrations
+from .unseen import FIELD, next_unseen, with_mark
 
 log = logger("rc_gateway.index")
 
-#: No column has been added since this table's first release; see rc_gateway/migrations.py.
-MIGRATIONS: tuple[Migration, ...] = ()
+#: Columns added since this table's first release; see rc_gateway/migrations.py.
+MIGRATIONS: tuple[Migration, ...] = (
+    # A47: the gateway's mark on a session that stopped working and waits for the person.
+    ("sessions", "unseen", "INTEGER NOT NULL DEFAULT 0"),
+)
+
+#: Every column a row read back as an `IndexedSession` needs.
+_ROW = "session_id, device_id, state, last_seq, unseen, summary"
 
 Session = dict[str, Any]
 
@@ -40,6 +51,8 @@ class IndexedSession:
     device_id: str
     state: str
     last_seq: int
+    #: A47: the gateway's mark, already laid over ``summary``.
+    unseen: bool
     summary: Session
 
 
@@ -74,6 +87,7 @@ class SessionIndex:
                     device_id TEXT NOT NULL,
                     state TEXT NOT NULL DEFAULT '',
                     archived INTEGER NOT NULL DEFAULT 0,
+                    unseen INTEGER NOT NULL DEFAULT 0,
                     last_seq INTEGER NOT NULL DEFAULT 0,
                     updated_at INTEGER NOT NULL,
                     summary TEXT NOT NULL
@@ -129,7 +143,8 @@ class SessionIndex:
         updated_at = _as_int(summary.get("updated_at")) or int(time.time() * 1000)
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT last_seq, device_id FROM sessions WHERE session_id=?", (session_id,)
+                "SELECT last_seq, device_id, state, unseen FROM sessions WHERE session_id=?",
+                (session_id,),
             ).fetchone()
             if row is not None and str(row["device_id"]) != device_id:
                 return None
@@ -138,16 +153,21 @@ class SessionIndex:
             # Never move the cursor backwards.
             stored_seq = int(row["last_seq"]) if row is not None else 0
             merged_seq = max(last_seq, stored_seq, pending_seq)
+            # A47: a device's word on the mark is not the mark; the stored row and this summary
+            # decide it, read here so nothing written since the caller's last look is lost.
             stored = dict(summary)
+            stored.pop(FIELD, None)
             stored["last_seq"] = merged_seq
+            unseen = _mark_after(row, stored)
             connection.execute(
                 """
                 INSERT INTO sessions(
-                    session_id, device_id, state, archived, last_seq, updated_at, summary
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    session_id, device_id, state, archived, unseen, last_seq, updated_at, summary
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     state=excluded.state,
                     archived=excluded.archived,
+                    unseen=excluded.unseen,
                     last_seq=excluded.last_seq,
                     updated_at=excluded.updated_at,
                     summary=excluded.summary
@@ -157,6 +177,7 @@ class SessionIndex:
                     device_id,
                     state,
                     archived,
+                    int(unseen),
                     merged_seq,
                     updated_at,
                     _dumps(stored),
@@ -167,7 +188,8 @@ class SessionIndex:
             device_id=device_id,
             state=state,
             last_seq=merged_seq,
-            summary=stored,
+            unseen=unseen,
+            summary=with_mark(stored, unseen),
         )
 
     # ---- sequence cursor ----
@@ -247,6 +269,42 @@ class SessionIndex:
             return summary
         return {**summary, "last_seq": pending}
 
+    # ---- the A47 mark ----
+
+    async def clear_unseen(self, session_id: str) -> IndexedSession | None:
+        """Take a session's mark away. Returns the session when it had one, ``None`` otherwise."""
+        async with self._db_lock:
+            indexed = await asyncio.to_thread(self._clear_unseen, session_id)
+            return None if indexed is None else self._overlaid(indexed)
+
+    def _clear_unseen(self, session_id: str) -> IndexedSession | None:
+        with self._connect() as connection:
+            cleared = connection.execute(
+                "UPDATE sessions SET unseen=0 WHERE session_id=? AND unseen=1", (session_id,)
+            ).rowcount
+            if not cleared:
+                return None
+            row = connection.execute(
+                f"SELECT {_ROW} FROM sessions WHERE session_id=?", (session_id,)
+            ).fetchone()
+        return None if row is None else _indexed(row)
+
+    async def count_unseen(self, device_ids: list[str]) -> int:
+        """How many unarchived sessions on these devices carry the mark: one account's badge."""
+        if not device_ids:
+            return 0
+        async with self._db_lock:
+            return await asyncio.to_thread(self._count_unseen, device_ids)
+
+    def _count_unseen(self, device_ids: list[str]) -> int:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) FROM sessions WHERE unseen=1 AND archived=0 "
+                f"AND device_id IN ({','.join('?' * len(device_ids))})",
+                device_ids,
+            ).fetchone()
+        return int(row[0])
+
     # ---- reads ----
 
     async def get(self, session_id: str) -> IndexedSession | None:
@@ -257,9 +315,7 @@ class SessionIndex:
     def _get(self, session_id: str) -> IndexedSession | None:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT session_id, device_id, state, last_seq, summary "
-                "FROM sessions WHERE session_id=?",
-                (session_id,),
+                f"SELECT {_ROW} FROM sessions WHERE session_id=?", (session_id,)
             ).fetchone()
         return None if row is None else _indexed(row)
 
@@ -294,53 +350,62 @@ class SessionIndex:
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._connect() as connection:
             rows = connection.execute(
-                f"SELECT summary FROM sessions{where} ORDER BY updated_at DESC, session_id",
+                f"SELECT summary, unseen FROM sessions{where} ORDER BY updated_at DESC, session_id",
                 params,
             ).fetchall()
-        return [_loads(row["summary"]) for row in rows]
+        return [with_mark(_loads(row["summary"]), bool(row["unseen"])) for row in rows]
 
     # ---- removal ----
 
-    async def remove(self, session_id: str) -> str | None:
-        """Delete one session. Returns its device id when it existed."""
+    async def remove(self, session_id: str) -> IndexedSession | None:
+        """Delete one session. Returns what was stored for it, when anything was."""
         async with self._db_lock:
-            device_id = await asyncio.to_thread(self._remove, session_id)
+            removed = await asyncio.to_thread(self._remove, session_id)
             self._pending_seq.pop(session_id, None)
-            return device_id
+            return removed
 
-    def _remove(self, session_id: str) -> str | None:
+    def _remove(self, session_id: str) -> IndexedSession | None:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT device_id FROM sessions WHERE session_id=?", (session_id,)
+                f"SELECT {_ROW} FROM sessions WHERE session_id=?", (session_id,)
             ).fetchone()
             if row is None:
                 return None
             connection.execute("DELETE FROM sessions WHERE session_id=?", (session_id,))
-        return str(row["device_id"])
+        return _indexed(row)
 
-    async def remove_for_device(self, device_id: str) -> list[str]:
+    async def remove_for_device(self, device_id: str) -> list[IndexedSession]:
         async with self._db_lock:
             removed = await asyncio.to_thread(self._remove_for_device, device_id)
-            for session_id in removed:
-                self._pending_seq.pop(session_id, None)
+            for indexed in removed:
+                self._pending_seq.pop(indexed.session_id, None)
             return removed
 
-    def _remove_for_device(self, device_id: str) -> list[str]:
+    def _remove_for_device(self, device_id: str) -> list[IndexedSession]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT session_id FROM sessions WHERE device_id=?", (device_id,)
+                f"SELECT {_ROW} FROM sessions WHERE device_id=?", (device_id,)
             ).fetchall()
             connection.execute("DELETE FROM sessions WHERE device_id=?", (device_id,))
-        return [str(row["session_id"]) for row in rows]
+        return [_indexed(row) for row in rows]
+
+
+def _mark_after(row: Any, summary: Session) -> bool:
+    """The A47 mark once ``summary`` replaces ``row``, the one stored for it, if there is one."""
+    if row is None:
+        return next_unseen(None, False, summary)
+    return next_unseen(str(row["state"]), bool(row["unseen"]), summary)
 
 
 def _indexed(row: Any) -> IndexedSession:
+    unseen = bool(row["unseen"])
     return IndexedSession(
         session_id=str(row["session_id"]),
         device_id=str(row["device_id"]),
         state=str(row["state"]),
         last_seq=int(row["last_seq"]),
-        summary=_loads(row["summary"]),
+        unseen=unseen,
+        summary=with_mark(_loads(row["summary"]), unseen),
     )
 
 

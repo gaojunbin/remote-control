@@ -10,6 +10,7 @@ import { SessionsPage } from './features/sessions/SessionsPage';
 import { ChatPage } from './features/chat/ChatPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { UsersPage } from './features/users/UsersPage';
+import { useAppBadge } from './push/useAppBadge';
 import { useServiceWorkerNavigation } from './push/useServiceWorkerNavigation';
 import { useAuth } from './stores/auth';
 import { useConnection } from './stores/connection';
@@ -39,6 +40,7 @@ export function App() {
   const language = useSettings((s) => s.language);
 
   useServiceWorkerNavigation();
+  useAppBadge();
 
   useEffect(() => {
     document.documentElement.lang = language;

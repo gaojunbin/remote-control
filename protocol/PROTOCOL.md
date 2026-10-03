@@ -926,11 +926,12 @@ worked examples of A25 and A26.
 
 #### `unseen` (A47)
 
-A session **works** while its `state` is `starting` or `running`, and **waits for the person** while
-its `state` is `needs_approval` or `needs_input`, or `idle` or `readonly` with a `control` other
-than `none`: the status dot's green and amber. The gateway sets `unseen` on the account's session
-when the device moves it from working to waiting — a turn ended, or it asks for an approval or an
-answer — and clears it when an app of the account sends `session.seen` (6.2), when the session works
+A session **works** while its `state` is `running` — a turn is under way — and **waits for the
+person** while its `state` is `needs_approval` or `needs_input`, or `idle` or `readonly` with a
+`control` other than `none`: the status dot's amber. (`starting` is green too, but a session that
+only started has done nothing to look at, so it never brings the mark.) The gateway sets `unseen`
+on the account's session when the device moves it from working to waiting — a turn ended, or it
+asks for an approval or an answer — and clears it when an app of the account sends `session.seen` (6.2), when the session works
 again (someone carried on, from a terminal or another app), or when it is archived or removed. The
 mark survives a gateway restart; every change reaches the account's apps as `session.updated`. The
 transition is read from the states alone: a turn that ended while the device was offline still
@@ -4490,7 +4491,8 @@ on the wire. See 3, 6 and 9.
 The owner asked for a red dot on a session whose dot went from green to amber, and for the apps'
 icons to count those sessions. The mark is the gateway's, because only the gateway sees every
 transition while every app may be closed, and because opening the session on one app should clear
-it on all of them: `Session.unseen` is set when the device moves a session from working to waiting
+it on all of them: `Session.unseen` is set when the device moves a session from a running turn to
+waiting
 and cleared by `session.seen`, by the session working again, or by its archiving or removal. Every
 push carries the count as `rc.badge` (APNs `aps.badge`), and a badge-only APNs notification follows
 a change no push carried. Additive: an app that predates it ignores the field, sends no

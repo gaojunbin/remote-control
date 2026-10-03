@@ -183,6 +183,13 @@ export interface TerminalAttachResult {
 /** Request type -> (params, result) mapping used by the typed socket client. */
 export interface RequestMap {
   'session.subscribe': [{ session_id: string; since_seq?: number }, SubscribeResult];
+  /**
+   * A47 (6.2): the person has this conversation in front of them. The gateway
+   * clears `unseen` and, when it was set, sends `session.updated` to every
+   * socket of the account. Idempotent; another account's session is
+   * `not_found`.
+   */
+  'session.seen': [{ session_id: string }, Record<string, never>];
   'session.create': [CreateSessionParams, SessionResult];
   'session.send': [SendParams, SendResult];
   'session.stop': [{ session_id: string }, Record<string, never>];

@@ -988,8 +988,9 @@ that waits for a tap.
 ### A red dot for a session that stopped and waits for you
 
 **A session whose dot went from green to amber since anyone on the account last looked carries a red
-dot.** Green to amber is Working to For you: a turn ended, or the session asks for an approval or an
-answer. The red dot — 8 px, the Danger red — sits in the row's leading gutter, centred on the
+dot.** Green to amber is a running turn becoming For you: the turn ended, or the session asks for an
+approval or an answer. A session that only started (`starting` is green too) has done nothing to
+look at and never brings one. The red dot — 8 px, the Danger red — sits in the row's leading gutter, centred on the
 title's line, on every row that draws the session (Sessions, the chat page's session list), so it
 moves nothing when it comes or goes; a screen reader hears "not yet opened". It is the gateway's
 (A47), so every app of the account shows the same dots and opening the session on any of them clears
@@ -1315,8 +1316,10 @@ under `prefers-reduced-motion`.
 Every user-visible string lives in one catalog per app — `web/src/strings.ts`,
 `ios/App/Localizable.xcstrings`, `macos/Sources/RCMac/Strings/` (the web's tables, one file per
 group, both languages side by side) and its Windows twin under `win/`, and for the Android app the
-iPhone's own catalog with `android/app/src/main/strings/overlay.json` laid over it at build time —
-so a second language never means touching a component.
+iPhone's own catalog with `android/app/src/main/strings/overlay.json` laid over it at build time
+(the iPhone's words that name Apple's places, re-worded) and `android.json` beside it (the few
+words only the Android app shows, such as the launcher badge's notification; never a key the
+iPhone's catalog has) — so a second language never means touching a component.
 
 ## Deliberately not in v1
 

@@ -247,6 +247,11 @@ export const en = {
     closeTitle: 'Close this session?',
     closeBody: 'The agent is still working; what it has not finished is lost.',
     open: 'Open session',
+    /**
+     * A47: what a screen reader hears for the red dot of a session that
+     * stopped working and that nobody on the account has opened since.
+     */
+    unseen: 'not yet opened',
     untitled: 'Untitled session',
     /**
      * The dot legend, drawn once above the list (`docs/DESIGN.md` § "A legend,

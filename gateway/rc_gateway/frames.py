@@ -48,6 +48,18 @@ FORWARDED_BY_SESSION = frozenset(
         "session.delete",
     }
 )
+#: Forwarded requests whose reply carries the device's `Session` as `result.session` (§6.3), which
+#: the gateway marks as it marks every session an app receives (A47).
+SESSION_RESULT_TYPES = frozenset(
+    {
+        "session.create",
+        "session.set",
+        "session.resume_set",
+        "session.resume_cancel",
+        "session.takeover",
+        "session.archive",
+    }
+)
 #: A38: a terminal belongs to a machine, never to a session, so all five name the device.
 #: ``terminal.detach`` is deliberately absent: only the gateway sends it, on its own account.
 TERMINAL_OPEN = "terminal.open"

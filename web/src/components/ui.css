@@ -253,8 +253,8 @@
 
 .dot {
   display: inline-block;
-  width: 7px;
-  height: 7px;
+  width: var(--status-dot);
+  height: var(--status-dot);
   border-radius: 50%;
   background: var(--idle);
   flex: none;
@@ -324,6 +324,24 @@
   .dot.waiting {
     animation: none;
   }
+}
+
+/*
+ * A47 (docs/DESIGN.md § "A red dot for a session that stopped and waits for
+ * you"): in the row's leading gutter, centred on the title's line, and out of
+ * the flow, so it moves nothing when it comes or goes. The title's line is its
+ * containing block; each list sets `--unseen-reach`, how far back from where
+ * that line starts the gutter's centre is.
+ */
+.unseen-dot {
+  position: absolute;
+  top: 50%;
+  left: calc(-1 * var(--unseen-reach) - var(--unseen-dot) / 2);
+  width: var(--unseen-dot);
+  height: var(--unseen-dot);
+  margin-top: calc(var(--unseen-dot) / -2);
+  border-radius: 50%;
+  background: var(--danger);
 }
 
 .pill {

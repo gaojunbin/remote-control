@@ -13,6 +13,7 @@ import { useCommands } from '../src/stores/commands';
 import { useConnection } from '../src/stores/connection';
 import { useDevices } from '../src/stores/devices';
 import { useDrafts } from '../src/stores/drafts';
+import { useFront } from '../src/stores/front';
 import { useOutbox } from '../src/stores/outbox';
 import { useSessions } from '../src/stores/sessions';
 import { signOut } from '../src/stores/signOut';
@@ -89,6 +90,8 @@ function fillStores(): void {
   // A38: the shell this account left detached on a device. The next person in
   // the browser must not attach to it.
   rememberTerminal('dev-a', 'term-a');
+  // A47: the conversation this account had in front of it.
+  useFront.setState({ key: KEY });
 }
 
 beforeEach(() => {
@@ -108,6 +111,7 @@ describe('signing out', () => {
     expect(useDevices.getState().updateErrors).toEqual({});
     expect(useUsers.getState().registrationOpen).toBe(false);
     expect(rememberedTerminal('dev-a')).toBeNull();
+    expect(useFront.getState().key).toBeNull();
   });
 
   it('puts the gateway’s capabilities back to what no hello has confirmed', () => {
