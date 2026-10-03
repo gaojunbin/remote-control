@@ -1,18 +1,18 @@
-"""Which Codex threads on this machine are the device's to publish (A18).
+"""Which Codex threads on this machine are the device's to publish (A18, A48).
 
 Codex keeps one history for the whole machine, so the desktop app's chats and
 scheduled automations, an IDE extension's threads and the subagents a thread
 spawned all sit in the daemon's index beside what somebody typed at a terminal.
 Every thread records the client that created it — `originator` on the index
 entry and in the rollout's own `session_meta` — and where that client sits:
-`source` is `"cli"` for a TUI, `"exec"` for `codex exec`, `"vscode"` for an
-app-server client, and an object for a subagent.
+`source` is `"cli"` for a standalone TUI, `"exec"` for `codex exec`, `"vscode"`
+for an app-server client, and an object for a subagent. A terminal TUI using
+an app-server also reports `"vscode"`, with `originator: "codex-tui"` (A48).
 """
 
 from __future__ import annotations
 
-# The name the device gives the shared daemon. The first client to connect
-# names it, and every thread opened through that connection carries the name.
+# The device's stable client identity when it connects to the shared daemon.
 DAEMON_CLIENT_NAME = "remote-control"
 
 # The name the app-server the device spawns for itself announces, which is the
@@ -40,4 +40,4 @@ def owned_here(originator: object, source: object) -> bool:
         return False
     if isinstance(originator, str) and originator in OWN_ORIGINATORS:
         return True
-    return source in TERMINAL_SOURCES
+    return source in TERMINAL_SOURCES or (originator == "codex-tui" and source == "vscode")

@@ -1,11 +1,13 @@
-"""Amendment A18: which Codex threads on this machine are the device's to show.
+"""Amendments A18 and A48: which Codex threads the device may show.
 
 The originator/source pairs below were read off this Mac on 2026-09-12, from
 `thread/list` on Codex 0.154 and from the `session_meta` of the rollouts on
-disk, so the predicate is tested against what Codex actually writes.
+disk. Codex 0.160 terminal TUIs on an app-server also report `codex-tui/vscode`.
 """
 
 from __future__ import annotations
+
+import pytest
 
 from rc_client.agents.codex.provenance import (
     DAEMON_CLIENT_NAME,
@@ -20,16 +22,36 @@ def test_a_thread_this_device_opened_is_ours_under_either_name() -> None:
     assert owned_here(EMBEDDED_CLIENT_NAME, "vscode") is True
 
 
-def test_a_terminal_running_its_own_codex_is_ours() -> None:
-    assert owned_here("codex-tui", "cli") is True
-    assert owned_here("codex_cli_rs", "cli") is True
-    assert owned_here("codex_exec", "exec") is True
+@pytest.mark.parametrize(
+    ("originator", "source"),
+    [
+        ("codex-tui", "cli"),
+        ("codex_cli_rs", "cli"),
+        ("codex_exec", "exec"),
+        ("codex-tui", "vscode"),
+    ],
+)
+def test_a_terminal_running_its_own_codex_is_ours(originator: str, source: str) -> None:
+    assert owned_here(originator, source) is True
 
 
-def test_another_application_on_this_machine_is_not_ours() -> None:
-    """The ChatGPT desktop app: its chats and its scheduled automations."""
-    assert owned_here("Codex Desktop", "vscode") is False
-    assert owned_here("codex_work_desktop", "vscode") is False
+@pytest.mark.parametrize(
+    "originator", ["Codex Desktop", "codex_work_desktop", "vscode-extension", "codex_cli_rs", None]
+)
+def test_another_application_on_this_machine_is_not_ours(originator: object) -> None:
+    """An app-server source alone identifies neither a desktop app nor a terminal."""
+    assert owned_here(originator, "vscode") is False
+
+
+@pytest.mark.parametrize("source", [None, "", 7, ["cli"], {"subAgent": {"other": "guardian"}}])
+def test_a_terminal_originator_does_not_admit_unreadable_or_subagent_sources(
+    source: object,
+) -> None:
+    assert owned_here("codex-tui", source) is False
+
+
+def test_a_terminal_originator_does_not_admit_an_unknown_source() -> None:
+    assert owned_here("codex-tui", "unknown") is False
 
 
 def test_a_subagent_is_not_a_session_whoever_spawned_it() -> None:

@@ -36,7 +36,7 @@ ConnectedHandler = Callable[[], Awaitable[None]]
 
 
 def initialize_params(version: str) -> dict[str, Any]:
-    """A deliberate `clientInfo`: the first client to connect names the daemon."""
+    """Initialize the connection with the device's stable client identity."""
     return {
         "clientInfo": {
             "name": DAEMON_CLIENT_NAME,

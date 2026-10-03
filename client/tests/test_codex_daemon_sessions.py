@@ -116,11 +116,14 @@ async def harness(tmp_path: Path, socket_dir: Path, monkeypatch: pytest.MonkeyPa
         built.close()
 
 
-async def started(harness: Harness, loaded: list[str] | None = None) -> None:
-    harness.daemon.replies["thread/list"] = {"data": [thread_row()]}
+async def started(
+    harness: Harness, loaded: list[str] | None = None, *, row: dict[str, Any] | None = None
+) -> None:
+    row = row if row is not None else thread_row()
+    harness.daemon.replies["thread/list"] = {"data": [row]}
     harness.daemon.replies["thread/loaded/list"] = {"data": loaded if loaded is not None else []}
     harness.daemon.replies["thread/resume"] = {
-        "thread": thread_row(),
+        "thread": row,
         "model": "gpt-5.4-codex",
         "reasoningEffort": "medium",
         "approvalPolicy": "on-request",
@@ -283,10 +286,12 @@ def test_an_active_status_is_recognised() -> None:
 # ------------------------------------------------------------------ indexing
 
 
+@pytest.mark.parametrize("source", ["cli", "vscode"])
 async def test_history_becomes_resumable_sessions_and_loaded_ones_become_shared(
     harness: Harness,
+    source: str,
 ) -> None:
-    await started(harness, loaded=[])
+    await started(harness, loaded=[], row=thread_row(originator="codex-tui", source=source))
     assert harness.hub.entry(THREAD).session.control == "none"
     assert harness.hub.entry(THREAD).session.origin == "terminal"
 
@@ -298,12 +303,40 @@ async def test_history_becomes_resumable_sessions_and_loaded_ones_become_shared(
     assert harness.daemon.sent("thread/resume")[-1]["excludeTurns"] is True
 
 
-async def test_a_thread_started_elsewhere_becomes_a_shared_session(harness: Harness) -> None:
+@pytest.mark.parametrize(
+    ("originator", "source"),
+    [(provenance.DAEMON_CLIENT_NAME, "vscode"), ("codex-tui", "cli"), ("codex-tui", "vscode")],
+)
+async def test_a_thread_started_elsewhere_becomes_a_shared_session(
+    harness: Harness, originator: str, source: str
+) -> None:
     await started(harness, loaded=[])
-    await harness.daemon.notify("thread/started", {"thread": thread_row("t-new")})
-    await settle(lambda: "t-new" in harness.hub.entries)
+    await harness.daemon.notify(
+        "thread/started", {"thread": thread_row("t-new", originator=originator, source=source)}
+    )
+    await settle(
+        lambda: (
+            "t-new" in harness.hub.entries
+            and harness.hub.entry("t-new").session.control == "shared"
+        )
+    )
     assert harness.hub.entry("t-new").session.control == "shared"
     assert harness.hub.entry("t-new").session.origin == "terminal"
+
+
+@pytest.mark.parametrize("source", ["cli", "vscode"])
+async def test_a_loaded_terminal_thread_missing_from_history_is_adopted_by_read(
+    harness: Harness, source: str
+) -> None:
+    harness.daemon.replies["thread/read"] = {
+        "thread": thread_row("t-tui", originator="codex-tui", source=source)
+    }
+    await started(harness, loaded=["t-tui"])
+    entry = harness.hub.entry("t-tui")
+    assert (entry.session.origin, entry.session.control) == ("terminal", "shared")
+    assert isinstance(entry.runner, CodexDaemonSession)
+    assert harness.daemon.sent("thread/read") == [{"threadId": "t-tui"}]
+    assert harness.daemon.sent("thread/resume")[-1]["threadId"] == "t-tui"
 
 
 async def test_a_terminal_opening_an_archived_thread_takes_it_out_of_the_archive(
@@ -391,7 +424,13 @@ async def test_a_thread_a_terminal_opens_is_no_session_until_it_speaks(
     await harness.daemon.notify(
         "thread/status/changed", {"threadId": "t-tui", "status": {"type": "active"}}
     )
-    await settle(lambda: "t-tui" in harness.hub.entries)
+    await settle(
+        lambda: (
+            "t-tui" in harness.hub.entries
+            and harness.hub.entry("t-tui").session.control == "shared"
+            and harness.hub.entry("t-tui").session.state == "running"
+        )
+    )
     assert harness.hub.entry("t-tui").session.control == "shared"
     assert harness.hub.entry("t-tui").session.state == "running"
     assert harness.hub.entry("t-old").session.control == "none"
@@ -1112,10 +1151,16 @@ def test_the_index_keeps_only_the_threads_this_device_may_show() -> None:
     page = [
         thread_row("t-ours"),
         thread_row("t-tui", originator="codex-tui", source="cli"),
+        thread_row("t-app-server-tui", originator="codex-tui", source="vscode"),
         desktop_row("t-desktop"),
+        thread_row("t-ide", originator="vscode-extension", source="vscode"),
         thread_row("t-sub", originator="codex-tui", source={"subAgent": {"other": "guardian"}}),
     ]
-    assert [summary.thread_id for summary in threads.summaries(page)] == ["t-ours", "t-tui"]
+    assert [summary.thread_id for summary in threads.summaries(page)] == [
+        "t-ours",
+        "t-tui",
+        "t-app-server-tui",
+    ]
 
 
 async def test_a_thread_another_application_owns_is_never_adopted(harness: Harness) -> None:
@@ -1147,11 +1192,18 @@ async def test_a_thread_another_application_opens_is_not_a_session(harness: Harn
     assert "t-desktop" not in harness.hub.entries
 
 
+@pytest.mark.parametrize("source", ["cli", "vscode"])
 async def test_threads_published_before_the_rule_are_withdrawn_at_startup(
     harness: Harness,
+    source: str,
 ) -> None:
-    foreign, ours, silent = "t-desktop", "t-remote", "t-silent"
-    for session_id, origin in ((foreign, "terminal"), (ours, "remote"), (silent, "terminal")):
+    foreign, ours, silent, terminal = "t-desktop", "t-remote", "t-silent", "t-tui"
+    for session_id, origin in (
+        (foreign, "terminal"),
+        (ours, "remote"),
+        (silent, "terminal"),
+        (terminal, "terminal"),
+    ):
         entry = seed(harness, session_id, origin)
         await entry.channel.emit("user_message", block_id="b1", text="x", source="terminal")
 
@@ -1160,22 +1212,28 @@ async def test_threads_published_before_the_rule_are_withdrawn_at_startup(
             return None
         # Nothing at all for `t-silent`: a daemon that cannot describe a thread
         # has said nothing about whose it is.
-        return {"thread": desktop_row(foreign)} if params.get("threadId") == foreign else {}
+        if params.get("threadId") == foreign:
+            return {"thread": desktop_row(foreign)}
+        if params.get("threadId") == terminal:
+            return {"thread": thread_row(terminal, originator="codex-tui", source=source)}
+        return {}
 
     harness.daemon.responder = answer
     harness.daemon.replies["thread/list"] = {"data": []}
     harness.daemon.replies["thread/loaded/list"] = {"data": []}
     assert await harness.service.start("/bin/codex") is True
 
-    assert sorted(harness.hub.entries) == [ours, silent]
+    assert sorted(harness.hub.entries) == [ours, silent, terminal]
     removed = [f["session_id"] for f in harness.frames if f.get("type") == "session.removed"]
     assert removed == [foreign]
     assert harness.registry.has_events(foreign) is False
     assert harness.registry.has_events(silent) is True
+    assert harness.registry.has_events(terminal) is True
     # A session this device drives is never read about at all.
     assert [params for method, params in harness.daemon.calls if method == "thread/read"] == [
         {"threadId": foreign},
         {"threadId": silent},
+        {"threadId": terminal},
     ]
 
 

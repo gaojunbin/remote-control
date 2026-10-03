@@ -297,16 +297,18 @@ def write_rollout(root: Path, thread_id: str, originator: str, source: Any) -> P
 def test_a_rollout_another_application_owns_is_never_mirrored(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Amendment A18: whose thread it is, before anyone asks who holds the file."""
+    """Amendments A18 and A48: provenance decides before anyone asks who holds the file."""
     root = tmp_path / "sessions"
     write_rollout(root, "t-tui", "codex-tui", "cli")
+    write_rollout(root, "t-app-server-tui", "codex-tui", "vscode")
     write_rollout(root, "t-ours", "rc-client", "vscode")
     write_rollout(root, "t-desktop", "Codex Desktop", "vscode")
+    write_rollout(root, "t-ide", "vscode-extension", "vscode")
     write_rollout(root, "t-sub", "codex-tui", {"subagent": {"other": "guardian"}})
     monkeypatch.setattr(codex_rollouts, "SESSIONS_DIR", root)
 
     found = {info.thread_id for info in codex_rollouts.discover()}
-    assert found == {"t-tui", "t-ours"}
+    assert found == {"t-tui", "t-app-server-tui", "t-ours"}
 
 
 def test_the_rollout_limit_counts_what_this_device_may_mirror(
