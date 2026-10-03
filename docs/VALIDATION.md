@@ -2970,7 +2970,7 @@ signed again with the run's one-off key (`CN=Remote Control`) because no release
 repository, so a phone with the 1.12.0 APK has to uninstall it before installing this one; the
 image is UDZO.
 
-## 58. The number on the Android icon (2026-10-03, not released)
+## 58. The number on the Android icon (2026-10-03, 1.13.1)
 
 The owner asked for a number on the Android app's icon where it can be had at modest cost, a dot
 where it cannot. Launchers that draw a number add up every badge-able notification of the app, each
@@ -2983,7 +2983,7 @@ are given the same number through `change_badge` on their settings providers (pe
 and Pixel or stock Android (dots) need nothing more; OPPO's and vivo's launchers take numbers only
 from apps they list. A channel's badge setting is fixed when the channel is created, and every
 install so far was a one-off-key APK that has to be removed before the next, so no channel is
-migrated. No version was bumped: the owner asked to leave releasing aside for now.
+migrated.
 
 **Checks.** Kotlin core 640 (2 skipped), Android 463 tests (four new: the channels' badge settings
 and the Huawei and Honor calls against stand-in providers — the number shown, 0 at zero or when
