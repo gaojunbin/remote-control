@@ -293,10 +293,11 @@ writes an RFC 6455 upgrade request, expects `101 Switching Protocols`, and excha
 there. Compression has to be off: the daemon closes the connection outright when a client offers
 `permessage-deflate`. Authentication is the socket's own permission bits. It is owner-only, so the
 device has to run as the same user as the TUI, and nothing here is reachable from the network. The
-device opens one connection per machine at startup and names itself `remote-control`, deliberately:
-the first client to connect stamps its name on every thread the daemon holds, including the ones a
-terminal user starts. Every server request is dispatched to its own task, so an approval nobody
-answers cannot block the read loop.
+device opens one connection per machine at startup and names itself `remote-control`. On Codex
+0.154.0 the first client to connect was observed to stamp its name on every daemon thread,
+including a terminal user's; this is evidence for that version. A terminal thread inspected on
+Codex 0.160.0 reports `originator: "codex-tui"`, `source: "vscode"`. Every server request is
+dispatched to its own task, so an approval nobody answers cannot block the read loop.
 
 A Codex thread is therefore joined rather than mirrored. `thread/loaded/list` is the set of live
 threads and `thread/list` the history; `thread/resume {excludeTurns: true}` subscribes to one, and
@@ -304,6 +305,13 @@ threads and `thread/list` the history; `thread/resume {excludeTurns: true}` subs
 notifications map onto the block timeline one for one, so a shared Codex session has no rollout
 tailing behind it. Threads the daemon marks `ephemeral` never become sessions: Codex spawns one per
 turn purely to generate a title.
+
+The device filters provenance before either daemon adoption or rollout mirroring (A18, A48).
+`source` must be a string, and the thread must carry the device's own client name, a `cli` or
+`exec` source, or the exact pair `originator: "codex-tui"`, `source: "vscode"` observed for a
+terminal TUI on Codex 0.160.0. Other applications' `vscode` threads stay foreign, and a subagent's
+object `source` never becomes a session of its own. Apps read only the published session summary;
+they need no Codex-specific discovery rule.
 
 `origin` and `control` come from one table in `protocol/PROTOCOL.md` (4.4). A thread the device
 created and no terminal has typed into is `remote` and `remote`. A thread that was already loaded

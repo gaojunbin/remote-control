@@ -3005,6 +3005,46 @@ tag's "Release" run (37117946623) attached the disk image, the installer and the
 each with its `.sha256`; downloaded back, the three checksums match and the APK is 1.13.1
 (versionCode 3), signed again with the run's one-off key.
 
+## 59. Codex terminal discovery (A48) (2026-10-03, 1.13.2)
+
+A nonempty terminal thread on Codex 0.160.0 was absent from Remote Control because it reported
+`originator: "codex-tui"`, `source: "vscode"`, a pair the A18 provenance predicate rejected.
+The shared predicate now accepts that exact pair for daemon indexing and rollout discovery;
+other applications' `vscode` threads, unreadable provenance and subagents remain excluded.
+The wire shapes and the apps' discovery behavior are unchanged (A48).
+
+**Read-only live diagnosis.** The installed CLI and responding app-server both reported 0.160.0,
+and the daemon handshake was healthy. The current terminal thread's `thread/list`, `thread/read`
+and rollout `session_meta` all carried `codex-tui` / `vscode`; its name and preview were present
+and its status was active, while the existing device registry contained no session for that
+thread. The diagnosis therefore concerns the provenance filter, rather than an empty thread or
+CLI/app-server version drift.
+
+**Post-fix read-only discovery.** Using the client source environment, a direct connection to the
+existing 0.160.0 daemon read the current terminal thread with `includeTurns: false`. Its
+`codex-tui` / `vscode` provenance and active status parsed to `ThreadSummary.ours == true`, and
+`rollouts.discover()` included the same real terminal thread. The inline probe left no script,
+wrote no user Codex configuration and closed its connection. This verifies both source discovery
+paths against the real thread; it does not update the installed service or prove an app displays it.
+
+**Test synchronization.** The empty-thread adoption test waited only for the session entry to
+exist, although registration precedes asynchronous resume/backfill, the terminal claim and the
+active notification. A temporary fake daemon delaying `thread/resume` by 150 ms showed the old
+wait completing with `control: "none"`, idle state and no runner; adoption subsequently reached
+`shared`, running state and an attached runner. The test now waits for the entry, `shared` control
+and running state. The production state flow was not changed.
+
+**Checks.** Protocol validator: 205 fixtures, 39 negative cases, 0 problems. Client: Ruff check
+passed, format check passed (209 files), mypy passed (207 source files), pytest 1253 passed and
+3 skipped in 148.30 s. The focused discovery coverage accepts `codex-tui` / `vscode` through
+daemon indexing, `thread/read`, `thread/started` and rollout discovery while retaining the
+Desktop, unknown provenance, subagent and ephemeral boundaries.
+
+**Not verified.** Post-fix discovery by the installed device client, the real terminal session's
+row in an app, and interaction with that session on Codex 0.160.0. The service has not been updated
+to this source. Unified version bumps, the other components' closing checks, CI and release checks
+have not yet run. No post-fix UI or installed-service acceptance is claimed by the read-only probes.
+
 ## Smoke procedure
 
 Roughly fifteen minutes, one short turn per agent.

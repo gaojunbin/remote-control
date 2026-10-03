@@ -1165,8 +1165,10 @@ our launchd agent or unit and leaves Codex, its daemon and its sessions complete
 
 ### How the device uses it
 
-One connection for the whole machine, opened at startup, identified as `remote-control` (the first
-client to connect names the daemon for every thread, so the name is deliberate). On top of it:
+One connection for the whole machine, opened at startup, identified as `remote-control`. In Codex
+0.154.0 the first client to connect was observed to stamp its name on every daemon thread;
+that is historical evidence, not a rule for every release. A terminal thread inspected on this Mac
+with Codex 0.160.0 carries `originator: "codex-tui"` and `source: "vscode"`. On top of the connection:
 
 - `thread/list` is the session history and `thread/loaded/list` the live threads. Threads marked
   `ephemeral` are dropped: Codex spawns one per turn just to generate a title, and so is every
@@ -1232,23 +1234,26 @@ it: on this Mac on 2026-09-12 that was twenty-odd "Daily AI News to Notion" rows
 `control: "terminal"` because the desktop app was holding its rollout open and anything holding a
 rollout reads as a terminal.
 
-Two fields say whose a thread is, and both the index entry and the rollout's `session_meta` carry
-them: `originator` is the client that opened it, `source` is where that client sits — `cli` for a
-TUI, `exec` for `codex exec`, `vscode` for an app-server client, an object for a subagent. A thread
-is the device's to publish when its `source` is a plain string **and** either its `originator` is one
-of the names this device connects under (`remote-control` on the shared daemon, `rc-client` on the
-app-server it spawns for itself) or its `source` is `cli` or `exec`, which is a terminal on this
-machine running its own Codex. A subagent carries its parent's `originator`, so the `source` object
-is the only thing that tells the two apart: a thread another thread spawned is never a session, not
-even one spawned by a thread of ours. Everything
-else belongs to the application that started it: never published, never mirrored from its rollout,
+Two fields describe a thread's provenance, and both the index entry and the rollout's
+`session_meta` carry them: `originator` is its recorded client name, and `source` describes the
+entry point — `cli` for older TUIs, `exec` for `codex exec`, `vscode` for an app-server client,
+an object for a subagent. A terminal TUI inspected on Codex 0.160.0 reports `codex-tui` with
+`vscode`, so `vscode` alone does not identify a desktop or IDE thread. A thread is the device's to
+publish when its `source` is a plain string **and** one of three conditions holds: its `originator`
+is one of the names this device connects under (`remote-control` on the shared daemon, `rc-client`
+on the app-server it spawns for itself); its `source` is `cli` or `exec`; or its `originator` is
+exactly `codex-tui` and its `source` is exactly `vscode`. The last pair is accepted together:
+another application's `vscode` thread is still foreign. A subagent carries its parent's
+`originator`, so the `source` object tells the two apart: a thread another thread spawned is never
+a session, not even one spawned by a thread of ours. Everything else belongs to the application
+that started it: never published, never mirrored from its rollout,
 its holder never asked about, and removed with `session.removed` if it was published before the rule
-(amendment A18). The two names live in `agents/codex/provenance.py` beside the predicate and are
-imported by both handshakes, so a rename cannot make this device's own threads look foreign. Provenance that cannot be read — a missing field, an
-unfamiliar name, a `source` object — is foreign, because the cost of guessing wrong is a row nobody
-here can open. Nothing ever changes a thread's provenance, so the answer is remembered: a foreign
-thread being worked on elsewhere costs one `thread/read` for the whole run, not one per event it
-sends.
+(amendments A18 and A48). The two device names live in `agents/codex/provenance.py` beside the
+predicate and are imported by both handshakes; daemon indexing and rollout discovery use the
+same predicate. An unrecognized provenance pair or a non-string `source` is foreign, because the
+cost of guessing wrong is a row nobody here can open. Nothing ever changes a thread's provenance,
+so the answer is remembered: a foreign thread being worked on elsewhere costs one `thread/read`
+for the whole run, not one per event it sends.
 
 Removing what was published before the rule needs the daemon, because `thread/read` is where the
 answer comes from: a device on the fallback path (no daemon, rollout mirroring) still shows a
@@ -1945,9 +1950,11 @@ and Codex out of step.
 - Whether the daemon would unload a thread once its last subscriber leaves is unverified: this
   device subscribes to every loaded thread, so there is no moment without one, and answering it
   would mean stopping the user's own client.
-- The Codex daemon's originator and user agent are set globally by whichever client connects first
-  and are then stamped on every thread. Where the device connects first, threads a person starts in
-  a terminal are labelled `remote-control` inside Codex's own records.
+- On Codex 0.154.0, the daemon's originator and user agent were observed to be set globally by
+  whichever client connected first; with the device first, terminal threads read `remote-control`.
+  That observation does not establish how newer releases assign provenance. On 2026-10-03 a
+  terminal thread on Codex 0.160.0 read `originator: "codex-tui"`, `source: "vscode"` in
+  `thread/list`, `thread/read` and its rollout's `session_meta`; A48 accepts that exact pair.
 - A session that is attached before its first turn has no transcript, so after a daemon restart it
   is invisible to the scan that promotes a live CLI to `control: "terminal"`. It has no content
   either; the next turn creates the transcript and the session appears normally.
